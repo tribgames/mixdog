@@ -1,0 +1,2662 @@
+{
+  "scenarios": [
+    {
+      "name": "a started capture run declares its epoch and the session geometry; the channel state carries status and video",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "channelState"
+        },
+        {
+          "op": "page"
+        },
+        {
+          "op": "capturePlan"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "channelState",
+          "messages": [
+            {
+              "v": 1,
+              "kind": "screen-status",
+              "status": {
+                "state": "live",
+                "helper": "not-needed",
+                "control": false
+              }
+            },
+            {
+              "v": 1,
+              "kind": "screen-video",
+              "epoch": 1,
+              "path": "capture"
+            }
+          ]
+        },
+        {
+          "ev": "page",
+          "page": {
+            "documentId": null,
+            "geometry": {
+              "generation": 3,
+              "width": 1280,
+              "height": 720
+            }
+          }
+        },
+        {
+          "ev": "capturePlan",
+          "plan": {
+            "sourceId": "screen:0",
+            "width": 1280,
+            "height": 720,
+            "maxFrameRate": 30
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a start the session refuses reports no geometry and the error",
+      "world": {
+        "startFails": "remote screen denied: unauthorized"
+      },
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": null
+        },
+        {
+          "ev": "startError",
+          "message": "remote screen denied: unauthorized"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the helper path: a new unannounced run, the drawn track, frames at the plan’s rate; a delivery announces it and a seen grants control",
+      "world": {
+        "maxFrameRate": 10
+      },
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "channelState"
+        },
+        {
+          "op": "frame",
+          "id": 1
+        },
+        {
+          "op": "frame",
+          "id": 2
+        },
+        {
+          "op": "advance",
+          "ms": 99
+        },
+        {
+          "op": "frame",
+          "id": 3
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "frame",
+          "id": 4
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "channelState"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "channelState",
+          "messages": [
+            {
+              "v": 1,
+              "kind": "screen-status",
+              "status": {
+                "state": "live",
+                "helper": "not-needed",
+                "control": false
+              }
+            }
+          ]
+        },
+        {
+          "ev": "sink",
+          "call": "frame",
+          "key": "screen:7",
+          "frame": {
+            "documentId": null,
+            "geometry": {
+              "generation": 3,
+              "width": 1280,
+              "height": 720
+            },
+            "epoch": 2,
+            "mimeType": "image/x-bgrx",
+            "id": 1
+          },
+          "at": 0
+        },
+        {
+          "ev": "advance",
+          "ms": 99,
+          "ran": 0
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 0
+        },
+        {
+          "ev": "sink",
+          "call": "frame",
+          "key": "screen:7",
+          "frame": {
+            "documentId": null,
+            "geometry": {
+              "generation": 3,
+              "width": 1280,
+              "height": 720
+            },
+            "epoch": 2,
+            "mimeType": "image/x-bgrx",
+            "id": 4
+          },
+          "at": 100
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "channelState",
+          "messages": [
+            {
+              "v": 1,
+              "kind": "screen-status",
+              "status": {
+                "state": "live",
+                "helper": "not-needed",
+                "control": false
+              }
+            },
+            {
+              "v": 1,
+              "kind": "screen-video",
+              "epoch": 2,
+              "path": "helper"
+            }
+          ]
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        }
+      ],
+      "final": {
+        "elapsedMs": 100,
+        "pendingTimers": 1
+      }
+    },
+    {
+      "name": "a delivery or seen of another run, off the helper path, or while not running counts for nothing",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "previous"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "previous"
+        },
+        {
+          "op": "running",
+          "value": false
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "running",
+          "value": true
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "previous"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "delivered",
+          "epoch": 1
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 1
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 1
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 1
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 1
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 1
+      }
+    },
+    {
+      "name": "the stall watchdog: 216 ms before two deliveries, then max(3 × average, average + 150) of the last 30 intervals",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "advance",
+          "ms": 215
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "advance",
+          "ms": 66
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "advance",
+          "ms": 100
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "advance",
+          "ms": 248
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "repeatDelivered",
+          "times": 32,
+          "every": 50
+        },
+        {
+          "op": "advance",
+          "ms": 149
+        },
+        {
+          "op": "advance",
+          "ms": 1
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "advance",
+          "ms": 215,
+          "ran": 0
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 1
+        },
+        {
+          "ev": "delivered",
+          "epoch": 3
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 3,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 66,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 3
+        },
+        {
+          "ev": "advance",
+          "ms": 100,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 3
+        },
+        {
+          "ev": "advance",
+          "ms": 248,
+          "ran": 0
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 4
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 4
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 1
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 4,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "advance",
+          "ms": 50,
+          "ran": 0
+        },
+        {
+          "ev": "advance",
+          "ms": 149,
+          "ran": 0
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 5
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 5
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "advance",
+          "ms": 1,
+          "ran": 1
+        }
+      ],
+      "final": {
+        "elapsedMs": 2381,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "leaving the helper path ends the run, withdraws control and switches the track back; the watchdog is cleared",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "path",
+          "path": "capture"
+        },
+        {
+          "op": "path",
+          "path": "capture"
+        },
+        {
+          "op": "advance",
+          "ms": 1000
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "stop"
+        },
+        {
+          "op": "advance",
+          "ms": 1000
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "path",
+          "path": "capture"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 3,
+            "path": "capture"
+          }
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": false
+        },
+        {
+          "ev": "path",
+          "path": "capture"
+        },
+        {
+          "ev": "advance",
+          "ms": 1000,
+          "ran": 0
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 4
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 4
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 4
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 4,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "screen",
+          "call": "stop",
+          "reason": "viewer-left"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 5
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 5
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "advance",
+          "ms": 1000,
+          "ran": 1
+        }
+      ],
+      "final": {
+        "elapsedMs": 2000,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "taking the helper hold starts a fresh run on the same path",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "hold"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "hold"
+        },
+        {
+          "op": "channelState"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "hold"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "capture"
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 3
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 3,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "hold"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 4
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 4
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "channelState",
+          "messages": [
+            {
+              "v": 1,
+              "kind": "screen-status",
+              "status": {
+                "state": "live",
+                "helper": "not-needed",
+                "control": false
+              }
+            }
+          ]
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the viewer’s channel lost on the helper path starts a new run and releases input; on the capture path it only releases",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current"
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "release"
+        },
+        {
+          "ev": "screen",
+          "call": "releaseInput"
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "release"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "screen",
+          "call": "releaseInput"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a helper challenge goes to the phone with the current run; a malformed one is never forwarded",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "challenge",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+          "challenge": "BBBBBBBBBBBBBBBBBBBBBA=="
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "challenge",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+          "challenge": "BBBBBBBBBBBBBBBBBBBBBA=="
+        },
+        {
+          "op": "challenge",
+          "nonce": "short",
+          "challenge": "BBBBBBBBBBBBBBBBBBBBBA=="
+        },
+        {
+          "op": "challenge",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+          "challenge": "not base64"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-helper-challenge",
+            "epoch": 1,
+            "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "challenge": "BBBBBBBBBBBBBBBBBBBBBA=="
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-helper-challenge",
+            "epoch": 2,
+            "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+            "challenge": "BBBBBBBBBBBBBBBBBBBBBA=="
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a grant signed for the current run is relayed, one for another run dropped",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "grant",
+          "epoch": "current",
+          "challenge": "BBBBBBBBBBBBBBBBBBBBBA==",
+          "signature": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=="
+        },
+        {
+          "op": "grant",
+          "epoch": "previous",
+          "challenge": "BBBBBBBBBBBBBBBBBBBBBA==",
+          "signature": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=="
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "grant",
+          "epoch": "previous",
+          "challenge": "BBBBBBBBBBBBBBBBBBBBBA==",
+          "signature": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=="
+        },
+        {
+          "op": "grant",
+          "epoch": "current",
+          "challenge": "BBBBBBBBBBBBBBBBBBBBBA==",
+          "signature": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=="
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "screen",
+          "call": "helperGrant",
+          "grant": {
+            "epoch": 1,
+            "challenge": "BBBBBBBBBBBBBBBBBBBBBA==",
+            "signature": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=="
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "screen",
+          "call": "helperGrant",
+          "grant": {
+            "epoch": 2,
+            "challenge": "BBBBBBBBBBBBBBBBBBBBBA==",
+            "signature": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA=="
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "screen input reaches the session with the geometry’s generation; page input and a rejection are errors",
+      "world": {
+        "inputs": [
+          "applied",
+          "rejected"
+        ]
+      },
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "dispatch",
+          "control": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 1,
+            "y": 2
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "dispatch",
+          "control": {
+            "type": "screen-wheel",
+            "x": 1,
+            "y": 2,
+            "dx": 0,
+            "dy": 3
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "dispatch",
+          "control": {
+            "type": "pointer",
+            "action": "move",
+            "x": 1,
+            "y": 2
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "noGeometry"
+        },
+        {
+          "op": "dispatch",
+          "control": {
+            "type": "screen-release"
+          }
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "screen",
+          "call": "handleInput",
+          "control": {
+            "type": "screen-pointer",
+            "action": "move",
+            "x": 1,
+            "y": 2
+          },
+          "generation": 3,
+          "outcome": "applied"
+        },
+        {
+          "ev": "dispatched",
+          "ok": true
+        },
+        {
+          "ev": "screen",
+          "call": "handleInput",
+          "control": {
+            "type": "screen-wheel",
+            "x": 1,
+            "y": 2,
+            "dx": 0,
+            "dy": 3
+          },
+          "generation": 3,
+          "outcome": "rejected"
+        },
+        {
+          "ev": "dispatched",
+          "ok": false,
+          "error": "remote screen input was not applied"
+        },
+        {
+          "ev": "dispatched",
+          "ok": false,
+          "error": "remote screen takes screen input only"
+        },
+        {
+          "ev": "screen",
+          "call": "handleInput",
+          "control": {
+            "type": "screen-release"
+          },
+          "generation": 0
+        },
+        {
+          "ev": "dispatched",
+          "ok": true
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "the session’s status, cursor, geometry and stop reach the sink and the channel",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "missing",
+            "control": false
+          }
+        },
+        {
+          "op": "cursor",
+          "cursor": {
+            "x": 4,
+            "y": 5,
+            "generation": 3
+          }
+        },
+        {
+          "op": "channelState"
+        },
+        {
+          "op": "geometry",
+          "geometry": {
+            "generation": 4,
+            "width": 640,
+            "height": 360
+          }
+        },
+        {
+          "op": "stopped"
+        },
+        {
+          "op": "stop"
+        },
+        {
+          "op": "page"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-status",
+            "status": {
+              "state": "secure-desktop",
+              "reason": "uac",
+              "helper": "missing",
+              "control": false
+            }
+          }
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-cursor",
+            "x": 4,
+            "y": 5,
+            "generation": 3
+          }
+        },
+        {
+          "ev": "channelState",
+          "messages": [
+            {
+              "v": 1,
+              "kind": "screen-status",
+              "status": {
+                "state": "secure-desktop",
+                "reason": "uac",
+                "helper": "missing",
+                "control": false
+              }
+            },
+            {
+              "v": 1,
+              "kind": "screen-video",
+              "epoch": 1,
+              "path": "capture"
+            },
+            {
+              "v": 1,
+              "kind": "screen-cursor",
+              "x": 4,
+              "y": 5,
+              "generation": 3
+            }
+          ]
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 4,
+            "width": 640,
+            "height": 360
+          }
+        },
+        {
+          "ev": "sink",
+          "call": "captureChanged",
+          "key": "screen:7"
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": null
+        },
+        {
+          "ev": "screen",
+          "call": "stop",
+          "reason": "viewer-left"
+        },
+        {
+          "ev": "page",
+          "page": {
+            "documentId": null,
+            "geometry": null
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "a frame-seen of a run, then the stall watchdog’s new run, then that run’s first delivery: control is granted for the seen run only",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current",
+          "race": "held"
+        },
+        {
+          "op": "advance",
+          "ms": 216,
+          "quiet": true,
+          "race": "meanwhile"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current",
+          "quiet": true,
+          "race": "meanwhile"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 3
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 3,
+            "path": "helper"
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 216,
+        "pendingTimers": 1
+      }
+    },
+    {
+      "name": "a delivery of the current run made before its stall watchdog fires clears it: the cleared watchdog starts no run",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "advance",
+          "ms": 215
+        },
+        {
+          "op": "delivered",
+          "epoch": "current",
+          "race": "held"
+        },
+        {
+          "op": "advance",
+          "ms": 1,
+          "quiet": true,
+          "race": "meanwhile"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "advance",
+          "ms": 215,
+          "ran": 0
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        }
+      ],
+      "final": {
+        "elapsedMs": 216,
+        "pendingTimers": 1
+      }
+    },
+    {
+      "name": "a frame-seen, then the session’s stop: control is granted before the stop, never after it",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "path",
+          "path": "helper"
+        },
+        {
+          "op": "delivered",
+          "epoch": "current"
+        },
+        {
+          "op": "frameSeen",
+          "epoch": "current",
+          "race": "held"
+        },
+        {
+          "op": "stopped",
+          "quiet": true,
+          "race": "meanwhile"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "path",
+          "path": "helper"
+        },
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": false
+        },
+        {
+          "ev": "sink",
+          "call": "drawnTrack",
+          "key": "screen:7",
+          "drawn": true
+        },
+        {
+          "ev": "delivered",
+          "epoch": 2
+        },
+        {
+          "ev": "sink",
+          "call": "channelPush",
+          "key": "screen:7",
+          "message": {
+            "v": 1,
+            "kind": "screen-video",
+            "epoch": 2,
+            "path": "helper"
+          }
+        },
+        {
+          "ev": "frameSeen",
+          "epoch": 2
+        },
+        {
+          "ev": "screen",
+          "call": "setHelperVideo",
+          "delivering": true
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": null
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "install and password requests reach the session",
+      "world": {},
+      "steps": [
+        {
+          "op": "start"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "install",
+          "key": "key-a"
+        },
+        {
+          "op": "credential",
+          "key": "key-a",
+          "credential": {
+            "user": "pc-user",
+            "password": "pc-password"
+          }
+        }
+      ],
+      "trace": [
+        {
+          "ev": "screen",
+          "call": "nextVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "screen",
+          "call": "start"
+        },
+        {
+          "ev": "screen",
+          "call": "setVideoRun",
+          "epoch": 1
+        },
+        {
+          "ev": "sink",
+          "call": "geometryChanged",
+          "key": "screen:7",
+          "geometry": {
+            "generation": 3,
+            "width": 1280,
+            "height": 720
+          }
+        },
+        {
+          "ev": "screen",
+          "call": "requestHelperInstall",
+          "key": "key-a"
+        },
+        {
+          "ev": "screen",
+          "call": "requestHelperCredential",
+          "key": "key-a",
+          "credential": {
+            "user": "pc-user",
+            "password": "pc-password"
+          }
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    }
+  ]
+}

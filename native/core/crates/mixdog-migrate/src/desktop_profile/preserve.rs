@@ -34,6 +34,7 @@ pub(super) fn source_dir(kind: ItemKind) -> Option<&'static str> {
     match kind {
         ItemKind::EditorBackups => Some("editor-backups"),
         ItemKind::EditorRecovery => Some("editor-recovery"),
+        ItemKind::NewTaskReceipts => Some("new-task-receipts"),
         _ => None,
     }
 }

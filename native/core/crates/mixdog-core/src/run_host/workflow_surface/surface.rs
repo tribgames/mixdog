@@ -20,6 +20,7 @@ use mixdog_core_config::workflow::WorkflowPaths;
 use mixdog_core_config::workflow::ids::active_workflow_id;
 use mixdog_core_config::workflow::ids::configured_orchestration_mode;
 use mixdog_core_config::workflow::ids::truthy;
+use mixdog_core_session::session::session_options::header_profile_allowlist;
 use mixdog_core_session::session::session_options::model_tool_allowlist;
 use mixdog_core_session::session::thread_switches::SurfaceFailure;
 use mixdog_core_session::session::thread_switches::WorkflowSurface;
@@ -131,9 +132,10 @@ impl RunWorkflowSurface {
         let identified = ["id", "workflow", "orchestrationMode"].iter().any(|key| truthy(session.get(*key)));
         let delegatable = if identified { 0 } else { self.delegatable().await? };
         let agent_tools: HashSet<&str> = self.agent_tools.iter().map(String::as_str).collect();
+        // A thread's own profile is the one it was started under (the daemon's runtime is interactive).
         let inputs = SurfaceInputs {
             session: Some(session),
-            profile_allowed: model_tool_allowlist(self.tool_profile),
+            profile_allowed: header_profile_allowlist(session).or_else(|| model_tool_allowlist(self.tool_profile)),
             feature_denied: features,
             delegatable_agents: &|| delegatable,
         };

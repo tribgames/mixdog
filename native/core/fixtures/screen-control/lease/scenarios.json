@@ -1,0 +1,3236 @@
+{
+  "declinedOnPc": "the helper install was refused on the PC; restart Mixdog on the PC before asking again",
+  "scenarios": [
+    {
+      "name": "the install request goes to the installer with the phone’s key; installed or updated rebuilds the adapter, nothing else does",
+      "world": {
+        "installed": false,
+        "state": "not-installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "listen",
+          "lease": "A",
+          "hold": null
+        },
+        {
+          "op": "setActive",
+          "as": "a-on",
+          "lease": "A",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "a-on"
+        },
+        {
+          "op": "setVideoRun",
+          "lease": "A",
+          "epoch": 3
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "failed",
+            "state": "not-installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "request-failed",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "request-failed"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "in-progress",
+            "state": "not-installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "request-in-progress",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "request-in-progress"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "other-user",
+            "state": "not-installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "request-other-user",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "request-other-user"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "unavailable",
+            "state": "not-installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "request-unavailable",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "request-unavailable"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "request-installed",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "request-installed"
+        },
+        {
+          "op": "query",
+          "lease": "A",
+          "what": "installed"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c"
+        },
+        {
+          "op": "sendGrant",
+          "as": "grant",
+          "lease": "A",
+          "grant": {
+            "challenge": "c",
+            "epoch": 3,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "grant"
+        },
+        {
+          "op": "sendInput",
+          "as": "input",
+          "lease": "A",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "input"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "updated",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "request-updated",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "request-updated"
+        },
+        {
+          "op": "lease",
+          "as": "B"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "joint-a",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "requestInstall",
+          "as": "joint-b",
+          "lease": "B",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "joint-a"
+        },
+        {
+          "op": "await",
+          "call": "joint-b"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hold",
+          "lease": "A",
+          "epoch": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": false
+        },
+        {
+          "ev": "done",
+          "call": "a-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            3
+          ]
+        },
+        {
+          "ev": "declared",
+          "lease": "A",
+          "epoch": 3
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "request-failed",
+          "ok": true,
+          "value": {
+            "outcome": "failed",
+            "state": "not-installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "request-in-progress",
+          "ok": true,
+          "value": {
+            "outcome": "in-progress",
+            "state": "not-installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "request-other-user",
+          "ok": true,
+          "value": {
+            "outcome": "other-user",
+            "state": "not-installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "request-unavailable",
+          "ok": true,
+          "value": {
+            "outcome": "unavailable",
+            "state": "not-installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 1,
+          "call": [
+            "run",
+            3
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 1,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "request-installed",
+          "ok": true,
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "ev": "query",
+          "lease": "A",
+          "what": "installed",
+          "value": true
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 1,
+          "call": [
+            "grant",
+            3
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "grant",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 1,
+          "call": [
+            "input",
+            "key"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "input",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 1,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 2,
+          "call": [
+            "run",
+            3
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 2,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "request-updated",
+          "ok": true,
+          "value": {
+            "outcome": "updated",
+            "state": "installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 2,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 3,
+          "call": [
+            "run",
+            3
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 3,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "joint-a",
+          "ok": true,
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "joint-b",
+          "ok": true,
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        }
+      ],
+      "final": {
+        "built": 4,
+        "attached": [
+          0,
+          0,
+          0,
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false,
+          "B": true
+        }
+      }
+    },
+    {
+      "name": "a request that changes nothing keeps the live adapter: installed and current for that key before it",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "setActive",
+          "as": "a-on",
+          "lease": "A",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "a-on"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "current",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "current"
+        },
+        {
+          "op": "installerState",
+          "value": "outdated"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "updated",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "outdated",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "outdated"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "a-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "current",
+          "ok": true,
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 1,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "outdated",
+          "ok": true,
+          "value": {
+            "outcome": "updated",
+            "state": "installed"
+          }
+        }
+      ],
+      "final": {
+        "built": 2,
+        "attached": [
+          0,
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "a request that ends after an adapter built before the install rebuilds it",
+      "world": {
+        "installed": false,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "stale",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "stale"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "stale",
+          "ok": true,
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        }
+      ],
+      "final": {
+        "built": 2,
+        "attached": [
+          0,
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "one prompt per request and none after a refusal: a decline latches for every session until restart",
+      "world": {
+        "installed": false,
+        "state": "not-installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "installerResult",
+          "value": {
+            "outcome": "declined",
+            "state": "not-installed"
+          }
+        },
+        {
+          "op": "requestInstall",
+          "as": "first",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "first"
+        },
+        {
+          "op": "lease",
+          "as": "B"
+        },
+        {
+          "op": "lease",
+          "as": "C"
+        },
+        {
+          "op": "requestInstall",
+          "as": "second",
+          "lease": "B",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "second"
+        },
+        {
+          "op": "requestInstall",
+          "as": "third",
+          "lease": "C",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "third"
+        },
+        {
+          "op": "requestInstall",
+          "as": "again",
+          "lease": "A",
+          "key": "key-b"
+        },
+        {
+          "op": "await",
+          "call": "again"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "first",
+          "ok": true,
+          "value": {
+            "outcome": "declined",
+            "state": "not-installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "second",
+          "ok": true,
+          "value": {
+            "outcome": "declined",
+            "state": "not-installed",
+            "detail": "the helper install was refused on the PC; restart Mixdog on the PC before asking again"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "done",
+          "call": "third",
+          "ok": true,
+          "value": {
+            "outcome": "declined",
+            "state": "not-installed",
+            "detail": "the helper install was refused on the PC; restart Mixdog on the PC before asking again"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-b"
+        },
+        {
+          "ev": "done",
+          "call": "again",
+          "ok": true,
+          "value": {
+            "outcome": "declined",
+            "state": "not-installed",
+            "detail": "the helper install was refused on the PC; restart Mixdog on the PC before asking again"
+          }
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false,
+          "B": false,
+          "C": false
+        }
+      }
+    },
+    {
+      "name": "one session holds the helper: only its runs, grants, input and helper events; the hold passes on deactivation or when it ends",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "first"
+        },
+        {
+          "op": "lease",
+          "as": "second"
+        },
+        {
+          "op": "listen",
+          "lease": "first",
+          "hold": "mint"
+        },
+        {
+          "op": "listen",
+          "lease": "second",
+          "hold": "mint"
+        },
+        {
+          "op": "mintRun",
+          "lease": "second",
+          "declare": true
+        },
+        {
+          "op": "setActive",
+          "as": "first-on",
+          "lease": "first",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "first-on"
+        },
+        {
+          "op": "query",
+          "lease": "first",
+          "what": "ownedElsewhere"
+        },
+        {
+          "op": "query",
+          "lease": "second",
+          "what": "ownedElsewhere"
+        },
+        {
+          "op": "setActive",
+          "as": "second-on",
+          "lease": "second",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "second-on"
+        },
+        {
+          "op": "mintRun",
+          "lease": "second",
+          "declare": true
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n1",
+          "challenge": "c1"
+        },
+        {
+          "op": "adapterIssue",
+          "code": "grant_expired"
+        },
+        {
+          "op": "adapterFrame",
+          "frame": {
+            "id": 1
+          }
+        },
+        {
+          "op": "sendGrant",
+          "as": "second-grant",
+          "lease": "second",
+          "grant": {
+            "challenge": "c1",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-grant"
+        },
+        {
+          "op": "sendInput",
+          "as": "second-input",
+          "lease": "second",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-input"
+        },
+        {
+          "op": "latestFrame",
+          "lease": "second"
+        },
+        {
+          "op": "sendGrant",
+          "as": "first-grant",
+          "lease": "first",
+          "grant": {
+            "challenge": "c1",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "first-grant"
+        },
+        {
+          "op": "sendInput",
+          "as": "first-input",
+          "lease": "first",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "first-input"
+        },
+        {
+          "op": "setActive",
+          "as": "first-off",
+          "lease": "first",
+          "active": false
+        },
+        {
+          "op": "await",
+          "call": "first-off"
+        },
+        {
+          "op": "query",
+          "lease": "second",
+          "what": "ownedElsewhere"
+        },
+        {
+          "op": "query",
+          "lease": "first",
+          "what": "ownedElsewhere"
+        },
+        {
+          "op": "sendGrant",
+          "as": "stale-grant",
+          "lease": "first",
+          "grant": {
+            "challenge": "c1",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "stale-grant"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n2",
+          "challenge": "c2"
+        },
+        {
+          "op": "sendGrant",
+          "as": "second-grant-2",
+          "lease": "second",
+          "grant": {
+            "challenge": "c2",
+            "epoch": 4,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-grant-2"
+        },
+        {
+          "op": "setActive",
+          "as": "first-wait",
+          "lease": "first",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "first-wait"
+        },
+        {
+          "op": "disposeLease",
+          "lease": "second"
+        },
+        {
+          "op": "query",
+          "lease": "first",
+          "what": "ownedElsewhere"
+        },
+        {
+          "op": "setActive",
+          "as": "second-after-dispose",
+          "lease": "second",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "second-after-dispose"
+        },
+        {
+          "op": "query",
+          "lease": "first",
+          "what": "ownedElsewhere"
+        },
+        {
+          "op": "setActive",
+          "as": "first-off-last",
+          "lease": "first",
+          "active": false
+        },
+        {
+          "op": "await",
+          "call": "first-off-last"
+        },
+        {
+          "op": "query",
+          "lease": "first",
+          "what": "ownedElsewhere"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "minted",
+          "lease": "second",
+          "epoch": 1
+        },
+        {
+          "ev": "hold",
+          "lease": "first",
+          "epoch": 2
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            2
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "first-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "query",
+          "lease": "first",
+          "what": "ownedElsewhere",
+          "value": false
+        },
+        {
+          "ev": "query",
+          "lease": "second",
+          "what": "ownedElsewhere",
+          "value": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "second-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "minted",
+          "lease": "second",
+          "epoch": 3
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n1",
+            "challenge": "c1"
+          }
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "issue",
+          "code": "grant_expired"
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "frame",
+          "frame": {
+            "id": 1
+          }
+        },
+        {
+          "ev": "done",
+          "call": "second-grant",
+          "ok": false,
+          "error": "the secure-desktop helper is held by another session"
+        },
+        {
+          "ev": "done",
+          "call": "second-input",
+          "ok": false,
+          "error": "the secure-desktop helper is held by another session"
+        },
+        {
+          "ev": "latestFrame",
+          "lease": "second",
+          "frame": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            2
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "first-grant",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "input",
+            "key"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "first-input",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            false
+          ]
+        },
+        {
+          "ev": "hold",
+          "lease": "second",
+          "epoch": 4
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            4
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "first-off",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "query",
+          "lease": "second",
+          "what": "ownedElsewhere",
+          "value": false
+        },
+        {
+          "ev": "query",
+          "lease": "first",
+          "what": "ownedElsewhere",
+          "value": true
+        },
+        {
+          "ev": "done",
+          "call": "stale-grant",
+          "ok": false,
+          "error": "the secure-desktop helper is held by another session"
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n2",
+            "challenge": "c2"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            4
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "second-grant-2",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "first-wait",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            false
+          ]
+        },
+        {
+          "ev": "hold",
+          "lease": "first",
+          "epoch": 5
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            5
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "query",
+          "lease": "first",
+          "what": "ownedElsewhere",
+          "value": false
+        },
+        {
+          "ev": "done",
+          "call": "second-after-dispose",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "query",
+          "lease": "first",
+          "what": "ownedElsewhere",
+          "value": false
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            false
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "first-off-last",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "query",
+          "lease": "first",
+          "what": "ownedElsewhere",
+          "value": false
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "first": false,
+          "second": false
+        }
+      }
+    },
+    {
+      "name": "the four challenges the helper still keeps (issued at 0, 2, 4 and 6 s) stay answerable; the fifth evicts the oldest",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "listen",
+          "lease": "A",
+          "hold": {
+            "declare": 1
+          }
+        },
+        {
+          "op": "setActive",
+          "as": "on",
+          "lease": "A",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "on"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c0"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c2"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c4"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c6"
+        },
+        {
+          "op": "sendGrant",
+          "as": "c0",
+          "lease": "A",
+          "grant": {
+            "challenge": "c0",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "c0"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c8"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c10"
+        },
+        {
+          "op": "sendGrant",
+          "as": "c2",
+          "lease": "A",
+          "grant": {
+            "challenge": "c2",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "c2"
+        },
+        {
+          "op": "sendGrant",
+          "as": "c4",
+          "lease": "A",
+          "grant": {
+            "challenge": "c4",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "c4"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hold",
+          "lease": "A",
+          "epoch": 1
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            1
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c0"
+          }
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c2"
+          }
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c4"
+          }
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c6"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "c0",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c8"
+          }
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c10"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "c2",
+          "ok": false,
+          "error": "the grant names no challenge of this hold and run"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "c4",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "a handover at the same epoch still revokes: the successor’s input waits for its own grant for a new challenge",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "first"
+        },
+        {
+          "op": "lease",
+          "as": "second"
+        },
+        {
+          "op": "listen",
+          "lease": "first",
+          "hold": {
+            "declare": 1
+          }
+        },
+        {
+          "op": "listen",
+          "lease": "second",
+          "hold": {
+            "declare": 1
+          }
+        },
+        {
+          "op": "setActive",
+          "as": "first-on",
+          "lease": "first",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "first-on"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "first-1"
+        },
+        {
+          "op": "sendGrant",
+          "as": "first-grant",
+          "lease": "first",
+          "grant": {
+            "challenge": "first-1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "first-grant"
+        },
+        {
+          "op": "sendInput",
+          "as": "first-input",
+          "lease": "first",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "first-input"
+        },
+        {
+          "op": "setActive",
+          "as": "second-on",
+          "lease": "second",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "second-on"
+        },
+        {
+          "op": "setActive",
+          "as": "first-off",
+          "lease": "first",
+          "active": false
+        },
+        {
+          "op": "await",
+          "call": "first-off"
+        },
+        {
+          "op": "sendInput",
+          "as": "second-input-early",
+          "lease": "second",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-input-early"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "second-1"
+        },
+        {
+          "op": "sendGrant",
+          "as": "wrong-run",
+          "lease": "second",
+          "grant": {
+            "challenge": "second-1",
+            "epoch": 2,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "wrong-run"
+        },
+        {
+          "op": "sendInput",
+          "as": "second-input-still-early",
+          "lease": "second",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-input-still-early"
+        },
+        {
+          "op": "sendGrant",
+          "as": "second-grant",
+          "lease": "second",
+          "grant": {
+            "challenge": "second-1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-grant"
+        },
+        {
+          "op": "sendInput",
+          "as": "second-input",
+          "lease": "second",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-input"
+        },
+        {
+          "op": "sendGrant",
+          "as": "used-again",
+          "lease": "second",
+          "grant": {
+            "challenge": "second-1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "used-again"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hold",
+          "lease": "first",
+          "epoch": 1
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            1
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "first-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "first-1"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "first-grant",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "input",
+            "key"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "first-input",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "second-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            false
+          ]
+        },
+        {
+          "ev": "hold",
+          "lease": "second",
+          "epoch": 1
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            1
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "first-off",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "second-input-early",
+          "ok": false,
+          "error": "no grant for this hold and run was relayed"
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "second-1"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "wrong-run",
+          "ok": false,
+          "error": "the grant is for another run than this hold declared"
+        },
+        {
+          "ev": "done",
+          "call": "second-input-still-early",
+          "ok": false,
+          "error": "no grant for this hold and run was relayed"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "second-grant",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "input",
+            "key"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "second-input",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "used-again",
+          "ok": false,
+          "error": "the grant names no challenge of this hold and run"
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "first": true,
+          "second": false
+        }
+      }
+    },
+    {
+      "name": "an old challenge of the previous holder is dead after the handover",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "first"
+        },
+        {
+          "op": "lease",
+          "as": "second"
+        },
+        {
+          "op": "listen",
+          "lease": "first",
+          "hold": "mint"
+        },
+        {
+          "op": "listen",
+          "lease": "second",
+          "hold": "mint"
+        },
+        {
+          "op": "setActive",
+          "as": "first-on",
+          "lease": "first",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "first-on"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "open-1"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "open-2"
+        },
+        {
+          "op": "setActive",
+          "as": "second-on",
+          "lease": "second",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "second-on"
+        },
+        {
+          "op": "setActive",
+          "as": "first-off",
+          "lease": "first",
+          "active": false
+        },
+        {
+          "op": "await",
+          "call": "first-off"
+        },
+        {
+          "op": "sendGrant",
+          "as": "second-1",
+          "lease": "second",
+          "grant": {
+            "challenge": "open-1",
+            "epoch": 3,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-1"
+        },
+        {
+          "op": "sendGrant",
+          "as": "first-1",
+          "lease": "first",
+          "grant": {
+            "challenge": "open-1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "first-1"
+        },
+        {
+          "op": "sendGrant",
+          "as": "second-2",
+          "lease": "second",
+          "grant": {
+            "challenge": "open-2",
+            "epoch": 3,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "second-2"
+        },
+        {
+          "op": "sendGrant",
+          "as": "first-2",
+          "lease": "first",
+          "grant": {
+            "challenge": "open-2",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "first-2"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hold",
+          "lease": "first",
+          "epoch": 1
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            1
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "first-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "open-1"
+          }
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "open-2"
+          }
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "second-on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            false
+          ]
+        },
+        {
+          "ev": "hold",
+          "lease": "second",
+          "epoch": 2
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            2
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "first",
+          "kind": "change",
+          "ownedElsewhere": true,
+          "installed": true
+        },
+        {
+          "ev": "heard",
+          "lease": "second",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "first-off",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "second-1",
+          "ok": false,
+          "error": "the grant is for another run than this hold declared"
+        },
+        {
+          "ev": "done",
+          "call": "first-1",
+          "ok": false,
+          "error": "the secure-desktop helper is held by another session"
+        },
+        {
+          "ev": "done",
+          "call": "second-2",
+          "ok": false,
+          "error": "the grant is for another run than this hold declared"
+        },
+        {
+          "ev": "done",
+          "call": "first-2",
+          "ok": false,
+          "error": "the secure-desktop helper is held by another session"
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "first": true,
+          "second": false
+        }
+      }
+    },
+    {
+      "name": "a check that reads installed while the adapter reports not installed rebuilds it",
+      "world": {
+        "installed": false,
+        "state": "not-installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "installState",
+          "as": "check-1",
+          "lease": "A"
+        },
+        {
+          "op": "await",
+          "call": "check-1"
+        },
+        {
+          "op": "installerState",
+          "value": "installed"
+        },
+        {
+          "op": "installState",
+          "as": "check-2",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "await",
+          "call": "check-2"
+        },
+        {
+          "op": "installState",
+          "as": "check-3",
+          "lease": "A"
+        },
+        {
+          "op": "await",
+          "call": "check-3"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "done",
+          "call": "check-1",
+          "ok": true,
+          "value": "not-installed"
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "check-2",
+          "ok": true,
+          "value": "installed"
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "done",
+          "call": "check-3",
+          "ok": true,
+          "value": "installed"
+        }
+      ],
+      "final": {
+        "built": 2,
+        "attached": [
+          0,
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "a check never rebuilds an installed adapter",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "installState",
+          "as": "check",
+          "lease": "A"
+        },
+        {
+          "op": "await",
+          "call": "check"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "done",
+          "call": "check",
+          "ok": true,
+          "value": "installed"
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "ensureRunning starts a stopped service through the installer; callers together share one attempt; a connected helper needs none",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "lease",
+          "as": "B"
+        },
+        {
+          "op": "installerDefer",
+          "request": false,
+          "ensure": true
+        },
+        {
+          "op": "ensureRunning",
+          "as": "first",
+          "lease": "A"
+        },
+        {
+          "op": "ensureRunning",
+          "as": "second",
+          "lease": "B"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishEnsure",
+          "result": {
+            "installed": true,
+            "running": false
+          }
+        },
+        {
+          "op": "await",
+          "call": "first"
+        },
+        {
+          "op": "await",
+          "call": "second"
+        },
+        {
+          "op": "ensureRunning",
+          "as": "third",
+          "lease": "A"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "finishEnsure",
+          "result": {
+            "installed": true,
+            "running": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "third"
+        },
+        {
+          "op": "adapterConnected",
+          "value": true
+        },
+        {
+          "op": "ensureRunning",
+          "as": "connected",
+          "lease": "A"
+        },
+        {
+          "op": "await",
+          "call": "connected"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "done",
+          "call": "first",
+          "ok": true,
+          "value": {
+            "installed": true,
+            "running": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "second",
+          "ok": true,
+          "value": {
+            "installed": true,
+            "running": false
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "done",
+          "call": "third",
+          "ok": true,
+          "value": {
+            "installed": true,
+            "running": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "connected",
+          "ok": true,
+          "value": {
+            "installed": true,
+            "running": true
+          }
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false,
+          "B": false
+        }
+      }
+    },
+    {
+      "name": "dispose: the adapter goes, and a request that ends later rebuilds nothing",
+      "world": {
+        "installed": false,
+        "state": "not-installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "installerDefer",
+          "request": true,
+          "ensure": false
+        },
+        {
+          "op": "requestInstall",
+          "as": "pending",
+          "lease": "A",
+          "key": "key-a"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "disposeHelper"
+        },
+        {
+          "op": "finishRequest",
+          "n": 0,
+          "result": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "op": "await",
+          "call": "pending"
+        },
+        {
+          "op": "installerState",
+          "value": "installed"
+        },
+        {
+          "op": "installState",
+          "as": "check",
+          "lease": "A"
+        },
+        {
+          "op": "await",
+          "call": "check"
+        },
+        {
+          "op": "disposeHelper"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": "key-a"
+        },
+        {
+          "ev": "installer",
+          "call": "request",
+          "key": "key-a"
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "pending",
+          "ok": true,
+          "value": {
+            "outcome": "installed",
+            "state": "installed"
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "done",
+          "call": "check",
+          "ok": true,
+          "value": "installed"
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          0
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "a lease reads the current adapter’s connection, desktop, session and lock state, also after a rebuild",
+      "world": {
+        "installed": false,
+        "state": "not-installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        },
+        {
+          "op": "adapterView",
+          "view": {
+            "connected": true,
+            "desktop": "Winlogon",
+            "session": 2,
+            "locked": true
+          }
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        },
+        {
+          "op": "adapterView",
+          "view": {
+            "connected": true,
+            "desktop": "Default",
+            "session": 1,
+            "locked": false
+          }
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        },
+        {
+          "op": "installerState",
+          "value": "installed"
+        },
+        {
+          "op": "installState",
+          "as": "check",
+          "lease": "A"
+        },
+        {
+          "op": "await",
+          "call": "check"
+        },
+        {
+          "op": "view",
+          "lease": "A"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": false,
+            "connected": false,
+            "desktop": null,
+            "session": null,
+            "locked": null
+          }
+        },
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": false,
+            "connected": true,
+            "desktop": "Winlogon",
+            "session": 2,
+            "locked": true
+          }
+        },
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": false,
+            "connected": true,
+            "desktop": "Default",
+            "session": 1,
+            "locked": false
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "check",
+          "ok": true,
+          "value": "installed"
+        },
+        {
+          "ev": "view",
+          "lease": "A",
+          "view": {
+            "installed": true,
+            "connected": false,
+            "desktop": null,
+            "session": null,
+            "locked": null
+          }
+        }
+      ],
+      "final": {
+        "built": 2,
+        "attached": [
+          0,
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "a grant the helper refuses opens no input; the next challenge’s grant does",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "listen",
+          "lease": "A",
+          "hold": {
+            "declare": 1
+          }
+        },
+        {
+          "op": "setActive",
+          "as": "on",
+          "lease": "A",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "on"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c1"
+        },
+        {
+          "op": "adapterGrantFails",
+          "message": "not connected"
+        },
+        {
+          "op": "sendGrant",
+          "as": "refused",
+          "lease": "A",
+          "grant": {
+            "challenge": "c1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "refused"
+        },
+        {
+          "op": "sendInput",
+          "as": "input-after-refusal",
+          "lease": "A",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "input-after-refusal"
+        },
+        {
+          "op": "sendGrant",
+          "as": "used-up",
+          "lease": "A",
+          "grant": {
+            "challenge": "c1",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "used-up"
+        },
+        {
+          "op": "adapterChallenge",
+          "nonce": "n",
+          "challenge": "c2"
+        },
+        {
+          "op": "adapterGrantFails",
+          "message": null
+        },
+        {
+          "op": "sendGrant",
+          "as": "accepted",
+          "lease": "A",
+          "grant": {
+            "challenge": "c2",
+            "epoch": 1,
+            "signature": "s"
+          }
+        },
+        {
+          "op": "await",
+          "call": "accepted"
+        },
+        {
+          "op": "sendInput",
+          "as": "input-after-grant",
+          "lease": "A",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "op": "await",
+          "call": "input-after-grant"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hold",
+          "lease": "A",
+          "epoch": 1
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "run",
+            1
+          ]
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "active",
+            true
+          ]
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "change",
+          "ownedElsewhere": false,
+          "installed": true
+        },
+        {
+          "ev": "done",
+          "call": "on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c1"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "refused",
+          "ok": false,
+          "error": "not connected"
+        },
+        {
+          "ev": "done",
+          "call": "input-after-refusal",
+          "ok": false,
+          "error": "no grant for this hold and run was relayed"
+        },
+        {
+          "ev": "done",
+          "call": "used-up",
+          "ok": false,
+          "error": "the grant names no challenge of this hold and run"
+        },
+        {
+          "ev": "heard",
+          "lease": "A",
+          "kind": "challenge",
+          "challenge": {
+            "nonce": "n",
+            "challenge": "c2"
+          }
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "grant",
+            1
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "accepted",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "input",
+            "key"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "input-after-grant",
+          "ok": true,
+          "value": null
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          4
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    },
+    {
+      "name": "a lease taken after the helper was disposed is inert",
+      "world": {
+        "installed": true,
+        "state": "installed"
+      },
+      "steps": [
+        {
+          "op": "disposeHelper"
+        },
+        {
+          "op": "lease",
+          "as": "A"
+        },
+        {
+          "op": "setActive",
+          "as": "on",
+          "lease": "A",
+          "active": true
+        },
+        {
+          "op": "await",
+          "call": "on"
+        },
+        {
+          "op": "query",
+          "lease": "A",
+          "what": "ownedElsewhere"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "adapter",
+          "adapter": 0,
+          "call": [
+            "dispose"
+          ]
+        },
+        {
+          "ev": "done",
+          "call": "on",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "query",
+          "lease": "A",
+          "what": "ownedElsewhere",
+          "value": false
+        }
+      ],
+      "final": {
+        "built": 1,
+        "attached": [
+          0
+        ],
+        "ownedElsewhere": {
+          "A": false
+        }
+      }
+    }
+  ]
+}

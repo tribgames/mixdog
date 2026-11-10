@@ -408,9 +408,14 @@ pub struct HostUpdateCommandParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UpdateDesktopCommandParams {
     pub op_id: mixdog_protocol::OpId,
     pub action: UpdaterAction,
+    /// `install` only: the user confirmed installing past running agent tasks (Node's relay `showDesktopUpdate`
+    /// argument, remote-methods.ts:1062-1063), passed on to the host as `host/update/command`'s `confirmed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed: Option<bool>,
 }
 
 impl crate::common::HasOpId for UpdateDesktopCommandParams {

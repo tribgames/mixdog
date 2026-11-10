@@ -14,6 +14,7 @@ use mixdog_protocol::config::{
     NotificationScope, NotificationTargetKind,
 };
 use mixdog_protocol::ConfigWriteMode;
+use serde_json::Value;
 use serde_json::json;
 
 use super::decision::{
@@ -22,6 +23,7 @@ use super::decision::{
 };use super::engine::{Audience, HostConnection, PairedDevice};
 use super::service::AudienceSource;
 use mixdog_core_config::config::Config;
+use mixdog_core_config::config::ConfigEdit;
 
 const STATUS: Method = Method("host/notification/status");
 /// The one desktop host; its toast goes to whichever connection claimed the role.
@@ -64,10 +66,31 @@ pub trait Preferences: Send + Sync {
     /// Writes a device's resolved default if it still has no entry (`resolveDevice`), so a later
     /// `migratedAt` rewrite cannot change it.
     async fn remember_device(&self, client_id: &str, prefs: &NotificationDevicePreferences);
+    /// Writes, in one change, the default of each listed device that still has no entry (Node's `store.devices`,
+    /// notification-preferences.ts `withDefaults`), and answers the stored document (`notifications`) after it.
+    async fn pin_defaults(&self, defaults: Vec<(String, NotificationDevicePreferences)>) -> Value;
 }
 
 #[async_trait]
 impl Preferences for Config {
+    async fn pin_defaults(&self, defaults: Vec<(String, NotificationDevicePreferences)>) -> Value {
+        // A config path cannot name an id with a dot in it; paired credential ids have none.
+        let edits: Vec<ConfigEdit> = defaults
+            .into_iter()
+            .filter(|(id, _)| !id.contains('.') && self.stored_device(id).is_none())
+            .map(|(id, prefs)| ConfigEdit {
+                path: format!("notifications.devices.{id}"),
+                value: serde_json::to_value(prefs).expect("config types serialize"),
+                mode: ConfigWriteMode::InitializeIfMissing,
+            })
+            .collect();
+        // A failed write leaves the computed defaults in force for this answer, as Node's state answered them.
+        if !edits.is_empty() {
+            let _ = self.batch_write(&edits).await;
+        }
+        self.get("notifications").unwrap_or(Value::Null)
+    }
+
     fn pc(&self) -> NotificationDevicePreferences {
         self.notification_device(PC_DEVICE)
     }
@@ -160,6 +183,25 @@ impl LiveAudience {
 
 #[async_trait]
 impl AudienceSource for LiveAudience {
+    /// Node's `notificationPreferencesState` (notification-center.ts:76-105) for a client that lists the devices itself: whether
+    /// the host shows notifications (a missing or failing host: not), after this PC and every paired device without stored
+    /// preferences got its default written (a phone app paired at or after the store was first written: bot chats only).
+    async fn settings(&self) -> Value {
+        let supported = self.host_status().await.is_some_and(|status| status.supported);
+        let migrated_at = self.preferences.migrated_at();
+        let mut defaults = vec![(PC_DEVICE.to_owned(), NotificationDevicePreferences::default())];
+        for client in self.presence.paired() {
+            let paired_after = client.paired_at.is_some_and(|at| at >= migrated_at);
+            let resolved = if client.phone_app && paired_after {
+                NotificationDevicePreferences { scope: NotificationScope::Bots, ..Default::default() }
+            } else {
+                NotificationDevicePreferences::default()
+            };
+            defaults.push((client.id, resolved));
+        }
+        json!({ "supported": supported, "notifications": self.preferences.pin_defaults(defaults).await })
+    }
+
     async fn audience(&self, thread_id: &str) -> Audience {
         let overrides: Vec<ConversationOverride> = self.preferences.overrides().iter().map(decision_override).collect();
         let view = |preferences| PreferencesView { preferences, overrides: overrides.clone() };
@@ -213,6 +255,12 @@ mod tests {
     impl Preferences for Prefs {
         async fn remember_device(&self, id: &str, prefs: &NotificationDevicePreferences) {
             self.remembered.lock().unwrap().push((id.into(), prefs.scope));
+        }
+        async fn pin_defaults(&self, defaults: Vec<(String, NotificationDevicePreferences)>) -> Value {
+            for (id, prefs) in &defaults {
+                self.remember_device(id, prefs).await;
+            }
+            Value::Null
         }
         fn pc(&self) -> NotificationDevicePreferences {
             NotificationDevicePreferences::default()

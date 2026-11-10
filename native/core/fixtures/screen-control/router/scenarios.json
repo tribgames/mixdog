@@ -1,0 +1,6829 @@
+{
+  "scenarios": [
+    {
+      "name": "a key combo is pressed in order and released in reverse, as one step",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatchKeys",
+          "as": "combo",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 160,
+              "scan": 42,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "dispatch",
+          "as": "after",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "combo"
+        },
+        {
+          "op": "await",
+          "call": "after"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 160,
+            "scan": 42,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 160,
+            "scan": 42,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 4,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 160,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 160,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "combo",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "after",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "after",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "after",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 160,
+              "scan": 42,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 160,
+              "scan": 42,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a combo leaves a modifier the phone holds held",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "ctrl",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "ctrl"
+        },
+        {
+          "op": "dispatchKeys",
+          "as": "combo",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "combo"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "ctrl",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "combo",
+          "value": "applied"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": true,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "control lost mid-combo presses nothing more, and what it pressed is released",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatchKeys",
+          "as": "combo",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 160,
+              "scan": 42,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": {
+            "kind": "sent-count-is",
+            "backend": "desktop",
+            "count": 0
+          }
+        },
+        {
+          "op": "await",
+          "call": "combo"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 3,
+          "value": false
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "combo",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a combo whose desktop changes mid-way sends nothing to the new one: its presses are dropped",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatchKeys",
+          "as": "combo",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": {
+            "kind": "move-at-sent",
+            "backend": "desktop",
+            "count": 1,
+            "to": {
+              "session": 2,
+              "desktop": "default"
+            }
+          }
+        },
+        {
+          "op": "await",
+          "call": "combo"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "dropped",
+          "backend": "desktop",
+          "count": 1
+        },
+        {
+          "ev": "done",
+          "call": "combo",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a cancel during a combo still releases what it pressed",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "close"
+        },
+        {
+          "op": "dispatchKeys",
+          "as": "combo",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "cancel"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "open"
+        },
+        {
+          "op": "await",
+          "call": "combo"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "combo",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "cancel"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "combo",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "releaseAll lifts every held press once and is idempotent",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "key",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "key"
+        },
+        {
+          "op": "dispatch",
+          "as": "button",
+          "commands": [
+            {
+              "op": "button",
+              "button": "left",
+              "down": true,
+              "at": {
+                "x": 1,
+                "y": 1
+              }
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "button"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release-1"
+        },
+        {
+          "op": "await",
+          "call": "release-1"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release-2"
+        },
+        {
+          "op": "await",
+          "call": "release-2"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "key",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "key",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "key",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "button",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "button",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true,
+            "at": {
+              "x": 1,
+              "y": 1
+            }
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true,
+            "at": {
+              "x": 1,
+              "y": 1
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "button",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "release-1",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "release-2",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "button",
+              "button": "left",
+              "down": true,
+              "at": {
+                "x": 1,
+                "y": 1
+              }
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "button",
+              "button": "left",
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "an up for a press this backend does not own is skipped",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "up",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "up"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "up",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "up",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "done",
+          "call": "up",
+          "value": "applied"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a button up without a position lifts the button pressed at one",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "down",
+          "commands": [
+            {
+              "op": "button",
+              "button": "right",
+              "down": true,
+              "at": {
+                "x": 5,
+                "y": 6
+              }
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "down"
+        },
+        {
+          "op": "dispatch",
+          "as": "up",
+          "commands": [
+            {
+              "op": "button",
+              "button": "right",
+              "down": false
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "up"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "down",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "down",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "right",
+            "down": true,
+            "at": {
+              "x": 5,
+              "y": 6
+            }
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "right",
+            "down": true,
+            "at": {
+              "x": 5,
+              "y": 6
+            }
+          }
+        },
+        {
+          "ev": "done",
+          "call": "down",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "up",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "up",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "right",
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "right",
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "up",
+          "value": "applied"
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "button",
+              "button": "right",
+              "down": true,
+              "at": {
+                "x": 5,
+                "y": 6
+              }
+            },
+            {
+              "op": "button",
+              "button": "right",
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a backend switch releases the old backend’s presses through it, before the switch",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "ctrl",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "ctrl"
+        },
+        {
+          "op": "switch",
+          "as": "to-secure",
+          "to": "secure",
+          "hooks": {
+            "before": "observe",
+            "after": "observe"
+          }
+        },
+        {
+          "op": "await",
+          "call": "to-secure"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "ctrl",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "hook",
+          "call": "to-secure",
+          "name": "before",
+          "active": "desktop",
+          "lastDesktopSent": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          },
+          "lastSecureSent": null
+        },
+        {
+          "ev": "hook",
+          "call": "to-secure",
+          "name": "after",
+          "active": "secure",
+          "lastDesktopSent": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          },
+          "lastSecureSent": null
+        },
+        {
+          "ev": "done",
+          "call": "to-secure",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "secure",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a press its backend can’t release at the switch is dropped and counted, never carried",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "reachable",
+          "backend": "desktop",
+          "value": false
+        },
+        {
+          "op": "switch",
+          "as": "to-secure",
+          "to": "secure"
+        },
+        {
+          "op": "await",
+          "call": "to-secure"
+        },
+        {
+          "op": "reachable",
+          "backend": "desktop",
+          "value": true
+        },
+        {
+          "op": "switch",
+          "as": "back",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "back"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "fail",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "dropped",
+          "backend": "desktop",
+          "count": 1
+        },
+        {
+          "ev": "done",
+          "call": "to-secure",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "back",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "cancel drops queued input but the final release runs after the in-flight command",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "close"
+        },
+        {
+          "op": "dispatch",
+          "as": "in-flight",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "dispatch",
+          "as": "queued",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 66,
+              "scan": 48,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "cancel"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "open"
+        },
+        {
+          "op": "await",
+          "call": "in-flight"
+        },
+        {
+          "op": "await",
+          "call": "queued"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "in-flight",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "in-flight",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "cancel"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "in-flight",
+          "value": "applied"
+        },
+        {
+          "ev": "done",
+          "call": "queued",
+          "value": "rejected"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "the gate is re-read between the commands of one plan",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "plan",
+          "commands": [
+            {
+              "op": "move",
+              "x": 1,
+              "y": 1
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": {
+            "kind": "first-checks",
+            "count": 2
+          }
+        },
+        {
+          "op": "await",
+          "call": "plan"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "plan",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "plan",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "move",
+            "x": 1,
+            "y": 1
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "move",
+            "x": 1,
+            "y": 1
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "plan",
+          "n": 3,
+          "value": false
+        },
+        {
+          "ev": "done",
+          "call": "plan",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "move",
+              "x": 1,
+              "y": 1
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "text is refused while a shortcut modifier is held, allowed with Shift",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "shift",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 160,
+              "scan": 42,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "shift"
+        },
+        {
+          "op": "dispatch",
+          "as": "text-with-shift",
+          "commands": [
+            {
+              "op": "text",
+              "text": "a"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text-with-shift"
+        },
+        {
+          "op": "dispatch",
+          "as": "ctrl",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "ctrl"
+        },
+        {
+          "op": "dispatch",
+          "as": "text-with-ctrl",
+          "commands": [
+            {
+              "op": "text",
+              "text": "a"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text-with-ctrl"
+        },
+        {
+          "op": "dispatch",
+          "as": "ctrl-up",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "ctrl-up"
+        },
+        {
+          "op": "dispatch",
+          "as": "text-after-ctrl",
+          "commands": [
+            {
+              "op": "text",
+              "text": "a"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text-after-ctrl"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "shift",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "shift",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 160,
+            "scan": 42,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 160,
+            "scan": 42,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "shift",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text-with-shift",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text-with-shift",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text-with-shift",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "text",
+            "text": "a"
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "text",
+            "text": "a"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "text-with-shift",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "ctrl",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text-with-ctrl",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text-with-ctrl",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "done",
+          "call": "text-with-ctrl",
+          "value": "rejected"
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl-up",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl-up",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "ctrl-up",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text-after-ctrl",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text-after-ctrl",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text-after-ctrl",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "text",
+            "text": "a"
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "text",
+            "text": "a"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "text-after-ctrl",
+          "value": "applied"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": true,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 160,
+              "scan": 42,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "text",
+              "text": "a"
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "text",
+              "text": "a"
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "AltGr text: the session-held AltGr keys are lifted around the text and pressed again",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "altgr",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "altgr"
+        },
+        {
+          "op": "dispatch",
+          "as": "text",
+          "commands": [
+            {
+              "op": "text",
+              "text": "€"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "altgr",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "text",
+            "text": "€"
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "text",
+            "text": "€"
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 4,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 5,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "text",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": false
+            },
+            {
+              "op": "text",
+              "text": "€"
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "Right Alt alone counts as AltGr",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "alt",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "alt"
+        },
+        {
+          "op": "dispatch",
+          "as": "text",
+          "commands": [
+            {
+              "op": "text",
+              "text": "@"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "alt",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "text",
+            "text": "@"
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "text",
+            "text": "@"
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 4,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "text",
+          "value": "applied"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": true,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": false
+            },
+            {
+              "op": "text",
+              "text": "@"
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Left Alt stays a shortcut: its text is refused and sends nothing",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "ctrl-alt",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 164,
+              "scan": 56,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "ctrl-alt"
+        },
+        {
+          "op": "dispatch",
+          "as": "text",
+          "commands": [
+            {
+              "op": "text",
+              "text": "a"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl-alt",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl-alt",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "ctrl-alt",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 164,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 164,
+            "scan": 56,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "ctrl-alt",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "done",
+          "call": "text",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": true,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 164,
+              "scan": 56,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "AltGr with the Windows key stays a shortcut",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "altgr-win",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 91,
+              "scan": 91,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "altgr-win"
+        },
+        {
+          "op": "dispatch",
+          "as": "text",
+          "commands": [
+            {
+              "op": "text",
+              "text": "a"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr-win",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr-win",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr-win",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 91,
+            "scan": 91,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 91,
+            "scan": 91,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "altgr-win",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "done",
+          "call": "text",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": true,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 91,
+              "scan": 91,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "AltGr keys are pressed again even when the text itself fails",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "alt",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "alt"
+        },
+        {
+          "op": "failText",
+          "backend": "desktop",
+          "value": true
+        },
+        {
+          "op": "dispatch",
+          "as": "text",
+          "commands": [
+            {
+              "op": "text",
+              "text": "x"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "text"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "alt",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "text",
+            "text": "x"
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "fail",
+          "command": {
+            "op": "text",
+            "text": "x"
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "text",
+          "n": 4,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "text",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": true,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "abandon cuts an in-flight send and every later one; the releases are dropped and counted",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "hang"
+        },
+        {
+          "op": "dispatch",
+          "as": "hung",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 66,
+              "scan": 48,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "abandon"
+        },
+        {
+          "op": "await",
+          "call": "hung"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        },
+        {
+          "op": "dispatch",
+          "as": "after-abandon",
+          "commands": [
+            {
+              "op": "move",
+              "x": 1,
+              "y": 1
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "after-abandon"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "hung",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "hung",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 66,
+            "scan": 48,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "abandon"
+        },
+        {
+          "ev": "done",
+          "call": "hung",
+          "value": "rejected"
+        },
+        {
+          "ev": "dropped",
+          "backend": "desktop",
+          "count": 2
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "after-abandon",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "after-abandon",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "done",
+          "call": "after-abandon",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a cancel during the AltGr lift: no text, no re-press, nothing left held",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "altgr",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "altgr"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "close"
+        },
+        {
+          "op": "dispatch",
+          "as": "typing",
+          "commands": [
+            {
+              "op": "text",
+              "text": "€"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "cancel"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "open"
+        },
+        {
+          "op": "await",
+          "call": "typing"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "altgr",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "cancel"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "typing",
+          "value": "rejected"
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "the backend moves to another session during the AltGr lift: no further lift, text or re-press there",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "altgr",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "altgr"
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "close"
+        },
+        {
+          "op": "dispatch",
+          "as": "typing",
+          "commands": [
+            {
+              "op": "text",
+              "text": "€"
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "identity",
+          "backend": "desktop",
+          "value": {
+            "session": 2,
+            "desktop": "default"
+          }
+        },
+        {
+          "op": "gate",
+          "backend": "desktop",
+          "mode": "open"
+        },
+        {
+          "op": "await",
+          "call": "typing"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "altgr",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "altgr",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 162,
+            "scan": 29,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "dropped",
+          "backend": "desktop",
+          "count": 1
+        },
+        {
+          "ev": "done",
+          "call": "typing",
+          "value": "rejected"
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a revoke after the text, before the re-press: AltGr is never pressed again",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "alt",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "alt"
+        },
+        {
+          "op": "dispatch",
+          "as": "typing",
+          "commands": [
+            {
+              "op": "text",
+              "text": "@"
+            }
+          ],
+          "allowed": {
+            "kind": "no-text-sent",
+            "backend": "desktop"
+          }
+        },
+        {
+          "op": "await",
+          "call": "typing"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "alt",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "text",
+            "text": "@"
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "text",
+            "text": "@"
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 4,
+          "value": false
+        },
+        {
+          "ev": "done",
+          "call": "typing",
+          "value": "applied"
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": false
+            },
+            {
+              "op": "text",
+              "text": "@"
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a revoke before the text: the lifted keys stay up and the text is not sent",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "alt",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "alt"
+        },
+        {
+          "op": "dispatch",
+          "as": "typing",
+          "commands": [
+            {
+              "op": "text",
+              "text": "@"
+            }
+          ],
+          "allowed": {
+            "kind": "sent-count-is",
+            "backend": "desktop",
+            "count": 1
+          }
+        },
+        {
+          "op": "await",
+          "call": "typing"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "alt",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "alt",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 165,
+            "scan": 56,
+            "extended": true,
+            "down": false
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 3,
+          "value": false
+        },
+        {
+          "ev": "allowed",
+          "call": "typing",
+          "n": 4,
+          "value": false
+        },
+        {
+          "ev": "done",
+          "call": "typing",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 165,
+              "scan": 56,
+              "extended": true,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "no key-up reaches another session: it is dropped, not sent later",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "secure"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "identity",
+          "backend": "secure",
+          "value": {
+            "session": 2,
+            "desktop": "winlogon"
+          }
+        },
+        {
+          "op": "releaseAll",
+          "as": "release-elsewhere"
+        },
+        {
+          "op": "await",
+          "call": "release-elsewhere"
+        },
+        {
+          "op": "identity",
+          "backend": "secure",
+          "value": {
+            "session": 1,
+            "desktop": "winlogon"
+          }
+        },
+        {
+          "op": "releaseAll",
+          "as": "release-back"
+        },
+        {
+          "op": "await",
+          "call": "release-back"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "applied"
+        },
+        {
+          "ev": "dropped",
+          "backend": "secure",
+          "count": 1
+        },
+        {
+          "ev": "done",
+          "call": "release-elsewhere",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "release-back",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "secure",
+        "holds": false,
+        "sent": {
+          "desktop": [],
+          "secure": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "no key-up reaches another desktop: it is dropped, not sent later",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "secure"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "identity",
+          "backend": "secure",
+          "value": {
+            "session": 1,
+            "desktop": "default"
+          }
+        },
+        {
+          "op": "releaseAll",
+          "as": "release-elsewhere"
+        },
+        {
+          "op": "await",
+          "call": "release-elsewhere"
+        },
+        {
+          "op": "identity",
+          "backend": "secure",
+          "value": {
+            "session": 1,
+            "desktop": "winlogon"
+          }
+        },
+        {
+          "op": "releaseAll",
+          "as": "release-back"
+        },
+        {
+          "op": "await",
+          "call": "release-back"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "applied"
+        },
+        {
+          "ev": "dropped",
+          "backend": "secure",
+          "count": 1
+        },
+        {
+          "ev": "done",
+          "call": "release-elsewhere",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "release-back",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "secure",
+        "holds": false,
+        "sent": {
+          "desktop": [],
+          "secure": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "each origin’s press of the same key is released only on its own desktop",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "secure"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "a-winlogon",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a-winlogon"
+        },
+        {
+          "op": "identity",
+          "backend": "secure",
+          "value": {
+            "session": 1,
+            "desktop": "locked"
+          }
+        },
+        {
+          "op": "dispatch",
+          "as": "a-locked",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a-locked"
+        },
+        {
+          "op": "dispatch",
+          "as": "lift-a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "lift-a"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release-on-locked"
+        },
+        {
+          "op": "await",
+          "call": "release-on-locked"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a-winlogon",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a-winlogon",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a-winlogon",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "a-locked",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a-locked",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a-locked",
+          "value": "applied"
+        },
+        {
+          "ev": "allowed",
+          "call": "lift-a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "lift-a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "lift-a",
+          "value": "applied"
+        },
+        {
+          "ev": "dropped",
+          "backend": "secure",
+          "count": 1
+        },
+        {
+          "ev": "done",
+          "call": "release-on-locked",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "secure",
+        "holds": false,
+        "sent": {
+          "desktop": [],
+          "secure": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "no press is made where the landing desktop is unknown",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "identity",
+          "backend": "desktop",
+          "value": null
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "abandon also cuts a switch hook that never settles",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switching",
+          "to": "secure",
+          "hooks": {
+            "before": "never"
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "abandon"
+        },
+        {
+          "op": "await",
+          "call": "switching"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hook",
+          "call": "switching",
+          "name": "before",
+          "active": null,
+          "lastDesktopSent": null,
+          "lastSecureSent": null
+        },
+        {
+          "ev": "abandon"
+        },
+        {
+          "ev": "done",
+          "call": "switching",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "secure",
+        "holds": false,
+        "sent": {
+          "desktop": [],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "a failing switch hook does not stop the switch",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switching",
+          "to": "secure",
+          "hooks": {
+            "before": "throws",
+            "after": "observe"
+          }
+        },
+        {
+          "op": "await",
+          "call": "switching"
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "hook",
+          "call": "switching",
+          "name": "before",
+          "active": null,
+          "lastDesktopSent": null,
+          "lastSecureSent": null
+        },
+        {
+          "ev": "hook",
+          "call": "switching",
+          "name": "after",
+          "active": "secure",
+          "lastDesktopSent": null,
+          "lastSecureSent": null
+        },
+        {
+          "ev": "done",
+          "call": "switching",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "applied"
+        }
+      ],
+      "final": {
+        "active": "secure",
+        "holds": true,
+        "sent": {
+          "desktop": [],
+          "secure": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a switch to no backend releases first, then input is rejected",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "switch",
+          "as": "to-none",
+          "to": null
+        },
+        {
+          "op": "await",
+          "call": "to-none"
+        },
+        {
+          "op": "dispatch",
+          "as": "move",
+          "commands": [
+            {
+              "op": "move",
+              "x": 1,
+              "y": 1
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "move"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "to-none",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "move",
+          "value": "rejected"
+        }
+      ],
+      "final": {
+        "active": null,
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "input before any backend is chosen is rejected",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "dispatch",
+          "as": "move",
+          "commands": [
+            {
+              "op": "move",
+              "x": 1,
+              "y": 1
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "move"
+        },
+        {
+          "op": "dispatch",
+          "as": "combo",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 162,
+              "scan": 29,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "combo"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "move",
+          "value": "rejected"
+        },
+        {
+          "ev": "done",
+          "call": "combo",
+          "value": "rejected"
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": null,
+        "holds": false,
+        "sent": {
+          "desktop": [],
+          "secure": []
+        }
+      }
+    },
+    {
+      "name": "the desktop’s presses are lifted through it when the secure desktop takes over, and the secure backend gets only its own",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "dispatch",
+          "as": "down",
+          "commands": [
+            {
+              "op": "button",
+              "button": "left",
+              "down": true,
+              "at": {
+                "x": 10,
+                "y": 20
+              }
+            },
+            {
+              "op": "key",
+              "vk": 16,
+              "scan": 42,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "down"
+        },
+        {
+          "op": "switch",
+          "as": "to-secure",
+          "to": "secure",
+          "hooks": {
+            "before": "observe",
+            "after": "observe"
+          }
+        },
+        {
+          "op": "await",
+          "call": "to-secure"
+        },
+        {
+          "op": "dispatch",
+          "as": "secure-down",
+          "commands": [
+            {
+              "op": "button",
+              "button": "left",
+              "down": true,
+              "at": {
+                "x": 30,
+                "y": 40
+              }
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "secure-down"
+        },
+        {
+          "op": "switch",
+          "as": "back",
+          "to": "desktop",
+          "hooks": {
+            "before": "observe",
+            "after": "observe"
+          }
+        },
+        {
+          "op": "await",
+          "call": "back"
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "down",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "down",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true,
+            "at": {
+              "x": 10,
+              "y": 20
+            }
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true,
+            "at": {
+              "x": 10,
+              "y": 20
+            }
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "down",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "down",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "hook",
+          "call": "to-secure",
+          "name": "before",
+          "active": "desktop",
+          "lastDesktopSent": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          },
+          "lastSecureSent": null
+        },
+        {
+          "ev": "hook",
+          "call": "to-secure",
+          "name": "after",
+          "active": "secure",
+          "lastDesktopSent": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          },
+          "lastSecureSent": null
+        },
+        {
+          "ev": "done",
+          "call": "to-secure",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "secure-down",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "secure-down",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true,
+            "at": {
+              "x": 30,
+              "y": 40
+            }
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": true,
+            "at": {
+              "x": 30,
+              "y": 40
+            }
+          }
+        },
+        {
+          "ev": "allowed",
+          "call": "secure-down",
+          "n": 3,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "secure-down",
+          "value": "applied"
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "button",
+            "button": "left",
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "secure",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "hook",
+          "call": "back",
+          "name": "before",
+          "active": "secure",
+          "lastDesktopSent": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          },
+          "lastSecureSent": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "hook",
+          "call": "back",
+          "name": "after",
+          "active": "desktop",
+          "lastDesktopSent": {
+            "op": "key",
+            "vk": 16,
+            "scan": 42,
+            "extended": false,
+            "down": false
+          },
+          "lastSecureSent": {
+            "op": "key",
+            "vk": 67,
+            "scan": 46,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "back",
+          "value": null
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "button",
+              "button": "left",
+              "down": true,
+              "at": {
+                "x": 10,
+                "y": 20
+              }
+            },
+            {
+              "op": "key",
+              "vk": 16,
+              "scan": 42,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "button",
+              "button": "left",
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 16,
+              "scan": 42,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": [
+            {
+              "op": "button",
+              "button": "left",
+              "down": true,
+              "at": {
+                "x": 30,
+                "y": 40
+              }
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": true
+            },
+            {
+              "op": "button",
+              "button": "left",
+              "down": false
+            },
+            {
+              "op": "key",
+              "vk": 67,
+              "scan": 46,
+              "extended": false,
+              "down": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a plan that fails on the backend is rejected and keeps the press it made held for the release",
+      "backends": {
+        "desktop": {
+          "session": 1,
+          "desktop": "default"
+        },
+        "secure": {
+          "session": 1,
+          "desktop": "winlogon"
+        }
+      },
+      "steps": [
+        {
+          "op": "switch",
+          "as": "switch",
+          "to": "desktop"
+        },
+        {
+          "op": "await",
+          "call": "switch"
+        },
+        {
+          "op": "reachable",
+          "backend": "desktop",
+          "value": false
+        },
+        {
+          "op": "dispatch",
+          "as": "a",
+          "commands": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": true
+            }
+          ],
+          "allowed": "always"
+        },
+        {
+          "op": "await",
+          "call": "a"
+        },
+        {
+          "op": "reachable",
+          "backend": "desktop",
+          "value": true
+        },
+        {
+          "op": "releaseAll",
+          "as": "release"
+        },
+        {
+          "op": "await",
+          "call": "release"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "done",
+          "call": "switch",
+          "value": null
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 1,
+          "value": true
+        },
+        {
+          "ev": "allowed",
+          "call": "a",
+          "n": 2,
+          "value": true
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "fail",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": true
+          }
+        },
+        {
+          "ev": "done",
+          "call": "a",
+          "value": "rejected"
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "start",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "send",
+          "backend": "desktop",
+          "phase": "ok",
+          "command": {
+            "op": "key",
+            "vk": 65,
+            "scan": 30,
+            "extended": false,
+            "down": false
+          }
+        },
+        {
+          "ev": "done",
+          "call": "release",
+          "value": null
+        }
+      ],
+      "final": {
+        "active": "desktop",
+        "holds": false,
+        "sent": {
+          "desktop": [
+            {
+              "op": "key",
+              "vk": 65,
+              "scan": 30,
+              "extended": false,
+              "down": false
+            }
+          ],
+          "secure": []
+        }
+      }
+    }
+  ]
+}

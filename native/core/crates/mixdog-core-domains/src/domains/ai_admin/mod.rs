@@ -11,6 +11,8 @@ pub mod model_warmup;
 pub mod statusline_warmup;
 #[cfg(test)]
 mod statusline_warmup_tests;
+#[cfg(test)]
+mod catalog_refresh_start_tests;
 pub mod model_proxy;
 pub mod model_proxy_service;
 pub mod provider_status;

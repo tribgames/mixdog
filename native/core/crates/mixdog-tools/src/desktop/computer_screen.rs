@@ -12,6 +12,47 @@ use mixdog_core_api::domain::computer::ScreenInput;
 use mixdog_core_api::domain::media::MediaFrameSource;
 
 #[cfg(windows)]
+mod adapter;
+#[cfg(windows)]
+mod helper_client;
+#[cfg(any(windows, test))]
+mod installer;
+#[cfg(any(windows, test))]
+mod lease;
+#[cfg(any(windows, test))]
+mod router;
+#[cfg(any(windows, test))]
+mod session;
+#[cfg(windows)]
+mod service;
+#[cfg(any(windows, test))]
+mod switch;
+#[cfg(any(windows, test))]
+mod turn;
+#[cfg(any(windows, test))]
+mod video;
+#[cfg(all(windows, test))]
+mod adapter_tests;
+#[cfg(all(windows, test))]
+mod composed_tests;
+#[cfg(all(windows, test))]
+mod helper_client_tests;
+#[cfg(test)]
+mod installer_tests;
+#[cfg(test)]
+mod lease_tests;
+#[cfg(test)]
+mod router_tests;
+#[cfg(test)]
+mod session_tests;
+#[cfg(test)]
+mod switch_tests;
+#[cfg(test)]
+mod testing;
+#[cfg(test)]
+mod video_tests;
+
+#[cfg(windows)]
 pub(super) use win::Screen;
 
 #[cfg(not(windows))]
