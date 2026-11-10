@@ -199,7 +199,10 @@ async fn record_all(only: Option<&str>) -> Vec<Value> {
         fixture_fs::write(data.join(file), body.to_string());
     }
 
-    let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com"];
+    // Every connect of the pinned link and dialer goes to the loopback server (`ReqwestLink::pinned`,
+    // `KeepaliveDialer::pinned`), a token refresh too (the OpenAI credential refreshes over `env.http`): nothing leaves
+    // the machine. `auth.openai.com` is the refresh's host.
+    let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com", "auth.openai.com"];
     let server = Arc::new(Loopback::start(&hosts).await);
     let schedule = KeepaliveSchedule::SPEC;
     let link = Arc::new(ReqwestLink::pinned(&schedule, server.addr, server.tls.clone()));
