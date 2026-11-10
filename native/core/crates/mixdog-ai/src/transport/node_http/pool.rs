@@ -24,10 +24,22 @@ pub enum Idle {
     H2 { id: u64, send: h2::client::SendRequest<Bytes> },
 }
 
+/// What the pool knows of an HTTP/2 connection beyond its handle: the streams open on it, and the idle period whose
+/// timer is armed (a stamp from [`Pool::birth`], as for an h1 connection).
+struct H2Meta {
+    open: usize,
+    stamp: u64,
+}
+
 #[derive(Default)]
 pub struct Pool {
     idle: Mutex<HashMap<String, Vec<Idle>>>,
+    h2: Mutex<HashMap<u64, H2Meta>>,
     counter: AtomicU64,
+    /// Counts the route changes ([`Pool::clear`]). A connection carries the count of its opening; one that meets a
+    /// later count when it would go back to the pool is closed instead, so a connection checked out while the route
+    /// changed does not idle under its old route.
+    generation: AtomicU64,
 }
 
 impl Pool {
@@ -36,12 +48,20 @@ impl Pool {
         self.counter.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// The route generation a connection opened now belongs to.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Idle>>> {
         self.idle.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// `conn` is idle for `ttl` and then closed by its timer.
     pub fn put_h1(self: &Arc<Self>, key: String, conn: Conn, ttl: Duration) {
+        if conn.generation != self.generation() {
+            return; // opened under an earlier route: closed, not kept
+        }
         let until = Instant::now() + ttl;
         let stamp = self.birth();
         let born = conn.born;
@@ -67,7 +87,52 @@ impl Pool {
     }
 
     pub fn put_h2(&self, key: String, id: u64, send: h2::client::SendRequest<Bytes>) {
+        self.h2_meta().insert(id, H2Meta { open: 0, stamp: 0 });
         self.lock().entry(key).or_default().push(Idle::H2 { id, send });
+    }
+
+    fn h2_meta(&self) -> std::sync::MutexGuard<'_, HashMap<u64, H2Meta>> {
+        self.h2.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A stream starts on the HTTP/2 connection id: until the guard drops the connection is not idle.
+    pub fn h2_open(self: &Arc<Self>, key: &str, id: u64) -> H2Guard {
+        if let Some(meta) = self.h2_meta().get_mut(&id) {
+            meta.open += 1;
+            meta.stamp = self.birth(); // an armed idle timer no longer applies
+        }
+        H2Guard { pool: self.clone(), key: key.to_owned(), id }
+    }
+
+    /// undici closes an h2 session that has had no stream for keepAliveTimeout (client-h2.js, setHttp2IdleTimeout).
+    fn h2_closed_stream(self: &Arc<Self>, key: &str, id: u64) {
+        let stamp = {
+            let mut meta = self.h2_meta();
+            let Some(meta) = meta.get_mut(&id) else { return };
+            meta.open = meta.open.saturating_sub(1);
+            if meta.open > 0 {
+                return;
+            }
+            meta.stamp = self.birth();
+            meta.stamp
+        };
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let (pool, key): (Weak<Self>, String) = (Arc::downgrade(self), key.to_owned());
+            let until = Instant::now() + super::KEEP_ALIVE;
+            tokio::spawn(async move {
+                tokio::time::sleep_until(until).await;
+                if let Some(pool) = pool.upgrade() {
+                    pool.expire_h2(&key, id, stamp);
+                }
+            });
+        }
+    }
+
+    fn expire_h2(&self, key: &str, id: u64, stamp: u64) {
+        let idle = self.h2_meta().get(&id).is_some_and(|meta| meta.open == 0 && meta.stamp == stamp);
+        if idle {
+            self.remove_h2(key, id);
+        }
     }
 
     /// The idle period `stamp` of `key` is over: its connection closes.
@@ -87,6 +152,7 @@ impl Pool {
 
     /// The HTTP/2 connection `id` of `key` is dead or finished.
     pub fn remove_h2(&self, key: &str, id: u64) {
+        self.h2_meta().remove(&id);
         let mut all = self.lock();
         if let Some(list) = all.get_mut(key) {
             list.retain(|idle| !matches!(idle, Idle::H2 { id: other, .. } if *other == id));
@@ -98,6 +164,8 @@ impl Pool {
 
     /// Every idle connection closes (the route changed).
     pub fn clear(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.h2_meta().clear();
         let all = std::mem::take(&mut *self.lock());
         drop(all);
     }
@@ -141,6 +209,19 @@ impl Pool {
     }
 }
 
+/// A stream open on an HTTP/2 connection; the connection is idle again when the last one drops.
+pub struct H2Guard {
+    pool: Arc<Pool>,
+    key: String,
+    id: u64,
+}
+
+impl Drop for H2Guard {
+    fn drop(&mut self) {
+        self.pool.h2_closed_stream(&self.key, self.id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,7 +232,7 @@ mod tests {
     async fn an_idle_connection_is_closed_by_its_timer() {
         let pool = Arc::new(Pool::default());
         let (near, mut far) = tokio::io::duplex(64);
-        let conn = Conn::open(Box::new(near), pool.birth()).await.unwrap();
+        let conn = Conn::open(Box::new(near), pool.birth(), pool.generation()).await.unwrap();
         pool.put_h1("k".into(), conn, Duration::from_secs(60));
         assert_eq!(pool.idle_count("k"), 1);
         tokio::time::advance(Duration::from_secs(59)).await;
@@ -172,7 +253,7 @@ mod tests {
         for _ in 0..2 {
             let (near, far) = tokio::io::duplex(64);
             peers.push(far);
-            let conn = Conn::open(Box::new(near), pool.birth()).await.unwrap();
+            let conn = Conn::open(Box::new(near), pool.birth(), pool.generation()).await.unwrap();
             born.push(conn.born);
             pool.put_h1("k".into(), conn, Duration::from_secs(60));
         }
@@ -180,5 +261,59 @@ mod tests {
         let first = pool.take("k").await;
         let Some(Idle::H1 { conn, .. }) = first else { panic!("an idle connection") };
         assert_eq!(conn.born, born[0]);
+    }
+
+    /// An HTTP/2 connection to a peer that accepts streams and answers none of them.
+    async fn h2_connection() -> (h2::client::SendRequest<Bytes>, tokio::task::JoinHandle<()>) {
+        let (near, far) = tokio::io::duplex(1 << 16);
+        let server = tokio::spawn(async move {
+            let mut conn = h2::server::handshake(far).await.unwrap();
+            while conn.accept().await.is_some() {}
+        });
+        let (send, connection) = h2::client::handshake(near).await.unwrap();
+        tokio::spawn(async move {
+            let _ = connection.await;
+        });
+        (send, server)
+    }
+
+    // H1: an HTTP/2 connection closes after `keepAliveTimeout` without a stream (undici `client-h2.js`
+    // `setHttp2IdleTimeout`), and a stream that starts in the meantime restarts the count.
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_h2_connection_is_closed_after_its_keep_alive_and_not_while_a_stream_is_open() {
+        let pool = Arc::new(Pool::default());
+        let (send, _server) = h2_connection().await;
+        let id = pool.birth();
+        pool.put_h2("k".into(), id, send);
+        let stream = pool.h2_open("k", id);
+        tokio::time::advance(Duration::from_secs(600)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool.idle_count("k"), 1, "never idle while a stream is open");
+        drop(stream);
+        tokio::time::advance(Duration::from_secs(30)).await;
+        let again = pool.h2_open("k", id); // restarts the idle period
+        tokio::time::advance(Duration::from_secs(40)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool.idle_count("k"), 1, "the first period's timer does not end the connection");
+        drop(again);
+        tokio::time::advance(Duration::from_secs(59)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool.idle_count("k"), 1, "still inside its keep-alive");
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool.idle_count("k"), 0, "closed at the end of its keep-alive");
+    }
+
+    // H2: a connection that was checked out when the route changed is closed when its response ends, not kept.
+    #[tokio::test(start_paused = true)]
+    async fn a_connection_checked_out_across_a_route_change_is_closed_when_it_comes_back() {
+        let pool = Arc::new(Pool::default());
+        let (near, mut far) = tokio::io::duplex(64);
+        let conn = Conn::open(Box::new(near), pool.birth(), pool.generation()).await.unwrap();
+        pool.clear(); // the route changes while `conn` is out
+        pool.put_h1("k".into(), conn, Duration::from_secs(60));
+        assert_eq!(pool.idle_count("k"), 0, "not kept under the old route");
+        let mut byte = [0u8; 1];
+        assert_eq!(far.read(&mut byte).await.unwrap(), 0, "the peer sees the close");
     }
 }

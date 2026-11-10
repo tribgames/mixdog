@@ -63,6 +63,8 @@ zstd = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+# The pinned test clients and the loopback server (`transport::loopback`) exist behind this feature only.
+mixdog-ai = { path = ".", features = ["test-support"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }

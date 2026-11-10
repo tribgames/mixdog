@@ -234,7 +234,8 @@ struct Failure {
     replay: bool,
 }
 
-/// Test pinning: every connect goes to `addr` and trusts `tls` alone.
+/// Test pinning: every connect goes to `addr` and trusts `tls` alone. Compiled for tests and the `test-support` feature only.
+#[cfg(any(test, feature = "test-support"))]
 pub struct Pinned {
     pub addr: SocketAddr,
     pub tls: Arc<rustls::ClientConfig>,
@@ -243,6 +244,7 @@ pub struct Pinned {
 pub struct NodeClient {
     tcp: TcpKeepalive,
     policy: Option<Arc<NetworkProxy>>,
+    #[cfg(any(test, feature = "test-support"))]
     pinned: Option<Pinned>,
     pool: Arc<Pool>,
     /// A change of the network proxy setting closes every idle connection (`http-agent.mjs` `onProxyRouteChange`).
@@ -319,7 +321,7 @@ fn refused(text: String, surface: Surface) -> ProviderError {
 }
 
 impl NodeClient {
-    pub fn new(tcp: TcpKeepalive, policy: Option<Arc<NetworkProxy>>, pinned: Option<Pinned>) -> Self {
+    pub fn new(tcp: TcpKeepalive, policy: Option<Arc<NetworkProxy>>) -> Self {
         let pool = Arc::new(Pool::default());
         let retire = policy.as_ref().map(|policy| {
             let weak = Arc::downgrade(&pool);
@@ -329,12 +331,35 @@ impl NodeClient {
                 }
             }))
         });
-        Self { tcp, policy, pinned, pool, _retire: retire }
+        Self {
+            tcp,
+            policy,
+            #[cfg(any(test, feature = "test-support"))]
+            pinned: None,
+            pool,
+            _retire: retire,
+        }
+    }
+
+    /// Every connect goes to `addr` and trusts `tls` alone.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn pinned(tcp: TcpKeepalive, pinned: Pinned) -> Self {
+        Self { pinned: Some(pinned), ..Self::new(tcp, None) }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    fn pinned_target(&self) -> Option<&Pinned> {
+        self.pinned.as_ref()
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn pinned_target(&self) -> Option<&Pinned> {
+        None
     }
 
     /// The proxy the request goes through, decided before any pooled connection is looked at.
     async fn route(&self, url: &url::Url) -> Result<Option<String>, ProviderError> {
-        if self.pinned.is_some() {
+        if self.pinned_target().is_some() {
             return Ok(None);
         }
         match &self.policy {
@@ -360,7 +385,7 @@ impl NodeClient {
         let bare = host.trim_start_matches('[').trim_end_matches(']').to_owned();
         let https = url.scheme() == "https";
         let port = url.port_or_known_default().unwrap_or(if https { 443 } else { 80 });
-        let tcp_stream: Stream = if let Some(pinned) = &self.pinned {
+        let tcp_stream: Stream = if let Some(pinned) = self.pinned_target() {
             let socket = tcp::connect(pinned.addr, &self.tcp).await.map_err(|e| io_error(&e, true, DeliveryState::NotSent, surface))?;
             Box::new(socket)
         } else {
@@ -398,7 +423,7 @@ impl NodeClient {
         if !https {
             return Ok((tcp_stream, false));
         }
-        let config = match &self.pinned {
+        let config = match self.pinned_target() {
             Some(pinned) => pinned.tls.clone(),
             None => tls_config().map_err(|e| io_error(&e, true, DeliveryState::NotSent, surface))?,
         };
@@ -418,7 +443,11 @@ impl NodeClient {
     pub async fn send(&self, request: &WireRequest, writer: Writer, surface: Surface) -> Result<HttpResponse, ProviderError> {
         let url = url::Url::parse(&request.url).map_err(|e| refused(e.to_string(), surface))?;
         check_headers(&request.headers).map_err(|text| refused(text, surface))?;
-        hyper::Method::from_bytes(request.method.as_bytes()).map_err(|_| refused(format!("invalid HTTP method {}", request.method), surface))?;
+        let method = hyper::Method::from_bytes(request.method.as_bytes()).map_err(|_| refused(format!("invalid HTTP method {}", request.method), surface))?;
+        // `fetch` forbids these methods (`fetch/request.js`): a `CONNECT` answer is framed differently by hyper, and`n        // a `TRACE` or `TRACK` never leaves the process.
+        if method == hyper::Method::CONNECT || method == hyper::Method::TRACE || request.method.eq_ignore_ascii_case("TRACK") {
+            return Err(refused(format!("'{}' HTTP method is unsupported.", request.method), surface));
+        }
         let proxy = self.route(&url).await?;
         let key = self.key(&url, &proxy);
         let mut replayed = false;
@@ -442,13 +471,17 @@ impl NodeClient {
                         let id = self.pool.birth();
                         let (pool, origin) = (self.pool.clone(), key.clone());
                         tokio::spawn(async move {
-                            let _ = connection.await;
+                            // A failure reaches every request on the connection through h2; this one is for the idle
+                            // connection, which has none to tell.
+                            if let Err(error) = connection.await {
+                                tracing::debug!(%error, "http/2 connection ended with an error");
+                            }
                             pool.remove_h2(&origin, id);
                         });
                         self.pool.put_h2(key.clone(), id, send.clone());
                         self.exchange_h2(&key, id, send, request, &url, writer, surface).await
                     } else {
-                        let conn = h1::Conn::open(io, self.pool.birth())
+                        let conn = h1::Conn::open(io, self.pool.birth(), self.pool.generation())
                             .await
                             .map_err(|e| chain_error(&e, DeliveryState::NotSent, surface))?;
                         self.exchange_h1(conn, &key, request, &url, writer, surface).await
@@ -476,17 +509,18 @@ impl NodeClient {
         conn.ready()
             .await
             .map_err(|e| Failure { error: chain_error(&e, DeliveryState::NotSent, surface), replay: true })?;
-        conn.write_request(&head, &request.body)
-            .await
-            .map_err(|e| Failure { error: io_error(&e, false, DeliveryState::Ambiguous, surface), replay: true })?;
-        let answered = tokio::time::timeout(HEADERS_TIMEOUT, conn.response(&request.method, close)).await;
-        let response = match answered {
+        // Once the first byte may have left, the request is never sent again: undici fails the request that was running
+        // when its socket dies (`client-h1.js` `onHttpSocketClose`) and re-queues only those not yet written. A write
+        // error, wherever in the head, the body or the final flush, is therefore the request's error.
+        let answered = tokio::time::timeout(HEADERS_TIMEOUT, conn.exchange(&head, &request.body, &request.method, close)).await;
+        let (response, written) = match answered {
             Err(_) => {
                 let error = timed_out("UND_ERR_HEADERS_TIMEOUT", "Headers Timeout Error", DeliveryState::Ambiguous, surface);
                 return Err(Failure { error, replay: false });
             }
-            Ok(Err(e)) => return Err(Failure { error: chain_error(&e, DeliveryState::Ambiguous, surface), replay: false }),
-            Ok(Ok(response)) => response,
+            Ok(h1::Exchange::NotWritten(e)) => return Err(Failure { error: io_error(&e, false, DeliveryState::Ambiguous, surface), replay: false }),
+            Ok(h1::Exchange::Unanswered(e)) => return Err(Failure { error: chain_error(&e, DeliveryState::Ambiguous, surface), replay: false }),
+            Ok(h1::Exchange::Answered { response, written }) => (response, written),
         };
         let (parts, incoming) = response.into_parts();
         // llhttp refuses a response that frames its body twice (`HPE_UNEXPECTED_CONTENT_LENGTH`); hyper would read it
@@ -512,7 +546,7 @@ impl NodeClient {
         let ttl = hint.map_or(KEEP_ALIVE, |h| h.saturating_sub(KEEP_ALIVE_THRESHOLD).min(KEEP_ALIVE_MAX));
         let bodiless = request.method == "HEAD" || matches!(status, 204 | 304);
         let decoder = if bodiless { None } else { Decoder::of(find("content-encoding")) };
-        let reuse = (!close && !server_closes).then(|| Reuse { pool: self.pool.clone(), key: key.to_owned(), ttl });
+        let reuse = (!close && !server_closes && written).then(|| Reuse { pool: self.pool.clone(), key: key.to_owned(), ttl });
         Ok(HttpResponse { status, headers, body: Box::new(H1Body::new(incoming, conn, decoder, reuse)) })
     }
 
@@ -527,6 +561,8 @@ impl NodeClient {
         writer: Writer,
         surface: Surface,
     ) -> Result<HttpResponse, Failure> {
+        // The connection is idle again when this stream and every other has ended (`H2Body` holds the guard).
+        let guard = self.pool.h2_open(key, id);
         // A connection that errs is no longer offered to the next request.
         let failed = |e: &h2::Error, replay: bool| {
             self.pool.remove_h2(key, id);
@@ -571,13 +607,14 @@ impl NodeClient {
             .collect();
         let bodiless = request.method == "HEAD" || matches!(status, 204 | 304);
         let decoder = if bodiless { None } else { Decoder::of(list.iter().find(|(n, _)| n == "content-encoding").map(|(_, v)| v.as_str())) };
-        Ok(HttpResponse { status, headers: list, body: Box::new(H2Body { stream: response.into_body(), decoder }) })
+        Ok(HttpResponse { status, headers: list, body: Box::new(H2Body { stream: response.into_body(), decoder, _guard: guard }) })
     }
 }
 
 struct H2Body {
     stream: h2::RecvStream,
     decoder: Option<Decoder>,
+    _guard: pool::H2Guard,
 }
 
 #[async_trait]

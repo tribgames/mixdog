@@ -3822,6 +3822,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonschema",
+ "mixdog-ai",
  "mixdog-core-api",
  "mixdog-js",
  "mixdog-protocol",
