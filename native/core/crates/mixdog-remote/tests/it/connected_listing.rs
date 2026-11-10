@@ -111,12 +111,18 @@ async fn connected_turns_true_after_a_client_listing_and_a_failed_first_one_is_r
     });
     let second = asked.recv().await.expect("the next ask lists again");
     assert_ne!(second["requestId"], first["requestId"]);
-    answer.send(json!({ "type": "clients-list", "requestId": second["requestId"], "clients": [] })).unwrap();
+    let paired = json!({ "id": "0123456789abcdef0123456789abcdef", "name": "Pixel 9 · Mixdog App", "browser": "Mixdog App", "createdAt": 5, "online": true });
+    answer.send(json!({ "type": "clients-list", "requestId": second["requestId"], "clients": [paired] })).unwrap();
     asking.await.unwrap();
     loop {
         if runtime.section_value().info["connected"] == json!(true) {
             break;
         }
         wake.0.notified().await;
-    }    runtime.close().await;
+    }
+    // The section names the devices that listing reported, as soon as it answered, online as the relay said.
+    let section = runtime.section_value();
+    let listed: Vec<(&Value, &Value)> = section.clients.iter().map(|client| (&client["id"], &client["online"])).collect();
+    assert_eq!(listed, [(&paired["id"], &json!(true))]);
+    runtime.close().await;
 }

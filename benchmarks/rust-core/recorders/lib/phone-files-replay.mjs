@@ -36,11 +36,115 @@ function differences(a, b, path = '') {
 }
 
 /** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
-export function killTree(child) {
-  spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
+export async function killTree(child) {
+  const gone = () => child.exitCode !== null || child.signalCode !== null;
+  if (gone()) return;
+  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+  if (ended.error) throw new Error(`taskkill of the core's tree (pid ${child.pid}) did not finish within 60 s: ${ended.error.message}`);
+  // 128: no such process (it ended between the look above and the kill).
+  if (ended.status !== 0 && ended.status !== 128 && !gone()) {
+    throw new Error(`taskkill of the core's tree (pid ${child.pid}) failed (exit ${ended.status}): ${(ended.stderr || ended.stdout).trim()}`);
+  }
+  await exitWithin(child, 60_000, `the core (pid ${child.pid}), ended with taskkill`);
 }
 
-export async function startCore(exe, coreRoot, relay, fresh = true) {
+/** Resolves when `child` has exited; fails with a message naming `what` after `ms`. */
+export const exitWithin = (child, ms, what) =>
+  child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${what} did not exit within ${ms} ms`)), ms);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+
+/** How long one call to a core (a connection, a request) may take before the replay fails instead of waiting. */
+export const CALL_DEADLINE_MS = 60_000;
+
+/** A call's deadline passed: the replay fails with it, it is never recorded as the call's answer. */
+export class NoAnswer extends Error {}
+
+/** `promise`, or a failure (`NoAnswer`) naming `what` (the method called) once `ms` have passed without its answer. */
+export function answered(what, promise, ms = CALL_DEADLINE_MS) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new NoAnswer(`${what}: no answer from the core within ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/** A Windows job, closed when its last handle closes, that ends every process in it (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0x2000). */
+const JOB = `
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class ReplayJob {
+  [StructLayout(LayoutKind.Sequential)] struct Basic { public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags; public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass; }
+  [StructLayout(LayoutKind.Sequential)] struct Io { public ulong Reads, Writes, Others, ReadBytes, WriteBytes, OtherBytes; }
+  [StructLayout(LayoutKind.Sequential)] struct Extended { public Basic Limits; public Io Counters; public UIntPtr ProcessMemoryLimit; public UIntPtr JobMemoryLimit; public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed; }
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateJobObjectW(IntPtr attributes, IntPtr name);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref Extended info, int length);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+  static IntPtr held;
+  public static void Confine(int pid) {
+    IntPtr job = CreateJobObjectW(IntPtr.Zero, IntPtr.Zero);
+    if (job == IntPtr.Zero) throw new Win32Exception();
+    Extended info = new Extended();
+    info.Limits.LimitFlags = 0x2000;
+    if (!SetInformationJobObject(job, 9, ref info, Marshal.SizeOf(typeof(Extended)))) throw new Win32Exception();
+    IntPtr process = OpenProcess(0x0101, false, pid);
+    if (process == IntPtr.Zero || !AssignProcessToJobObject(job, process)) throw new Win32Exception();
+    held = job;
+  }
+}`;
+
+let confined = null;
+
+/** Puts this replay's own process into a job that ends with it, so every core it starts afterwards (and the database each starts) is in
+ *  the job too and cannot outlive the replay, however the replay ends: a Ctrl-C, a caller's timeout ending its process, a crash. The
+ *  job's one handle is held by a PowerShell started first (so outside the job), which exits when its stdin, a pipe from this process,
+ *  closes: when this process ends for any reason, the handle closes and Windows ends every process left in the job. Node's own job
+ *  (libuv src/win/process.c `uv__init_global_job_handle`) ends only this process's direct children: it allows silent breakaway, so what
+ *  they start (the core's database, the crashed core's survivors) outlives it; this job allows none. Neither mixdogd nor pg_ctl starts a
+ *  process with CREATE_BREAKAWAY_FROM_JOB. The replay runs only on Windows (taskkill, PowerShell, pg_ctl.exe), so there is no other
+ *  system to hold this on. */
+function confineToReplay() {
+  confined ??= new Promise((resolve, reject) => {
+    const script = `$ErrorActionPreference = 'Stop'\nAdd-Type -TypeDefinition @'\n${JOB}\n'@\n[ReplayJob]::Confine(${process.pid})\n[Console]::Out.WriteLine('confined')\n[Console]::Out.Flush()\n[void][Console]::In.ReadToEnd()\n`;
+    const guard = spawn('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => fail(new Error(`the replay's job was not set up within 60 s:\n${err}`)), 60_000);
+    const fail = (error) => {
+      clearTimeout(timer);
+      guard.kill();
+      reject(error);
+    };
+    guard.stderr.on('data', (chunk) => (err += chunk));
+    guard.once('error', (error) => fail(new Error(`the replay's job guard did not start: ${error.message}`)));
+    guard.once('exit', (code) => fail(new Error(`the replay's job guard exited ${code} before it held the job:\n${err}`)));
+    guard.stdout.on('data', (chunk) => {
+      out += chunk;
+      if (!out.includes('confined')) return;
+      clearTimeout(timer);
+      guard.removeAllListeners('exit');
+      // Held for the life of this process, which it must not keep alive.
+      guard.unref();
+      for (const stream of [guard.stdin, guard.stdout, guard.stderr]) stream.unref();
+      resolve();
+    });
+  });
+  return confined;
+}
+
+/** How long a core may take to write its discovery file (its own start deadlines, the database's 30 s among them, are inside it). */
+const START_DEADLINE_MS = 120_000;
+
+export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {}) {
+  await confineToReplay();
   if (fresh) rmSync(coreRoot, { recursive: true, force: true });
   rmSync(join(coreRoot, 'runtime', 'daemon.json'), { force: true });
   for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(coreRoot, dir), { recursive: true });
@@ -53,6 +157,7 @@ export async function startCore(exe, coreRoot, relay, fresh = true) {
     MIXDOG_CONFIG_DIR: join(coreRoot, 'config'),
     MIXDOG_FIXED_NOW_MS: String(FIXED_NOW_MS),
     ...(relay ? { MIXDOG_RELAY_URL: `ws://127.0.0.1:${relay.port}` } : {}),
+    ...extraEnv,
   });
   // An install that has used remote access before: the core dials its relay at start.
   if (relay) writeFileSync(join(coreRoot, 'data', 'remote-activated.json'), '{"activatedAt":1}');
@@ -64,39 +169,52 @@ export async function startCore(exe, coreRoot, relay, fresh = true) {
   let stderr = '';
   child.stderr.on('data', (chunk) => (stderr += chunk));
   // The core is up when it has written its discovery file. The watch is registered before the first look, so a write between the look and
-  // the wait still wakes it; the wait ends on the directory's change or on the child's exit, never on a timer.
+  // the wait still wakes it; the wait ends on the directory's change, on the child's exit, or at the start deadline, which fails it.
   const dir = join(coreRoot, 'runtime');
   const file = join(dir, 'daemon.json');
   let stirred = false;
+  let late = false;
   let wake = null;
   const stir = () => {
     stirred = true;
     wake?.();
   };
-  const watcher = watch(dir, stir);
-  child.once('exit', stir);
+  let watcher = null;
+  let deadline = null;
+  // Owned from the spawn: a throw from here on (the watch included) ends the child.
   try {
+    watcher = watch(dir, stir);
+    child.once('exit', stir);
+    deadline = setTimeout(() => {
+      late = true;
+      stir();
+    }, START_DEADLINE_MS);
     for (;;) {
       stirred = false;
       if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
       try {
         return { child, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
       } catch {
+        if (late) throw new Error(`mixdogd did not write its discovery file ${file} within ${START_DEADLINE_MS / 1000} s:\n${stderr}`);
         if (!stirred) await new Promise((resolve) => (wake = resolve));
       }
     }
   } catch (error) {
-    killTree(child);
+    // What could not be ended is reported with the start's own failure, not waited for.
+    await killTree(child).catch((ending) => {
+      error.message += `\nand ending it failed: ${ending.message}`;
+    });
     throw error;
   } finally {
-    watcher.close();
+    clearTimeout(deadline);
+    watcher?.close();
   }
 }
 
 /** The PC's window: a second connection that claims the host role and answers what the core asks of it. */
 async function openWindow(connect, base) {
   const asked = [];
-  const client = await connect({
+  const client = await answered('the window\'s connection (initialize)', connect({
     ...base,
     clientInfo: { ...base.clientInfo, name: 'mixdog-replay-window', kind: 'desktop' },
     capabilities: {
@@ -104,7 +222,7 @@ async function openWindow(connect, base) {
       experimentalApi: false,
       host: { browser: false, visualize: false, notifications: false, systemProxy: false, power: false, media: false, updater: false, files: true },
     },
-  });
+  }));
   const served = {
     'host/capture/fileSnapshot': (p) => ['captureFileSnapshot', [p.root, p.rel, p.grant === true]],
     'host/localPage/url': (p) => ['localPageUrl', [p.root, p.rel, p.scope === 'file' ? 'file' : 'project']],
@@ -124,7 +242,7 @@ async function openWindow(connect, base) {
       client.respond(id, { error: { code: -32000, message: error.message } });
     }
   });
-  await client.call('host/claim', { hostId: 'replay-window' });
+  await answered('host/claim', client.call('host/claim', { hostId: 'replay-window' }));
   return { client, asked };
 }
 
@@ -154,11 +272,11 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
     };
     let phoneConnector = base.connector;
     if (relay) {
-      await relay.leg();
+      await answered("the core's relay leg", relay.leg());
       const { relayE2EEPairingMaterial } = await here('apps/desktop/src/shared/remote-e2ee.ts');
-      phoneConnector = await relay.openPhone('client-files', PHONE_ID, relayE2EEPairingMaterial(JSON.parse(readFileSync(join(core.dataDir, 'relay-e2ee.json'), 'utf8'))));
+      phoneConnector = await answered("the paired phone's relay connection", relay.openPhone('client-files', PHONE_ID, relayE2EEPairingMaterial(JSON.parse(readFileSync(join(core.dataDir, 'relay-e2ee.json'), 'utf8')))));
     }
-    client = await connect({ ...base, connector: phoneConnector });
+    client = await answered("the phone's connection (initialize)", connect({ ...base, connector: phoneConnector }));
     const host = { ctx: relay ? { browserId: PHONE_ID } : {}, client: () => client, declareLane() {} };
     // The phone's own entry: every call goes through the router, which queues it (remote-protocol-queue.ts) as it does for every adapter.
     // The router arms a per-call deadline on the page's window timers; the replay compares answers, so its window never fires one.
@@ -174,9 +292,13 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         window?.asked.splice(0);
         let frame;
         try {
-          const value = await router.call(name, params);
+          // The page's own arguments: what the relay's JSON turned into null is undefined on the page (an argument the app left out);
+          // the router hands it to the adapter as Node's PC received it.
+          // The router's own per-call deadline runs on the stubbed window timers above; this one is real.
+          const value = await answered(name, router.call(name, params.map((value) => (value === null ? undefined : value))));
           frame = { ok: true, value: value === undefined ? null : clone(value) };
         } catch (error) {
+          if (error instanceof NoAnswer) throw error;
           frame = { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) };
         }
         return { frame, hostCalls: window ? window.asked.splice(0) : [] };
@@ -186,16 +308,16 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         if (relay || window) throw new Error('restart is replayed on a loopback phone with no window');
         client.close?.();
         // A stop the app itself performs (its own quit): the memory database shuts down cleanly, so the next start does not run crash recovery.
-        const { execFileSync } = await import('node:child_process');
-        const exited = new Promise((resolve) => core.child.once('exit', resolve));
-        execFileSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+        const exited = exitWithin(core.child, 120_000, `the core (pid ${core.child.pid}) asked to stop`);
+        const stopped = spawnSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env: core.env, encoding: 'utf8', timeout: 60_000, windowsHide: true });
+        if (stopped.error || stopped.status !== 0) throw new Error(`mixdogd ctl stop failed: ${stopped.error?.message ?? `exit ${stopped.status}: ${stopped.stderr}`}`);
         await exited;
         Object.assign(core, await startCore(exe, coreRoot, relay, false));
         base.connector = createWsConnector(async () => core.endpoint);
-        client = await connect({ ...base, connector: base.connector });
+        client = await answered("the phone's connection after the restart (initialize)", connect({ ...base, connector: base.connector }));
       },
       // The one-file permission a paired phone holds for a path outside every project (`transfer/grant/mint`, relay origin).
-      grant: async (path) => (await client.call('transfer/grant/mint', { path })).accessToken,
+      grant: async (path) => (await answered('transfer/grant/mint', client.call('transfer/grant/mint', { path }))).accessToken,
       host: async (on) => {
         if (on && !window) window = await openWindow(connect, base);
         if (!on && window) {
@@ -235,7 +357,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
     const filesUnder = (dir) => (existsSync(dir) ? treeOf(dir).filter((row) => !row.dir) : []);
     const tree = treeOf(world.root, (rel) => rel.startsWith('userdata'));
     if (!isDeepStrictEqual(tree, expected.finalTree)) unexpected.push({ step: 'finalTree', paths: differences(expected.finalTree, tree), node: expected.finalTree, core: tree });
-    const rows = (await client.call('project/list', {})).projects;
+    const rows = (await answered('project/list', client.call('project/list', {}))).projects;
     const db = new DatabaseSync(join(core.dataDir, 'state', 'core.sqlite'), { readOnly: true });
     const stored = db.prepare('SELECT path, alias, hidden FROM projects ORDER BY hidden_rank, path').all();
     db.close();
@@ -269,7 +391,8 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   } finally {
     client?.close?.();
     window?.client.close?.();
-    killTree(core.child);
+    // A core that cannot be ended fails the replay with its pid instead of holding it.
+    await killTree(core.child);
   }
 }
 

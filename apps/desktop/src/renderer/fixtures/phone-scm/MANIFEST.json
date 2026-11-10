@@ -1,7 +1,7 @@
 {
   "calls": 62,
-  "cases": 550,
-  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "cases": 554,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch applied, with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
   "entry": {
     "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
     "featureGit": "MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)",
@@ -22,9 +22,9 @@
       "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
     },
     {
-      "bytes": 1849942,
+      "bytes": 1885004,
       "path": "golden.json",
-      "sha256": "11424b0de9c72b93b96f10a22bbaa8bec2c8f2f28cf2ebbebbf8f3303cb14503"
+      "sha256": "4a8be0ef640c80a4e2565df823d18495fdaba309a506a2dc1476ed9d935b98b9"
     }
   ],
   "groups": {
@@ -33,11 +33,11 @@
       "what": "status, diff, staging, commits, branches, tags, stash, the remote and the ordering scenario (sections 1-5, 11)"
     },
     "github": {
-      "cases": 97,
+      "cases": 98,
       "what": "the GitHub CLI, its sign-in, pull requests and githubRequest (sections 6-8)"
     },
     "input": {
-      "cases": 262,
+      "cases": 265,
       "what": "the argument checks (section 0)"
     },
     "runner": {
@@ -57,16 +57,25 @@
     "scratchIndex": "A comparison rule, applied to both sides: the GIT_INDEX_FILE a commit gives its git children names a scratch folder `mixdog-commit-<pid>-<suffix>`, which is compared as `mixdog-commit-*`. Node makes the folder with mkdtemp (apps/desktop/src/main/git-commit-transaction.ts:1203), which appends six random characters to the prefix that holds its pid, so the name differs between any two runs, of Node as of the core; the rest of the path and every other variable are compared as recorded."
   },
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "appsSha256": "841fa7c35d344615b8c4d139f864e24916cc50a69a289456cc94232a23d2c85d",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9139,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
+      "paths": [
+        "apps/desktop/src/main/remote-methods-optional-args.test.mjs",
+        "apps/desktop/src/main/remote-methods.ts"
+      ],
+      "sha256": "65b71087d1e63e4a62f4285f746d0a75ddf25feec6f98d7e9e5d3ef9b306a923"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 2
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -77,11 +86,11 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
-      "sha256": "19466069624201a189b483a195e3da0b5f739126ccc26d7d738142cd2f649d5c"
+      "sha256": "e531f2998846b2722f622dcba64f82576450facea00204bfc1eab02fff8bcf99"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-scm-world.mjs",
@@ -776,5 +785,5 @@
       }
     ]
   },
-  "totalBytes": 1875423
+  "totalBytes": 1910485
 }

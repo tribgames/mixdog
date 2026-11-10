@@ -109,11 +109,12 @@ const LLM_TITLE_LOG: &str = "llm-title.log";
 const UNCLASSIFIED_WORKSPACE: &str = "workspace/unclassified";
 /// Whole directories that are re-created by the core: every file in them retires.
 const RETIRED_TREES: &[&str] = &[
-    "new-task-receipts",
     "document-previews",
     "document-preview-pages",
     "shell-integration",
 ];
+const RECEIPTS_DIR: &str = "new-task-receipts";
+const RECEIPTS_TARGET: &str = "userdata/new-task-receipts";
 const BRIDGES_DIR: &str = "bridges";
 const BRIDGE_SUFFIX: &str = "-bridge.json";
 
@@ -194,6 +195,14 @@ fn is_editor_temp(kind: ItemKind, name: &str) -> bool {
         ItemKind::EditorRecovery => crate::temp_files::is_recovery_state(name),
         _ => false,
     }
+}
+
+/// Whether `relative` (under `new-task-receipts/`) is a receipt the core reads: named for the sha256 of a submission id, and of the
+/// shape Node's `readReceipt` accepts.
+fn is_receipt(profile: &Path, relative: &str) -> bool {
+    let name = relative.strip_prefix(RECEIPTS_DIR).and_then(|rest| rest.strip_prefix('/')).unwrap_or_default();
+    let named = name.strip_suffix(".json").is_some_and(|key| key.len() == 64 && key.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')));
+    named && std::fs::read(resolve(profile, relative)).is_ok_and(|bytes| mixdog_statefile::new_task_receipt::Receipt::parse(&bytes).is_some())
 }
 
 /// Whether the desktop's reader accepts `file` (it parses and passes the check).
@@ -289,6 +298,20 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
                 path: target.to_owned(),
             };
             items.push(kind_item(kind, Contract::Preserve, files, Some(target))?);
+        }
+    }
+
+    // The receipts of new tasks keep their names and bytes: the core answers a retried request from the receipt Node wrote, where
+    // with it retired the request would submit its prompt again into the session Node's address already holds. A file that is no
+    // receipt binds nothing (`readReceipt`), so it goes with the temps of the atomic writer.
+    {
+        debug_assert_eq!(preserve::source_dir(ItemKind::NewTaskReceipts), Some(RECEIPTS_DIR));
+        let (receipts, strays): (Vec<String>, Vec<String>) = files_under(profile, RECEIPTS_DIR)?.into_iter().partition(|path| is_receipt(profile, path));
+        retired.extend(sources(profile, sink, &strays, true)?);
+        let files = sources(profile, sink, &receipts, true)?;
+        if !files.is_empty() {
+            let target = Target::File { root: Root::Data, path: RECEIPTS_TARGET.to_owned() };
+            items.push(kind_item(ItemKind::NewTaskReceipts, Contract::Preserve, files, Some(target))?);
         }
     }
 

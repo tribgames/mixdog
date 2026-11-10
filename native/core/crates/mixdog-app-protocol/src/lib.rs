@@ -23,6 +23,7 @@ pub mod media;
 pub mod mgmt;
 pub mod methods;
 pub mod notifications;
+pub mod remote_flags;
 pub mod rpc;
 pub mod server_requests;
 pub mod v1;

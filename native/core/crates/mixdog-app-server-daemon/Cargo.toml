@@ -12,6 +12,7 @@ workspace = true
 terminal-lease-clock = ["mixdog-spawn/lease-clock"]
 # Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
 replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls"]
+crash-gates = ["mixdog-core-session/crash-gates"]
 
 [dependencies]
 mixdog-app-protocol = { workspace = true }
@@ -65,6 +66,7 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "signal", "rt", "time"] }
 tracing = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
@@ -96,7 +98,7 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 # The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
-mixdog-core-session = { workspace = true, features = ["test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 # The replay of Node's review-signal recording (`compose::review_restart_tests`).
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).

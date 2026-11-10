@@ -5,7 +5,6 @@
 //
 // Expected values are Node's, with one rule applied: under the decision of decisions.md "frame-lone-surrogate" (a), the core reads an
 // unpaired surrogate escape as U+FFFD, so a lone code unit Node echoed back is expected as U+FFFD (`String.prototype.toWellFormed`).
-import { once } from 'node:events';
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -195,9 +194,8 @@ export async function replay({ exe, golden, only }) {
     return unexpected.length ? 1 : 0;
   } finally {
     for (const client of clients) client.close?.();
-    const exited = core.child.exitCode !== null || core.child.signalCode !== null ? Promise.resolve() : once(core.child, 'exit');
-    killTree(core.child);
-    await within(exited, 'the core exiting');
+    // killTree waits, with its own deadline and message, for the core to exit.
+    await killTree(core.child);
     relay.close();
     rmSync(WORLDS, { recursive: true, force: true });
   }

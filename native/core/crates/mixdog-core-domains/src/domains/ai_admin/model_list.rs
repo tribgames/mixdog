@@ -125,6 +125,12 @@ impl CacheState {
     }
 }
 
+/// `adoptProviderModelCache` caches a complete or partial answer only: a load where every provider failed stays
+/// uncached and retryable.
+fn answered(snapshot: &CatalogSnapshot) -> bool {
+    snapshot.complete() || snapshot.partial()
+}
+
 /// The loaded config's agent section and its providers.
 pub struct Loaded {
     pub agent: Obj,
@@ -190,6 +196,12 @@ impl ListHost {
         let mut cache = self.cache();
         cache.sync(self.readiness.catalog_revision());
         cache.loaded
+    }
+
+    /// `Array.isArray(caches.providerModelsCache.models)` as it stands, without syncing the revision.
+    #[cfg(test)]
+    pub(super) fn held(&self) -> bool {
+        self.cache().loaded
     }
 
     /// The sequence a load starts under, the revision synced first.
@@ -302,7 +314,7 @@ impl ListHost {
     /// (`ownsLoad`); one an invalidation superseded during the preparation keeps `started`, and `adopt` refuses it.
     /// `false`: no provider is enabled, nothing was loaded.
     async fn run_load(&self, catalog: &CatalogService, load_secrets: bool, started: u64) -> Result<bool, String> {
-        if !self.prepare(load_secrets).await? {
+        if !self.prepare(load_secrets, true).await? {
             return Ok(false);
         }
         let (loaded, seq) = self.claim(started);
@@ -312,7 +324,7 @@ impl ListHost {
                 remember_loaded_rows(catalog);
             }
         }
-        if load_secrets {
+        if load_secrets && answered(&catalog.snapshot()) {
             self.adopt(seq);
         }
         Ok(true)
@@ -338,13 +350,19 @@ impl ListHost {
     /// (`config().providers`, which the config sync keeps current: the readiness holds it) and reads no secret.
     /// `false`: no provider is enabled, a fresh install has nothing to load (the registry refuses an all-disabled init
     /// by design).
-    async fn prepare(&self, load_secrets: bool) -> Result<bool, String> {
+    /// A non-forced load (`join`) then waits for the startup catalog refresh of the current epoch and its completion
+    /// (`await reg().refreshProviderCatalogsOnStartup()`), so it never snapshots a catalog that refresh then drops.
+    async fn prepare(&self, load_secrets: bool, join: bool) -> Result<bool, String> {
         let providers = if load_secrets { Some(self.loaded().await?.providers) } else { None };
         match self.readiness.ensure_providers_ready(providers).await {
-            Ok(_) => Ok(true),
-            Err(error) if error.code == Some(NO_ENABLED_PROVIDERS) => Ok(false),
-            Err(error) => Err(error.message),
+            Ok(()) => {}
+            Err(error) if error.code == Some(NO_ENABLED_PROVIDERS) => return Ok(false),
+            Err(error) => return Err(error.message),
         }
+        if join {
+            self.readiness.join_startup_refresh().await;
+        }
+        Ok(true)
     }
 }
 /// The facts row hydration reads, over the catalog and the effort modules.
@@ -431,10 +449,21 @@ impl ModelListService {
 
     /// The authoritative load ran (`providerModelsCache.models` is an array). A refresh with no source
     /// publishes a new generation too, so the snapshot cannot say whether the providers were ever asked.
+    /// A load where every listed provider failed stays uncached and retryable (`adoptProviderModelCache`
+    /// adopts only a complete or partial answer).
     fn adopt(&self, seq: Option<u64>) {
+        if !answered(&self.catalog.snapshot()) {
+            return;
+        }
         if let (Some(host), Some(seq)) = (&self.host, seq) {
             host.adopt(seq);
         }
+    }
+
+    /// `Array.isArray(caches.providerModelsCache.models)` without `syncCatalogRevision()` (a host's cache only).
+    #[cfg(test)]
+    pub(super) fn cache_held(&self) -> bool {
+        self.host.as_ref().is_some_and(|host| host.held())
     }
 
     /// `Array.isArray(caches.providerModelsCache.models)` after `syncCatalogRevision()`. A host without a
@@ -502,7 +531,7 @@ impl ModelListService {
                 }
             }
             Some(host) => {
-                if !host.prepare(true).await? {
+                if !host.prepare(true, false).await? {
                     return Ok(Vec::new());
                 }
                 self.ready(force, provider).await;

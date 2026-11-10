@@ -1,0 +1,126 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-new-task-quit.mjs --tree <exact export of b6f10295a with node_modules>",
+  "comparison": {
+    "method": "each case whole: every recorded step, the core side built as `translated` states",
+    "normalised": {
+      "fresh session address": "numbered `<fresh:N>` by first appearance in the case on both sides",
+      "key order": "objects without regard to key order; arrays in order",
+      "recorded[].stored": "a set of ids, sorted once the addresses are numbered (sorted by raw id its order would follow the random addresses)"
+    },
+    "notRecorded": {
+      "recorded[].reply.snapshot": "the session snapshot Node's answer carries (session-host-lifecycle.ts:922,951); its workflow and orchestration mode are recorded as `settings`. The core's answer carries no snapshot (its session state travels on the subscription's feed)"
+    },
+    "translated": {
+      "recorded[0].reply (a held case)": "the interrupted request's answer: Node's is the app's own client's rejection of its pending call when the quit disposes it (desktop-service-client.ts:1065-1080 `rejectPending`, `Mixdog desktop service client is disposed.`); no daemon answers it. Both sides are `{ok: false, unanswered: true}` when no answer reached the caller before its connection closed (the core's answer after that is the protocol client's own rejection)",
+      "recorded[].listed": "the ids the app lists while the attempt is held: Node's `listSessions` (host), the core's `thread/list`",
+      "recorded[].receipts": "the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1)",
+      "recorded[].reply": "an answer through the desktop's service lane (service-route.ts: `thread/start`), the core's translated as the new-task-dedupe replay's (`thread.id` is `sessionId`, `accepted: true`, less its `coreNotCompared` paths); a rejection is its message and every own field of the error",
+      "recorded[].settings": "the workflow and orchestration mode of the accepted task: Node's from the answer's snapshot (`workflow`, `orchestrationMode`), the core's from the thread's `thread/workflow/updated` section after its first turn",
+      "recorded[].stop": "Node's `stopInTreeDaemon` outcome `{stopped, request}`; the core's is its exit after `mixdogd ctl stop --when-idle --reason userStop` (the stop request that does not wait for a new task, as Node's `/stop {force:true}`), the replay failing when it does not exit",
+      "recorded[].stored": "the sessions stored after the step, by id: Node's `<data>/sessions/<id>.log.jsonl`, the core's `<data>/sessions/<id>` that `thread/items/list` reads"
+    }
+  },
+  "desktopService": {
+    "module": "daemon.cjs built from the export by apps/desktop/scripts/build-daemon.mjs (its scripts/ and package-lock.json taken from the commit with git archive); the daemon loads it as the app names it (index.ts:467-485, desktop-service-registry.mjs:111-205)",
+    "sha256": "cf7392ea15805c5053f9dd6e834193fef3f25cae1d9057adb35ec4544846e2b6"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7219,
+      "path": "golden.json",
+      "sha256": "eb26f284cce60ca3671bc064f7c958c62097e23fce85b4ec1f6763e17db4421a"
+    }
+  ],
+  "processes": "each case runs in a Windows job of its own (lib/process-job.mjs): every process it starts is ended with it, and a case that leaves one running fails; the daemon's memory runtime is not started (MIXDOG_DAEMON_SKIP_MEMORY=1, daemon.mjs:215-218): no recorded step reaches memory",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "quit": {
+    "heldCallReleased": "once the daemon answered the stop request: the held call settles while the daemon shuts down (the session service is closed first, session-service.mjs:257; the host is disposed, session-host.ts:1208-1229)",
+    "notHeld": "create, setWorkflow and setOrchestrationMode wait on nothing outside the daemon (cases.mjs): a quit there is the kill at that point",
+    "outstandingAtExit": "Node's other outcome, the call still outstanding at `process.exit` (daemon.mjs:412): nothing rejects it (the in-process bridge rejects only on an abort signal, daemon-local-session-bridge.mjs:32-51, and the host passes none, session-host-transport.ts:202), so the attempt ends where it stands, as a kill does there: the new-task-dedupe set's `crash` scenarios record that state, and both exist for that reason",
+    "sequence": "the app's own (index.ts:1634-1725 disposeDesktopResources): the carriers and the local connection are detached first (index.ts:1662-1665, 1684-1685; desktop-connection.ts:513-523 `client.dispose()`, which rejects the app's pending calls with `Mixdog desktop service client is disposed.`), then `transport.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS)` (index.ts:1710-1712) sends `POST /stop {force:true}` (session-client.mjs:667-707) to the daemon this process forked into its tree (`process.type` browser on win32, session-client.mjs:59-63); the route answers, then raises SIGTERM (routes.mjs:200-209, 40-43) and the daemon's `shutdown` runs to `process.exit` (daemon.mjs:272-413) without `drainDeferral` (consulted by the self-shutdown only, daemon.mjs:506-566)"
+  },
+  "random": {
+    "casesWhereTheTwoRunsDiffered": [
+      "quit-in-set-route",
+      "quit-in-request-worktree"
+    ],
+    "fresh session address": "a session address after a refusal reset is `sess_desktop_` + 32 random bytes in hex (freshSessionId, new-task-requests.ts:85); numbered `<fresh:N>` by first appearance in a case"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-new-task-quit.mjs",
+  "recording": {
+    "node": "v22.20.0",
+    "scripts": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+        "sha256": "bd6ee0cdc164ed875474cb2a112c6da86a272d7776b55f5669f7044a2f69625b"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+        "sha256": "a21b148d3a3a470fd272151149aa40ffc9805641d802bd66c54b0e02d4fd2cf8"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+        "sha256": "9b5e2b8d2d54770720acd87534d60f623472f2060b88cab56c8543dfbe0f457c"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+        "sha256": "fa3050809ac5062841f34949b691f887f45c4099962d9f1c47197d0450b411bf"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/recording-scripts.mjs",
+        "sha256": "93cdc7eb433a476fd68a231b37ed9b138d9c87923cacb125bd6161fba6fa682d"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs",
+        "sha256": "1cbc436a9e9e2fdd168f4cb25f898368369e673abad8c94564122d21cacd575c"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs",
+        "sha256": "1f016f7f06e363cb56090adb234223128e67d40aa23bdeec9fa32d663e43f618"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/cases.mjs",
+        "sha256": "591cb74a3ba5dd6a1d1f9bd01b78316e4d89980d3130b5fb45c4c062e7528d23"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/git-shim.cs",
+        "sha256": "b4d68635c304a5116091b8e16996b01a3baa3c677fa394de8103a9ebcc1b49f6"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/replay.mjs",
+        "sha256": "43a43f99c34af4e39bf823091ec45fca19c451e52b9ca5e8e1775d6f341bc834"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-quit/world.mjs",
+        "sha256": "dff0e06e15bfe63f4d1796d4d35720e6323004c81f7d361aa237b7b4ef1807f5"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/record-new-task-quit.mjs",
+        "sha256": "f8b3aea4bae79bae4dd69d8667efbd2846798d421e39610a64f79474ed989068"
+      }
+    ]
+  },
+  "set": "new-task-quit",
+  "totalBytes": 7219
+}

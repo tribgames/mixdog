@@ -104,6 +104,12 @@ impl SessionHandle {
         &self.cell.stepped
     }
 
+    /// The actor's `turn_busy()` after its last step: a next turn is queued while it holds.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn turn_busy(&self) -> bool {
+        self.cell.busy.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn closing(&self) -> CoreError {
         CoreError::ThreadClosing {
             thread_id: self.id.clone(),
@@ -676,6 +682,16 @@ impl RunControl for SessionHandle {
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         self.cell.decide(decision)
+    }
+}
+
+impl SessionHandle {
+    /// [`RunControl::decide`] whose caller is told whether its decision resolved the request (`ControlCell::decide_arbitrated`): the
+    /// answer of a phone notification's button and of a room, which Node gave only after the session's serialized resolution.
+    pub(crate) async fn decide_arbitrated(&self, decision: Decision) -> Result<bool, CoreError> {
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
+        self.cell.decide_arbitrated(decision).await
     }
 }
 
