@@ -64,9 +64,10 @@ async fn a_relay_call_may_not_turn_on_allow_all_actions() {
         let answer = settings_call(&settings, "config/setDeveloperOption", &params, true).await;
         let frame = &step["frame"];
         if frame["ok"] == true {
-            if let Err(CoreError::DomainError { message, .. }) = &answer {
-                assert!(!message.as_deref().unwrap_or_default().contains("over remote access"), "{request}: {message:?}");
-            }
+            // Forwarded by Node, and the recorded value is the recorder's stand-in's: the relay call is answered as the
+            // desktop's is (the same call again: the setter is idempotent).
+            let desktop = settings_call(&settings, "config/setDeveloperOption", &params, false).await;
+            assert_eq!(format!("{answer:?}"), format!("{desktop:?}"), "{request}");
             continue;
         }
         let Err(CoreError::DomainError { code, message, detail, .. }) = answer else { panic!("{request}: {answer:?}") };
