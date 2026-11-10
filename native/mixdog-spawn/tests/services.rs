@@ -12,6 +12,9 @@ use common::*;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
+use mixdog_core_api::domain::process::ProcessEvent;
+use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_protocol::ProcessHandle;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::mock::MockLimits;
@@ -49,17 +52,8 @@ fn scoped() -> Arc<MockScopedFeeds> {
     Arc::new(MockScopedFeeds::new(MockLimits::default()))
 }
 
-/// Returns once `ok` holds. The state read has no event of its own to wait on (a process ending, a sampler thread count), so it is read again
-/// every 10 ms; the deadline turns a state that never comes into a failure that names it.
-async fn until(what: &str, mut ok: impl FnMut() -> bool) {
-    let waited = tokio::time::timeout(Duration::from_secs(60), async {
-        while !ok() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await;
-    assert!(waited.is_ok(), "never happened within 60 s: {what}");
-}
+/// How long a wait for an event of the product may take before it is a failure that names what was awaited.
+const EVENT_DEADLINE: Duration = Duration::from_secs(60);
 
 type Published = Vec<(SectionName, Option<String>, SectionChange)>;
 
@@ -113,7 +107,7 @@ impl StatePublisher for SectionLog {
             let hold = self.hold.lock().unwrap().take();
             if let Some((held, open)) = hold {
                 held.send(()).expect("the test waits for the held publication");
-                open.recv_timeout(Duration::from_secs(10)).expect("the test never opened the gate on the held activity publication");
+                open.recv_timeout(EVENT_DEADLINE).expect("the test never opened the gate on the held activity publication");
             }
         }
         self.inner.publish(section, key, change);
@@ -145,11 +139,23 @@ async fn process_spawn_streams_on_a_feed_and_kill_ends_it() {
     let again = json!({ "processHandle": name, "argv": ["x"], "cwd": temp_dir().as_path().to_string_lossy(), "owner": "internal" });
     assert!(service.call(request("process/spawn", again, 1)).await.is_err());
 
+    // The process's end is its exit event, which the manager publishes once it has reaped the process.
+    let mut events = manager.subscribe(&ProcessHandle::from(name.as_str()), None).expect("the running process has events");
     service
         .call(request("process/kill", json!({ "processHandle": name }), 1))
         .await
         .unwrap();
-    until("the killed process to end", || !pid_alive(pid)).await;
+    tokio::time::timeout(EVENT_DEADLINE, async {
+        while let Some(event) = events.next().await {
+            if matches!(event, ProcessEvent::Exited { .. }) {
+                return;
+            }
+        }
+        panic!("the killed process's events ended without its exit");
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the killed process did not exit within {EVENT_DEADLINE:?}"));
+    assert!(!pid_alive(pid), "the process reported its exit but is alive");
     // A malformed request is a typed error, never a panic.
     assert!(service.call(request("process/spawn", json!({}), 1)).await.is_err());
     assert!(service.call(request("process/nope", json!({}), 1)).await.is_err());
@@ -399,7 +405,7 @@ async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
     let (held, open) = publisher.hold_next_activity();
     let mut reply = Box::pin(service.call(request("terminal/dispose", json!({ "tabId": "term_end" }), 1)));
     assert!(poll_once(&mut reply).await.is_pending(), "the dispose was answered while the tab's end was still held back from the phone");
-    held.recv_timeout(Duration::from_secs(10)).expect("the tab's end never reached the publisher");
+    held.recv_timeout(EVENT_DEADLINE).expect("the tab's end never reached the publisher");
     assert!(poll_once(&mut reply).await.is_pending(), "the dispose was answered while the tab's end was still held back from the phone");
     assert_eq!(keys(), ["term_end"], "the tab's end is held, so the phone still sees the tab");
     open.send(()).unwrap();
@@ -537,8 +543,10 @@ async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_runn
 async fn ports_are_sampled_only_while_a_connection_views_them() {
     let reads = Arc::new(AtomicUsize::new(0));
     let counted = Arc::clone(&reads);
+    let (sampled, mut first_sample) = tokio::sync::mpsc::unbounded_channel::<()>();
     let service = SystemService::with_source(scoped(), Duration::from_millis(20), move || {
         counted.fetch_add(1, Ordering::SeqCst);
+        let _ = sampled.send(());
         Ok(vec![ListeningPort { port: 8080, addresses: vec!["127.0.0.1".into()], process: Some("x".into()), pid: Some(1) }])
     });
     assert_eq!(service.sampler_threads(), 0);
@@ -548,7 +556,9 @@ async fn ports_are_sampled_only_while_a_connection_views_them() {
         panic!("system/ports/subscribe answers with a subscription");
     };
     assert_eq!(sub.feed.feed_id().to_string(), "ports");
-    until("the first sample", || reads.load(Ordering::SeqCst) > 0).await;
+    tokio::time::timeout(EVENT_DEADLINE, first_sample.recv())
+        .await
+        .unwrap_or_else(|_| panic!("the sampler read nothing within {EVENT_DEADLINE:?} of the first viewer"));
     assert_eq!(service.sampler_threads(), 1);
 
     // A second viewer shares the one sampler; the first leaving keeps it, the last stops it.
@@ -557,10 +567,11 @@ async fn ports_are_sampled_only_while_a_connection_views_them() {
     service.call(request("system/ports/unsubscribe", json!({}), 7)).await.unwrap();
     assert_eq!(service.sampler_threads(), 1);
     service.connection_closed(ConnectionId(8));
-    until("the sampler to stop", || service.sampler_threads() == 0).await;
-    let settled = reads.load(Ordering::SeqCst);
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(reads.load(Ordering::SeqCst), settled, "no sampling once nobody views");
+    // The sampler thread's end is signalled; once it has ended nothing calls the source again.
+    let waiter = Arc::clone(&service);
+    let stopped = tokio::task::spawn_blocking(move || waiter.wait_samplers_stopped(EVENT_DEADLINE)).await.unwrap();
+    assert!(stopped, "the sampler thread still ran {EVENT_DEADLINE:?} after the last viewer left");
+    assert_eq!(service.sampler_threads(), 0, "no sampling once nobody views");
 }
 
 #[tokio::test(flavor = "multi_thread")]
