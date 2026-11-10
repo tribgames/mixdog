@@ -262,7 +262,8 @@ const errorOf = (e) => ({
   quotaExhausted: e?.quotaExhausted ?? null,
 });
 
-const finalDir = join(FIXTURES_ROOT, 'providers', 'gateways');
+// A set of its own: the `providers` set is another recorder's run, with its own helper hashes.
+const finalDir = join(FIXTURES_ROOT, 'provider-gateways');
 const outDir = stageSet(finalDir, only ? [`${only}.json`] : null);
 const recorded = [];
 for (const s of scenarios) {
@@ -340,10 +341,10 @@ for (const s of scenarios) {
   recorded.push(s.id);
 }
 writeSetManifest(outDir, {
-  set: 'providers/gateways',
+  set: 'provider-gateways',
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <b6f tree>`,
-  extra: { scenarios: recorded.sort(), clockStartMs: T0, provenance: recordingProvenance(RECORDER, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/deterministic-world.mjs']) },
+  extra: { scenarios: recorded.sort(), clockStartMs: T0, provenance: recordingProvenance(RECORDER, [RECORDER, 'benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/deterministic-world.mjs']) },
   identityTree: tree,
   identityRef: 'b6f10295a',
 });
