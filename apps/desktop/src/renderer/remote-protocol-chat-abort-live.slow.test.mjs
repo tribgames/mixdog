@@ -5,6 +5,9 @@
 //   the stored transcript   Node's `readSessionTranscript` rows against the core's thread items folded as the client folds them
 //   the thread's list row   Node's `listSessions` row against the core's `thread/list` row through the phone's projection
 // Without MIXDOGD_EXE / REAL_TURN_HARNESS naming real files this file fails: there is no replay fallback.
+// Run directly with `--only <case name>` (node --test-force-exit … remote-protocol-chat-abort-live.slow.test.mjs --only running-pasted-text,
+// the flag scripts/test.mjs gives every file), it drives and
+// compares that one case; the default (and the test lane) runs every case.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -19,7 +22,10 @@ import { RUN_OTHERS, RUN_TIMES } from './remote-protocol-chat-abort-run-fields.m
 import { runAbortLive } from './remote-protocol-chat-abort-live.mjs';
 
 const node = JSON.parse(readFileSync(new URL('./remote-protocol-chat-abort.recorded.json', import.meta.url), 'utf8'));
-const live = await runAbortLive();
+const onlyAt = process.argv.indexOf('--only');
+const only = onlyAt === -1 ? undefined : process.argv[onlyAt + 1];
+const live = await runAbortLive({ only });
+const nodeCases = node.cases.filter((c) => only === undefined || c.name === only);
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 /**
@@ -85,10 +91,10 @@ function adapterFor(replies) {
 test('the run is of the built core and holds Node\'s cases', () => {
   assert.match(live.manifest.binarySha256, /^[0-9a-f]{64}$/);
   assert.equal(node.manifest.exact, true);
-  assert.deepEqual(live.cases.map((c) => c.name), node.cases.map((c) => c.name));
+  assert.deepEqual(live.cases.map((c) => c.name), nodeCases.map((c) => c.name));
 });
 
-for (const nodeCase of node.cases) {
+for (const nodeCase of nodeCases) {
   const core = live.cases.find((c) => c.name === nodeCase.name);
   test(`${nodeCase.name}: the Stop's reply, the stored transcript and the list row are Node's`, async () => {
     // A second Stop has a reply on both sides or on neither: an absent reply where Node had one (or the reverse) fails here.

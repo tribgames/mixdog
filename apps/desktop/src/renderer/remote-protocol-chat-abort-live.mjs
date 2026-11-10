@@ -5,6 +5,7 @@
 //
 // The binary is `MIXDOGD_EXE`, the real-turn harness directory `REAL_TURN_HARNESS`: a missing one fails. Every wait is an event wait under
 // one deadline that names what it waits for; nothing is retried; everything started is ended on every path.
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,7 +15,22 @@ import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 import { ABORT_CASES, DEVICES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
-export async function runAbortLive() {
+/**
+ * Ends the memory cluster the killed core left running. The harness's `killStrayPostgres` matches the pgdata path with backslashes, but
+ * pg_ctl starts postgres with the path in forward slashes, so it matched nothing and the next run's folder removal hit EBUSY on pg.log.
+ */
+function killCluster(dataDir) {
+  const pgdata = join(dataDir, 'pgdata');
+  const forms = [pgdata, pgdata.replaceAll('\\', '/')].map((p) => `'*${p.replace(/'/g, "''")}*'`).join(', ');
+  const script = `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $c = $_.CommandLine; @(${forms}) | Where-Object { $c -like $_ } } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
+  const out = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 60_000 });
+  if (out.status !== 0) throw new Error(`ending the memory cluster under ${pgdata} failed (${out.status ?? out.error}): ${out.stderr}`);
+}
+
+/** `only` names one case of ABORT_CASES to run alone; without it every case runs (what the test's full run compares). */
+export async function runAbortLive({ only } = {}) {
+  const chosen = only === undefined ? ABORT_CASES : ABORT_CASES.filter((c) => c.name === only);
+  if (!chosen.length) throw new Error(`--only names no abort case: ${JSON.stringify(only)}`);
   const bin = process.env.MIXDOGD_EXE;
   const harness = process.env.REAL_TURN_HARNESS;
   if (!bin || !existsSync(bin)) throw new Error(`MIXDOGD_EXE must name the built mixdogd binary (got ${JSON.stringify(bin)})`);
@@ -22,7 +38,7 @@ export async function runAbortLive() {
   process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-abort-live');
   const load = (name) => import(pathToFileURL(join(harness, 'lib', name)).href);
   const { daemonEnv, isolatedPaths } = await load('env.mjs');
-  const { seedPgRuntime, killStrayPostgres } = await load('stage.mjs');
+  const { seedPgRuntime } = await load('stage.mjs');
   const { launch } = await load('proc.mjs');
   const { createDeadline, latch } = await load('deadline.mjs');
 
@@ -107,7 +123,7 @@ export async function runAbortLive() {
     };
 
     const cases = [];
-    for (const c of ABORT_CASES) {
+    for (const c of chosen) {
       const submitter = await phone(c.submitter ?? DEVICES.a);
       const canceller = await phone(c.canceller ?? c.submitter ?? DEVICES.a);
       const mark = notes.length;
@@ -122,7 +138,10 @@ export async function runAbortLive() {
       if (c.ready === 'completed') await until(() => completed(1), `the turn of ${c.name} to end on its own`);
       else if (c.ready === 'approval') {
         await deadline.race(provider.asked(c.prompt), `the model endpoint to receive the tool-calling turn of ${c.name}`);
-        await until(() => notes.some((n) => n.device === viewer && /^item\/tool\/request(Approval|UserInput)$/.test(n.method) && n.params?.threadId === id), `the tool approval of ${c.name} to be pending`);
+        // As Node's recording waits: the question is pending and the call's card is shown.
+        const pending = () => notes.some((n) => n.device === viewer && /^item\/tool\/request(Approval|UserInput)$/.test(n.method) && n.params?.threadId === id);
+        const card = () => notes.some((n) => n.device === viewer && /^item\/(started|completed)$/.test(n.method) && n.params?.threadId === id && n.params?.item?.type === 'toolCall');
+        await until(() => pending() && card(), `the tool approval of ${c.name} to be pending with its card shown`);
       } else await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
       if (c.output) await until(() => seen(id, 'item/agentMessage/delta', c.output) > 0, `the streamed text of ${c.name} to reach the client`);
       let second;
@@ -167,7 +186,7 @@ export async function runAbortLive() {
         try {
           if (provider) await ended.race(provider.close(), 'the model endpoint to close');
         } finally {
-          killStrayPostgres(paths.dataDir);
+          killCluster(paths.dataDir);
         }
       }
     } finally {

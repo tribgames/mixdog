@@ -4,7 +4,7 @@
 // (`host.abortSession`) is sent once the turn is in the state the case names, and the host's whole reply and the thread's stored row after the
 // turn ended are recorded.
 //
-//   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-abort.record.mjs <export dir> <out file> <real-turn-harness dir>
+//   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-abort.record.mjs <export dir> <out file> <real-turn-harness dir> [--only <case name>]
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,8 +13,11 @@ import { pathToFileURL } from 'node:url';
 import { ABORT_CASES, DEVICES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
-const [exportDir, outFile, harness] = process.argv.slice(2);
-if (!harness) throw new Error('usage: <export dir> <out file> <real-turn-harness dir>');
+const [exportDir, outFile, harness, flag, only] = process.argv.slice(2);
+if (!harness || (flag !== undefined && (flag !== '--only' || !only))) throw new Error('usage: <export dir> <out file> <real-turn-harness dir> [--only <case name>]');
+// `--only` records one case into <out file> (for working on that case); the committed recording is the full run.
+const CASES = only === undefined ? ABORT_CASES : ABORT_CASES.filter((c) => c.name === only);
+if (!CASES.length) throw new Error(`--only names no abort case: ${JSON.stringify(only)}`);
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const NODE_CHECKOUT = 'C:/Project/mixdog';
 
@@ -131,7 +134,7 @@ let lastId = '';
     if (!phones.has(device)) phones.set(device, sessionRemoteMethods(host, { deviceName: async () => device }, undefined));
     return phones.get(device);
   };
-  for (const c of ABORT_CASES) {
+  for (const c of CASES) {
     const since0 = Date.now();
     const submitter = phone(c.submitter ?? DEVICES.a);
     const canceller = phone(c.canceller ?? c.submitter ?? DEVICES.a);
@@ -148,7 +151,9 @@ let lastId = '';
     if (c.ready === 'completed') await until(closed, `the turn of ${c.name} to end on its own`);
     else if (c.ready === 'approval') {
       await deadline.race(provider.asked(c.prompt), `the model endpoint to receive the tool-calling turn of ${c.name}`);
-      await until(() => sessionState(id)?.toolApproval, `the tool approval of ${c.name} to be pending in the host`);
+      // The Stop comes while the person sees the call's card and its question: the card is opened by the turn's tool batch
+      // (`openToolBatch`, turn-tool-cards.mjs) independently of the approval the eager run raises, so both are waited for.
+      await until(() => sessionState(id)?.toolApproval && sessionState(id)?.items?.some((item) => item?.kind === 'tool'), `the tool approval of ${c.name} to be pending in the host with its card shown`);
     } else await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
     if (c.output) await until(() => frames.some((f) => f.includes(c.output)), `the streamed text of ${c.name} to reach the host`);
     if (c.then) {

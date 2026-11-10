@@ -77,6 +77,23 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
     item
 }
 
+/// A result shown live for its call's card: the card completes when the result lands (`completedAt: Date.now()`,
+/// `applyAggregateCallFields` and `applyAggregateResult`, `tool-card-results/aggregate-result.mjs:30-46`), not at the time
+/// its call was recorded, which a restore reads for both (`restoredToolCallItems`). A call whose wait for the person the
+/// turn's abort ended (`abort_ended`, by call id) reads, live, what that wait settled with and its eager entry noticed to the
+/// card (`Error: <abort reason>`, eager-dispatch/entry.mjs:39-44), where the stored result is the interruption's `Cancelled`.
+pub(crate) fn live_result(mut update: mixdog_protocol::ThreadItem, at: i64, abort_ended: &std::collections::HashMap<String, String>) -> mixdog_protocol::ThreadItem {
+    if let mixdog_protocol::ThreadItem::ToolCall { run, output, .. } = &mut update {
+        run.completed_at = Some(at);
+        if let Some(text) = run.call_id.as_deref().and_then(|call| abort_ended.get(call)) {
+            run.result = Some(mixdog_protocol::MaybeBlob::Inline(text.clone()));
+            run.is_error = Some(true);
+            *output = Some(mixdog_protocol::MaybeBlob::Inline(Value::String(text.clone())));
+        }
+    }
+    update
+}
+
 /// JavaScript truthiness of a call field.
 fn truthy(value: &Value) -> bool {
     match value {
