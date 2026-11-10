@@ -718,7 +718,13 @@ mod sys {
                 }
                 let listed = members(pgid)?;
                 if listed.is_empty() {
-                    return Err(format!("the group of pid {pgid} has living members that the system does not list"));
+                    // The last member can have exited between the probe and the listing. With no member listed, none is
+                    // left to start another, so a second probe decides: empty now, or members no listing names.
+                    return match test_kill_process_group(group) {
+                        Err(Errno::SRCH) => Ok(()),
+                        Err(error) => Err(format!("asking whether the group of pid {pgid} is empty failed: {error}")),
+                        Ok(()) => Err(format!("the group of pid {pgid} has living members that the system does not list")),
+                    };
                 }
                 let mut watched = 0;
                 for pid in listed.iter().filter_map(|pid| Pid::from_raw(*pid)) {

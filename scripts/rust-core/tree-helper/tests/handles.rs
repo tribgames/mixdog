@@ -83,9 +83,10 @@ fn the_program_holds_no_job_and_no_process_handle() {
     let waited = unsafe { WaitForSingleObject(HANDLE(helper.as_raw_handle()), HELPER_DEADLINE_MS) };
     if waited != WAIT_OBJECT_0 {
         // The helper is this test's own child, ended by its handle; its job ends the program with it.
-        let _ = helper.kill();
-        let _ = helper.wait();
-        panic!("the helper running the inspection did not exit within {HELPER_DEADLINE_MS} ms");
+        let killed = helper.kill();
+        // SAFETY: as above.
+        let ended = unsafe { WaitForSingleObject(HANDLE(helper.as_raw_handle()), 10_000) } == WAIT_OBJECT_0;
+        panic!("the helper running the inspection did not exit within {HELPER_DEADLINE_MS} ms (kill: {killed:?}; ended within 10 s of the kill: {ended})");
     }
     let status = helper.wait().unwrap();
     let _ = std::fs::remove_file(&result);
