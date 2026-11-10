@@ -352,3 +352,39 @@ async fn an_mcp_tool_hook_runs_in_its_sessions_scope_only() {
     assert_eq!(none.stderr, "MCP server \"mock\" not connected", "a session with no scope reads the default scope, which holds nothing here");
     hub.close_all().await;
 }
+
+/// `extension-scopes.test.mjs` "a live MCP registry is filtered per session cwd, cascading the plugin scope from owner
+/// metadata": a plugin's server is limited by the plugin's scope as well as its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_live_registry_is_filtered_per_cwd_with_the_owning_plugins_scope() {
+    use mixdog_mcp::scopes::ExtensionScopes;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
+    hub.apply_in(
+        "scope-test",
+        vec![
+            config("UnityMCP", json!({})),
+            config("plugin-unity-tools", json!({"_mixdogPlugin": {"id": "unity", "key": "tools"}})),
+            config("demo", json!({})),
+        ],
+    );
+    for name in ["UnityMCP", "plugin-unity-tools", "demo"] {
+        until(&hub.server_in("scope-test", name).unwrap(), |s| matches!(s, ServerState::Ready(_))).await;
+    }
+    let (a, b) = (dir.path().join("alpha"), dir.path().join("beta"));
+    let servers = |scopes: &ExtensionScopes, cwd: &std::path::Path| {
+        let mut names: Vec<String> = hub
+            .tools_for_cwd("scope-test", scopes, cwd)
+            .iter()
+            .filter_map(|tool| tool.spec().name.strip_prefix("mcp__")?.split_once("__").map(|(server, _)| server.to_owned()))
+            .collect();
+        names.dedup();
+        names
+    };
+    let scoped = ExtensionScopes::from_config(&json!({"mcp": {"UnityMCP": [b.to_string_lossy()]}, "plugins": {"unity": [b.to_string_lossy()]}}));
+    assert_eq!(servers(&scoped, &a), ["demo"]);
+    assert_eq!(servers(&scoped, &b.join("Assets")), ["UnityMCP", "plugin-unity-tools", "demo"]);
+    // No scopes at all: the live catalog passes through untouched.
+    assert_eq!(hub.tools_for_cwd("scope-test", &ExtensionScopes::default(), &a).len(), hub.tools_in("scope-test").len());
+    hub.close_all().await;
+}

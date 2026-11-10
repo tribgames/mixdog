@@ -6,7 +6,7 @@
 //! decrypted here and handed to the bridge byte for byte (R25); a slow phone stalls only its own
 //! bridge task.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 
 use super::settings::{AccessSettings, SettingsView};
 use crate::bridge::{Bridge, Dialer, Frame, PhoneSink, ToPhone};
+use crate::transport::coordinator::WriteGate;
 use crate::clients::{ClaimBindings, ClaimRequest, ClaimStep, ClientTable, Received, ReadyContext, challenge_flags, parse_client_list, revoke_payload};
 use crate::e2ee::{Sealed, ServerIdentity};
 use crate::identity::{
@@ -118,6 +119,13 @@ impl LegLink {
         Box::new(move |envelope| link.send(&envelope))
     }
 
+    /// Room for one message in the leg's queue, held until it is used: what is written with it enters the leg in the step it is
+    /// written.
+    async fn reserve(&self) -> Option<mpsc::OwnedPermit<Outgoing>> {
+        let tx = self.slot().clone()?;
+        tx.reserve_owned().await.ok()
+    }
+
     async fn send_wait(&self, out: Outgoing) -> bool {
         let tx = self.slot().clone();
         match tx {
@@ -205,6 +213,9 @@ struct State {
     connected: bool,
     /// The relay answered a client listing on this leg (Node's descriptor was null until relay.listClients() succeeded): what the section's `info.connected` means. Reset with the leg.
     listed: bool,
+    /// The devices the relay's latest listing on this leg reported online (Node showed the relay's `online` flag, the roster
+    /// keeps none). Reset with the leg.
+    online: BTreeSet<String>,
     caps: RelayCaps,
     table: ClientTable,
     claims: ClaimBindings,
@@ -350,6 +361,16 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// A native push row's `createdAt`. A debug build (never a release one) reads `MIXDOG_FIXED_NOW_MS` as a pinned instant, as
+/// `mixdog_workspace::editorcfg::now_ms` does, so a replay gives the stored row the virtual clock the Node recording ran on.
+fn registered_at_ms() -> u64 {
+    #[cfg(debug_assertions)]
+    if let Some(pinned) = std::env::var("MIXDOG_FIXED_NOW_MS").ok().and_then(|raw| raw.parse::<u64>().ok()) {
+        return pinned;
+    }
+    now_ms()
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
@@ -400,18 +421,19 @@ impl Inner {
 
     /// Publishes the whole `remote` section from the current state.
     fn refresh(&self) {
-        let (running, connected, claims, live) = {
+        let (running, connected, claims, live, online) = {
             let state = self.state();
             let now = now_ms();
             let claims: Vec<Value> =
                 state.pending_claims.values().filter(|p| p.request.expires_at > now).map(|p| claim_value(&p.request)).collect();
-            (state.live.is_some(), state.connected && state.listed, claims, state.live.clone())
+            (state.live.is_some(), state.connected && state.listed, claims, state.live.clone(), state.online.clone())
         };
         let settings = self.cfg.settings.read();
         let (clients, controller_keys, owed_keys) = match self.roster.get() {
             Some(roster) => {
                 let roster = lock(roster);
-                (self.with_aliases(roster.list()), roster.controller_keys(), roster.owed_access())
+                let rows = roster.list().into_iter().map(|row| ClientInfo { online: online.contains(&row.id), ..row }).collect();
+                (self.with_aliases(rows), roster.controller_keys(), roster.owed_access())
             }
             None => (Vec::new(), Vec::new(), OwedAccess { keys: Vec::new(), unknown: 0 }),
         };
@@ -514,6 +536,7 @@ impl RemoteRuntime {
                     live: None,
                     connected: false,
                     listed: false,
+                    online: BTreeSet::new(),
                     caps: RelayCaps::default(),
                     table: ClientTable::default(),
                     claims: ClaimBindings::default(),
@@ -791,6 +814,7 @@ impl RemoteRuntime {
             let live = state.live.take();
             state.connected = false;
             state.listed = false;
+            state.online.clear();
             state.native = None;
             (live, state.table.close_all())
         };
@@ -868,20 +892,18 @@ impl RemoteRuntime {
     /// The relay's paired-device list; remembered with pending removals marked.
     pub async fn list_clients(&self) -> Result<Vec<Value>, RemoteError> {
         let rows = self.control("list-clients", Map::new()).await?;
-        let first = {
-            let mut state = self.inner.state();
-            let first = state.live.is_some() && state.connected && !state.listed;
-            if first {
-                state.listed = true;
-            }
-            first
-        };
-        if first {
-            self.inner.refresh();
-        }
         let listed = parse_client_list(&rows);
+        {
+            let mut state = self.inner.state();
+            if state.live.is_some() && state.connected {
+                state.listed = true;
+                state.online = listed.iter().filter(|row| row.online).map(|row| row.id.clone()).collect();
+            }
+        }
         let remembered = listed.clone();
         self.inner.with_roster(move |roster, lane| roster.remember(lane, &remembered)).await??;
+        // The section names the devices the relay just listed (a publish only when something changed).
+        self.inner.refresh();
         let roster = self.inner.roster().await?;
         let pending = lock(&roster).pending();
         let marked = listed.into_iter().map(|row| ClientInfo { pending_removal: pending.contains(&row.id), ..row }).collect();
@@ -978,6 +1000,11 @@ impl RemoteRuntime {
         let peers = self.inner.state().table.revoke(credential_id);
         for peer in &peers {
             self.inner.cfg.registry.revoke_screen(peer);
+            // A live-view message half in the peer's transport stream cannot be finished: that session ends now.
+            let session = self.inner.state().table.transport(peer);
+            if let Some(session) = session {
+                session.view_revoked();
+            }
         }
         self.inner.cfg.events.device_unpaired(credential_id);
     }
@@ -1166,7 +1193,7 @@ impl RemoteRuntime {
                     public_key: value.get("publicKey").unwrap_or(&Value::Null),
                     sandbox: value.get("sandbox"),
                 };
-                lock(&store).register(lane, &input, now_ms())
+                lock(&store).register(lane, &input, registered_at_ms())
             })
             .await;
         let row = result?;
@@ -1420,6 +1447,7 @@ impl RemoteRuntime {
             state.caps.reset();
             state.connected = true;
             state.listed = false;
+            state.online.clear();
             if let Some(web) = state.web.as_mut() {
                 web.reset();
             }
@@ -1441,6 +1469,7 @@ impl RemoteRuntime {
             let mut state = self.inner.state();
             state.connected = false;
             state.listed = false;
+            state.online.clear();
             state.table.close_all()
         };
         self.inner.link_up.send_replace(false);
@@ -1705,8 +1734,27 @@ impl Inner {
     /// Seals one frame for a phone and writes it to the leg: binary relay frames when the relay
     /// takes them, otherwise JSON text frames.
     async fn write_sealed(&self, client_id: &str, sealed: Sealed) {
+        let out = self.outgoing(client_id, sealed);
+        self.cfg.link.send_wait(out).await;
+    }
+
+    /// A write of the live view to a phone on the relay path: it is sealed and enters the leg in one step with the check that the
+    /// phone may still view (`DeviceRegistry::write_view`), the room in the leg's queue taken first. A refused write seals nothing.
+    async fn write_view(&self, client_id: &str, bytes: &[u8], binary: bool) {
+        let Some(permit) = self.cfg.link.reserve().await else { return };
+        let mut permit = Some(permit);
+        self.cfg.registry.write_view(client_id, &mut || {
+            let sealed = self.state().table.seal(client_id, bytes, binary);
+            if let (Ok(sealed), Some(permit)) = (sealed, permit.take()) {
+                permit.send(self.outgoing(client_id, sealed));
+            }
+        });
+    }
+
+    /// The leg's form of a sealed frame: binary relay frames when the relay takes them, otherwise JSON text frames.
+    fn outgoing(&self, client_id: &str, sealed: Sealed) -> Outgoing {
         let binary_frames = self.state().caps.binary_frames();
-        let out = match sealed {
+        match sealed {
             Sealed::Text(text) => Outgoing::Text(json_frame(client_id, &text).to_string()),
             Sealed::Binary(bytes) => match binary_frames.then(|| encode_binary_frame(client_id, &bytes, false, false)).flatten() {
                 Some(frame) => Outgoing::Binary(frame),
@@ -1716,9 +1764,20 @@ impl Inner {
                     Outgoing::Text(json!({ "type": "frame", "clientId": client_id, "data": data }).to_string())
                 }
             },
-        };
-        self.cfg.link.send_wait(out).await;
+        }
     }
+
+    /// The write gate of the live view's writes to `peer_id` on its transport session.
+    fn view_gate(&self, peer_id: &str) -> WriteGate {
+        let (registry, peer_id) = (self.cfg.registry.clone(), peer_id.to_owned());
+        WriteGate(Arc::new(move |write: &mut dyn FnMut()| registry.write_view(&peer_id, write)))
+    }
+}
+
+/// Whether a frame from the core is one of the live view's two writes to a phone, `browser/frame` or `browser/webrtcSignal`: a
+/// connection-scoped notification, which the core serializes with `method` first (`JsonRpcNotification`).
+fn live_view_write(frame: &[u8]) -> bool {
+    [&br#"{"method":"browser/frame","#[..], &br#"{"method":"browser/webrtcSignal","#[..]].iter().any(|head| frame.starts_with(head))
 }
 
 struct WeakSink {
@@ -1739,6 +1798,12 @@ impl PhoneSink for RuntimeSink {
     async fn deliver(&self, message: ToPhone) {
         match message {
             ToPhone::Frame { peer_id, frame } => {
+                // The live view's writes are asked about again where they enter the phone's stream: the core queued them before a
+                // revocation that may have come since.
+                let gated = match &frame {
+                    Frame::Text(text) => live_view_write(text.as_bytes()),
+                    Frame::Binary(bytes) => live_view_write(bytes),
+                };
                 let session = self.inner.state().table.transport(&peer_id);
                 if let Some(session) = session {
                     let text = match frame {
@@ -1746,7 +1811,7 @@ impl PhoneSink for RuntimeSink {
                         Frame::Binary(bytes) => String::from_utf8(bytes).ok(),
                     };
                     if let Some(text) = text {
-                        let _ = session.send(&text, false).await;
+                        let _ = session.send_gated(&text, false, gated.then(|| self.inner.view_gate(&peer_id))).await;
                     }
                     return;
                 }
@@ -1754,6 +1819,10 @@ impl PhoneSink for RuntimeSink {
                     Frame::Text(text) => (text.into_bytes(), false),
                     Frame::Binary(bytes) => (bytes, true),
                 };
+                if gated {
+                    self.inner.write_view(&peer_id, &bytes, binary).await;
+                    return;
+                }
                 let sealed = self.inner.state().table.seal(&peer_id, &bytes, binary);
                 if let Ok(sealed) = sealed {
                     self.inner.write_sealed(&peer_id, sealed).await;

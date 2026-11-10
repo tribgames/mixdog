@@ -155,6 +155,13 @@ impl Lifecycle {
         CallGuard { lifecycle: Arc::clone(self) }
     }
 
+    /// As [`Lifecycle::begin_call`], for a new-task request: it holds a self-shutdown as a call does, and no longer holds the drain
+    /// once a stop is requested (its attempt is cut then).
+    pub fn begin_new_task(self: &Arc<Self>) -> NewTaskGuard {
+        self.apply(Machine::new_task_started);
+        NewTaskGuard { lifecycle: Arc::clone(self) }
+    }
+
     /// Registers one open client connection (any origin) until the guard drops; `kind` is the registry it is in, which names Node's
     /// self-shutdown text when it is the last one to leave.
     pub fn connection(self: &Arc<Self>, kind: ClientKind) -> ConnectionGuard {
@@ -338,6 +345,7 @@ impl Lifecycle {
             }
             Effect::DrainNotice(notice) => self.ports.core.drain_notice(&notice),
             Effect::CancelRunning(running) => self.ports.core.cancel_running(&running),
+            Effect::CutNewTasks => self.ports.core.cut_new_tasks(),
             Effect::ReleaseDecision { pid } => self.ports.core.release_decision(pid),
             Effect::NodeTrigger(text) => self.note_trigger(text),
             Effect::BeginRelease(cause) => {
@@ -440,6 +448,17 @@ pub struct CallGuard {
 impl Drop for CallGuard {
     fn drop(&mut self) {
         self.lifecycle.apply(Machine::call_ended);
+    }
+}
+
+/// One new-task request in flight; see [`Lifecycle::begin_new_task`].
+pub struct NewTaskGuard {
+    lifecycle: Arc<Lifecycle>,
+}
+
+impl Drop for NewTaskGuard {
+    fn drop(&mut self) {
+        self.lifecycle.apply(Machine::new_task_ended);
     }
 }
 

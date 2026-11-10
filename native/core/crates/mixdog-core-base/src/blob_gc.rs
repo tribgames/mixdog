@@ -60,6 +60,8 @@ impl BlobGc {
     /// One census of the 256 shards; every deleted digest. An error leaves the rest of the
     /// census undone (the stamp is not written, so the next trigger runs it again).
     pub async fn collect(&self, now: SystemTime, cancel: &CancellationToken) -> Result<Vec<Digest>, String> {
+        // The frames a crash left unprojected reference blobs `blob_refs` does not hold yet.
+        self.store.reconciled().await.map_err(|e| e.to_string())?;
         let mut deleted = Vec::new();
         for shard in 0..=u8::MAX {
             let (blobs, store, min_age) = (self.blobs.clone(), self.store.clone(), self.min_age);

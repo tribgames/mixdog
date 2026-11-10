@@ -72,7 +72,8 @@ fn golden() -> Value {
 }
 
 /// The core request of a phone call: the page's translation (shared/scm-operation-route.ts) of the raw arguments. A missing argument
-/// leaves its param out and `null` is sent as `null`, as the page's `positional` does. `None`: the call is not one Node's host
+/// leaves its param out and `null` is sent as `null`, as the page's `positional` does, except in an optional argument the adapter
+/// takes as omitted (`omitted` below). `None`: the call is not one Node's host
 /// checked, or it names an argument the core has no param for (githubCliLoginOpenBrowser's options, the route's `null` slot).
 fn request(call: &str, args: &[Value]) -> Option<(&'static str, Value)> {
     let positional = |method: &'static str, names: &[Option<&str>]| -> Option<(&'static str, Value)> {
@@ -117,6 +118,15 @@ fn request(call: &str, args: &[Value]) -> Option<(&'static str, Value)> {
         with("review/diff/get", params)
     };
     let cwd = |method: &'static str| positional(method, &[Some("cwd")]);
+    // The optional arguments the page's adapter takes as omitted when they are null (remote-protocol-scm.ts `omitted`): an argument the
+    // app left out reaches the adapter as the relay's JSON wrote it, and Node's relay methods take it the same way
+    // (node-fix-relay-optional-args.patch). The core's own check still refuses null from any other caller.
+    let omitted: &[&str] = match call {
+        "gitReview" | "gitReviewDiff" | "gitReviewDiffs" => &["source"],
+        "gitRevert" => &["mode"],
+        "gitIgnore" => &["scope"],
+        _ => &[],
+    };
     match call {
         "gitStatus" => {
             let mut params = named(&["cwd"]);
@@ -181,6 +191,11 @@ fn request(call: &str, args: &[Value]) -> Option<(&'static str, Value)> {
         _ => None,
     }
     .map(|(method, mut params)| {
+        for name in omitted {
+            if params.get(*name) == Some(&Value::Null) {
+                params.as_object_mut().expect("params").remove(*name);
+            }
+        }
         // The protocol's own field of a mutation, which the page's client adds (no argument of Node's).
         let spec = mixdog_app_protocol::client_method_spec(method).expect("a method of the table");
         if matches!(spec.mutation, mixdog_app_protocol::Mutation::Op(_)) {
@@ -284,10 +299,12 @@ async fn every_checked_call_is_refused_or_acted_on_as_nodes_host_did() {
     assert!(refused > 0 && acted > 0, "{refused} refused and {acted} acted on");
 }
 
-/// An explicit `null` is refused where Node takes only a missing argument as the default (discard mode, ignore scope, review
-/// source, request base); a missing one is the default.
+/// An explicit `null` where Node's shared checks take only a missing argument as the default: the request base's `null` is refused;
+/// the optional arguments the app leaves out (discard mode, ignore scope, review source, a status's options, a message) are acted on
+/// as left out, by Node's fixed relay methods and by the page's adapter, whose request then does not carry them; a missing one is the
+/// default.
 #[tokio::test]
-async fn a_null_is_not_a_missing_argument() {
+async fn a_null_or_missing_argument_is_taken_as_nodes_relay_took_it() {
     compare_group(&["input-null-", "input-missing-"]).await;
 }
 

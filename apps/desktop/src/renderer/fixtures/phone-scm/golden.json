@@ -1,5 +1,5 @@
 {
-  "note": "The relay frame Node (b6f10295a) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).",
+  "note": "The relay frame Node (b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch applied) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).",
   "platform": "win32",
   "git": "git version 2.51.0.windows.1",
   "realGit": "git version 2.51.0.windows.1",
@@ -7224,10 +7224,67 @@
         null
       ],
       "frame": {
-        "ok": false,
-        "error": "git discard mode is invalid."
+        "ok": true,
+        "value": null
       },
-      "ops": [],
+      "ops": [
+        {
+          "name": "gitRevertFile",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "f.txt",
+            false,
+            "all"
+          ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            "f.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "state": {
         "folder": "input",
         "repository": {
@@ -7407,10 +7464,41 @@
         null
       ],
       "frame": {
-        "ok": false,
-        "error": "Git ignore scope is invalid."
+        "ok": true,
+        "value": null
       },
-      "ops": [],
+      "ops": [
+        {
+          "name": "gitIgnore",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "f.txt",
+            "file"
+          ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "state": {
         "folder": "input",
         "repository": {
@@ -7429,6 +7517,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -7469,73 +7561,21 @@
         null
       ],
       "frame": {
-        "ok": false,
-        "error": "Git review source is invalid."
-      },
-      "ops": [],
-      "state": {
-        "folder": "input",
-        "repository": {
-          "headTree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
-          "branch": "refs/heads/main",
-          "refs": [
-            {
-              "name": "refs/heads/main",
-              "tree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
-              "message": "Fixture\nfixture@example.invalid\ninput 3\n\n",
-              "length": "3"
-            }
-          ],
-          "remoteRefs": null,
-          "index": [
-            "100644 0\tf.txt"
-          ],
-          "tree": [
-            [
-              "f.txt",
-              "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
-            ]
-          ],
-          "stashes": [],
-          "config": [
-            "core.repositoryformatversion=0",
-            "core.filemode=false",
-            "core.bare=false",
-            "core.logallrefupdates=true",
-            "core.symlinks=false",
-            "core.ignorecase=true"
-          ]
-        },
-        "globalConfig": null
-      },
-      "world": {
-        "ghInstalled": false,
-        "ghAuth": false,
-        "wingetMissing": false,
-        "wingetFails": false,
-        "wingetInstallsGh": true,
-        "gitMissing": false,
-        "wingetInstallsGit": true,
-        "soffice": false,
-        "wingetInstallsSoffice": true,
-        "starred": false,
-        "ghApiDown": false
-      }
-    },
-    {
-      "name": "input-missing-gitReview-source",
-      "group": "input",
-      "call": "gitReview",
-      "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input"
-      ],
-      "frame": {
         "ok": true,
         "value": {
           "repository": true,
           "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
           "base": "main",
-          "files": [],
+          "files": [
+            {
+              "path": ".gitignore",
+              "status": "A",
+              "additions": 1,
+              "deletions": 0,
+              "untracked": true,
+              "revision": "7:1767323046564528924:1767323046564528924:501190447"
+            }
+          ],
           "untrackedOmitted": 0
         }
       },
@@ -7550,7 +7590,16 @@
             "repository": true,
             "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
             "base": "main",
-            "files": [],
+            "files": [
+              {
+                "path": ".gitignore",
+                "status": "A",
+                "additions": 1,
+                "deletions": 0,
+                "untracked": true,
+                "revision": "7:1767323046564528924:1767323046564528924:501190447"
+              }
+            ],
             "untrackedOmitted": 0
           }
         }
@@ -7714,6 +7763,164 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
+              "f.txt",
+              "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
+            ]
+          ],
+          "stashes": [],
+          "config": [
+            "core.repositoryformatversion=0",
+            "core.filemode=false",
+            "core.bare=false",
+            "core.logallrefupdates=true",
+            "core.symlinks=false",
+            "core.ignorecase=true"
+          ]
+        },
+        "globalConfig": null
+      },
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "input-missing-gitReview-source",
+      "group": "input",
+      "call": "gitReview",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "base": "main",
+          "files": [
+            {
+              "path": ".gitignore",
+              "status": "A",
+              "additions": 1,
+              "deletions": 0,
+              "untracked": true,
+              "revision": "7:1767323046564528924:1767323046564528924:501190447"
+            }
+          ],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitReview",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "branch"
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "base": "main",
+            "files": [
+              {
+                "path": ".gitignore",
+                "status": "A",
+                "additions": 1,
+                "deletions": 0,
+                "untracked": true,
+                "revision": "7:1767323046564528924:1767323046564528924:501190447"
+              }
+            ],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--no-ahead-behind",
+            "--untracked-files=all",
+            "--no-renames"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "merge-base",
+            "main",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "state": {
+        "folder": "input",
+        "repository": {
+          "headTree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+          "branch": "refs/heads/main",
+          "refs": [
+            {
+              "name": "refs/heads/main",
+              "tree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+              "message": "Fixture\nfixture@example.invalid\ninput 3\n\n",
+              "length": "3"
+            }
+          ],
+          "remoteRefs": null,
+          "index": [
+            "100644 0\tf.txt"
+          ],
+          "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -7755,10 +7962,94 @@
         null
       ],
       "frame": {
-        "ok": false,
-        "error": "Git review source is invalid."
+        "ok": true,
+        "value": ""
       },
-      "ops": [],
+      "ops": [
+        {
+          "name": "gitReviewDiff",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "f.txt",
+            false,
+            "branch"
+          ],
+          "result": ""
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "merge-base",
+            "main",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "3c1aa2cc7ac3a98b5aa223b70db6acb8a8f7d555",
+            "--",
+            "f.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "state": {
         "folder": "input",
         "repository": {
@@ -7777,6 +8068,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -7925,6 +8220,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -7969,10 +8268,118 @@
         null
       ],
       "frame": {
-        "ok": false,
-        "error": "Git review source is invalid."
+        "ok": true,
+        "value": {
+          "patches": [
+            {
+              "path": "f.txt",
+              "patch": ""
+            }
+          ],
+          "omitted": []
+        }
       },
-      "ops": [],
+      "ops": [
+        {
+          "name": "gitReviewDiffs",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            [
+              {
+                "path": "f.txt",
+                "untracked": false
+              }
+            ],
+            "branch"
+          ],
+          "result": {
+            "patches": [
+              {
+                "path": "f.txt",
+                "patch": ""
+              }
+            ],
+            "omitted": []
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "merge-base",
+            "main",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "-c",
+            "core.quotePath=false",
+            "--no-optional-locks",
+            "--literal-pathspecs",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--no-renames",
+            "3c1aa2cc7ac3a98b5aa223b70db6acb8a8f7d555",
+            "--",
+            "f.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "state": {
         "folder": "input",
         "repository": {
@@ -7991,6 +8398,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -8166,6 +8577,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -8231,6 +8646,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -8274,7 +8693,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "statusShort": "## main\n",
+          "statusShort": "## main\n?? .gitignore\n",
           "diffStat": "",
           "files": [],
           "recentSubjects": [
@@ -8298,7 +8717,7 @@
             }
           ],
           "result": {
-            "statusShort": "## main\n",
+            "statusShort": "## main\n?? .gitignore\n",
             "diffStat": "",
             "files": [],
             "recentSubjects": [
@@ -8423,6 +8842,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -8668,6 +9091,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -8877,6 +9304,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -9085,6 +9516,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -9297,6 +9732,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -9507,6 +9946,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -9730,6 +10173,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -9980,6 +10427,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -10228,6 +10679,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -10478,6 +10933,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -10727,6 +11186,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -10935,6 +11398,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -11145,6 +11612,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -11353,6 +11824,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -11603,6 +12078,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -11824,6 +12303,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -12012,6 +12495,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -12235,6 +12722,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -12485,6 +12976,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -12705,6 +13200,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -12927,6 +13426,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -12995,6 +13498,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -13065,6 +13572,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -13133,6 +13644,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -13206,6 +13721,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -13274,6 +13793,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -13344,6 +13867,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -13412,6 +13939,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -13482,6 +14013,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -13550,6 +14085,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -13620,6 +14159,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -13688,6 +14231,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -14477,7 +15024,21 @@
           "ahead": 0,
           "behind": 0,
           "operation": "",
-          "files": [],
+          "files": [
+            {
+              "path": ".gitignore",
+              "index": "?",
+              "worktree": "?",
+              "untracked": true,
+              "conflicted": false,
+              "stagedAdditions": 0,
+              "stagedDeletions": 0,
+              "unstagedAdditions": 1,
+              "unstagedDeletions": 0,
+              "additions": 1,
+              "deletions": 0
+            }
+          ],
           "untrackedOmitted": 0
         }
       },
@@ -14504,7 +15065,21 @@
             "ahead": 0,
             "behind": 0,
             "operation": "",
-            "files": [],
+            "files": [
+              {
+                "path": ".gitignore",
+                "index": "?",
+                "worktree": "?",
+                "untracked": true,
+                "conflicted": false,
+                "stagedAdditions": 0,
+                "stagedDeletions": 0,
+                "unstagedAdditions": 1,
+                "unstagedDeletions": 0,
+                "additions": 1,
+                "deletions": 0
+              }
+            ],
             "untrackedOmitted": 0
           }
         }
@@ -14620,6 +15195,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -14717,6 +15296,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -14916,6 +15499,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15014,6 +15601,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15081,6 +15672,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15144,6 +15739,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -15210,6 +15809,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15275,6 +15878,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15336,6 +15943,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -15401,6 +16012,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15464,6 +16079,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -15530,6 +16149,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15591,6 +16214,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -15656,6 +16283,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15720,6 +16351,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15782,6 +16417,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -15846,6 +16485,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -15908,6 +16551,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -15972,6 +16619,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16034,6 +16685,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16095,6 +16750,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -16159,6 +16818,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16222,6 +16885,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16283,6 +16950,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -16347,6 +17018,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16409,6 +17084,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -16473,6 +17152,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16535,6 +17218,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -16599,6 +17286,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16660,6 +17351,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -16723,6 +17418,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16784,6 +17483,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -16847,6 +17550,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -16912,6 +17619,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -16976,6 +17687,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -17037,6 +17752,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -17100,6 +17819,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -17161,6 +17884,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -17224,6 +17951,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -17285,6 +18016,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -17352,6 +18087,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -17416,6 +18155,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -17659,6 +18402,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -17911,6 +18658,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -17979,6 +18730,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -18050,6 +18805,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -18199,6 +18958,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -18449,6 +19212,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -18500,7 +19267,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "statusShort": "## main\n",
+          "statusShort": "## main\n?? .gitignore\n",
           "diffStat": "",
           "files": [
             {
@@ -18532,7 +19299,7 @@
             }
           ],
           "result": {
-            "statusShort": "## main\n",
+            "statusShort": "## main\n?? .gitignore\n",
             "diffStat": "",
             "files": [
               {
@@ -18752,6 +19519,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -18839,6 +19610,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -18910,6 +19685,10 @@
             "100644 0\tf.txt"
           ],
           "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
             [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
@@ -18998,6 +19777,10 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
@@ -19070,11 +19853,422 @@
           ],
           "tree": [
             [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
               "f.txt",
               "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
             ]
           ],
           "stashes": [],
+          "config": [
+            "core.repositoryformatversion=0",
+            "core.filemode=false",
+            "core.bare=false",
+            "core.logallrefupdates=true",
+            "core.symlinks=false",
+            "core.ignorecase=true"
+          ]
+        },
+        "globalConfig": null
+      },
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "input-null-gitStatus-options",
+      "group": "input",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [
+            {
+              "path": ".gitignore",
+              "index": "?",
+              "worktree": "?",
+              "untracked": true,
+              "conflicted": false,
+              "stagedAdditions": 0,
+              "stagedDeletions": 0,
+              "unstagedAdditions": 1,
+              "unstagedDeletions": 0,
+              "additions": 1,
+              "deletions": 0
+            }
+          ],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "branch": "main",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": false,
+            "remoteUrl": "",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [
+              {
+                "path": ".gitignore",
+                "index": "?",
+                "worktree": "?",
+                "untracked": true,
+                "conflicted": false,
+                "stagedAdditions": 0,
+                "stagedDeletions": 0,
+                "unstagedAdditions": 1,
+                "unstagedDeletions": 0,
+                "additions": 1,
+                "deletions": 0
+              }
+            ],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "state": {
+        "folder": "input",
+        "repository": {
+          "headTree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+          "branch": "refs/heads/main",
+          "refs": [
+            {
+              "name": "refs/heads/main",
+              "tree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+              "message": "Fixture\nfixture@example.invalid\ninput 3\n\n",
+              "length": "3"
+            }
+          ],
+          "remoteRefs": null,
+          "index": [
+            "100644 0\tf.txt"
+          ],
+          "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
+              "f.txt",
+              "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
+            ]
+          ],
+          "stashes": [],
+          "config": [
+            "core.repositoryformatversion=0",
+            "core.filemode=false",
+            "core.bare=false",
+            "core.logallrefupdates=true",
+            "core.symlinks=false",
+            "core.ignorecase=true"
+          ]
+        },
+        "globalConfig": null
+      },
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "input-null-gitAmend-message",
+      "group": "input",
+      "call": "gitAmend",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": "[main 3c1aa2c] input 3\n Date: Fri Jan 2 03:04:05 2026 +0000\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
+      },
+      "ops": [
+        {
+          "name": "gitAmend",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            ""
+          ],
+          "result": "[main 3c1aa2c] input 3\n Date: Fri Jan 2 03:04:05 2026 +0000\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "commit",
+            "--amend",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "state": {
+        "folder": "input",
+        "repository": {
+          "headTree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+          "branch": "refs/heads/main",
+          "refs": [
+            {
+              "name": "refs/heads/main",
+              "tree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+              "message": "Fixture\nfixture@example.invalid\ninput 3\n\n",
+              "length": "3"
+            }
+          ],
+          "remoteRefs": null,
+          "index": [
+            "100644 0\tf.txt"
+          ],
+          "tree": [
+            [
+              ".gitignore",
+              "8b6b41f9f5d33304b9b032e476ab1f2f616326b774a262a8d6b741fa02cb5845"
+            ],
+            [
+              "f.txt",
+              "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
+            ]
+          ],
+          "stashes": [],
+          "config": [
+            "core.repositoryformatversion=0",
+            "core.filemode=false",
+            "core.bare=false",
+            "core.logallrefupdates=true",
+            "core.symlinks=false",
+            "core.ignorecase=true"
+          ]
+        },
+        "globalConfig": null
+      },
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "input-null-gitStash-message",
+      "group": "input",
+      "call": "gitStash",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": "Saved working directory and index state WIP on main: 3c1aa2c input 3\n"
+      },
+      "ops": [
+        {
+          "name": "gitStash",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            ""
+          ],
+          "result": "Saved working directory and index state WIP on main: 3c1aa2c input 3\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "push",
+            "-u"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "state": {
+        "folder": "input",
+        "repository": {
+          "headTree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+          "branch": "refs/heads/main",
+          "refs": [
+            {
+              "name": "refs/heads/main",
+              "tree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+              "message": "Fixture\nfixture@example.invalid\ninput 3\n\n",
+              "length": "3"
+            },
+            {
+              "name": "refs/stash",
+              "tree": "7a02aa29b6739f75c260bad3cb150c3eb0551eb2",
+              "message": "Fixture\nfixture@example.invalid\nWIP on main: 3c1aa2c input 3\n",
+              "length": "6"
+            }
+          ],
+          "remoteRefs": null,
+          "index": [
+            "100644 0\tf.txt"
+          ],
+          "tree": [
+            [
+              "f.txt",
+              "2ba85baaa7922ff4c0dfdbc00fd07bd69dcb1dce745c6a8c676fe8b5642a0d66"
+            ]
+          ],
+          "stashes": [
+            "WIP on main: 3c1aa2c input 3"
+          ],
           "config": [
             "core.repositoryformatversion=0",
             "core.filemode=false",
@@ -28645,7 +29839,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28669,7 +29863,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28692,7 +29886,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28718,7 +29912,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28743,7 +29937,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28803,7 +29997,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28875,7 +30069,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28922,7 +30116,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -28967,7 +30161,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-wYk9xd\\refresh.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-6TTSTC\\refresh.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29406,7 +30600,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-h3vPFy\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-G0ORkl\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29430,7 +30624,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-h3vPFy\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-G0ORkl\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29453,7 +30647,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-h3vPFy\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-G0ORkl\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29479,7 +30673,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-h3vPFy\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-G0ORkl\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29504,7 +30698,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-h3vPFy\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-G0ORkl\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29564,7 +30758,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-h3vPFy\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-G0ORkl\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29902,7 +31096,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29926,7 +31120,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29949,7 +31143,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -29975,7 +31169,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30000,7 +31194,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30060,7 +31254,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30132,7 +31326,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30179,7 +31373,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -30224,7 +31418,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-dTYGGK\\refresh.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-HWYTfN\\refresh.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -43710,6 +44904,47 @@
       "call": "githubCliLoginOpenBrowser",
       "params": [
         "ghlogin_4242_1"
+      ],
+      "frame": {
+        "ok": true,
+        "value": false
+      },
+      "ops": [
+        {
+          "name": "githubCliLoginOpenBrowser",
+          "args": [
+            "ghlogin_4242_1",
+            {}
+          ],
+          "result": false
+        }
+      ],
+      "state": {
+        "folder": null,
+        "repository": null,
+        "globalConfig": null
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "githubCliLoginOpenBrowser-null-options",
+      "group": "github",
+      "call": "githubCliLoginOpenBrowser",
+      "params": [
+        "ghlogin_4242_1",
+        null
       ],
       "frame": {
         "ok": true,

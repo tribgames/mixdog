@@ -106,6 +106,8 @@ pub struct CoreWiring {
     /// The core's runtime, to await the extension host's close from the release thread.
     pub runtime: tokio::runtime::Handle,
     pub cancel: Arc<CancelRegistry>,
+    /// Ends the new-task attempts in flight at a stop request (`SessionDirectory::cut_new_tasks`).
+    pub cut_new_tasks: Hook,
     pub final_barriers: Hook,
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
@@ -174,6 +176,10 @@ impl CorePort for RuntimeCore {
 
     fn cancel_running(&self, running: &[Running]) {
         self.wiring.cancel.cancel(running);
+    }
+
+    fn cut_new_tasks(&self) {
+        (self.wiring.cut_new_tasks)();
     }
 
     fn release_decision(&self, pid: u32) {

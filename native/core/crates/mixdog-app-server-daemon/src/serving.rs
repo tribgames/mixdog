@@ -138,6 +138,10 @@ fn core_wiring(
         ext_host: core.ext_host().clone(),
         runtime: runtime.clone(),
         cancel: Arc::new(CancelRegistry::default()),
+        cut_new_tasks: {
+            let core = core.clone();
+            Arc::new(move || core.cut_new_tasks())
+        },
         final_barriers: {
             let core = core.clone();
             Arc::new(move || core.run_final_barriers())
@@ -209,6 +213,12 @@ impl crate::lifecycle::CorePort for LateCorePort {
     fn cancel_running(&self, running: &[crate::lifecycle::Running]) {
         if let Some(core) = self.core.get() {
             core.cancel_running(running);
+        }
+    }
+
+    fn cut_new_tasks(&self) {
+        if let Some(core) = self.core.get() {
+            core.cut_new_tasks();
         }
     }
 

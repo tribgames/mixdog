@@ -575,7 +575,7 @@ fn desktop_write_errors_and_saved_config_match_node() {
             op => panic!("{op}"),
         };
         let edit = ConfigEdit { path: path.clone(), value, mode };
-        let outcome = block_on(config.batch_write_saved(&[edit], service::SAVED_SUBTREES));
+        let outcome = block_on(config.batch_write_saved(&[edit], service::SAVED_SUBTREES, None));
         let after = &entry["after"];
         if let Some(error) = after.get("error") {
             match outcome {

@@ -27,6 +27,9 @@ pub trait CorePort: Send + Sync {
     /// Cancel these units of work through their tokens; the tool runtime kills job objects and
     /// process groups. Each registrant drops its guard as it finishes.
     fn cancel_running(&self, running: &[Running]);
+    /// A stop was requested (any mode; not the self-shutdown): the new-task attempts in flight end now, each as Node's attempt
+    /// ends when its host is disposed at the call it was awaiting (`SessionDirectory::cut_new_tasks`), before the drain waits for the rest.
+    fn cut_new_tasks(&self);
     /// The user's `release{pid}` decision on an undecidable prior owner.
     fn release_decision(&self, pid: u32);
     /// The release begins, before its first step: `reason` is the text Node's `shutdown(reason)` carries for this stop (`daemon.mjs:272`), which the stop steps

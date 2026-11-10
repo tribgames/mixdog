@@ -76,6 +76,7 @@ const COALESCED_CAPABILITY_READS = new Set([
   'listWorkflows',
   'skillsStatus',
 ]);
+/** Keyed by the page's own arguments, as Node's was; `JSON.stringify` writes them as it writes their relayed form, so one key either way. */
 const coalescedReadKey = (method: string, params: unknown[]): string => {
   if (method === 'invokeCapability') {
     const capability = (params[0] as { capability?: unknown } | undefined)?.capability;
@@ -83,6 +84,13 @@ const coalescedReadKey = (method: string, params: unknown[]): string => {
   } else if (!COALESCED_READS.has(method)) return '';
   return `${method}\0${JSON.stringify(params)}`;
 };
+/** The page's arguments as Node's PC received them: every leg of Node's relay wrote the call's frame with `JSON.stringify` on the page
+ *  (remote-shim-calls.ts:159, shared/remote-e2ee.ts:604/:621/:791, shared/remote-transport.ts:718) and the PC read it back with
+ *  `JSON.parse` (remote-relay-connection.ts:82, shared/remote-e2ee.ts:692/:839, shared/remote-transport.ts:838) before any method saw it;
+ *  the PC's second round trip (remote-relay-client-calls.ts `clearFrame`, remote-methods.ts:1262) changes nothing a parse produced. So an
+ *  array's `undefined` is `null`, an object's `undefined` property is absent, a `Date` is its ISO text, and so on, exactly as JSON writes
+ *  them. Arguments JSON cannot write (a cycle, a BigInt) fail the call, as Node's send did. */
+const relayed = (params: unknown[]): unknown[] => JSON.parse(JSON.stringify(params)) as unknown[];
 /** Boot reads of state the view sync owns: they still wait for it, so their answer can never be older than the baseline the sync installs. */
 const SYNC_ORDERED_BOOT_READS = new Set(['getSnapshot', 'listProjects']);
 /** Whatever the app has not asked for when this window closes is dropped, so no later read is ever served from boot. */
@@ -131,12 +139,14 @@ export function createProtocolRouter(
       const handler = calls.get(method);
       if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
       return new Promise<T>((resolve, reject) => {
+        // What the queue and the adapter read is what Node's PC read: the arguments after the relay's JSON (a failure rejects the call).
+        const args = relayed(params);
         // Node's send(): the call waits for the connection and the view sync first (remote-shim-calls.ts:298-303), and its deadline starts only
         // when it is handed on (invoke, :239). A call held by the gate cannot time out, so one that timed out was always run.
         let settle = (): void => undefined;
         // Enqueued on receipt, as Node's relay does (remote-relay-client-calls.ts:481): readiness is awaited inside the queued job, so a
         // call whose connection is not ready yet still keeps its place before every call that arrives after it.
-        runQueued(link.host.ctx, method, params, async () => {
+        runQueued(link.host.ctx, method, args, async () => {
           if (!gated || UNGATED_CALLS.has(method)) await link.started();
           else await link.synced();
           onGate?.();
@@ -152,7 +162,7 @@ export function createProtocolRouter(
           // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
           const claim = firstFrame((sent) => void sent.then(watch.transmitted));
           const host: PhoneProtocolHost = { ...link.host, client: () => scopeClient(link.host.client(), claim) };
-          return handler(params, host);
+          return handler(args, host);
         }).then(
           (value) => {
             settle();
@@ -208,9 +218,16 @@ export function createProtocolRouter(
       // not for the sync (remote-shim-calls.ts:354-359), and a failure is nobody's to hear.
       const handler = fires.get(method) ?? calls.get(method);
       if (!handler) throw new UnclaimedNodeMethodError(method);
-      void runQueued(link.host.ctx, method, params, async () => {
+      let args: unknown[];
+      try {
+        args = relayed(params);
+      } catch {
+        // Node's fire dropped a frame it could not write (`.catch(() => {})`).
+        return;
+      }
+      void runQueued(link.host.ctx, method, args, async () => {
         await link.started();
-        return handler(params, link.host);
+        return handler(args, link.host);
       }).catch(() => undefined);
     },
     install(): void {

@@ -29,10 +29,16 @@ use super::RefreshOutcome;
 use super::store::Ask;
 use super::store::CatalogSnapshot;
 
+/// `reg().getAllProviders()`: the registered providers by name, as they are when it is called.
+type RegisteredProviders = Box<dyn Fn() -> Vec<(ProviderId, Arc<dyn ProviderAdapter>)> + Send + Sync>;
+
 pub struct CatalogService {
     catalog: Arc<ProviderCatalog>,
-    /// The listings a refresh asks: the registered providers' (`set_sources`).
+    /// The listings a refresh asks when no registry is bound: the construction's (or `set_sources`).
     sources: ArcSwap<Vec<ModelSource>>,
+    /// `reg().getAllProviders()`, bound by the readiness that owns the registry: the live registered providers, read
+    /// when a refresh starts, in place of `sources`.
+    registered: arc_swap::ArcSwapOption<RegisteredProviders>,
     metadata: Arc<ModelsDevSource>,
     /// The live-roster files, read from the data directory on every lookup.
     pub(super) rosters: ArcSwap<Rosters>,
@@ -42,19 +48,20 @@ pub struct CatalogService {
     listing: ListingLookup,
     /// The revision the price audit last judged (lastAuditedRevision).
     pub(super) audited: std::sync::Mutex<Option<String>>,
-    /// Told after every provider catalog refresh has settled, failed or not (`rt.wakeDeferredWarmups()` in
-    /// `provider-readiness.mjs`'s `settle`).
+    /// Told when the startup catalog refresh the readiness observed has settled, failed or not
+    /// (`rt.wakeDeferredWarmups()` in `provider-readiness.mjs`'s `settle`).
     settled: std::sync::Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
-    /// Provider catalog refreshes running now. A state, not an event: whoever asks later (a background job that was
-    /// scheduled after the refresh began, or after it settled) reads the same answer.
-    refreshing: std::sync::atomic::AtomicUsize,
-    /// The startup refresh is expected and has not settled (`rt.startupProviderCatalogRefreshPending`): set when the
-    /// warm-up loop is armed, so a job scheduled before the refresh began waits for it too.
-    startup_pending: std::sync::atomic::AtomicBool,
+    /// The startup refresh the readiness observed has not settled (`rt.startupProviderCatalogRefreshPending`). A state,
+    /// not an event: a background job scheduled after the refresh began, or after it settled, reads the same answer.
+    /// It holds the id of the refresh that owns the flag (the latest observed; 0: nothing pending), so only that one
+    /// clears it.
+    startup_pending: std::sync::atomic::AtomicU64,
     /// `modelMetaByRoute` and its placeholder keys (`lookupModelMeta`).
     pub(super) meta: std::sync::Mutex<super::facts::MetaMemo>,
     /// `catalogRevision(reg())`, bound by the readiness that owns the registry; 0 until bound.
     revision: arc_swap::ArcSwapOption<Box<dyn Fn() -> u64 + Send + Sync>>,
+    /// The revision the last full listing began under (`sharedCatalogKey`'s revision half); none before the first.
+    listed_revision: std::sync::Mutex<Option<u64>>,
     /// `caches.providerModelsLoadSeq`, bound by the provider-models cache that owns it; 0 until bound.
     load_seq: arc_swap::ArcSwapOption<Box<dyn Fn() -> u64 + Send + Sync>>,
     /// `reg().getProvider`, bound by the readiness that owns the registry.
@@ -77,16 +84,17 @@ impl CatalogService {
         let service = Self {
             catalog,
             sources: ArcSwap::from_pointee(sources),
+            registered: arc_swap::ArcSwapOption::empty(),
             metadata,
             rosters: ArcSwap::from_pointee(Rosters::default()),
             litellm: None,
             listing: ListingLookup::new(),
             audited: std::sync::Mutex::new(None),
             settled: std::sync::Mutex::new(Vec::new()),
-            refreshing: std::sync::atomic::AtomicUsize::new(0),
-            startup_pending: std::sync::atomic::AtomicBool::new(false),
+            startup_pending: std::sync::atomic::AtomicU64::new(0),
             meta: std::sync::Mutex::default(),
             revision: arc_swap::ArcSwapOption::empty(),
+            listed_revision: std::sync::Mutex::new(None),
             load_seq: arc_swap::ArcSwapOption::empty(),
             providers: arc_swap::ArcSwapOption::empty(),
             warmup: arc_swap::ArcSwapOption::empty(),
@@ -111,6 +119,25 @@ impl CatalogService {
     /// Binds `reg().getProvider(name)`: the registered providers as the route-meta memo asks about them.
     pub fn bind_providers(&self, providers: RouteProviders) {
         self.providers.store(Some(Arc::new(providers)));
+    }
+
+    /// Binds `reg().getAllProviders()`: the providers registered at the moment it is called. Every refresh asks these from
+    /// then on, read when it starts, as Node's refreshes walk the live registry (registry.mjs:617, 708, 729, 762) and its
+    /// catalog load lists it (`sharedProviderCatalog(reg())`): a provider removed since is not asked, one added is.
+    pub fn bind_registered(&self, registered: impl Fn() -> Vec<(ProviderId, Arc<dyn ProviderAdapter>)> + Send + Sync + 'static) {
+        let registered: RegisteredProviders = Box::new(registered);
+        self.registered.store(Some(Arc::new(registered)));
+    }
+
+    /// The listings a refresh starting now asks: the registered providers when a registry is bound, else the
+    /// construction's list.
+    pub fn sources(&self) -> Arc<Vec<ModelSource>> {
+        match self.registered.load().as_ref() {
+            Some(registered) => Arc::new(
+                registered().into_iter().filter_map(|(provider, adapter)| self.model_source(provider, adapter)).collect(),
+            ),
+            None => self.sources.load_full(),
+        }
     }
 
     /// Binds `scheduleProviderModelWarmup`: what a non-fetching route-meta miss asks the provider-models cache to do (load
@@ -215,38 +242,38 @@ impl CatalogService {
         self.publish_listing();
         self
     }
-    /// Registers `notify` to run each time a provider catalog refresh settles. Node wakes every parked background
-    /// warm-up then (`settle` of the startup catalog refresh, `provider-readiness.mjs`), a failed refresh included.
+    /// Registers `notify` to run each time the startup catalog refresh the readiness observed settles. Node wakes every
+    /// parked background warm-up then (`settle`, `provider-readiness.mjs:154-158`), a failed refresh included.
     pub fn on_refresh_settled(&self, notify: Arc<dyn Fn() + Send + Sync>) {
         self.settled.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(notify);
     }
 
-    /// A provider catalog refresh is running (`rt.startupProviderCatalogRefreshPending`).
+    /// The startup catalog refresh the readiness observed is running (`rt.startupProviderCatalogRefreshPending`).
     pub fn refresh_in_flight(&self) -> bool {
-        self.refreshing.load(std::sync::atomic::Ordering::SeqCst) > 0 || self.startup_pending.load(std::sync::atomic::Ordering::SeqCst)
+        self.startup_pending.load(std::sync::atomic::Ordering::SeqCst) != 0
     }
 
-    /// The warm-up loop is armed: its first refresh is pending until it settles or the loop is stopped.
-    pub fn expect_startup_refresh(&self) {
-        self.startup_pending.store(true, std::sync::atomic::Ordering::SeqCst);
+    /// The readiness observed startup refresh `refresh` (an id from 1), which has not settled: it owns the flag now.
+    pub fn mark_startup_refresh_pending(&self, refresh: u64) {
+        self.startup_pending.store(refresh, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// The warm-up loop stopped before its first refresh: nothing is pending any more, and whoever waited is woken.
-    pub fn abandon_startup_refresh(&self) {
-        if self.startup_pending.swap(false, std::sync::atomic::Ordering::SeqCst) {
+    /// Startup refresh `refresh` settled. Only the latest observed one settles the flag (`isLatest()`,
+    /// provider-readiness.mjs:152-157): when it still owns it, nothing is pending, then the parked warm-ups are woken; a
+    /// superseded one changes nothing. Node checks and clears in one synchronous step; here the check and the clear are
+    /// one compare-and-set on the owner, so a refresh observed in between keeps its flag.
+    pub fn settle_startup_refresh(&self, refresh: u64) {
+        // Before the callbacks, so the wake they give finds nothing pending.
+        let ordering = std::sync::atomic::Ordering::SeqCst;
+        if self.startup_pending.compare_exchange(refresh, 0, ordering, ordering).is_ok() {
             self.refresh_settled();
         }
     }
 
-    /// The warm-up loop's refresh: a refresh that also settles the startup one.
-    pub async fn refresh_startup(&self) -> RefreshOutcome {
-        self.refresh_asking_as(Ask::All, true).await
-    }
-
-    /// Marks a refresh running until the guard drops, cancellation included.
-    fn refreshing(&self) -> RefreshGuard<'_> {
-        self.refreshing.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        RefreshGuard(&self.refreshing)
+    /// Replaces the wall clock that stamps a failed listing's retry time (a test on virtual time).
+    pub fn with_clock(mut self, now_ms: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
+        Arc::get_mut(&mut self.catalog).expect("the catalog is not shared before the service is").set_clock(now_ms);
+        self
     }
 
     fn refresh_settled(&self) {
@@ -301,9 +328,7 @@ impl CatalogService {
         self.catalog.snapshot()
     }
 
-    /// Replaces the listings a refresh asks. Node's catalog load walks the providers the registry
-    /// holds (`sharedProviderCatalog(reg())`), so the readiness hands over the registered ones
-    /// after each initialization.
+    /// Replaces the listings a refresh asks while no registry is bound ([`Self::bind_registered`]).
     pub fn set_sources(&self, sources: Vec<ModelSource>) {
         self.sources.store(Arc::new(sources));
     }
@@ -311,13 +336,20 @@ impl CatalogService {
     /// One refresh: model listings and models.dev (fetched only when its
     /// cache is stale or a retry is due), published as one snapshot.
     pub async fn refresh(&self) -> RefreshOutcome {
-        self.refresh_asking(Ask::All).await
+        self.refresh_asking(Ask::All, None).await
+    }
+
+    /// [`Self::refresh`] asking `sources`, the providers read when the refresh began (`refreshCatalogs` walks the
+    /// registry once, before its listings wait for the metadata, registry.mjs:762-766).
+    pub async fn refresh_of(&self, sources: Arc<Vec<ModelSource>>) -> RefreshOutcome {
+        self.refresh_asking(Ask::All, Some(sources)).await
     }
 
     /// A non-forced refresh: asks only the providers that are due (never
-    /// listed, or failed with their backoff passed).
+    /// listed, or failed with their backoff passed), or every provider once the registry's catalog revision moved
+    /// since the last full listing began (`sharedProviderCatalog` keys its answer by `catalogRevision(reg())`).
     pub async fn refresh_due(&self) -> RefreshOutcome {
-        self.refresh_asking(Ask::Due).await
+        self.refresh_asking(Ask::Due, None).await
     }
 
     /// A provider-scoped forced refresh (`catalog-load.mjs` `prepare`, `forceRefresh && provider`):
@@ -326,17 +358,32 @@ impl CatalogService {
     /// provider keeps what it loaded.
     pub async fn refresh_matching(&self, wanted: &str) -> RefreshOutcome {
         let only: Vec<ModelSource> = {
-            let sources = self.sources.load_full();
+            let sources = self.sources();
             let ids: Vec<&str> = sources.iter().map(|s| s.provider().as_str()).collect();
             let names = matching_providers(&ids, wanted);
             sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().collect()
         };
-        let running = self.refreshing();
         let outcome = self.catalog.refresh_asking(&only, Ask::All).await;
         self.publish_listing();
-        drop(running);
-        self.refresh_settled();
         outcome
+    }
+
+    /// `refreshProviderCatalogsOnStartup`'s listing: `sources`, the providers registered when the refresh began
+    /// (registry.mjs:708), asked again, no metadata table.
+    pub async fn refresh_providers(&self, sources: &[ModelSource]) -> RefreshOutcome {
+        self.catalog.refresh_whole(sources, Ask::All).await
+    }
+
+    /// `warmCatalogsInBackground`'s loads: the LiteLLM and models.dev tables (fetched only when stale or a retry is due),
+    /// no provider listing.
+    pub async fn refresh_metadata(&self) {
+        let litellm = async {
+            if let Some(source) = &self.litellm {
+                source.load(false).await;
+            }
+        };
+        futures::future::join(self.metadata.load(false), litellm).await;
+        self.publish_listing();
     }
 
     /// An auth/account change: the rows listed under the previous account are
@@ -345,40 +392,29 @@ impl CatalogService {
         self.catalog.invalidate_accounts();
     }
 
-    async fn refresh_asking(&self, ask: Ask) -> RefreshOutcome {
-        self.refresh_asking_as(ask, false).await
-    }
-
-    async fn refresh_asking_as(&self, ask: Ask, startup: bool) -> RefreshOutcome {
-        let running = self.refreshing();
+    /// `sources`: the providers the caller read when its refresh began; `None` reads them now.
+    async fn refresh_asking(&self, ask: Ask, sources: Option<Arc<Vec<ModelSource>>>) -> RefreshOutcome {
+        let sources = sources.unwrap_or_else(|| self.sources());
+        let revision = self.catalog_revision();
+        let ask = {
+            let mut listed = self.listed_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let moved = listed.is_some_and(|listed| listed != revision);
+            *listed = Some(revision);
+            if moved { Ask::All } else { ask }
+        };
         let litellm = async {
             if let Some(source) = &self.litellm {
                 source.load(false).await;
             }
         };
-        let sources = self.sources.load_full();
         let (outcome, _, ()) = futures::future::join3(
-            self.catalog.refresh_asking(&sources, ask),
+            self.catalog.refresh_whole(&sources, ask),
             self.metadata.load(false),
             litellm,
         )
         .await;
         self.publish_listing();
-        drop(running);
-        // Before the callbacks, so the wake they give finds nothing pending.
-        if startup {
-            self.startup_pending.store(false, std::sync::atomic::Ordering::SeqCst);
-        }
-        self.refresh_settled();
         outcome
-    }
-}
-
-struct RefreshGuard<'a>(&'a std::sync::atomic::AtomicUsize);
-
-impl Drop for RefreshGuard<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 

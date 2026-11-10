@@ -196,6 +196,19 @@ fn request_policy(provider: &dyn ProviderAdapter, retry_529: bool) -> std::borro
     std::borrow::Cow::Owned(policy)
 }
 
+/// The one assembly of a send's request: [`wire_request`] with the reminder `tail`'s rules give for `model` (also
+/// returned, the turn keeps its text). The loop's sends and the request snapshot both build their request here.
+pub fn assemble_request(
+    model: &str,
+    options: mixdog_core_api::domain::provider::RequestOptions,
+    messages: Vec<mixdog_core_api::domain::provider::Message>,
+    tail: Option<&dyn crate::env::TailReminder>,
+    tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+) -> (ModelRequest, Option<String>) {
+    let reminder = tail.and_then(|t| t.text(model));
+    (wire_request(model, options, messages, reminder.as_deref(), tools), reminder)
+}
+
 /// The request the loop sends: the projected transcript, the tail reminder when the turn has one
 /// (it rides on this request only), the tool definitions and the options. A side question rebuilds
 /// the request of the session's next turn through the same function.
@@ -259,8 +272,9 @@ impl Run {
         };
         // The tail reminder rides on this request only; the assistant turn it
         // produces keeps its text.
-        self.last_reminder = self.env.tail.as_ref().and_then(|t| t.text(&self.model));
-        wire_request(&self.model, options, messages, self.last_reminder.as_deref(), self.request_tools())
+        let (request, reminder) = assemble_request(&self.model, options, messages, self.env.tail.as_deref(), self.request_tools());
+        self.last_reminder = reminder;
+        request
     }
 
     /// Sends the transcript, recovering from failures. The returned response
