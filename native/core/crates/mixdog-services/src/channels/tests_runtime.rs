@@ -14,13 +14,14 @@ use mixdog_protocol::DomainErrorDetail;
 use mixdog_rt::testing::tokens;
 use mixdog_store::state::CoreState;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::admin::{AdminDeps, AdminError, ChannelAdmin};
 use super::bridge::BridgeCalls;
 use super::call::CallDispatch;
 use super::ports::{
-    AgentRuntime, AutomationServices, ChannelSettings, ProbeError, ProbeResponse, PublicBase, WebhookPatch, WebhookProbe,
-    WebhookSettings,
+    AgentRuntime, AutomationServices, ChannelSettings, ProbeError, ProbeResponse, PublicBase, WebhookAutomation, WebhookListener,
+    WebhookPatch, WebhookProbe, WebhookSettings,
 };
 use super::running::RunningWork;
 use super::runtime::ChannelRuntime;
@@ -33,6 +34,8 @@ use crate::bots::{
 use crate::scheduler::{
     Schedule, ScheduleError, ScheduleRecords, ScheduleStatus, ScheduleStore, Scheduler, StateScheduleStore, SystemClock,
 };
+use crate::webhooks::lifecycle::{TunnelStarter, WebhookServer};
+use crate::webhooks::relay::{RelayTunnelStarter, hook_public_base};
 use crate::webhooks::signature::{Headers, hmac_hex};
 use crate::webhooks::{EndpointRecord, EndpointRecords, StateWebhookStore, WebhookConfig, WebhookService, WebhookStore};
 
@@ -59,12 +62,26 @@ impl ChannelSettings for FakeSettings {
 #[derive(Default)]
 struct FakeServices {
     log: Mutex<Vec<String>>,
+    /// The sync waits for a permit of this semaphore (a listener that has not bound yet).
+    sync_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
+    /// Notified when a sync has been entered.
+    entered: tokio::sync::Notify,
+}
+
+/// Waits for a signal a test double gives; the bound only turns a missing signal into a failure.
+async fn signal(notify: &tokio::sync::Notify, what: &str) {
+    tokio::time::timeout(Duration::from_secs(15), notify.notified()).await.unwrap_or_else(|_| panic!("never signalled: {what}"));
 }
 
 #[async_trait]
 impl AutomationServices for FakeServices {
     async fn sync(&self, reload: bool) -> Result<(), String> {
         self.log.lock().unwrap().push(format!("sync:{reload}"));
+        self.entered.notify_one();
+        let gate = self.sync_gate.lock().unwrap().clone();
+        if let Some(gate) = gate {
+            gate.acquire().await.expect("the gate stays open").forget();
+        }
         Ok(())
     }
     async fn stop(&self) {
@@ -75,19 +92,25 @@ impl AutomationServices for FakeServices {
 #[derive(Default)]
 struct FakeAgent {
     inits: AtomicUsize,
-    reloads: AtomicUsize,
-    reload_fails: Mutex<bool>,
+    /// Provider inits that ran to their end (not dropped while held).
+    init_finished: AtomicUsize,
+    /// The provider init waits for a permit of this semaphore (a start stuck in it).
+    init_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
+    /// Notified when a provider init has been entered.
+    entered: tokio::sync::Notify,
 }
 
 #[async_trait]
 impl AgentRuntime for FakeAgent {
     async fn init_providers(&self) -> Result<(), String> {
         self.inits.fetch_add(1, Ordering::SeqCst);
+        self.entered.notify_one();
+        let gate = self.init_gate.lock().unwrap().clone();
+        if let Some(gate) = gate {
+            gate.acquire().await.expect("the gate stays open").forget();
+        }
+        self.init_finished.fetch_add(1, Ordering::SeqCst);
         Ok(())
-    }
-    async fn reload(&self) -> Result<(), String> {
-        self.reloads.fetch_add(1, Ordering::SeqCst);
-        if *self.reload_fails.lock().unwrap() { Err("no registry".into()) } else { Ok(()) }
     }
 }
 
@@ -130,10 +153,16 @@ struct Env {
     probe: Arc<FakeProbe>,
     base: Arc<FakeBase>,
     work: RunningWork,
+    /// `isCloseRequested()` of the admin.
+    closing: CancellationToken,
     _dir: tempfile::TempDir,
 }
 
 async fn env() -> Env {
+    env_with(false).await
+}
+
+async fn env_with(channel_start_disabled: bool) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let (state, _) = CoreState::open(tokens().sqlite_writer_thread, tokens().interactive_io, &dir.path().join("core.sqlite")).unwrap();
     let schedules = Arc::new(StateScheduleStore::new(state.clone(), Arc::new(SystemClock)));
@@ -158,6 +187,7 @@ async fn env() -> Env {
         Arc::new(FakeProbe::default()),
     );
     let runtime = ChannelRuntime::new(scheduler, schedules.clone(), services.clone(), agent.clone());
+    let closing = CancellationToken::new();
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: schedules.clone(),
         webhooks: webhooks.clone(),
@@ -168,8 +198,10 @@ async fn env() -> Env {
         probe: probe.clone(),
         clock: Arc::new(SystemClock),
         local_tz: Tz::UTC,
+        channel_start_disabled,
+        close_requested: closing.clone(),
     });
-    Env { host, admin, runtime, routines, schedules, webhooks, settings, services, agent, probe, base, work, _dir: dir }
+    Env { host, admin, runtime, routines, schedules, webhooks, settings, services, agent, probe, base, work, closing, _dir: dir }
 }
 
 fn recurring(name: &str) -> Value {
@@ -517,21 +549,21 @@ async fn the_bridge_tools_start_and_stop_the_runtime_and_count_as_running_work()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn reload_config_rearms_the_scheduler_and_reports_the_agent_reload() {
+async fn reload_config_rearms_the_scheduler_and_leaves_the_agent_runtime_alone() {
     let e = env().await;
     let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
     e.runtime.start_automation().await.unwrap();
     e.schedules.upsert(&sched("late")).await.unwrap();
     assert!(e.runtime.scheduler().status().is_empty());
     let reloaded = tools.handle_tool_call("reload_config", &json!({})).await;
-    assert_eq!(
-        reloaded["content"][0]["text"],
-        "config reloaded — schedules, webhooks, events, agent providers/presets/maintenance re-registered"
-    );
+    // Node's real `reload_config` after `ensureStandaloneEnvironment` (MIXDOG_STANDALONE=1): `fixtures/standalone-defaults`.
+    let twin: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/standalone-defaults/twin.json")).unwrap()).unwrap();
+    for recorded in twin["reloads"].as_array().unwrap() {
+        assert_eq!(recorded["standaloneAfterStart"], "1");
+        assert_eq!(recorded["runtimeReloads"], 1);
+        assert_eq!(reloaded, recorded["result"]);
+    }
     assert_eq!(e.runtime.scheduler().status().len(), 1, "a schedule saved after the start is armed by the reload");
-    *e.agent.reload_fails.lock().unwrap() = true;
-    let partial = tools.handle_tool_call("reload_config", &json!({})).await;
-    assert_eq!(partial["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
@@ -636,12 +668,600 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     let first = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {}})).await.unwrap();
     let retried = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {}})).await.unwrap();
     assert_eq!(first, retried);
-    assert_eq!(first["content"][0]["text"], "config reloaded — schedules, webhooks, events, agent providers/presets/maintenance re-registered");
-    assert_eq!(e.agent.reloads.load(Ordering::SeqCst), 1, "the retry did not reload again");
+    assert_eq!(first["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
     let conflict = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {"x": 1}})).await.unwrap_err();
     assert_eq!(conflict, CoreError::DomainError { domain: "channel".into(), code: Some("ECALLIDCONFLICT".into()), message: None, detail: None });
     // A tool the core does not host answers as the worker's dispatch does for any unknown name.
     let reply = svc.call(request("channel/call", json!({"name": "reply", "args": {}}), Some("op-2"))).await.unwrap();
     let Reply::Value(unknown) = reply else { panic!("not a value") };
     assert_eq!(unknown, json!({"content": [{"type": "text", "text": "unknown tool: reply"}], "isError": true}));
+}
+
+/// Node's boot check (`scheduleAutomationAutostart`, `channel-start.test.mjs` / `prewarm.channels.test.mjs`):
+/// enabled automation starts the runtime on its own, nothing enabled starts nothing, and
+/// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_boot_check_starts_the_runtime_for_enabled_automation_without_an_admin_call() {
+    let e = env().await;
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
+    assert!(!e.runtime.automation_running(), "nothing is enabled");
+
+    e.schedules.upsert(&Schedule { enabled: false, ..sched("off") }).await.unwrap();
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
+    assert!(!e.runtime.automation_running(), "a disabled schedule is not automation");
+
+    e.schedules.upsert(&sched("on")).await.unwrap();
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
+    assert!(e.runtime.automation_running());
+    assert_eq!(e.services.log.lock().unwrap().clone(), vec!["sync:false".to_string()]);
+    assert_eq!(e.runtime.scheduler().status().iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["on"]);
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+
+    let closed = env().await;
+    closed.schedules.upsert(&sched("on")).await.unwrap();
+    closed.closing.cancel();
+    closed.admin.schedule_automation_start();
+    closed.runtime.scheduled_start_settled().await;
+    assert!(!closed.runtime.automation_running(), "a close in progress starts nothing");
+
+    let hook = env().await;
+    hook.webhooks.upsert(&EndpointRecord { name: "hook".into(), owner_agent_id: "lead".into(), enabled: true, ..Default::default() }).await.unwrap();
+    hook.admin.schedule_automation_start();
+    hook.runtime.scheduled_start_settled().await;
+    assert!(hook.runtime.automation_running(), "an enabled webhook starts it too");
+    hook.runtime.stop_owned_runtime("test").await.unwrap();
+
+    let disabled = env_with(true).await;
+    disabled.schedules.upsert(&sched("on")).await.unwrap();
+    disabled.admin.schedule_automation_start();
+    disabled.runtime.scheduled_start_settled().await;
+    assert!(!disabled.runtime.automation_running(), "MIXDOG_DISABLE_CHANNEL_START");
+    disabled.admin.save_schedule(&recurring("saved")).await.unwrap();
+    disabled.runtime.scheduled_start_settled().await;
+    assert!(!disabled.runtime.automation_running(), "a save does not start it either");
+}
+
+/// `ensureAutomationRuntime` → `scheduleChannelStart(0)`: the enabling call returns before the
+/// start, which then runs on its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enabling_a_webhook_returns_before_the_start_and_the_start_follows() {
+    let e = env().await;
+    e.admin.save_webhook(&json!({"name": "gh", "instructions": "x", "enabled": false})).await.unwrap();
+    e.runtime.scheduled_start_settled().await;
+    assert!(!e.runtime.automation_running(), "a disabled webhook starts nothing");
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
+    e.admin.set_webhook_enabled("gh", true).await.unwrap();
+    assert!(!e.runtime.automation_running(), "the call returned while the start waits in the provider init");
+    init.add_permits(1);
+    e.runtime.scheduled_start_settled().await;
+    assert!(e.runtime.automation_running());
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// `onChannelStartTimer` asks `hasActiveAutomation` when the deferred callback runs, not when
+/// the save scheduled it: a row disabled in between starts nothing. Reverting to an answer
+/// taken at save time (or no question) starts the service here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_active_automation_check_runs_when_the_deferred_start_runs() {
+    let e = env().await;
+    // The probe lists schedules first and waits on the owner check of this disabled row; the
+    // webhooks it lists afterwards are read once it is released.
+    e.schedules.upsert(&Schedule { enabled: false, ..sched("off") }).await.unwrap();
+    let listing = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.host.listing_gate.lock().unwrap() = Some(listing.clone());
+    e.admin.save_webhook(&json!({"name": "gh", "instructions": "x"})).await.unwrap();
+    signal(&e.host.listing_entered, "the active check is inside the listing").await;
+    e.admin.set_webhook_enabled("gh", false).await.unwrap();
+    listing.add_permits(8);
+    e.runtime.scheduled_start_settled().await;
+    assert!(!e.runtime.automation_running(), "nothing was enabled when the deferred start asked");
+    assert!(!e.services.log.lock().unwrap().contains(&"sync:false".to_string()));
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0, "no provider init for a start that is not made");
+}
+
+/// A shutdown while the deferred start waits on `hasActiveAutomation` (a stuck read) ends it and
+/// waits for it: the start is neither left running nor made after the teardown.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shutdown_ends_a_deferred_start_waiting_on_the_active_automation_check() {
+    let e = env().await;
+    e.schedules.upsert(&sched("on")).await.unwrap();
+    *e.host.listing_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
+    e.admin.schedule_automation_start();
+    signal(&e.host.listing_entered, "the active check is inside the listing").await;
+    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    assert!(!e.runtime.automation_running());
+    assert!(e.services.log.lock().unwrap().is_empty());
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0);
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0, "nothing is scheduled after the shutdown");
+}
+
+/// Node's `saveSchedule` readback (`channel-admin.mjs:324`, `scheduler.mjs:310-312`): `nextFireAt`
+/// is the row's own (`whenAt` for a one-shot, none for a cron) until the deferred start arms the
+/// scheduler, which stamps the cron's next fire only afterwards. A save that returned while the
+/// start still waits in the provider init reads back without it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_schedule_read_back_before_the_deferred_start_has_no_scheduler_stamped_next_fire() {
+    let e = env().await;
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
+    let cron = e.admin.save_schedule(&recurring("cron")).await.unwrap();
+    let once = e.admin.save_schedule(&json!({"name": "once", "at": "2031-05-06T07:08:09Z", "instructions": "x"})).await.unwrap();
+    assert!(cron.get("nextFireAt").is_none(), "{cron}");
+    assert_eq!(once["nextFireAt"], "2031-05-06T07:08:09.000Z");
+    let listed = e.admin.list_schedules().await.unwrap();
+    assert!(listed.iter().find(|r| r["name"] == "cron").unwrap().get("nextFireAt").is_none(), "the start has not armed the scheduler");
+    init.add_permits(1);
+    e.runtime.scheduled_start_settled().await;
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+/// The same for a start stuck in the provider init, which `stop_owned_runtime` alone would leave
+/// (nothing is running yet, so it returns early): the shutdown cancels and joins it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shutdown_ends_a_deferred_start_stuck_in_the_provider_init() {
+    let e = env().await;
+    e.schedules.upsert(&sched("on")).await.unwrap();
+    *e.agent.init_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
+    e.admin.schedule_automation_start();
+    signal(&e.agent.entered, "the start is inside the provider init").await;
+    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+    assert!(!e.runtime.automation_running());
+    assert!(e.services.log.lock().unwrap().is_empty(), "nothing synced after the shutdown");
+}
+/// What the daemon wires around the webhook server: a loopback listener (ephemeral port) that
+/// starts the relay tunnel once it is bound.
+struct LoopbackServer {
+    service: Arc<WebhookService>,
+    tunnels: Arc<dyn TunnelStarter>,
+    server: tokio::sync::Mutex<Option<WebhookServer>>,
+    /// Notified once the receiver is bound and its tunnel started (the relay identity is persisted).
+    bound: tokio::sync::Notify,
+}
+
+impl LoopbackServer {
+    async fn listening(&self) -> bool {
+        self.server.lock().await.is_some()
+    }
+}
+
+#[async_trait]
+impl WebhookListener for LoopbackServer {
+    async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
+        let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
+        server.start().await?;
+        let replaced = self.server.lock().await.replace(server);
+        if let Some(mut old) = replaced {
+            old.stop().await;
+        }
+        self.bound.notify_one();
+        Ok(())
+    }
+    async fn stop(&self) -> Result<(), String> {
+        let server = self.server.lock().await.take();
+        if let Some(mut server) = server {
+            server.stop().await;
+        }
+        Ok(())
+    }
+}
+
+/// `readHookPublicBase()`: the base of the identity file, `None` until a tunnel wrote one.
+struct IdentityFileBase {
+    data_dir: std::path::PathBuf,
+    relay: String,
+}
+
+#[async_trait]
+impl PublicBase for IdentityFileBase {
+    async fn hook_public_base(&self) -> Result<Option<String>, String> {
+        let Ok(bytes) = tokio::fs::read(self.data_dir.join("relay-hook-device.json")).await else { return Ok(None) };
+        let identity: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        hook_public_base(&self.relay, identity["deviceId"].as_str().unwrap_or_default()).map(Some)
+    }
+}
+
+/// The saved webhook's public URL: the relay identity is created lazily by the tunnel start
+/// (`startHookTunnel` → `loadOrCreateHookIdentity`), which runs after the save has returned, so
+/// the URL shows once that start has finished (the desktop shows `publicUrl` as the endpoint
+/// URL). Real receiver, relay tunnel and data directory; the relay is a loopback port nobody
+/// listens on, so the leg only logs and retries.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_public_url() {
+    let e = env().await;
+    let data = tempfile::tempdir().unwrap();
+    let relay = "ws://127.0.0.1:9";
+    let service = Arc::new(WebhookService::new(
+        e.webhooks.clone(),
+        Arc::new(HomeWebhookDispatch::new(e.routines.clone(), e.webhooks.clone(), None, e.work.clone())),
+        WebhookConfig::default(),
+        e.work.clone(),
+        Arc::new(|| 0),
+    ));
+    let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
+    let listener = Arc::new(LoopbackServer { service: service.clone(), tunnels, server: tokio::sync::Mutex::new(None), bound: Default::default() });
+    let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener));
+    let scheduler = Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
+    let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
+    let admin = ChannelAdmin::new(AdminDeps {
+        schedules: e.schedules.clone(),
+        webhooks: e.webhooks.clone(),
+        routines: e.routines.clone(),
+        runtime: runtime.clone(),
+        settings: e.settings.clone(),
+        base: Arc::new(IdentityFileBase { data_dir: data.path().to_path_buf(), relay: relay.into() }),
+        probe: e.probe.clone(),
+        clock: Arc::new(SystemClock),
+        local_tz: Tz::UTC,
+        channel_start_disabled: false,
+        close_requested: CancellationToken::new(),
+    });
+
+    assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], Value::Null, "a read creates no identity");
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
+    admin.save_webhook(&json!({"name": "gh", "instructions": "x"})).await.unwrap();
+    assert!(!data.path().join("relay-hook-device.json").exists(), "the save created no identity before it replied");
+    init.add_permits(1);
+    runtime.scheduled_start_settled().await;
+    let stored: Value = serde_json::from_slice(&tokio::fs::read(data.path().join("relay-hook-device.json")).await.unwrap()).unwrap();
+    let id = stored["deviceId"].as_str().unwrap();
+    assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], format!("http://127.0.0.1:9/hook/{id}"));
+    runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// The schedule store of the scheduler with its next-fire write held until a permit is given: the
+/// boundary "stamp write pending" of Node's unawaited `setNextFire` (`scheduler.mjs:311`).
+struct GatedStamps {
+    inner: Arc<StateScheduleStore>,
+    gate: Arc<tokio::sync::Semaphore>,
+    /// Notified once a held write has been persisted.
+    persisted: Arc<tokio::sync::Notify>,
+}
+
+/// The scheduler's clock, set by the test: the replay drives Rust with the instant Node armed at.
+struct FixedClock(std::sync::atomic::AtomicI64);
+
+impl FixedClock {
+    fn set(&self, at: chrono::DateTime<chrono::Utc>) {
+        self.0.store(at.timestamp_millis(), Ordering::SeqCst);
+    }
+}
+
+impl crate::scheduler::Clock for FixedClock {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp_millis(self.0.load(Ordering::SeqCst)).unwrap()
+    }
+}
+
+#[async_trait]
+impl ScheduleStore for GatedStamps {
+    async fn get(&self, name: &str) -> Result<Option<Schedule>, ScheduleError> {
+        self.inner.get(name).await
+    }
+    async fn list(&self) -> Result<Vec<Schedule>, ScheduleError> {
+        self.inner.list().await
+    }
+    async fn mark_fired(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_fired(name, at).await
+    }
+    async fn set_next_fire(&self, name: &str, at: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.gate.acquire().await.expect("the gate stays open").forget();
+        let written = self.inner.set_next_fire(name, at).await;
+        self.persisted.notify_one();
+        written
+    }
+    async fn advance_cursor(&self, name: &str, s: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
+        self.inner.advance_cursor(name, s, next).await
+    }
+    async fn claim_run(&self, name: &str, s: chrono::DateTime<chrono::Utc>, started: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
+        self.inner.claim_run(name, s, started, next).await
+    }
+    async fn mark_success(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_success(name, at).await
+    }
+    async fn mark_failure(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_failure(name, at).await
+    }
+    async fn mark_skipped(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_skipped(name, at).await
+    }
+    async fn mark_done(&self, name: &str) -> Result<(), ScheduleError> {
+        self.inner.mark_done(name).await
+    }
+    async fn set_deferred(&self, name: &str, until: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.inner.set_deferred(name, until).await
+    }
+    async fn set_skipped_until(&self, name: &str, until: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.inner.set_skipped_until(name, until).await
+    }
+}
+
+/// A readback with the generated parts normalised the same way on both sides: the relay base and
+/// the device id of the public URL (their structure is checked, not copied).
+fn normalise_setup(mut setup: Value, relay_base: &str) -> Value {
+    if let Some(url) = setup["webhook"]["publicUrl"].as_str() {
+        let id = url.strip_prefix(&format!("{relay_base}/hook/")).unwrap_or_else(|| panic!("public url {url} is not {relay_base}/hook/<id>"));
+        assert!(id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'), "device id {id}");
+        setup["webhook"]["publicUrl"] = json!("<relay>/hook/<id>");
+    }
+    setup
+}
+
+/// The real stack of a webhook-and-schedule save: webhook server, relay tunnel starter, identity
+/// file and the scheduler over a store whose next-fire write is held until a permit is given (the
+/// boundary "stamp write pending" of Node's unawaited `setNextFire`, `scheduler.mjs:311`).
+struct Rig {
+    e: Env,
+    admin: Arc<ChannelAdmin>,
+    runtime: Arc<ChannelRuntime>,
+    data: tempfile::TempDir,
+    init: Arc<tokio::sync::Semaphore>,
+    stamps: Arc<tokio::sync::Semaphore>,
+    stamped: Arc<tokio::sync::Notify>,
+    listener: Arc<LoopbackServer>,
+    /// The scheduler's `now`.
+    clock: Arc<FixedClock>,
+}
+
+async fn rig() -> Rig {
+    let e = env().await;
+    // The recording's webhook port (the loopback listener binds an ephemeral one regardless).
+    e.settings.webhook.lock().unwrap().port = json!(47311);
+    let data = tempfile::tempdir().unwrap();
+    let relay = "ws://127.0.0.1:9";
+    let service = Arc::new(WebhookService::new(
+        e.webhooks.clone(),
+        Arc::new(HomeWebhookDispatch::new(e.routines.clone(), e.webhooks.clone(), None, e.work.clone())),
+        WebhookConfig::default(),
+        e.work.clone(),
+        Arc::new(|| 0),
+    ));
+    let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
+    let listener = Arc::new(LoopbackServer { service: service.clone(), tunnels, server: tokio::sync::Mutex::new(None), bound: Default::default() });
+    let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener.clone()));
+    let stamps = Arc::new(tokio::sync::Semaphore::new(0));
+    let stamped = Arc::new(tokio::sync::Notify::new());
+    let store = Arc::new(GatedStamps { inner: e.schedules.clone(), gate: stamps.clone(), persisted: stamped.clone() });
+    let clock = Arc::new(FixedClock(std::sync::atomic::AtomicI64::new(chrono::Utc::now().timestamp_millis())));
+    let scheduler = Scheduler::new(store, Arc::new(HomeScheduleRunner::new(e.routines.clone())), clock.clone(), e.work.clone(), Tz::UTC, Vec::new());
+    let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
+    let admin = ChannelAdmin::new(AdminDeps {
+        schedules: e.schedules.clone(),
+        webhooks: e.webhooks.clone(),
+        routines: e.routines.clone(),
+        runtime: runtime.clone(),
+        settings: e.settings.clone(),
+        base: Arc::new(IdentityFileBase { data_dir: data.path().to_path_buf(), relay: relay.into() }),
+        probe: e.probe.clone(),
+        clock: Arc::new(SystemClock),
+        local_tz: Tz::UTC,
+        channel_start_disabled: false,
+        close_requested: CancellationToken::new(),
+    });
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
+    Rig { e, admin, runtime, data, init, stamps, stamped, listener, clock }
+}
+
+impl Rig {
+    fn identity_file(&self) -> bool {
+        self.data.path().join("relay-hook-device.json").exists()
+    }
+
+    /// The start is inside the provider init.
+    async fn wait_for_init_entered(&self) {
+        signal(&self.e.agent.entered, "the start reaches the provider init").await;
+    }
+
+    /// The receiver is bound and its tunnel started: the relay identity is persisted.
+    async fn wait_for_bound(&self) {
+        signal(&self.listener.bound, "the receiver binds").await;
+    }
+
+    /// The held next-fire write is persisted.
+    async fn wait_for_stamp(&self) {
+        signal(&self.stamped, "the next-fire stamp is persisted").await;
+    }
+
+    /// The scheduler arms at the instant Node armed at (the recording's release of the provider init).
+    fn arm_at_recorded_release(&self, rec: &Value) {
+        self.clock.set(chrono::DateTime::from_timestamp_millis(rec["releasedAt"].as_i64().unwrap()).unwrap());
+    }
+}
+
+const SCHEDULE_ENTRY: &str = r#"{"name": "harness-schedule", "description": "A schedule", "time": "0 9 * * *", "timezone": "Asia/Seoul", "instructions": "Say hello."}"#;
+
+/// The recording of Node b6f10295a (`native/core/fixtures/schedule-save-start/golden.json`, written by
+/// `benchmarks/rust-core/recorders/record-schedule-save-start.mjs` from an exact export through
+/// `createChannelConfigApi` and the real owned-runtime start, in an isolated data directory).
+fn recorded(scenario: &str) -> Value {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/schedule-save-start/golden.json")).unwrap();
+    golden["scenarios"][scenario].clone()
+}
+
+fn recorded_step(rec: &Value, label: &str) -> Value {
+    rec["steps"].as_array().unwrap().iter().find(|s| s["label"] == label).unwrap_or_else(|| panic!("no recorded step {label}")).clone()
+}
+
+/// Compares the observable state with a recorded step in full: the readback (the generated relay id
+/// replaced by a marker on both sides after its structure is checked; `nextFireAt` is Rust's own),
+/// the identity file, and whether the receiver listens. `attached` is true in every recorded step
+/// (the core runs in-process, so it is always attached). `virtualTimers` counts the recorder's held
+/// `channel-start.mjs` timers, a second route into the same start (`invokeChannelStart` returns the
+/// start in flight and `channels.start` is a no-op once attached); Rust has one route and no timer.
+async fn assert_step(rig: &Rig, setup: Value, rec: &Value, label: &str) {
+    let step = recorded_step(rec, label);
+    let base = rec["relayBase"].as_str().unwrap_or("http://127.0.0.1:9");
+    assert_eq!(normalise_setup(setup, "http://127.0.0.1:9"), normalise_setup(step["setup"].clone(), base), "readback at {label}");
+    assert_eq!(rig.identity_file(), step["identityFile"], "identity file at {label}");
+    assert_eq!(rig.listener.listening().await, step["listening"], "listening at {label}");
+    assert_eq!(step["attached"], true, "attached at {label}");
+}
+
+/// `saveSchedule` → reload → deferred start: the readbacks at Node's boundaries (start pending;
+/// listener bound with the identity persisted while the next-fire write is pending; the write
+/// done). Rust gets to each boundary through the real mechanisms: the provider init gate, the
+/// real receiver and relay starter, and the gated store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_schedule_save_reads_back_as_node_does_at_each_boundary_of_the_start() {
+    let rec = recorded("start-after-save");
+    let rig = rig().await;
+    let saved = rig.admin.save_schedule(&serde_json::from_str(SCHEDULE_ENTRY).unwrap()).await.unwrap();
+    assert_eq!(saved, rec["saveReply"]);
+    rig.wait_for_init_entered().await;
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "start-pending").await;
+
+    rig.arm_at_recorded_release(&rec);
+    rig.init.add_permits(1);
+    rig.wait_for_bound().await;
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "identity-persisted-stamp-pending").await;
+
+    rig.stamps.add_permits(1);
+    rig.wait_for_stamp().await;
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "stamp-persisted").await;
+    rig.runtime.scheduled_start_settled().await;
+    rig.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// A stop issued while the start is inside the provider init (`owned-stop.mjs`: the stop awaits
+/// `automationStartPromise`, then the start sees the stop and arms nothing). Rust matches: the stop
+/// does not settle while the init is held (the recorded `stopSettledWhileInit`), and once the init
+/// ends the state is the recorded one: not running, no listener, no identity, no stamp, the same
+/// readbacks, and nothing synced.
+#[tokio::test(flavor = "current_thread")]
+async fn a_stop_during_the_provider_init_ends_in_the_state_node_left() {
+    let rec = recorded("stop-during-provider-init");
+    let rig = rig().await;
+    let saved = rig.admin.save_schedule(&serde_json::from_str(SCHEDULE_ENTRY).unwrap()).await.unwrap();
+    assert_eq!(saved, rec["saveReply"]);
+    rig.wait_for_init_entered().await;
+
+    // The init gate is observed entered above. The stop is polled by hand: it runs to its first
+    // suspension, having marked the start for abort and queued behind it on the start gate that the
+    // start, held in the provider init, still owns. Node's stop does not settle here either.
+    let runtime = rig.runtime.clone();
+    let mut stop = Box::pin(async move { runtime.stop_owned_runtime("test").await });
+    let first = std::future::poll_fn(|cx| std::task::Poll::Ready(stop.as_mut().poll(cx))).await;
+    assert_eq!(first.is_pending(), !rec["stopSettledWhileInit"].as_bool().unwrap(), "the stop settles while the init is held only if Node's did");
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "stop-issued-start-pending").await;
+
+    // Releasing the gate lets the init finish: a stop that had cancelled it would drop the init
+    // before it returns, so `init_finished` would stay 0.
+    rig.init.add_permits(1);
+    stop.await.unwrap();
+    assert_eq!(rig.e.agent.init_finished.load(Ordering::SeqCst), 1, "the stop awaited the init instead of cancelling it");
+    rig.runtime.scheduled_start_settled().await;
+    assert!(!rig.runtime.status().running && !rig.runtime.automation_running());
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "after-stop").await;
+}
+
+/// A save that lands while a start (made before the schedule existed) is still in the provider init:
+/// Node's start arms the saved schedule once released and the readbacks follow the same boundaries.
+/// Rust lists the stores at the start (not a config loaded earlier) and ends the same: the schedule
+/// is armed, the stamp pending, then persisted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_between_the_config_load_and_the_start_is_armed_as_in_node() {
+    let rec = recorded("save-during-provider-init");
+    let rig = rig().await;
+    let runtime = rig.runtime.clone();
+    let daemon_start = tokio::spawn(async move { runtime.start_automation().await });
+    rig.wait_for_init_entered().await;
+    let saved = rig.admin.save_schedule(&serde_json::from_str(SCHEDULE_ENTRY).unwrap()).await.unwrap();
+    assert_eq!(saved, rec["saveReply"]);
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "saved-start-pending").await;
+
+    rig.arm_at_recorded_release(&rec);
+    rig.init.add_permits(1);
+    rig.wait_for_bound().await;
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "started-stamp-pending").await;
+
+    rig.stamps.add_permits(1);
+    rig.wait_for_stamp().await;
+    assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "stamp-persisted").await;
+    daemon_start.await.unwrap().unwrap();
+    rig.runtime.scheduled_start_settled().await;
+    rig.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// `channel-start.mjs:50-56`: a save's deferred start parks while a turn runs or a session is being
+/// created, and runs once the busy state clears and wakes it; the boot autostart
+/// (`channel-start.mjs:75-95`) does not look at the busy state.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_busy_runtime_parks_the_saved_schedules_start_until_it_is_woken_idle() {
+    let e = env().await;
+    let busy = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    // The start asks the busy state before every attempt: each answer is a signal, so "the start has
+    // looked and parked" is an ordering the test waits on, not a time.
+    let asked = Arc::new(tokio::sync::Notify::new());
+    e.admin.bind_busy({
+        let (busy, asked) = (busy.clone(), asked.clone());
+        Arc::new(move || {
+            asked.notify_one();
+            busy.load(Ordering::SeqCst).then_some("turn-active")
+        })
+    });
+    e.admin.save_schedule(&recurring("a")).await.unwrap();
+    signal(&asked, "the start asks whether a turn runs").await;
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0, "parked while a turn runs");
+    e.admin.wake_deferred_start();
+    signal(&asked, "the woken start asks again").await;
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0, "a wake while still busy parks it again");
+    busy.store(false, Ordering::SeqCst);
+    e.admin.wake_deferred_start();
+    e.runtime.scheduled_start_settled().await;
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 1, "started once idle");
+    assert!(e.runtime.automation_running());
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+
+    // A real running turn (the session runtime's liveness map, as the daemon's `busy_reason` reads it).
+    let live = crate::task_reports::runtime_state::RuntimeLiveness::new();
+    let real = env().await;
+    let real_asked = Arc::new(tokio::sync::Notify::new());
+    real.admin.bind_busy({
+        let (live, asked) = (live.clone(), real_asked.clone());
+        Arc::new(move || {
+            asked.notify_one();
+            (!live.in_flight_session_activity().working.is_empty()).then_some("turn-active")
+        })
+    });
+    let turn = live.dispatched("lead-session");
+    real.admin.save_schedule(&recurring("a")).await.unwrap();
+    signal(&real_asked, "the start asks whether a turn runs").await;
+    assert_eq!(real.agent.inits.load(Ordering::SeqCst), 0, "a running turn parks the save's start");
+    drop(turn);
+    real.admin.wake_deferred_start();
+    real.runtime.scheduled_start_settled().await;
+    assert_eq!(real.agent.inits.load(Ordering::SeqCst), 1, "the turn ended: the start ran");
+    real.runtime.stop_owned_runtime("test").await.unwrap();
+
+    let autostart = env().await;
+    autostart.admin.bind_busy(Arc::new(|| Some("session-create")));
+    autostart.schedules.upsert(&sched("a")).await.unwrap();
+    autostart.admin.schedule_automation_autostart();
+    autostart.runtime.scheduled_start_settled().await;
+    assert_eq!(autostart.agent.inits.load(Ordering::SeqCst), 1, "the boot autostart ignores the busy state");
+    autostart.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// `automation-start.mjs:30-42`: the runtime counts as running as soon as the webhook sync is launched
+/// (Node's `syncWebhookAndEventRuntime()` is synchronous), not when the listener has bound.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_runtime_is_running_as_soon_as_the_sync_is_launched() {
+    let e = env().await;
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.services.sync_gate.lock().unwrap() = Some(gate.clone());
+    let runtime = e.runtime.clone();
+    let start = tokio::spawn(async move { runtime.start_automation().await });
+    signal(&e.services.entered, "the sync is entered").await;
+    assert!(e.runtime.automation_running() && e.runtime.status().running, "running while the sync is pending");
+    assert!(!start.is_finished());
+    gate.add_permits(1);
+    start.await.unwrap().unwrap();
+    e.runtime.stop_owned_runtime("test").await.unwrap();
 }

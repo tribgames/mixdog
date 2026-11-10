@@ -215,14 +215,14 @@ impl Heartbeat {
             };
             *count += 1;
             let count = *count;
-            tracing::warn!("mixdog heartbeat: Maintainer {word} failure {count} in a row: {detail}");
+            mixdog_rt::node_stderr!("mixdog heartbeat: Maintainer {word} failure {count} in a row: {detail}");
             if count < limit {
                 return;
             }
             breaker.tripped = true;
             (count, label)
         };
-        tracing::warn!("mixdog heartbeat: Maintainer gate off after {count} {why} in a row, until a restart or a Maintainer model change");
+        mixdog_rt::node_stderr!("mixdog heartbeat: Maintainer gate off after {count} {why} in a row, until a restart or a Maintainer model change");
         // The app translates this exact text by its pattern
         // (apps/desktop/src/renderer/error-notice-copy.ts localizeHeartbeatBreakerNotice).
         let text = format!(
@@ -232,7 +232,7 @@ impl Heartbeat {
         mixdog_rt::spawn("services.heartbeat.breaker-notice", TaskClass::Work, async move {
             let home = agent_home_session_id(MIXY_AGENT_ID).unwrap_or_default();
             if let Err(error) = this.live.notice(&home, json!({ "text": text, "tone": "warn" })).await {
-                tracing::warn!("mixdog heartbeat: breaker notice failed: {error}");
+                mixdog_rt::node_stderr!("mixdog heartbeat: breaker notice failed: {error}");
             }
         });
     }
@@ -304,7 +304,7 @@ impl Heartbeat {
         let tail = match read_session_tail(self.tails.as_ref(), &subject.id, prior.map_or("", |p| p.head.as_str())).await {
             Ok(tail) => tail,
             Err(error) => {
-                tracing::warn!("mixdog heartbeat: review of {} failed: {error}", subject.id);
+                mixdog_rt::node_stderr!("mixdog heartbeat: review of {} failed: {error}", subject.id);
                 return None;
             }
         };
@@ -322,14 +322,14 @@ impl Heartbeat {
         };
         match self.maintainer.review(&input).await {
             Err(error) => {
-                tracing::warn!("mixdog heartbeat: review of {} failed: {error}", subject.id);
+                mixdog_rt::node_stderr!("mixdog heartbeat: review of {} failed: {error}", subject.id);
                 None
             }
             Ok(Some(Review::Nothing)) => Some((subject, Verdict::Seen { note: String::new(), tail })),
             Ok(Some(Review::Note(note))) => Some((subject, Verdict::Seen { note, tail })),
             Ok(Some(Review::Unmanaged)) => None,
             Ok(None) => {
-                tracing::warn!("mixdog heartbeat: review of {}: unusable reply", subject.id);
+                mixdog_rt::node_stderr!("mixdog heartbeat: review of {}: unusable reply", subject.id);
                 None
             }
         }
@@ -427,7 +427,7 @@ impl Heartbeat {
         match self.run_tick().await {
             Ok(outcome) => outcome,
             Err(error) => {
-                tracing::warn!("mixdog heartbeat: check failed: {error}");
+                mixdog_rt::node_stderr!("mixdog heartbeat: check failed: {error}");
                 Outcome::Failed
             }
         }
@@ -465,7 +465,7 @@ impl Heartbeat {
         }
         self.store.update(Change::Attempt { at }).await?;
         let outcome = self.beat(at).await?;
-        tracing::info!("mixdog heartbeat: check {}", outcome.word());
+        mixdog_rt::node_stderr!("mixdog heartbeat: check {}", outcome.word());
         Ok(outcome)
     }
 

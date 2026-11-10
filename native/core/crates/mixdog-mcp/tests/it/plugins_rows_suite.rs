@@ -154,7 +154,7 @@ impl ExtensionHost for RecordedSummary {
     async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
         Ok(PathBuf::new())
     }
-    async fn skills_status(&self) -> Value {
+    async fn skills_status(&self, _: Option<&str>) -> Value {
         json!({"skills": []})
     }
     async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {

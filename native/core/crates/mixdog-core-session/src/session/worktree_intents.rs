@@ -6,14 +6,14 @@ use super::*;
 
 impl Inner {
     /// The pending intent that applies to `session`'s next turn, if any.
-    fn intent_for(&self, session: &str, view: &SessionView) -> Option<Intent> {
-        let intent = self.intent(session)?;
+    async fn intent_for(&self, session: &str, view: &SessionView) -> Result<Option<Intent>, ScmFailure> {
+        let Some(intent) = self.intent(session) else { return Ok(None) };
         if is_bound(&read_session_workspace(view.workspace.as_ref())) {
             self.set_intent(session, None);
-            return None;
+            return Ok(None);
         }
         // A creation-time intent belongs to a new task: never to a resumed conversation.
-        if intent.armed || !view.has_messages { Some(intent) } else { None }
+        Ok((intent.armed || !self.host.has_conversation(session).await?).then_some(intent))
     }
 
     /// Create and enter the worktree `intent` asks for now: its txId is fixed on first use
@@ -60,7 +60,7 @@ impl Inner {
             });
         }
         let mut result = None;
-        if let Some(intent) = self.intent_for(session, &view) {
+        if let Some(intent) = self.intent_for(session, &view).await? {
             let options = Options {
                 confirm_large: intent.confirm_large || start.confirm_large,
                 own_turn: true,
@@ -95,6 +95,9 @@ impl Inner {
         let name_hint = valid_name(input.name.as_deref())?;
         if input.carry_changes.as_deref().is_some_and(|c| !CARRY_CHOICES.contains(&c)) {
             return Err(plain(format!("carryChanges must be one of {}.", CARRY_CHOICES.join(", "))));
+        }
+        if input.provision {
+            self.host.ensure_session(session).await?;
         }
         let current = self.workspace(session)?;
         assert_revision(current.revision, input.expected_revision)?;
@@ -146,6 +149,7 @@ impl Inner {
         own_turn: bool,
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
+        self.host.ensure_session(session).await?;
         let current = self.workspace(session)?;
         if current.branch.as_deref() == Some(input.branch.as_str()) && current.worktree_id.is_some() {
             assert_revision(current.revision, input.expected_revision)?;

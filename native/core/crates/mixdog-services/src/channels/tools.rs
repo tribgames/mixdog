@@ -78,7 +78,7 @@ impl ToolDispatch {
                 *self.active_guard.lock().unwrap() = active.then(|| self.work.begin());
                 if active {
                     if let Err(err) = self.lifecycle.start_bridge().await {
-                        tracing::warn!("bridge activate refresh failed (non-fatal): {err}");
+                        mixdog_rt::node_stderr!("mixdog: bridge activate refresh failed (non-fatal): {err}");
                     }
                 } else if was_active
                     // Tear the owner side down so scheduler/webhook/event-pipeline do not

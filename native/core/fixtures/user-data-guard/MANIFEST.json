@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-user-data-guard.mjs --tree <git checkout at commit> --commit <full id>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 206276,
+      "path": "golden.json",
+      "sha256": "e21ba5c97e57b3ce916afa92fa8fc639c722ff5c5d30c8b059d607d5ae76d5af"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-user-data-guard.mjs",
+  "set": "user-data-guard",
+  "totalBytes": 206276
+}

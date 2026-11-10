@@ -97,6 +97,7 @@ pub(crate) enum Effect {
     ApprovalEnded(String),
     Enqueued(String),
     Updated(String),
+    Prioritized(String),
     Dequeued(String),
 }
 
@@ -270,6 +271,7 @@ impl Fold {
                 Record::Queue(q) => match q.action {
                     QueueAction::Enqueue => Effect::Enqueued(q.qid.as_str().to_owned()),
                     QueueAction::Update => Effect::Updated(q.qid.as_str().to_owned()),
+                    QueueAction::Prioritize => Effect::Prioritized(q.qid.as_str().to_owned()),
                     QueueAction::Dequeue => Effect::Dequeued(q.qid.as_str().to_owned()),
                 },
             };
@@ -336,6 +338,13 @@ impl Fold {
             Effect::Updated(qid) => {
                 if let Some(entry) = self.queue.iter_mut().find(|q| q.qid == qid) {
                     entry.updated = Some(pos);
+                }
+            }
+            Effect::Prioritized(qid) => {
+                if let Some(at) = self.queue.iter().position(|q| q.qid == qid) {
+                    let mut entry = self.queue.remove(at);
+                    entry.updated = Some(pos);
+                    self.queue.insert(0, entry);
                 }
             }
             Effect::Dequeued(qid) => self.queue.retain(|q| q.qid != qid),

@@ -804,5 +804,1677 @@
       },
       "connections": 6
     }
+  },
+  "probes": {
+    "refused": {
+      "discover": {
+        "result": {
+          "models": [],
+          "error": {
+            "kind": "request",
+            "message": "fetch failed"
+          }
+        }
+      },
+      "testDiscovery": {
+        "result": {
+          "ok": false,
+          "phase": "discovery",
+          "error": {
+            "kind": "request",
+            "message": "fetch failed"
+          }
+        }
+      },
+      "testSend": {
+        "thrown": "Connection error."
+      }
+    },
+    "badPort": {
+      "discover": {
+        "result": {
+          "models": [],
+          "error": {
+            "kind": "request",
+            "message": "fetch failed"
+          }
+        }
+      },
+      "testDiscovery": {
+        "result": {
+          "ok": false,
+          "phase": "discovery",
+          "error": {
+            "kind": "request",
+            "message": "fetch failed"
+          }
+        }
+      },
+      "testSend": {
+        "thrown": "Connection error."
+      }
+    },
+    "dns": {
+      "discover": {
+        "result": {
+          "models": [],
+          "error": {
+            "kind": "request",
+            "message": "fetch failed"
+          }
+        }
+      },
+      "testDiscovery": {
+        "result": {
+          "ok": false,
+          "phase": "discovery",
+          "error": {
+            "kind": "request",
+            "message": "fetch failed"
+          }
+        }
+      },
+      "testSend": {
+        "thrown": "Connection error."
+      }
+    }
+  },
+  "transports": {
+    "timeoutMs": 400,
+    "kinds": {
+      "refused": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        }
+      },
+      "dns": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        }
+      },
+      "reset": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        }
+      },
+      "badPort": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        }
+      },
+      "tls": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        }
+      },
+      "responseTimeout": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "HeadersTimeoutError",
+              "code": "UND_ERR_HEADERS_TIMEOUT",
+              "message": "Headers Timeout Error"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout",
+          "chain": [
+            {
+              "name": "TimeoutError",
+              "code": 23,
+              "message": "The operation was aborted due to timeout"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "ProviderTimeoutError",
+          "message": "probe label timed out after 400ms",
+          "chain": [
+            {
+              "name": "ProviderTimeoutError",
+              "code": "EPROVIDERTIMEOUT",
+              "message": "probe label timed out after 400ms"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "AbortError",
+          "message": "This operation was aborted",
+          "chain": [
+            {
+              "name": "AbortError",
+              "code": 20,
+              "message": "This operation was aborted"
+            }
+          ]
+        }
+      },
+      "connectTimeout": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "ConnectTimeoutError",
+              "code": "UND_ERR_CONNECT_TIMEOUT",
+              "message": "Connect Timeout Error (attempted address: 192.0.2.1:443, timeout: 10000ms)"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout",
+          "chain": [
+            {
+              "name": "TimeoutError",
+              "code": 23,
+              "message": "The operation was aborted due to timeout"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "ProviderTimeoutError",
+          "message": "probe label timed out after 400ms",
+          "chain": [
+            {
+              "name": "ProviderTimeoutError",
+              "code": "EPROVIDERTIMEOUT",
+              "message": "probe label timed out after 400ms"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "AbortError",
+          "message": "This operation was aborted",
+          "chain": [
+            {
+              "name": "AbortError",
+              "code": 20,
+              "message": "This operation was aborted"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "sites": {
+    "grokDiscovery": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth discovery timed out after 15000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "grok-oauth discovery timed out after 15000ms"
+      }
+    },
+    "grokRefresh": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth refresh timed out after 30000ms"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth refresh timed out after 30000ms"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth refresh timed out after 30000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "grok-oauth refresh timed out after 30000ms"
+      }
+    },
+    "grokCodeExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[grok-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      }
+    },
+    "anthropicRefresh": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "Anthropic OAuth token refresh timed out after 30000ms"
+      }
+    },
+    "antigravityRefresh": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "geminiModelList": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 60000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "mimoProbe": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "commandCodeIdentity": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "museKey": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 20000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "devinExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      }
+    },
+    "compatModelList": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "groq model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "groq model list timed out after 10000ms"
+      }
+    },
+    "anthropicModelList": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "customOpenaiChatListing": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "custom-listing model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "custom-listing model list timed out after 10000ms"
+      }
+    },
+    "customAnthropicListing": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "customOpenaiChatProbe": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 60000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 60000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "value": {
+        "models": [],
+        "error": {
+          "kind": "timeout",
+          "message": "model discovery timed out after 60s"
+        }
+      }
+    },
+    "customAnthropicProbe": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 60000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 60000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "value": {
+        "models": [],
+        "error": {
+          "kind": "timeout",
+          "message": "model discovery timed out after 60s"
+        }
+      }
+    },
+    "devinUnary": {
+      "armed": [],
+      "fetchRejected": [
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        }
+      ],
+      "thrown": {
+        "name": "DevinWireError",
+        "code": "unavailable",
+        "message": "Devin connection failed: fetch failed"
+      }
+    },
+    "vertexToken": {
+      "armed": [],
+      "fetchRejected": [
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": "EVERTEXAUTH",
+        "message": "Vertex AI authentication failed: fetch failed"
+      }
+    },
+    "antigravityVersion": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 5000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "modelsDev": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "logged": [
+        "[model-catalog] models.dev fetch failed: The operation was aborted due to timeout"
+      ]
+    },
+    "cursorRefresh": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "openaiRefresh": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "OpenAI OAuth token refresh failed (OpenAI OAuth token refresh timed out after 30000ms). Re-authenticate via provider login."
+      }
+    },
+    "openaiCatalog": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "museDeviceAuth": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[muse-code-oauth] request to auth.meta.com timed out"
+      }
+    },
+    "antigravityCodeExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "antigravityProject": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "opencodeConsole": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 20000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "openaiCodeExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      },
+      "page": {
+        "status": 500,
+        "body": "<!doctype html>\n<html lang=\"ko\">\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n  <meta name=\"color-scheme\" content=\"dark light\" />\n  <title>로그인 실패 / Sign-in failed · Mixdog</title>\n  <style>\n    :root { --bg: #f6f7f9; --fg: #0f172a; --muted: #475569; --card: #ffffff; --line: #d9dee6; --ok: #15803d; --bad: #b91c1c; --link: #1d4ed8; }\n    @media (prefers-color-scheme: dark) {\n      :root { --bg: #07080b; --fg: #f8fafc; --muted: #94a3b8; --card: #0f1116; --line: #232733; --ok: #4ade80; --bad: #f87171; --link: #93c5fd; }\n    }\n    * { box-sizing: border-box; }\n    body {\n      margin: 0;\n      min-height: 100vh;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      padding: 24px;\n      background: var(--bg);\n      color: var(--fg);\n      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Malgun Gothic\", \"Apple SD Gothic Neo\", \"Noto Sans KR\", Roboto, Arial, sans-serif;\n      text-align: center;\n    }\n    main {\n      width: 100%;\n      max-width: 520px;\n      padding: 40px 32px 32px;\n      background: var(--card);\n      border: 1px solid var(--line);\n      border-radius: 16px;\n      display: flex;\n      flex-direction: column;\n      align-items: center;\n    }\n    .logo { width: 72px; height: 72px; margin-bottom: 20px; }\n    .logo svg { width: 100%; height: 100%; display: block; }\n    h1, h2 { margin: 0 0 6px; line-height: 1.2; font-weight: 650; }\n    h1 { font-size: 28px; color: var(--bad); }\n    h2 { font-size: 16px; color: var(--muted); font-weight: 600; }\n    p { margin: 0; line-height: 1.7; color: var(--muted); font-size: 15px; }\n    section.secondary { margin-top: 18px; }\n    .reason {\n      margin-top: 20px;\n      width: 100%;\n      padding: 12px 14px;\n      border: 1px solid var(--line);\n      border-radius: 10px;\n      text-align: left;\n      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\n      font-size: 13px;\n      color: var(--fg);\n      white-space: pre-wrap;\n      word-break: break-word;\n    }\n    .reason span { display: block; margin-bottom: 4px; color: var(--muted); font-family: inherit; font-size: 12px; }\n  </style>\n</head>\n<body>\n  <main>\n    <div class=\"logo\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"44 44 168 168\" aria-hidden=\"true\">\n  <defs>\n    <linearGradient id=\"titanium-a\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n      <stop offset=\"0%\" stop-color=\"#ffffff\"/><stop offset=\"50%\" stop-color=\"#94a3b8\"/><stop offset=\"100%\" stop-color=\"#ffffff\"/>\n    </linearGradient>\n    <linearGradient id=\"titanium-b\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n      <stop offset=\"0%\" stop-color=\"#cbd5e1\"/><stop offset=\"50%\" stop-color=\"#475569\"/><stop offset=\"100%\" stop-color=\"#cbd5e1\"/>\n    </linearGradient>\n    <linearGradient id=\"titanium-c\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n      <stop offset=\"0%\" stop-color=\"#94a3b8\"/><stop offset=\"50%\" stop-color=\"#334155\"/><stop offset=\"100%\" stop-color=\"#94a3b8\"/>\n    </linearGradient>\n  </defs>\n  <g fill=\"none\" stroke-width=\"22\" stroke-linecap=\"round\">\n    <path d=\"M116.2 61A68 68 0 0 1 191.9 104.7\" stroke=\"url(#titanium-a)\"/>\n    <path d=\"M116.2 61A68 68 0 0 1 191.9 104.7\" transform=\"rotate(120 128 128)\" stroke=\"url(#titanium-b)\"/>\n    <path d=\"M116.2 61A68 68 0 0 1 191.9 104.7\" transform=\"rotate(240 128 128)\" stroke=\"url(#titanium-c)\"/>\n  </g>\n  <polygon points=\"128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123\" fill=\"#cbd5e1\"/>\n  <circle cx=\"128\" cy=\"128\" r=\"3.5\" fill=\"#07080b\"/>\n  <circle cx=\"128\" cy=\"128\" r=\"1.5\" fill=\"#ffffff\"/>\n</svg></div>\n    <section lang=\"ko\" class=\"primary\">\n      <h1>로그인 실패</h1>\n      <p>Mixdog로 돌아가 다시 시도해 주세요.</p>\n    </section>\n    <section lang=\"en\" class=\"secondary\">\n      <h2>Sign-in failed</h2>\n      <p>Return to Mixdog and try again.</p>\n    </section>\n    <div class=\"reason\"><span>사유 / Reason</span>OpenAI could not complete the token exchange.\n[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.</div>\n  </main>\n</body>\n</html>"
+      }
+    },
+    "openaiCodeExchangeManual": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      }
+    },
+    "opencodeGoUsage": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 6500
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "name": "AbortError",
+        "code": 20,
+        "message": "This operation was aborted"
+      }
+    },
+    "grokModelList": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "grok-oauth model list timed out after 10000ms"
+      }
+    },
+    "grokProxyList": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth proxy model list timed out after 10000ms"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth proxy model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "anthropicCodeExchange": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 300000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[anthropic-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      }
+    },
+    "geminiCacheCreate": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 180000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 120000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "Gemini cachedContents.create total timed out after 180000ms"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "logged": [
+        "[gemini] cachedContents.create error: Gemini cachedContents.create total timed out after 180000ms"
+      ]
+    },
+    "cursorPoll": {
+      "armed": [],
+      "fetchRejected": [
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        },
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        },
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        }
+      ],
+      "thrown": {
+        "name": "TypeError",
+        "code": null,
+        "message": "fetch failed"
+      }
+    },
+    "opencodeConsoleGet": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 20000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "oauthUsage": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4500
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "apiUsage": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 6500
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "name": "AbortError",
+        "code": 20,
+        "message": "This operation was aborted"
+      }
+    },
+    "vertexMetadataProbe": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 1000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "value": null
+    },
+    "npmVersion": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "cursorUsageCall": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 5000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "Cursor request timed out after 5000ms"
+      }
+    },
+    "cursorModelsCall": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "Cursor request timed out after 15000ms"
+      }
+    },
+    "cursorConnect": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [],
+      "thrown": {
+        "name": "Error",
+        "code": "stream_aborted",
+        "message": "Cursor stream was aborted"
+      }
+    }
   }
 }

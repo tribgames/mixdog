@@ -66,8 +66,9 @@ impl ConnectionOwners {
         workspace: Arc<WorkspaceService>,
         system: Arc<SystemService>,
         devices: Arc<DeviceRegistry>,
+        live_view: Arc<crate::live_view::LiveViewService>,
     ) -> Self {
-        Self { owners: vec![terminal, screen, workspace, system, devices] }
+        Self { owners: vec![terminal, screen, workspace, system, devices, live_view] }
     }
 
     /// Every owner releases what `connection` held, in a fixed order.

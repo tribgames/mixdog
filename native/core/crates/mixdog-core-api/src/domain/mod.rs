@@ -25,6 +25,7 @@ pub mod ext;
 pub mod fs;
 pub mod keepalive;
 pub mod login;
+pub mod login_page;
 pub mod media;
 pub mod ownership;
 pub mod process;

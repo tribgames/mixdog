@@ -1,0 +1,103 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-remote-session.mjs",
+  "cases": [
+    {
+      "name": "enabled with a session id",
+      "state": {
+        "enabled": true,
+        "sessionId": "phone_1"
+      },
+      "remoteEnabled": true,
+      "remoteSessionId": "phone_1"
+    },
+    {
+      "name": "disabled",
+      "state": {
+        "enabled": false,
+        "sessionId": "phone_1"
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    },
+    {
+      "name": "enabled missing",
+      "state": {
+        "sessionId": "phone_1"
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    },
+    {
+      "name": "enabled with no session",
+      "state": {
+        "enabled": true,
+        "sessionId": null
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    },
+    {
+      "name": "empty session id",
+      "state": {
+        "enabled": true,
+        "sessionId": ""
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    },
+    {
+      "name": "256 characters",
+      "state": {
+        "enabled": true,
+        "sessionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "remoteEnabled": true,
+      "remoteSessionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "257 characters",
+      "state": {
+        "enabled": true,
+        "sessionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    },
+    {
+      "name": "a space in the id",
+      "state": {
+        "enabled": true,
+        "sessionId": "phone 1"
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    },
+    {
+      "name": "a dot in the id",
+      "state": {
+        "enabled": true,
+        "sessionId": "phone.1"
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    },
+    {
+      "name": "a dash and underscore",
+      "state": {
+        "enabled": true,
+        "sessionId": "Phone-1_x"
+      },
+      "remoteEnabled": true,
+      "remoteSessionId": "Phone-1_x"
+    },
+    {
+      "name": "a non-ASCII id",
+      "state": {
+        "enabled": true,
+        "sessionId": "폰_1"
+      },
+      "remoteEnabled": false,
+      "remoteSessionId": null
+    }
+  ]
+}

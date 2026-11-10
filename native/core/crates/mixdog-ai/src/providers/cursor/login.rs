@@ -29,7 +29,8 @@ use crate::oauth::Poll;
 use crate::oauth::Schedule;
 use crate::oauth::device;
 use crate::oauth::Pkce;
-use crate::oauth::http::call;
+use crate::oauth::http::call_under;
+use crate::transport::deadlines::NODE_DISPATCHER;
 use crate::oauth::http::failed;
 use crate::oauth::start_session;
 use crate::providers::connect::random_uuid;
@@ -76,7 +77,8 @@ pub async fn poll_tokens(
 ) -> Result<StoredTokens, LoginFailure> {
     let url = poll_url(uuid, verifier);
     let poll = || async {
-        match call(http, "GET", &url, Vec::new(), Vec::new()).await {
+        // Node's poll is a bare `fetch` with no timer of its own (`cursor-auth.mjs:276`).
+        match call_under(http, NODE_DISPATCHER, "GET", &url, Vec::new(), Vec::new()).await {
             Ok(reply) if reply.status == 404 => Poll::Pending,
             Ok(reply) if reply.ok() => {
                 let tokens = reply.json();
@@ -206,6 +208,23 @@ mod tests {
         // Math.ceil(delay * 1.2), capped at 10 s, from 1 s; errors keep the wait.
         assert_eq!(ms[..11], [1000, 1200, 1440, 1728, 2074, 2489, 2987, 3585, 4302, 5163, 6196]);
         assert_eq!(ms[11..], [7436, 7436, 7436]);
+    }
+
+    /// A poll nothing answers arms no timer: it ends at the dispatcher, and the third failure in a row ends the login with
+    /// the last one's text (`sites.cursorPoll`).
+    #[tokio::test(start_paused = true)]
+    async fn a_poll_nothing_answers_ends_after_three_tries_as_nodes_does() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_dispatcher;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::login_message;
+        use crate::transport::site_probe::recorded;
+
+        let transport = TimingOut::new();
+        let failure = poll_tokens(transport.as_ref(), &FakePace::default(), "u", "v").await.unwrap_err();
+        assert_dispatcher("cursorPoll", &transport);
+        assert_eq!(transport.seen().len(), recorded("cursorPoll")["fetchRejected"].as_array().unwrap().len());
+        assert_thrown("cursorPoll", login_message(&failure));
     }
 
     #[tokio::test]

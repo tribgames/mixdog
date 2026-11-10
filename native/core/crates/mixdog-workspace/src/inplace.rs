@@ -21,6 +21,7 @@ use crate::error::WsResult;
 use crate::ident::FileId;
 use crate::ident::file_id;
 use crate::ident::path_id;
+use crate::nodeerr::AtPath;
 use crate::pathguard::canonical;
 use crate::pathguard::is_within;
 
@@ -35,30 +36,44 @@ pub struct Opened {
 /// open file that it is a regular file whose real location is inside `root`.
 /// A path swapped for a link between resolving and opening reaches nothing.
 pub fn open_authorized_rw(path: &Path, root: &Path) -> WsResult<Opened> {
-    let file = OpenOptions::new().read(true).write(true).open(path)?;
+    let file = OpenOptions::new().read(true).write(true).open(path).at("open", path)?;
     let id = verify_opened(&file, path, root)?;
     Ok(Opened { file, id, path: path.to_path_buf() })
 }
 
 /// The read-only form of [`open_authorized_rw`].
 pub fn open_authorized_ro(path: &Path, root: &Path) -> WsResult<Opened> {
-    let file = File::open(path)?;
+    let file = open_read(path).at("open", path)?;
     let id = verify_opened(&file, path, root)?;
     Ok(Opened { file, id, path: path.to_path_buf() })
 }
 
+/// Node's `fs.open` opens a folder on Windows (libuv passes `FILE_FLAG_BACKUP_SEMANTICS`), so a folder reaches the is-it-a-file check
+/// and fails there with its own sentence instead of the OS refusing the open.
+fn open_read(path: &Path) -> io::Result<File> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new().read(true).custom_flags(0x0200_0000).open(path)
+    }
+    #[cfg(not(windows))]
+    {
+        File::open(path)
+    }
+}
+
 fn verify_opened(file: &File, path: &Path, root: &Path) -> WsResult<FileId> {
-    if !file.metadata()?.is_file() {
-        return Err(WsError::new(Reason::NotAFile, "Not a file."));
+    if !file.metadata().at("fstat", path)?.is_file() {
+        return Err(WsError::plain("The preview target is not a file."));
     }
     let id = file_id(file)?;
-    let real = canonical(path).map_err(|_| WsError::new(Reason::Changed, "The file changed while it was opened."))?;
+    let real = canonical(path).map_err(|_| WsError::plain("The file changed while it was opened."))?;
     let root = canonical(root)?;
     if !is_within(&root, &real) {
-        return Err(WsError::denied("The file resolves outside the project."));
+        return Err(WsError::coded("MIXDOG_LOCAL_ACCESS_DENIED", "The file resolves outside the project."));
     }
     if path_id(&real).ok() != Some(id) {
-        return Err(WsError::new(Reason::Changed, "The file changed while it was opened."));
+        return Err(WsError::plain("The file changed while it was opened."));
     }
     Ok(id)
 }

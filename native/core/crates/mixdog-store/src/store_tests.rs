@@ -1821,6 +1821,33 @@ async fn the_raw_title_is_kept_and_an_index_without_it_is_rebuilt_with_it() {
     assert_eq!(store.title("s3").await.unwrap().as_deref(), Some("t"));
 }
 
+/// The index holds no user data (FORMAT.md §8): a `user_version` 8 index (no `user_name` column) is not refused or altered, it is
+/// rebuilt from the logs, and the rebuilt row carries the name the user gave, which only the log header held.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_index_without_the_user_name_is_rebuilt_with_it() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let change = json!({"k":"meta","change":{"inline":{"set":{"title":"Mine","titleSource":"user"},"unset":[]}}});
+    let (w, _) = env.commit(w, vec![rec(change)]).await;
+    drop(w);
+    let other = tempfile::tempdir().unwrap();
+    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
+    let db = other.path().join(INDEX_FILE);
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    let old = rusqlite::Connection::open(&db).unwrap();
+    old.execute_batch(crate::schema::sql::INDEX_DDL).unwrap();
+    old.execute_batch(&format!("ALTER TABLE sessions DROP COLUMN user_name; PRAGMA user_version = {};", crate::schema::sql::INDEX_USER_VERSION - 1))
+        .unwrap();
+    drop(old);
+    let store = open_index(other.path()).unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let version: i32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+    assert_eq!(version, crate::schema::sql::INDEX_USER_VERSION);
+    let name: Option<String> = conn.query_row("SELECT user_name FROM sessions WHERE id = 's1'", [], |r| r.get(0)).unwrap();
+    assert_eq!(name.as_deref(), Some("Mine"));
+    drop(store);
+}
+
 /// An index written before `message_rows` carried frame locations (`user_version` 1) is
 /// never opened as it is: the open rebuilds it from the logs, equal to a fresh projection.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -212,7 +212,8 @@ pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str,
 /// queued input goes (`_dropPendingMessageState`) and its read caches are released
 /// (`releaseSessionReadCaches`: pure caches a resumed turn rebuilds; the stored snapshots stay).
 /// The queue goes before the abort: an aborted turn that settled before the drop would start the
-/// next queued entry.
+/// next queued entry. The abort always takes effect (it does not go through the control lane); a
+/// turn that ended meanwhile is the only reason it is not delivered.
 pub(crate) async fn stop_session_work(
     directory: &SessionDirectory,
     shells: &dyn OwnedShells,
@@ -242,6 +243,7 @@ async fn abort_and_drop(directory: &SessionDirectory, thread: &ThreadId, reason:
         }
     }
     if let Some(run) = handle.cell.run.load_full() {
+        // The only error is a turn that ended since the load above.
         let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::close_session(thread.as_str(), reason));
     }
 }
@@ -278,7 +280,7 @@ impl SessionClose {
             Ok(true) => {}
             Ok(false) => return true,
             Err(error) => {
-                tracing::warn!("[agent-close] session={session_id} reason={reason} tombstone=true FAILED durable lifecycle barrier: {error:?}");
+                mixdog_rt::node_stderr!("[agent-close] session={session_id} reason={reason} tombstone=true FAILED durable lifecycle barrier: {error:?}");
                 return false;
             }
         }
@@ -298,7 +300,7 @@ impl SessionClose {
             Ok(true) => {}
             Ok(false) => return true,
             Err(error) => {
-                tracing::warn!("[agent-close] session={session_id} reason={reason} tombstone=false FAILED durable lifecycle barrier: {error:?}");
+                mixdog_rt::node_stderr!("[agent-close] session={session_id} reason={reason} tombstone=false FAILED durable lifecycle barrier: {error:?}");
                 return false;
             }
         }

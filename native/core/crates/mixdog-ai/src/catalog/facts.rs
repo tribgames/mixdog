@@ -10,6 +10,10 @@
 //! (the `fastPricing` / `ultrafastPricing` rate columns) is absent, and the
 //! documented-id fallback decides, exactly as for a row silent on it.
 
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 use serde_json::json;
@@ -21,9 +25,7 @@ use super::record::Thinking;
 use super::lookup::Obj;
 use super::rosters::CachedWindows;
 use super::service::CatalogService;
-use super::sources::catalog_record;
-use crate::providers::custom::listing::manual_rows;
-use crate::providers::custom::reasoning::is_custom_provider_name;
+use super::route_meta::RouteProvider;
 use crate::service::admin_route::clean;
 use crate::service::admin_route::truthy;
 
@@ -72,6 +74,51 @@ fn row_of(record: &ModelRecord) -> Value {
     if !levels.is_empty() {
         put("reasoningOptions", Some(json!([{"type": "effort", "values": levels}])));
     }
+    Value::Object(row)
+}
+
+/// `modelMetaByRoute` with `placeholderKeys` (`createModelMetaIndex`): the first answer for a (provider, model) is
+/// pinned until a full load remembers the listed row, a fetching lookup replaces a placeholder, or the registry's
+/// catalog revision moves and the memo is cleared.
+#[derive(Default)]
+pub(super) struct MetaMemo {
+    /// `observedCatalogRevision`.
+    revision: u64,
+    rows: HashMap<String, Arc<Value>>,
+   /// Keys holding only the bare-id placeholder: a fetching lookup replaces them.
+    placeholders: HashSet<String>,
+}
+
+impl MetaMemo {
+    /// `syncCatalogRevision`'s clearing of `modelMetaByRoute` and `placeholderKeys`.
+    pub(super) fn observe(&mut self, revision: u64) {
+        if std::mem::replace(&mut self.revision, revision) != revision {
+            self.clear();
+        }
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.rows.clear();
+        self.placeholders.clear();
+    }
+}
+
+/// `modelMetaKey`.
+fn meta_key(provider: &str, model: &str) -> String {
+    format!("{}\n{}", clean(Some(&Value::from(provider))), clean(Some(&Value::from(model))))
+}
+
+fn placeholder(provider: &str, model: &str) -> Value {
+    json!({"id": model, "provider": provider})
+}
+
+/// `{ ...cached, id: cached.id || modelId, provider: providerId }`.
+fn normalized(cached: &Value, model: &str, provider: &str) -> Value {
+    let mut row = cached.as_object().cloned().unwrap_or_default();
+    if !truthy(row.get("id")) {
+        row.insert("id".into(), json!(model));
+    }
+    row.insert("provider".into(), json!(provider));
     Value::Object(row)
 }
 
@@ -152,39 +199,121 @@ impl CatalogService {
         snapshot.models_of(&ProviderId::from(provider)).iter().find(|r| r.id == model).map(read)
     }
 
-    /// `lookupModelMeta(provider, model)`: the provider's listed row for the
-    /// model, enriched from the catalog layers (`enrichModels`), or the bare
-    /// `{id, provider}` placeholder when the provider lists no such model.
+    /// The provider's listed row of the model, enriched from the catalog layers (`enrichModels`), or the bare
+    /// `{id, provider}` placeholder when the provider lists no such model. Not the route memo: the rows a listing
+    /// itself builds (`providerModelCacheRow`, the web-search scan) read the listing as it is now.
+    pub fn listed_meta(&self, provider: &str, model: &str) -> Value {
+        match self.record_of(provider, model, row_of) {
+            Some(listed) => self.with_lookup(|lookup| enrich_model(lookup, &listed)),
+            None => json!({"id": model, "provider": provider}),
+        }
+    }
+
+    /// `lookupModelMeta(provider, model)` (`provider-models/model-meta.mjs`): the memo's answer for the route, which
+    /// the first lookup pins (see [`MetaMemo`]).
     pub fn model_meta(&self, provider: &str, model: &str) -> Value {
         self.model_meta_in(provider, model, None)
     }
 
-    /// [`Self::model_meta`] for a provider whose config entry is `entry`. A custom provider holds the rows its config
-    /// states from the moment it is built (`_applyCustomRows(_customRows())`, which `getCachedModelInfo` answers, so
-    /// `lookupModelMeta` finds a manual model before any listing); the catalog row, once listed, stands for them.
-    pub fn model_meta_in(&self, provider: &str, model: &str, entry: Option<&Value>) -> Value {
-        let stated = || {
-            if !is_custom_provider_name(provider) {
-                return None;
-            }
-            let stated = manual_rows(entry?).into_iter().find(|record| record.id == model)?;
-            let display = stated.display_name.clone();
-            let mut record = catalog_record(&ProviderId::from(provider), stated);
-            // `catalog_record` reads `display || name` as the label; the config's row states no `display`.
-            record.display_name = display;
-            let mut row = row_of(&record);
-            if let (Some(row), Some(name)) = (row.as_object_mut(), &record.name) {
-                row.insert("name".into(), json!(name));
-            }
-            Some(row)
-        };
-        match self.record_of(provider, model, row_of) {
-            Some(listed) => self.with_lookup(|lookup| enrich_model(lookup, &listed)),
-            // `getCachedModelInfo` answers the config's own rows as `effectiveCustomModelRows` built them: only
-            // discovery runs `enrichModels`, so a stated row carries no catalog `display` (a `modelDisplay` the route
-            // would otherwise gain).
-            None => stated().unwrap_or_else(|| json!({"id": model, "provider": provider})),
+    /// [`Self::model_meta`] with the provider's config entry, which a caller may hold: the rows a custom provider's
+    /// config states are the provider's own (`CustomListing` stores them from the moment it is built), so the memo
+    /// reads them from the provider and the entry adds nothing.
+    pub fn model_meta_in(&self, provider: &str, model: &str, _entry: Option<&Value>) -> Value {
+        let key = meta_key(provider, model);
+        let mut memo = self.memo();
+        if let Some(meta) = memo.rows.get(&key) {
+            return (**meta).clone();
         }
+        let mut warm = false;
+        let meta = match self.route_provider(provider) {
+            Some(RouteProvider { listing: Some(_), cached }) => match cached.and_then(|cached| cached.cached_row(model)) {
+                // `typeof providerImpl.getCachedModelInfo === 'function'` and it answers.
+                Some(cached) => Arc::new(normalized(&cached, model, provider)),
+                None => {
+                    // Not fetching: the bare placeholder, which a fetching lookup replaces.
+                    memo.placeholders.insert(key.clone());
+                    warm = true;
+                    Arc::new(placeholder(provider, model))
+                }
+            },
+            // No provider, or none with `listModels`: the fallback is pinned for good.
+            _ => Arc::new(placeholder(provider, model)),
+        };
+        memo.rows.insert(key, meta.clone());
+        drop(memo);
+        // `scheduleProviderModelWarmup()`: the load that follows replaces the placeholder (`remember`).
+        if warm {
+            self.schedule_warmup();
+        }
+        (*meta).clone()
+    }
+
+    /// `lookupModelMeta(provider, model, { allowFetch: true })`: a pinned row stands (a placeholder does not); the
+    /// provider's cached row, else what its `listModels()` returns in this call (`models.find(m => m.id === model)`,
+    /// the row unchanged) or the fallback. That answer is pinned only while the registry's catalog revision and the
+    /// provider-models load sequence are the ones the fetch began under (`snapshotIsCurrent`); a listing that throws
+    /// answers the fallback and pins nothing.
+    pub async fn model_meta_fetching(&self, provider: &str, model: &str, _entry: Option<&Value>) -> Value {
+        let key = meta_key(provider, model);
+        let (revision, seq) = {
+            let memo = self.memo();
+            if let Some(meta) = memo.rows.get(&key).filter(|_| !memo.placeholders.contains(&key)) {
+                return (**meta).clone();
+            }
+            (self.catalog_revision(), self.load_seq())
+        };
+        let listing = match self.route_provider(provider) {
+            Some(RouteProvider { listing: Some(listing), cached }) => {
+                if let Some(cached) = cached.and_then(|cached| cached.cached_row(model)) {
+                    let meta = Arc::new(normalized(&cached, model, provider));
+                    self.memo().rows.insert(key, meta.clone());
+                    return (*meta).clone();
+                }
+                listing
+            }
+            _ => {
+                let meta = Arc::new(placeholder(provider, model));
+                self.memo().rows.insert(key, meta.clone());
+                return (*meta).clone();
+            }
+        };
+        let Ok(rows) = listing.list_rows().await else { return placeholder(provider, model) };
+        let meta = rows
+            .into_iter()
+            .find(|row| row.get("id").and_then(Value::as_str) == Some(model))
+            .unwrap_or_else(|| Arc::new(placeholder(provider, model)));
+        let mut memo = self.memo();
+        if revision == self.catalog_revision() && seq == self.load_seq() {
+            memo.placeholders.remove(&key);
+            memo.rows.insert(key, meta.clone());
+        }
+        (*meta).clone()
+    }
+
+    /// `providerImpl.getCachedModelInfo(model)` asked of the registered provider itself, outside the memo (the step
+    /// judge's ladder asks every provider this way): `None` for a provider without the function or without the row.
+    pub fn cached_row(&self, provider: &str, model: &str) -> Option<Arc<Value>> {
+        self.route_provider(provider)?.cached?.cached_row(model)
+    }
+
+    /// `meta.remember(provider, model, meta)`: the row replaces what the route memo holds.
+    pub fn remember_meta(&self, provider: &str, model: &str, meta: Value) {
+        let key = meta_key(provider, model);
+        let mut memo = self.memo();
+        memo.placeholders.remove(&key);
+        memo.rows.insert(key, Arc::new(meta));
+    }
+
+    /// `modelMetaByRoute.clear()` of `invalidateProviderCaches` (the placeholder keys stay, as in Node).
+    pub fn forget_route_meta(&self) {
+        self.memo().rows.clear();
+    }
+
+    /// The route memo, dropped first when the registry's catalog revision moved (`syncCatalogRevision`).
+    fn memo(&self) -> std::sync::MutexGuard<'_, MetaMemo> {
+        let mut memo = self.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        memo.observe(self.catalog_revision());
+        memo
     }
 
     /// `getModelMetadataSync(id, provider)`: the merged catalog metadata.
@@ -358,6 +487,11 @@ pub(super) mod tests {
 
     /// A service whose overlays and rosters are the recorded Node fixtures.
     async fn golden_service(records: Vec<ModelRecord>) -> CatalogService {
+        golden_service_listing(records, Vec::new()).await
+    }
+
+    /// [`golden_service`] whose registered providers list through `sources`.
+    async fn golden_service_listing(records: Vec<ModelRecord>, sources: Vec<crate::catalog::ModelSource>) -> CatalogService {
         use crate::catalog::ModelsDev;
         let dir = tempfile::tempdir().unwrap();
         let mut snapshot = CatalogSnapshot::default();
@@ -368,7 +502,7 @@ pub(super) mod tests {
         metadata.set_layer(ModelsDev::from_models_dev(lookup::fixtures::json(lookup::fixtures::MODELS_DEV)).unwrap());
         let litellm = ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io());
         litellm.set_layer(ModelsDev::from_litellm(lookup::fixtures::json(lookup::fixtures::LITELLM)));
-        let service = CatalogService::cold_start(snapshot, Vec::new(), metadata).await.with_litellm(litellm).await;
+        let service = CatalogService::cold_start(snapshot, sources, metadata).await.with_litellm(litellm).await;
         service.rosters.store(Arc::new(lookup::fixtures::rosters()));
         service
     }
@@ -466,42 +600,18 @@ pub(super) mod tests {
         row.context_window = Some(272_000);
         row.reasoning_efforts = vec!["low".into(), "high".into()];
         let s = golden_service(vec![row]).await;
-        let meta = s.model_meta("openai", "gpt-5.5");
+        let meta = s.listed_meta("openai", "gpt-5.5");
         // The provider's listed limits stand; the catalog layers fill the rest.
         assert_eq!(meta["contextWindow"], 272_000);
         assert_eq!(meta["supportsFastMode"], true);
         assert_eq!(meta["supportsVision"], true);
         assert_eq!(meta["inputCostPerM"], 1.25);
         assert_eq!(meta["reasoningOptions"], json!([{"type": "effort", "values": ["low", "high"]}]));
+        assert_eq!(s.listed_meta("openai", "nope"), json!({"id": "nope", "provider": "openai"}));
         assert_eq!(s.model_meta("openai", "nope"), json!({"id": "nope", "provider": "openai"}));
         assert!(s.catalog_knows("gpt-5.5", "openai"));
         assert!(!s.catalog_knows("gpt-5.5", "anthropic") && !s.catalog_knows("", "openai"));
         assert_eq!(s.cached_windows("openai-oauth", "gpt-5.5").unwrap().max_context_window, 1_000_000.0);
-    }
-
-    /// A custom provider's manual models are rows from the config alone (`getCachedModelInfo` before any listing): the
-    /// meta of every manual row Node's `effectiveCustomModelRows` recorded for a failed discovery is resolved and
-    /// carries Node's label, where any other model, provider or missing entry stays the bare placeholder.
-    #[tokio::test]
-    async fn a_custom_providers_manual_models_have_meta_before_any_listing() {
-        let golden = crate::providers::listing_row::testing::fixture("oracles/custom-listing.json");
-        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["scenario"] == "failed-with-manual").unwrap();
-        let (config, rows) = (&case["config"], case["rows"].as_array().unwrap());
-        let s = golden_service(Vec::new()).await;
-        let bare = |provider: &str, id: &str| json!({"id": id, "provider": provider});
-        assert!(!rows.is_empty());
-        for node in rows {
-            let id = node["id"].as_str().unwrap();
-            let meta = s.model_meta_in("custom-fixture", id, Some(config));
-            assert!(crate::service::admin_route::model_meta_looks_resolved(Some(&meta)), "{id}");
-            // The label is the row's `name`; no `display` is stated, so none is made up (a `modelDisplay` the route would gain).
-            assert_eq!(meta["name"], node["name"], "{id} label");
-            assert!(meta.get("displayName").is_none() && meta.get("display").is_none(), "{id} states no display");
-            assert_eq!(meta["provider"], "custom-fixture");
-            assert_eq!(s.model_meta_in("custom-fixture", id, None), bare("custom-fixture", id), "{id}: no entry");
-            assert_eq!(s.model_meta_in("openai", id, Some(config)), bare("openai", id), "{id}: not a custom provider");
-        }
-        assert_eq!(s.model_meta_in("custom-fixture", "unstated-model", Some(config)), bare("custom-fixture", "unstated-model"));
     }
 
     /// A row's own listed prices are the row's: the picker's meta for a known
@@ -517,7 +627,7 @@ pub(super) mod tests {
         let mut row = fast("openai", "gpt-5.5", Capability::Yes);
         row.rates.input = Some(99.0);
         let s = Arc::new(golden_service(vec![row]).await);
-        assert_eq!(s.model_meta("openai", "gpt-5.5")["inputCostPerM"], 1.25);
+        assert_eq!(s.listed_meta("openai", "gpt-5.5")["inputCostPerM"], 1.25);
         let priced = s.pricing().unwrap().price_usage(&usage);
         assert_eq!(priced.cost_usd, plain.cost_usd);
         assert_eq!(priced.cost_usd, Some(1.25));
@@ -548,4 +658,184 @@ pub(super) mod tests {
             assert!(rows.iter().any(|r| r[key] == true) && rows.iter().any(|r| r[key] == false), "{key}");
         }
     }
-}
+
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    /// A scripted provider of the Node recorder (`record-model-meta.mjs`): `cached` is its `getCachedModelInfo` rows
+    /// (present when the provider's class has the function), `list_rows` what `listModels()` returns.
+    #[derive(Clone)]
+    struct Scripted {
+        listed: bool,
+        cached: Option<Arc<std::sync::Mutex<Vec<Arc<Value>>>>>,
+        list_rows: Vec<Arc<Value>>,
+        throws: bool,
+        during_list: Option<String>,
+        calls: Arc<AtomicU64>,
+        revision: Arc<AtomicU64>,
+        seq: Arc<AtomicU64>,
+    }
+
+    impl super::super::CachedModelInfo for Scripted {
+        fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+            let rows = self.cached.as_ref()?.lock().unwrap();
+            rows.iter().find(|row| row.get("id").and_then(Value::as_str) == Some(model)).cloned()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl super::super::ListedRows for Scripted {
+        async fn list_rows(&self) -> Result<Vec<Arc<Value>>, ()> {
+            self.calls.fetch_add(1, SeqCst);
+            match self.during_list.as_deref() {
+                Some("bumpRevision") => drop(self.revision.fetch_add(1, SeqCst)),
+                // `invalidateProviderCaches` inside the listing: the sequence moves (the memo it clears is
+                // asserted by the top-level `invalidate` op).
+                Some("invalidate") => drop(self.seq.fetch_add(1, SeqCst)),
+                _ => {}
+            }
+            if self.throws { Err(()) } else { Ok(self.list_rows.clone()) }
+        }
+    }
+
+    /// Every scenario Node's `lookupModelMeta` was recorded on (`oracles/model-meta.json`, produced by
+    /// `benchmarks/rust-core/recorders/record-model-meta.mjs` from `b6f10295a`) answers the same here: the cold
+    /// placeholder stays pinned across the startup listing, a provider with `getCachedModelInfo` answers its row
+    /// normalized (`id`, `provider`) where one without it answers the marked placeholder and a fetch returns the listed
+    /// row untouched, a throwing or superseded fetch pins nothing, and the revision / invalidation clear the memo. The
+    /// scenarios with a full load are replayed where the load lives (`ai_admin/model_list_tests.rs`).
+    #[tokio::test]
+    async fn the_route_memo_answers_what_node_recorded() {
+        let golden = crate::providers::listing_row::testing::fixture("oracles/model-meta.json");
+        let rows = |value: &Value| -> Vec<Arc<Value>> { value.as_array().map(|a| a.iter().cloned().map(Arc::new).collect()).unwrap_or_default() };
+        let mut replayed = 0;
+        for scenario in golden["scenarios"].as_array().unwrap() {
+            if scenario["ops"].as_array().unwrap().iter().any(|op| op["op"] == "load") {
+                continue;
+            }
+            let name = scenario["name"].as_str().unwrap();
+            let (revision, seq, calls) = (Arc::new(AtomicU64::new(1)), Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+            let mut providers: HashMap<String, Scripted> = HashMap::new();
+            for (id, spec) in scenario["providers"].as_object().unwrap() {
+                let cached = spec.get("cached").map(|c| Arc::new(std::sync::Mutex::new(rows(c))));
+                let list_rows = spec.get("listRows").or(spec.get("cached")).map(&rows).unwrap_or_default();
+                providers.insert(
+                    id.clone(),
+                    Scripted {
+                        listed: spec["list"] == true,
+                        cached,
+                        list_rows,
+                        throws: spec["throws"] == true,
+                        during_list: spec["duringList"].as_str().map(str::to_owned),
+                        calls: calls.clone(),
+                        revision: revision.clone(),
+                        seq: seq.clone(),
+                    },
+                );
+            }
+            let s = golden_service(Vec::new()).await;
+            let (r, q, table) = (revision.clone(), seq.clone(), providers.clone());
+            s.bind_revision(move || r.load(SeqCst));
+            s.bind_load_seq(move || q.load(SeqCst));
+            let warmups = Arc::new(AtomicU64::new(0));
+            let scheduled = warmups.clone();
+            s.bind_warmup(move || {
+                scheduled.fetch_add(1, SeqCst);
+            });
+            s.bind_providers(Arc::new(move |name| {
+                let p = table.get(name)?;
+                Some(super::super::RouteProvider {
+                    cached: p.cached.is_some().then(|| Arc::new(p.clone()) as Arc<dyn super::super::CachedModelInfo>),
+                    listing: p.listed.then(|| Arc::new(p.clone()) as Arc<dyn super::super::ListedRows>),
+                })
+            }));
+            for (n, op) in scenario["ops"].as_array().unwrap().iter().enumerate() {
+                let what = format!("{name} op {n} {}", op["op"]);
+                match op["op"].as_str().unwrap() {
+                    "lookup" => {
+                        let (provider, model) = (op["provider"].as_str().unwrap(), op["model"].as_str().unwrap());
+                        let got = if op["allowFetch"] == true {
+                            s.model_meta_fetching(provider, model, None).await
+                        } else {
+                            s.model_meta(provider, model)
+                        };
+                        assert_eq!(got, op["expect"], "{what} {provider}/{model}");
+                    }
+                    "startupListing" | "setCached" => {
+                        *providers[op["provider"].as_str().unwrap()].cached.as_ref().unwrap().lock().unwrap() = rows(&op["rows"]);
+                    }
+                    "bumpRevision" => drop(revision.fetch_add(1, SeqCst)),
+                    "invalidate" => {
+                        seq.fetch_add(1, SeqCst);
+                        s.forget_route_meta();
+                    }
+                    other => panic!("{what}: {other}"),
+                }
+                assert_eq!(calls.load(SeqCst), op["listCalls"], "{what}: listModels calls");
+                assert_eq!(warmups.load(SeqCst), op["warmups"], "{what}: the warm-up is scheduled (scheduleProviderModelWarmup)");
+            }
+            replayed += 1;
+        }
+        assert_eq!(replayed, 9, "11 scenarios, 2 of them with a full load");
+    }
+    /// A record that kept no stored row is never a found `{ id }`: `stored_row` says `Null`, a store never holds it (the
+    /// model is a cache miss, the marked placeholder), and a listing is searched like Node's `models.find(m => m?.id ===
+    /// modelId)`: an unrelated rowless record never suppresses a hit, and a successful miss answers and pins the
+    /// fallback (only a listing that throws pins nothing, as the recorded `placeholder-then-fetch-hit-empty-thrown` shows).
+    #[tokio::test]
+    async fn a_record_without_a_stored_row_is_not_a_candidate_of_the_find() {
+        let plain = |id: &str| mixdog_core_api::domain::provider::ModelRecord::new(id);
+        assert!(super::super::stored_row(&"p".into(), plain("m")).is_null());
+
+        let store = Arc::new(super::super::RowStore::default());
+        store.replace(vec![Arc::new(Value::Null), Arc::new(json!({"id": "kept"}))]);
+        assert!(store.find("kept").is_some() && store.find("m").is_none());
+        store.upsert(Arc::new(Value::Null));
+        store.upsert(Arc::new(json!({"id": "kept", "name": "again"})));
+        assert_eq!(store.find("kept").unwrap()["name"], "again");
+
+        let mut enriched = plain("hit");
+        enriched.enriched = mixdog_core_api::domain::provider::EnrichedRow(json!({"id": "hit", "supportsWebSearch": true}).as_object().cloned());
+        let mut provider = mixdog_core_api::domain::mock::MockProvider::new([]);
+        provider.models = vec![plain("rowless"), enriched];
+        let adapter: Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter> = Arc::new(provider);
+        let rows = super::super::AdapterRows { provider: "p".into(), adapter: adapter.clone() };
+        assert_eq!(super::super::ListedRows::list_rows(&rows).await.unwrap().len(), 1, "the rowless record is not a candidate");
+
+        let s = golden_service(Vec::new()).await;
+        s.bind_providers(Arc::new(move |_| {
+            Some(super::super::RouteProvider {
+                cached: None,
+                listing: Some(Arc::new(super::super::AdapterRows { provider: "p".into(), adapter: adapter.clone() })),
+            })
+        }));
+        assert_eq!(s.model_meta_fetching("p", "hit", None).await, json!({"id": "hit", "supportsWebSearch": true}));
+        assert_eq!(s.model_meta_fetching("p", "rowless", None).await, json!({"id": "rowless", "provider": "p"}));
+        assert!(pinned(&s, "rowless"), "a successful miss pins the fallback");
+    }
+
+    fn pinned(s: &CatalogService, id: &str) -> bool {
+        s.meta.lock().unwrap().rows.contains_key(&meta_key("p", id))
+    }
+    /// `cached_row` is `getCachedModelInfo` of the registered provider, outside the memo: the stored row as stored, and
+    /// nothing for a provider without the function or the row.
+    #[tokio::test]
+    async fn the_cached_row_is_the_registered_providers_own() {
+        let store = Arc::new(super::super::RowStore::default());
+        store.replace(vec![Arc::new(json!({"id": "m", "supportsWebSearch": true}))]);
+        struct Cached(Arc<super::super::RowStore>);
+        impl super::super::CachedModelInfo for Cached {
+            fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+                self.0.find(model)
+            }
+        }
+        let s = golden_service(Vec::new()).await;
+        s.bind_providers(Arc::new(move |name| {
+            Some(super::super::RouteProvider {
+                cached: (name == "with").then(|| Arc::new(Cached(store.clone())) as Arc<dyn super::super::CachedModelInfo>),
+                listing: None,
+            })
+        }));
+        assert_eq!(s.cached_row("with", "m").as_deref(), Some(&json!({"id": "m", "supportsWebSearch": true})));
+        assert!(s.cached_row("with", "other").is_none() && s.cached_row("without", "m").is_none() && s.cached_row("ghost", "m").is_none());
+    }}

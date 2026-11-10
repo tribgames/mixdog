@@ -47,6 +47,8 @@ pub(crate) struct HostState {
     pub(crate) unattended: bool,
     /// The desktop classification a Project switch stored.
     pub(crate) desktop: Option<Value>,
+    /// The sessions `ensure_session` was asked to create, in order.
+    pub(crate) ensured: Vec<String>,
 }
 
 struct FakeHost {
@@ -70,8 +72,16 @@ impl WorkspaceHost for FakeHost {
             runtime_cwd: state.cwd.clone(),
             workspace: state.workspace.clone(),
             desktop_project: None,
-            has_messages: false,
         })
+    }
+
+    async fn has_conversation(&self, _session_id: &str) -> Result<bool, ScmFailure> {
+        Ok(false)
+    }
+
+    async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure> {
+        self.state.lock().unwrap().ensured.push(session_id.to_owned());
+        Ok(())
     }
 
     fn set_workspace(&self, _session_id: &str, workspace: Option<Value>) {
@@ -307,6 +317,22 @@ async fn a_stale_revision_and_a_running_turn_refuse_and_leave_the_session_alone(
         .unwrap();
     assert_eq!(own["workspace"]["branch"], "x");
     assert!(own["workspace"]["worktreeId"].is_string());
+}
+
+/// `ensureSession` (`session-view.mjs`): `selectBranch` and a `requestWorktree` that provisions create the runtime's session
+/// before acting on it; a `requestWorktree` that only arms the intent for the next message does not.
+#[tokio::test]
+async fn only_select_branch_and_a_provisioning_request_create_the_session() {
+    let rig = rig();
+    let cancel = CancellationToken::new();
+    let ensured = || rig.state.lock().unwrap().ensured.clone();
+    rig.ws.request_worktree("lead", RequestWorktree::default(), false, &cancel).await.unwrap();
+    assert!(ensured().is_empty(), "arming the intent creates no session");
+    let select = SelectBranch { branch: "x".into(), create: true, tx_id: "t1".into(), ..SelectBranch::default() };
+    rig.ws.select_branch("lead", select, false, &cancel).await.unwrap();
+    assert_eq!(ensured(), ["lead"]);
+    rig.ws.request_worktree("lead", RequestWorktree { provision: true, ..RequestWorktree::default() }, false, &cancel).await.unwrap();
+    assert_eq!(ensured(), ["lead", "lead"]);
 }
 
 #[tokio::test]

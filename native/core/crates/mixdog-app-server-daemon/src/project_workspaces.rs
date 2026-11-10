@@ -54,6 +54,13 @@ impl SessionProjectWorkspaces {
 }
 
 #[async_trait]
+impl mixdog_workspace::service::ManagedProjects for SessionProjectWorkspaces {
+    async fn owner(&self, path: &str) -> Option<(String, String)> {
+        self.managed(path).await
+    }
+}
+
+#[async_trait]
 impl ProjectWorkspaces for SessionProjectWorkspaces {
     async fn workspace_cwd(&self, project_path: &str) -> Result<PathBuf, String> {
         let requested = js_trim(project_path);

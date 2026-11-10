@@ -135,6 +135,26 @@
       "untouched": true
     },
     {
+      "name": "in-flight-not-archived",
+      "layer": "runtime",
+      "note": "a turn of the target is in flight and holds no ask lock; the target is not archived",
+      "reply": {
+        "deleted": false,
+        "reason": "not-archived"
+      },
+      "untouched": true
+    },
+    {
+      "name": "in-flight-archived",
+      "layer": "runtime",
+      "note": "a turn of the target is in flight and holds no ask lock; the target is archived",
+      "reply": {
+        "deleted": false,
+        "reason": "busy"
+      },
+      "untouched": true
+    },
+    {
       "name": "queued-pending",
       "layer": "runtime",
       "note": "input waits in the target's pending queue",

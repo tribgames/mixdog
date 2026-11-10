@@ -25,6 +25,28 @@
       ],
       "type": "object"
     },
+    "HostBrowserPageParams": {
+      "description": "`host/browser/page` (host → core notification): what a viewed browser page shows now — the document and the geometry its stream locked (Node's `source.page()` and `remoteMedia.geometryChanged`). `geometry` is `null` when the stream ended. The core's X17 frames carry pixels only; the phone's input coordinates need this.",
+      "properties": {
+        "documentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "geometry": {
+          "description": "`{generation, cssWidth, cssHeight, deviceScaleFactor, pixelWidth, pixelHeight}`."
+        },
+        "tabId": {
+          "description": "The browser session a phone streams (`sessionId` of its `browser/stream`; the source `browser:<id>` of its live-view signals), as in `host/browser/viewFrames`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tabId"
+      ],
+      "type": "object"
+    },
     "HostBrowserSurfaceParams": {
       "description": "`host/browser/surface` (host → core notification): the window process's browser host asked its window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes it as `ui/openRequested { kind: \"browser\" }` so every attached client, paired phones included, opens the same surface. Fields are `UiOpenBrowser`'s.",
       "properties": {
@@ -513,6 +535,48 @@
           },
           "required": [
             "state",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "notice"
+              ],
+              "type": "string"
+            },
+            "warn": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "message",
+            "type",
+            "warn"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "servedModel"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
             "type"
           ],
           "type": "object"
@@ -1111,6 +1175,25 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserSurfaceParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "What a viewed browser page shows now: its document and locked geometry (`null` = ended).",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/page"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageParams"
         }
       },
       "required": [

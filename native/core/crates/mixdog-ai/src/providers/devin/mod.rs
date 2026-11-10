@@ -170,6 +170,8 @@ pub struct DevinAdapter {
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     catalog: ArcSwapOption<Catalog>,
+    /// The rows the last listing stored, which `getCachedModelInfo` answers.
+    rows: crate::catalog::RowStore,
     /// A default codec only for the trait's `codec()` accessor: the codec of
     /// an attempt is built per account and per turn.
     placeholder: DevinCodec,
@@ -185,6 +187,8 @@ fn account_key(session_token: &str) -> String {
 
 impl DevinAdapter {
     pub fn new(base_url: Option<String>, http: Arc<dyn HttpSend>, token: Arc<dyn SessionToken>) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         let base_url = base_url.unwrap_or_else(|| session::DEFAULT_BASE_URL.to_owned());
         Self {
             id: ProviderId::from(PROVIDER_ID),
@@ -208,6 +212,7 @@ impl DevinAdapter {
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             catalog: ArcSwapOption::empty(),
+            rows: crate::catalog::RowStore::default(),
         }
     }
 
@@ -295,7 +300,9 @@ impl ModelListing for DevinAdapter {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
         let token = self.token.session_token().await?;
         let rows = self.fetch_rows(&token).await?;
-        Ok(rows.iter().map(|row| listing_row::record(listing::row(row))).collect())
+        let listed: Vec<ModelRecord> = rows.iter().map(|row| listing_row::record(listing::row(row))).collect();
+        self.rows.replace(listed.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&self.id, row.clone()))).collect());
+        Ok(listed)
     }
 }
 
@@ -363,7 +370,8 @@ impl ProviderAdapter for DevinAdapter {
             execution_id: random_uuid(),
         });
         let wire = codec.encode(&request)?;
-        let head = self.http.send(wire, DEVIN_STREAM).await?;
+        // `transportError` (`devin-wire-transport.mjs:243-261`) words what the raw `fetch` threw.
+        let head = self.http.send(wire, DEVIN_STREAM).await.map_err(|error| error::connection_failed(error, &[]))?;
         if (300..400).contains(&head.status) {
             let mut error = error::protocol_error("Devin server redirected the request; redirects are refused");
             error.status = Some(head.status);
@@ -374,5 +382,11 @@ impl ProviderAdapter for DevinAdapter {
             return Err(codec.classify(&rejected));
         }
         Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable")))
+    }
+}
+
+impl crate::catalog::CachedModelInfo for DevinAdapter {
+    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<serde_json::Value>> {
+        self.rows.find(model)
     }
 }

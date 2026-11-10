@@ -243,6 +243,7 @@ impl ItemDriver for SessionDriver {
                             candidates = Some(source::session_candidates(
                                 sessions.iter().map(|(id, sources)| (id.as_str(), sources.as_slice())),
                                 |f| durable::read(&roots.resolve(f.root, &f.path)?),
+                                |f| durable::open_buffered(&roots.resolve(f.root, &f.path)?),
                             )?);
                         }
                         let all = candidates.as_deref().unwrap_or_default();

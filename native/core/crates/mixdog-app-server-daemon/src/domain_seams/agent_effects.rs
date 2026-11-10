@@ -64,7 +64,7 @@ impl RoutineChannels for ServiceChannels {
         let runtime = Arc::clone(&self.runtime);
         tokio::spawn(async move {
             if let Err(error) = runtime.reload_config().await {
-                tracing::warn!(%error, "[channels] schedule reload failed");
+                mixdog_rt::node_stderr!("[channels] schedule reload failed: {error}");
             }
         });
     }

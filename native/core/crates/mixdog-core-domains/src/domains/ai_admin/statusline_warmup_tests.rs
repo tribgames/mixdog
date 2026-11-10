@@ -84,13 +84,23 @@ async fn assert_node_reads(built: &Built) {
     assert_rows("web search", found.as_array().unwrap(), &calls[0]["value"]);
     assert_rows("full", &built.rig.service.rows(false, false).await.unwrap(), &calls[1]["value"]);
 }
-// Without the warm-up nothing prepares the route's provider: the reads list the custom provider only, as the Rust daemon
-// answered before.
+// Node's reads before its warm-up has run (recorded with the warm-up delayed past them, statusline-oauth-route-before-warm):
+// the route's provider, with no credential, is not listed and no row can search. Reads made before the warm-up do not
+// change what is read after it: the registration moves the catalog revision, which drops the caches they filled.
 #[tokio::test]
-async fn without_the_warm_up_the_default_routes_provider_is_not_listed() {
-    let built = built(NO_DELAY).await;
-    let rows = built.rig.service.rows(false, false).await.unwrap();
-    assert!(rows.iter().all(|row| row["provider"] != "anthropic-oauth"), "{rows:?}");
+async fn reads_before_the_warm_up_answer_as_nodes_and_the_reads_after_it_still_do() {
+    let mut built = built(NO_DELAY).await;
+    let recording = statusline_recording();
+    let before = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "statusline-oauth-route-before-warm").unwrap();
+    let calls = before["calls"].as_array().unwrap();
+    assert_eq!(calls.iter().map(|c| c["action"].as_str().unwrap()).collect::<Vec<_>>(), ["listProviderModels", "listWebSearchModels"]);
+    assert_rows("full, before the warm-up", &built.rig.service.rows(false, false).await.unwrap(), &calls[0]["value"]);
+    let found = web_search(&built.rig).list(None, false).await.unwrap();
+    assert_rows("web search, before the warm-up", found.as_array().unwrap(), &calls[1]["value"]);
+    built.warm.start();
+    built.warm.settle().await;
+    built.seen.recv().await.unwrap();
+    assert_node_reads(&built).await;
 }
 
 #[tokio::test]

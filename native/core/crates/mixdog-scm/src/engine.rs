@@ -67,7 +67,7 @@ impl Scm {
         runner: Arc<dyn GhRunner>,
         gh_program: Arc<dyn Fn() -> String + Send + Sync>,
     ) -> Arc<Self> {
-        let git = Git::new(Arc::new(Exec::new(processes.clone())));
+        let git = Git::new(Arc::new(Exec::new(processes.clone())), lane);
         let locks = RepoLocks::new();
         Arc::new(Self {
             inspector: Arc::new(GitInspector::new(git.clone(), scratch_dir.join("review"))),

@@ -76,6 +76,43 @@ pub fn canonical_through_existing(path: &Path) -> io::Result<PathBuf> {
     Ok(real)
 }
 
+/// Node's `path.resolve`: absolute against the process folder, separators and `.`/`..` settled
+/// lexically (a `..` at the root stays at the root), without touching the disk.
+pub fn resolve(path: &Path) -> PathBuf {
+    let path = if path.as_os_str().is_empty() { Path::new(".") } else { path };
+    let full = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for component in full.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Node's `canonicalPath` (`src/runtime/shared/worktrees/paths.mjs`): `resolve`, then the real path of
+/// the nearest existing ancestor with the missing tail kept; the resolved path itself when no ancestor
+/// can be read.
+pub fn canonical_path(path: &Path) -> PathBuf {
+    let full = resolve(path);
+    let mut head = full.as_path();
+    while !head.exists() {
+        match head.parent() {
+            Some(parent) => head = parent,
+            None => return full,
+        }
+    }
+    let Ok(real) = canonical(head) else { return full };
+    match full.strip_prefix(head) {
+        Ok(rest) if !rest.as_os_str().is_empty() => real.join(rest),
+        _ => real,
+    }
+}
+
 /// Absolute path of a project-relative entry; neither `..` nor a link may
 /// leave the project.
 pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
@@ -86,14 +123,23 @@ pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     let rel = rel.replace('\\', "/");
     let target = lexical(&root.join(rel));
     if !is_within(&root, &target) {
-        return Err(WsError::denied("Path is outside the project."));
+        return Err(WsError::denied(OUTSIDE_PROJECT));
     }
     let canonical_root = canonical(&root)?;
     let canonical_target = canonical_through_existing(&target)?;
     if !is_within(&canonical_root, &canonical_target) {
-        return Err(WsError::denied("Path resolves outside the project."));
+        return Err(WsError::denied(RESOLVES_OUTSIDE_PROJECT));
     }
     Ok(target)
+}
+
+pub const OUTSIDE_PROJECT: &str = "Path is outside the project.";
+pub const RESOLVES_OUTSIDE_PROJECT: &str = "Path resolves outside the project.";
+
+/// The refusal of [`project_entry_path`] for a path beyond the project. Every caller gets the permission refusal; the phone's calls (which
+/// ask for `nodeErrors`) are answered with Node's plain `Error` of the same text (service.rs `map_error`).
+pub fn is_beyond_project(error: &WsError) -> bool {
+    matches!(error.reason, crate::error::Reason::PermissionDenied) && (error.message == OUTSIDE_PROJECT || error.message == RESOLVES_OUTSIDE_PROJECT)
 }
 
 /// Absolute path of a client-supplied absolute string (trusted local lanes).
@@ -120,7 +166,7 @@ mod tests {
         std::fs::create_dir(root.join("in")).unwrap();
         assert_eq!(project_entry_path(&root, "in/new.txt").unwrap(), root.join("in").join("new.txt"));
         let err = project_entry_path(&root, "../escape.txt").unwrap_err();
-        assert_eq!(err.message, "Path is outside the project.");
+        assert_eq!((err.reason.clone(), err.message.as_str()), (crate::error::Reason::PermissionDenied, "Path is outside the project."));
         let outside = tempfile::tempdir().unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(outside.path(), root.join("link")).unwrap();

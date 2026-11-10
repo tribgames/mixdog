@@ -9,7 +9,7 @@
 //! read is never swept: the store answers `Err` for the whole listing and nothing happens.
 //!
 //! What this port leaves to others: the sub-agent tree retention (three days archive, thirty
-//! delete; `sub-agent-retention.mjs`) is the retention job's; the summary-index repair, the
+//! delete; `sub-agent-retention.mjs`) is `session_retention`'s; the summary-index repair, the
 //! legacy `.hb`/`.own` marker reap and the compaction-archive orphan reap have no counterpart
 //! because the Rust store holds no summary index and writes none of those sidecars.
 
@@ -146,7 +146,7 @@ pub async fn sweep_once(store: &dyn SweepStore, now: i64) -> Result<Tally, Strin
             Verdict::CloseIdle => match store.close_idle(row).await {
                 Ok(true) => tally.cleaned.push(row.id.clone()),
                 Ok(false) => tally.remaining += 1,
-                Err(error) => tracing::warn!(id = row.id, "idle-sweep close failed: {error}"),
+                Err(error) => mixdog_rt::node_stderr!("[session-store] idle-sweep close failed for {}: {error}", row.id),
             },
             Verdict::DeleteTombstone => match store.delete(row).await {
                 Ok(true) => tally.tombstones_cleaned.push(row.id.clone()),
@@ -214,7 +214,7 @@ pub async fn run(_started: crate::startup::Started, store: Arc<dyn SweepStore>, 
                 );
             }
             Ok(_) => {}
-            Err(error) => tracing::warn!("idle sweep failed: {error}"),
+            Err(error) => mixdog_rt::node_stderr!("[agent-session] idle sweep error: {error}"),
         }
     }
 }

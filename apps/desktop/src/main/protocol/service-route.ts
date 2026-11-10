@@ -3,6 +3,8 @@
 // arguments become the named params of the Rust op, in the declared order of `client_methods.json`; a thread-addressed
 // op gets `threadId` from the session argument. The client library adds `opId` to every mutation (`call`), so none is
 // set here. A method with no request op is refused before anything is sent (`unknownMethod`): there is no fallback.
+import { blankSnapshot, remoteSessionIdOf, START_CALLS, startFolder } from '../../shared/blank-snapshot';
+import type { StartCall } from '../../shared/blank-snapshot';
 import type { SessionSnapshot } from '../../shared/contract';
 import { DESKTOP_TRANSCRIPT_TAIL_ITEMS } from '../desktop-support';
 import type { ProtocolConnection } from './connection';
@@ -61,9 +63,6 @@ const tail = (items: unknown): { lastItems: number } => ({
 type Single = (args: readonly any[]) => Route;
 
 const SINGLE: Readonly<Record<string, Single>> = {
-  startProject: ([projectPath]) => one('thread/start', { kind: 'project', projectPath }, 'snapshot'),
-  startProjectTask: ([projectPath]) => one('thread/start', { kind: 'projectTask', projectPath }, 'snapshot'),
-  startTask: () => one('thread/start', { kind: 'task' }, 'snapshot'),
   submitNewTask: ([prompt, options, draft]) =>
     one('thread/start', given({ kind: 'task', projectPath: draft?.projectPath, draft, initialInput: turnInput(prompt, options) })),
   listProjects: () => one('project/list', {}),
@@ -138,14 +137,14 @@ const SINGLE: Readonly<Record<string, Single>> = {
 };
 
 // `agentRoomAction(action, args)`: Node's `AgentRooms` methods take positional arguments, the core's `input` is one
-// object (`roomId` plus the patch). `reset` has no op.
+// object (`roomId` plus the patch).
 const ROOM_ACTIONS: Readonly<Record<string, (args: readonly any[]) => ServiceRequest>> = {
   create: ([config]) => ({ method: 'room/create', params: { input: config } }),
   update: ([roomId, patch]) => ({ method: 'room/update', params: { input: { roomId, ...patch } } }),
   continue: ([roomId]) => ({ method: 'room/continue', params: { input: { roomId } } }),
-  proceed: ([roomId]) => ({ method: 'room/continue', params: { input: { roomId } } }),
   leave: ([roomId]) => ({ method: 'room/leave', params: { input: { roomId } } }),
   remove: ([roomId]) => ({ method: 'room/remove', params: { input: { roomId } } }),
+  reset: ([roomId]) => ({ method: 'room/reset', params: { input: { roomId } } }),
 };
 
 /** Methods that are not requests of this lane: it refuses them with `unknownMethod`. The client sends the first two through
@@ -163,7 +162,7 @@ export const SERVICE_NOT_ROUTED = [
 export function routeService(method: string, args: readonly unknown[]): Route {
   if (method === 'agentRoomAction') {
     const [action, roomArgs] = args as [string, unknown[]];
-    const room = ROOM_ACTIONS[action];
+    const room = Object.hasOwn(ROOM_ACTIONS, action) ? ROOM_ACTIONS[action] : undefined;
     if (!room) throw unknownService(`agentRoomAction(${action})`);
     return { requests: [room(roomArgs ?? [])], result: 'reply' };
   }
@@ -255,6 +254,12 @@ export function createServiceLane({
           searching.set(sessionId, root);
         }
         return (await send({ method: 'search/update', params: { sessionId, query } })) as T;
+      }
+      if (START_CALLS.has(method)) {
+        // No thread: Node's blank snapshot, composed from the project methods (shared/blank-snapshot.ts).
+        const { cwd, projectPath } = await startFolder(send, method as StartCall, args[0] as string | undefined);
+        const held = snapshot() as { remoteSessionId?: unknown } | null;
+        return blankSnapshot(cwd, projectPath, remoteSessionIdOf({ sessionId: held?.remoteSessionId })) as T;
       }
       if (ROOTED_SERVICE_METHODS.has(method)) {
         const [project, ...rest] = args;

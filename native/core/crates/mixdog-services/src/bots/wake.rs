@@ -123,14 +123,14 @@ impl MixyWake {
         let closed = match self.host.close_hidden_session(session_id).await {
             Ok(closed) => closed,
             Err(error) => {
-                tracing::warn!("mixdog heartbeat: closing {session_id} failed: {error}");
+                mixdog_rt::node_stderr!("mixdog heartbeat: closing {session_id} failed: {error}");
                 false
             }
         };
         if closed {
             self.marks.unmark(session_id);
         } else {
-            tracing::warn!("mixdog heartbeat: closing {session_id} did not land; it is retried");
+            mixdog_rt::node_stderr!("mixdog heartbeat: closing {session_id} did not land; it is retried");
         }
         closed
     }

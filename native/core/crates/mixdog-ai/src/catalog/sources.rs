@@ -90,6 +90,7 @@ impl ModelSource {
         Self { provider, listing, floor: None, cache: None }
     }
 
+
     /// Gives the `anthropic-oauth` source its disk cache (`anthropic-oauth-models.json`); any other provider has none.
     pub fn with_oauth_cache(mut self, cache: OauthModelCache) -> Self {
         self.cache = (self.provider.as_str() == "anthropic-oauth").then_some(cache);
@@ -245,8 +246,16 @@ fn tri(value: Option<bool>) -> Capability {
 /// An adapter's listed record as a catalog record: what the provider states,
 /// before metadata enrichment.
 pub(super) fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provider::ModelRecord) -> ModelRecord {
+    catalog_record_row(provider, listed).0
+}
+
+/// [`catalog_record`], and the row the provider's listing completed and stores (`getCachedModelInfo`), which the typed
+/// fields cannot restate: a custom provider's is its effective row, every other row is the one `enrichModels` wrote
+/// and the provider's own later steps adjusted (`None`: the listing kept none).
+fn catalog_record_row(provider: &ProviderId, listed: mixdog_core_api::domain::provider::ModelRecord) -> (ModelRecord, Option<JsonValue>) {
     let mut record = ModelRecord::new(provider.clone(), listed.id);
     // `display || name` is every Node reader's label.
+    let (display, images, reasoning, raw) = (listed.display_name.clone(), listed.supports_images, listed.supports_reasoning, listed.raw.clone());
     record.display_name = listed.display_name.or_else(|| listed.name.clone());
     record.name = listed.name;
     record.provider_name = listed.provider_name;
@@ -280,6 +289,11 @@ pub(super) fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::dom
     record.picker = listed.picker;
     record.family = listed.family;
     record.effective = listed.raw.as_ref().is_some_and(|raw| raw.get("inherited").is_some());
+    let row = if record.effective {
+        Some(effective_row_of(&record, display.as_deref(), images, reasoning, raw.as_ref(), listed.enriched.0.as_ref()))
+    } else {
+        listed.enriched.0.clone().map(JsonValue::Object)
+    };
     // `enrichModels` writes the lookup's capability flags over the row's own (`GUESSED_FLAGS`), so the listed row states them.
     let flag = |key: &str| listed.enriched.0.as_ref().and_then(|row| row.get(key)).and_then(|v| v.as_bool());
     record.function_calling = tri(flag("supportsFunctionCalling"));
@@ -290,7 +304,64 @@ pub(super) fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::dom
         record.reasoning = tri(Some(on));
     }
     record.source = MetadataSource::Native;
-    record
+    (record, row)
+}
+
+/// The row an adapter's listing stored for `listed` (`None`: it kept none).
+pub fn listed_row_of(provider: &ProviderId, listed: mixdog_core_api::domain::provider::ModelRecord) -> Option<JsonValue> {
+    catalog_record_row(provider, listed).1
+}
+
+/// The producer function of the stored-row contract (see `route_meta`): the row the provider's listing completed for
+/// `listed`, as Node's provider stores it, or `Value::Null` when the record kept none. Nothing is substituted.
+pub fn stored_row(provider: &ProviderId, listed: mixdog_core_api::domain::provider::ModelRecord) -> JsonValue {
+    listed_row_of(provider, listed).unwrap_or(JsonValue::Null)
+}
+
+/// A custom provider's effective row (`effectiveRow`, `custom-provider-config.mjs`), key for key as the recorded
+/// listing has it: the display the provider stated (not the `display || name` label), the flags it stated false, its
+/// output limit (`null` when none), its inherited values and, when it names effort levels, both ladders even when
+/// empty.
+fn effective_row_of(
+    record: &ModelRecord,
+    display: Option<&str>,
+    images: Option<bool>,
+    reasoning: Option<bool>,
+    raw: Option<&JsonValue>,
+    enriched: Option<&serde_json::Map<String, JsonValue>>,
+) -> JsonValue {
+    let mut row = match crate::service::model_listing::listing_value(record) {
+        JsonValue::Object(row) => row,
+        _ => serde_json::Map::new(),
+    };
+    for key in ["display", "supportsVision", "supportsReasoning"] {
+        row.shift_remove(key);
+    }
+    if let Some(display) = display {
+        row.insert("display".into(), serde_json::json!(display));
+    }
+    if let Some(on) = images {
+        row.insert("supportsVision".into(), serde_json::json!(on));
+    }
+    let leveled = raw.and_then(|raw| raw.get("leveled")).and_then(JsonValue::as_bool) == Some(true);
+    row.insert("outputTokens".into(), serde_json::json!(record.output_tokens));
+    // A compat-discovered row carries the discovery's `created`, `null` when it lists none.
+    if raw.and_then(|raw| raw.get("createdStated")).and_then(JsonValue::as_bool) == Some(true) {
+        row.insert("created".into(), serde_json::json!(record.created));
+    }
+    row.insert("supportsReasoning".into(), serde_json::json!(reasoning == Some(true)));
+    if let Some(inherited) = raw.and_then(|raw| raw.get("inherited")) {
+        row.insert("inherited".into(), inherited.clone());
+    }
+    // `enrichModels` writes `mode` (`null` when neither the catalog nor the row names one) onto the rows it enriched.
+    if let Some(mode) = enriched.and_then(|row| row.get("mode")) {
+        row.insert("mode".into(), mode.clone());
+    }
+    if leveled {
+        row.insert("reasoningOptions".into(), serde_json::json!(record.picker.reasoning_options));
+        row.insert("reasoningLevels".into(), serde_json::json!(record.reasoning_efforts));
+    }
+    JsonValue::Object(row)
 }
 
 #[derive(Clone, Debug)]

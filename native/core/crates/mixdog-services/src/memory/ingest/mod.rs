@@ -240,7 +240,7 @@ impl SessionIngest {
                 if let Ok(outcome) = own.await
                     && outcome.attempted > 0
                 {
-                    tracing::debug!(attempted = outcome.attempted, embedded = outcome.embedded, "[embed] post-ingest raw flush (own)");
+                    mixdog_rt::memory_stderr!("[embed] post-ingest raw flush (own) attempted={} embedded={}", outcome.attempted, outcome.embedded);
                 }
             }
         }
@@ -248,7 +248,7 @@ impl SessionIngest {
         self.enqueue_flush(async move {
             let outcome = this.0.flush.flush(FLUSH_LIMIT, None).await;
             if outcome.attempted > 0 {
-                tracing::debug!(attempted = outcome.attempted, embedded = outcome.embedded, "[embed] post-ingest raw flush (backlog)");
+                mixdog_rt::memory_stderr!("[embed] post-ingest raw flush (backlog) attempted={} embedded={}", outcome.attempted, outcome.embedded);
             }
         });
     }

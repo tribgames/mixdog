@@ -40,13 +40,40 @@ impl NotificationClicks for Spy {
 }
 
 fn rig() -> (Arc<HostService>, Arc<MockStatePublisher>, Arc<Spy>) {
+    let (service, publisher, spy, _) = rig_with_panes();
+    (service, publisher, spy)
+}
+
+fn rig_with_panes() -> (Arc<HostService>, Arc<MockStatePublisher>, Arc<Spy>, Arc<mixdog_exthost::VisualizePanes>) {
     let publisher = Arc::new(MockStatePublisher::default());
     let spy = Arc::new(Spy::default());
+    let panes = Arc::new(mixdog_exthost::VisualizePanes::default());
     (
-        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone()),
+        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), panes.clone()),
         publisher,
         spy,
+        panes,
     )
+}
+
+/// The visualize state the desktop sets is folded into the core's copy of its panes, whatever the section publishes: the
+/// snapshot Node's mirror was given in `fixtures/phone-guards/golden.json` makes its PDF pane a page file, and an event that
+/// empties the session takes it away (`createRemoteVisualizeMirror` `replace` / `apply`).
+#[tokio::test]
+async fn the_visualize_state_set_by_the_desktop_is_folded_into_the_panes() {
+    let golden: Value =
+        serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-guards/golden.json"))).unwrap();
+    let snapshot = golden["scenarios"]["visualize"]["snapshot"].clone();
+    let tab = &snapshot[0]["tabs"][0];
+    let (cwd, pdf) = (tab["cwd"].as_str().unwrap().to_owned(), tab["panes"][0]["path"].as_str().unwrap().to_owned());
+    let rel = std::path::Path::new(&pdf).strip_prefix(&cwd).unwrap().to_string_lossy().into_owned();
+    let (service, _, _, panes) = rig_with_panes();
+    let set = |value: Value| service.call(request("host/state/set", json!({ "key": "visualize", "value": value }), None));
+    assert!(!panes.page_file(std::path::Path::new(&cwd), &rel));
+    set(snapshot.clone()).await.unwrap();
+    assert!(panes.page_file(std::path::Path::new(&cwd), &rel));
+    set(json!({ "sessionId": "s1", "state": { "sessionId": "s1", "tabs": [], "active": null } })).await.unwrap();
+    assert!(!panes.page_file(std::path::Path::new(&cwd), &rel));
 }
 
 #[test]
@@ -208,4 +235,24 @@ fn notifications_reach_their_consumers() {
         set(&published[0].2),
         json!({ "phase": "downloaded", "version": "1.4.6" })
     );
+}
+
+/// `applyRemoteSessionState` (recorded from Node's `SessionHostPublication`): the id the bridge's state leaves on a snapshot.
+#[test]
+fn remote_session_keeps_the_id_only_as_node_applies_it() {
+    let recorded: serde_json::Value = serde_json::from_str(include_str!("../../../../../fixtures/phone-chat-core/remote-session.json")).unwrap();
+    for case in recorded["cases"].as_array().unwrap() {
+        let state = &case["state"];
+        let value = remote_session_value(state["enabled"] == true, state["sessionId"].as_str());
+        assert_eq!(value["sessionId"], case["remoteSessionId"], "{}", case["name"]);
+    }
+}
+
+#[test]
+fn the_bridge_binding_is_published_as_host_state_remote_session() {
+    let publisher = MockStatePublisher::default();
+    publish_remote_session(&publisher, true, Some("phone_1"));
+    let published = publisher.published();
+    assert_eq!(published.len(), 1);
+    assert_eq!((published[0].0, published[0].1.as_deref()), (SectionName::HostState, Some("remoteSession")));
 }

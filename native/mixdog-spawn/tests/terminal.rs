@@ -482,6 +482,49 @@ impl Rig {
         self.manager.info(&mixdog_protocol::ProcessHandle::from(id)).unwrap().pty
     }
 
+    /// Returns once the feed shows `needle` and, after it, the complete prompt ConPTY draws for
+    /// the idle shell. Eight recorded runs ended the prompt in one of three ways, each followed
+    /// directly by the next input's echo and nothing else:
+    /// - a repaint, `ESC[?25l \n PS <cwd>>` + padding + `ESC[<row>;<col>H ESC[?25h`: closed by the
+    ///   cursor show after a cursor position;
+    /// - plain text `\r\n PS <cwd>> ` ending in a space;
+    /// - plain text `\r\n PS <cwd>>` + `ESC[1C` (the space as a cursor move).
+    /// The shell writes its prompt as the last thing before it blocks reading input and the
+    /// screen does not change again, so ConPTY has nothing further to paint until the next input
+    /// arrives. The feed carries the replay window's text and the window is appended first, so
+    /// what this saw is already visible to `snapshot`.
+    async fn wait_prompt_frame_after(&self, id: &str, needle: &str) {
+        use mixdog_core_api::domain::process::ProcessEvent;
+        const HIDE: &str = "\u{1b}[?25l";
+        const SHOW: &str = "\u{1b}[?25h";
+        let mut events = self.manager.subscribe(&mixdog_protocol::ProcessHandle::from(id), Some(0)).expect("subscribe");
+        let mut text = String::new();
+        loop {
+            match events.next().await.expect("the shell outlives the wait") {
+                ProcessEvent::Output { bytes, .. } => text.push_str(&String::from_utf8_lossy(&bytes)),
+                ProcessEvent::Exited { .. } => panic!("the shell exited before it drew its prompt"),
+            }
+            let Some(after) = text.rfind(needle).map(|at| &text[at..]) else { continue };
+            // A cursor-hide with no show after it is a frame still being drawn.
+            if after.rfind(HIDE) > after.rfind(SHOW) {
+                continue;
+            }
+            let Some(prompt) = after.rfind("\nPS ").map(|at| &after[at + 1..]) else { continue };
+            let repainted = prompt.strip_suffix(SHOW).is_some_and(|body| {
+                body.rfind("\u{1b}[").is_some_and(|at| {
+                    body[at + 2..].strip_suffix('H').is_some_and(|rc| {
+                        rc.split_once(';').is_some_and(|(r, c)| {
+                            !r.is_empty() && !c.is_empty() && r.bytes().chain(c.bytes()).all(|b| b.is_ascii_digit())
+                        })
+                    })
+                })
+            });
+            if repainted || prompt.ends_with("> ") || prompt.ends_with(">\u{1b}[1C") {
+                return;
+            }
+        }
+    }
+
     fn wait_text(&self, id: &str, needle: &str) {
         loop {
             if self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)) {
@@ -546,14 +589,22 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
         ]
     );
 
-    // No lease lapses, no timer fires, no thread appears: nothing happens on its own.
-    let before = rig.events.all().len();
-    std::thread::sleep(Duration::from_millis(500));
-    assert_eq!(rig.events.all().len(), before);
+    // No lease lapses, no timer fires: ownership changes only through the calls above. Each call
+    // announced its change before returning, so the owner log is already complete; the shell's own
+    // asynchronous activity lands in the same log as `Ev::Activity` and is not size ownership.
+    // Disposing kills the shell, and draining its feed to the exit event is the barrier: the
+    // process has ended, so nothing that belongs to the tab can still be pending. Only the
+    // disposal's own release may follow, and the clock was never read again.
+    rig.tabs.dispose(id);
+    let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(id)).await;
+    assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
+    let mut released = owners;
+    released.push((String::new(), 0, 0));
+    let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
+    assert_eq!(after, released);
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
     // The thread count is process-wide and sibling tests of this binary start threads in
     // parallel, so it cannot witness "no thread appears"; the clock and event checks above do.
-    rig.tabs.dispose(id);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -806,6 +857,8 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert_eq!(host.reveals.load(Ordering::SeqCst), 1);
     let cursor: u64 = run.text.split("cursor=").nth(1).unwrap().lines().next().unwrap().parse().unwrap();
     rig.wait_text("session-terminal:sess8", "bridge line 500");
+    // The shell stays live; this is the barrier after which it is quiet until the next input.
+    rig.wait_prompt_frame_after("session-terminal:sess8", "bridge line 500").await;
 
     let listed = call(json!({ "action": "list" })).await.text;
     assert!(listed.starts_with("1 ") && listed.contains(" running "), "{listed}");
@@ -868,5 +921,147 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert_eq!(call(json!({ "action": "list" })).await.text.starts_with("1 "), true);
     let other = bridge.execute(&json!({ "action": "list" }), "other-session", &options).await;
     assert_eq!(other.text, "No terminal tabs open for this session.");
+    // Only now does the shell leave, on its own.
+    rig.tabs.write("session-terminal:sess8", "exit\r");
+    let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from("session-terminal:sess8")).await;
+    assert!(exit.killed.is_none(), "the shell left on its own");
     rig.tabs.dispose_all();
+}
+
+// ----- the terminal operations' failure paths, against the Node recording -----------------------
+
+/// What the dispatcher makes of an argument: `String(arg || '')` for the ids it reads.
+fn coerced(arg: Option<&Value>) -> String {
+    match arg {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// `term_<pid>_<n>`: the id the manager makes when the one asked for is not acceptable.
+fn is_generated(id: &str) -> bool {
+    id.strip_prefix(&format!("term_{}_", std::process::id())).is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// `failure-paths.json` is Node's `createDesktopOperations` over its real terminal manager and a scripted PTY
+/// (`record-terminal-ops.mjs`). The replay runs every recorded case on real tabs whose child is `scripted::profile()` over pipes: it
+/// prints the recorded script's lines, nothing else, so the text is Node's own. Each answer is compared whole with the recording:
+/// text, cursors (relative to the tab's base), flags, the tab list with every field. A recorded case that no arm consumes fails the
+/// test. The phone's size claim is the one thing not replayed: in Node a view's resize claims the size and a non-positive resize
+/// releases it (with a 30 s lease); that model is ported elsewhere, and its five cases are listed here until it lands.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn terminal_operation_failure_paths_equal_nodes_recording() {
+    use mixdog_spawn::scripted;
+    const S: &str = "session-terminal:S";
+    const NOT_REPLAYED: [&str; 5] = [
+        "a phone claims the size",
+        "attach while the phone owns the size",
+        "ensure while the phone owns the size",
+        "the phone releases it",
+        "attach after the release",
+    ];
+    let recorded = fixture("../core/fixtures/terminal-ops/failure-paths.json");
+    let rig = scripted_rig("failure-paths").await;
+    let tabs = &*rig.tabs;
+    let cases = recorded["cases"].as_array().unwrap();
+    for name in NOT_REPLAYED {
+        assert!(cases.iter().any(|case| case["name"] == name), "{name} is recorded");
+    }
+    let script = &recorded["script"];
+    let lines = |key: &str| -> Vec<String> { script[key].as_array().unwrap().iter().map(|line| line.as_str().unwrap().to_owned()).collect() };
+    let say = |key: &str| {
+        let lines = lines(key);
+        let rig = &rig;
+        async move { scripted::say(&rig.tabs, &rig.manager, S, &lines.iter().map(String::as_str).collect::<Vec<_>>()).await }
+    };
+    // The recording's `{cwd}` is the directory the tabs were opened in.
+    let cwd = serde_json::to_string(&rig.dir.display().to_string()).unwrap();
+    let cwd = &cwd[1..cwd.len() - 1];
+    let placed = |value: &Value| -> Value { serde_json::from_str(&value.to_string().replace(recorded["cwd"].as_str().unwrap(), cwd)).unwrap() };
+    let unmapped = |size_owner: &Option<SizeOwner>| size_owner.as_ref().map(|_| json!("<a size owner, which the replay does not model>"));
+    let payload = |attached: Option<Attached>| match attached {
+        None => Value::Null,
+        Some(attached) => {
+            let mut value = json!({ "id": attached.id, "replay": attached.replay });
+            if let Some(owner) = unmapped(&attached.size_owner) {
+                value["sizeOwner"] = owner;
+            }
+            value
+        }
+    };
+    let generic = |mut value: Value| {
+        if value["id"].as_str().is_some_and(is_generated) {
+            value["id"] = json!("<generated>");
+        }
+        value
+    };
+    let mut base: Option<u64> = None;
+    let mut seen = 0;
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        if NOT_REPLAYED.contains(&name) {
+            continue;
+        }
+        seen += 1;
+        let args = case["args"].as_array().unwrap();
+        // What the tab did before this case, in the recording's order.
+        match name {
+            "ensure the same id again replays what it printed" => say("first").await,
+            "snapshot since undefined" => say("second").await,
+            "attach an exited tab" => scripted::exit(tabs, &rig.manager, S, script["exitCode"].as_u64().unwrap() as u8).await,
+            _ => {}
+        }
+        let got: Value = match case["op"].as_str().unwrap() {
+            "termSessionTabs" => json!(tabs
+                .session_tabs(&coerced(args.first()))
+                .iter()
+                .map(|t| json!({ "tab": t.tab, "id": t.id, "shell": t.shell, "running": t.running, "cwd": t.cwd }))
+                .collect::<Vec<_>>()),
+            "termAttach" => payload(tabs.attach(&coerced(args.first())).await),
+            "termEnsure" => {
+                let attached = tabs.ensure(args[0].as_str(), rig.request()).await.unwrap();
+                generic(payload(Some(attached)))
+            }
+            "termSnapshot" => {
+                let since = match args.get(1) {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Number(literal)) => Some(literal.as_u64().unwrap()),
+                    Some(object) => Some((base.unwrap() as i64 + object["rel"].as_i64().unwrap()) as u64),
+                };
+                if base.is_none() {
+                    let whole = tabs.snapshot(S, None).unwrap();
+                    base = Some(whole.cursor - whole.text.encode_utf16().count() as u64);
+                }
+                match tabs.snapshot(&coerced(args.first()), since) {
+                    None => Value::Null,
+                    Some(got) => json!({ "text": got.text, "cursor": got.cursor as i64 - base.unwrap() as i64, "reset": got.reset }),
+                }
+            }
+            "termDispose" => {
+                tabs.dispose(&coerced(args.first()));
+                Value::Null
+            }
+            "termWrite" => {
+                tabs.write(&coerced(args.first()), args[1].as_str().unwrap());
+                Value::Null
+            }
+            other => panic!("unmapped recorded operation {other} in case {name}"),
+        };
+        let want = if case.get("error").is_some_and(|error| !error.is_null()) { panic!("{name}: Node failed: {}", case["error"]) } else { placed(&case["result"]) };
+        assert_eq!(got, want, "{name}");
+    }
+    assert_eq!(seen, cases.len() - NOT_REPLAYED.len(), "every recorded case outside the size claim was replayed");
+    tabs.dispose_all();
+}
+
+async fn scripted_rig(name: &str) -> Rig {
+    let manager = manager();
+    let events = Arc::new(Events::default());
+    let clock_reads = Arc::new(AtomicUsize::new(0));
+    let mut config = TerminalConfig::new(events.clone());
+    config.piped = true;
+    config.shell_integration_dir = Some(scratch_dir(&format!("{name}-integration")));
+    let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
+    Rig { tabs, manager, events, clock_reads, profile: mixdog_spawn::scripted::profile(), dir: scratch_dir(name) }
 }

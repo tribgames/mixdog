@@ -1,0 +1,12 @@
+{
+  "before-ready": {
+    "daemonStderr": "[daemon] daemon line\n[mod] daemon raw\n",
+    "daemonLog": null,
+    "memoryProxyLog": "[<ISO>] [memory] first\n[<ISO>] [memory] second\n[memory] third\n[<ISO>] [memory] padded\n[<ISO>] [memory] after worker ready\n"
+  },
+  "allow-stderr": {
+    "daemonStderr": "[mod] daemon raw\n",
+    "daemonLog": "[<ISO>] [daemon] daemon line\n",
+    "memoryProxyLog": "[<ISO>] [memory] first\n[<ISO>] [memory] second\n[memory] third\n[<ISO>] [memory] padded\n[<ISO>] [memory] after worker ready\n"
+  }
+}

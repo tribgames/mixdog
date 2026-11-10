@@ -76,7 +76,7 @@ impl HomeWebhookDispatch {
         // blocks the delivery itself.
         let stored = json!({"body": payload, "headers": shown});
         if let Err(error) = self.store.record_event(name, stored, self.routines.clock.now()).await {
-            tracing::warn!("webhook {name}: event record failed: {error}");
+            mixdog_rt::node_stderr!("mixdog webhook: {name}: event record failed: {error}");
         }
         self.store.update_delivery_status(name, id, "processing", None).await?;
         let run = WebhookRun {
@@ -103,11 +103,12 @@ impl HomeWebhookDispatch {
                 Err(error) => ("failed", Some(error)),
             };
             match &error {
-                Some(e) => tracing::warn!("{name_owned}: webhook session run failed: {e}"),
-                None => tracing::info!("{name_owned}: webhook session run {status} (id={id})"),
+                Some(e) => mixdog_rt::node_stderr!("mixdog webhook: {name_owned}: webhook session run failed: {e}"),
+                None if status == "skipped" => mixdog_rt::node_stderr!("mixdog webhook: {name_owned}: previous run still in progress; skipped (id={id})"),
+                None => mixdog_rt::node_stderr!("mixdog webhook: {name_owned}: webhook session run dispatched (id={id})"),
             }
             if let Err(e) = store.update_delivery_status(&name_owned, &id, status, error.as_deref()).await {
-                tracing::warn!("{name_owned}: delivery status update failed: {e}");
+                mixdog_rt::node_stderr!("mixdog webhook: {name_owned}: delivery status update failed: {e}");
             }
         });
         Ok(HttpReply { status: 202, body: json!({"status": "accepted", "handler": "session", "id": id}) })
@@ -129,7 +130,7 @@ impl WebhookDispatch for HomeWebhookDispatch {
                 Ok(reply) => return Ok(reply),
                 Err(error) => {
                     self.store.update_delivery_status(name, delivery_id, "failed", Some(&error)).await?;
-                    tracing::warn!("{name}: folder handler error: {error}");
+                    mixdog_rt::node_stderr!("mixdog webhook: {name}: folder handler error: {error}");
                 }
             }
         }
@@ -138,7 +139,7 @@ impl WebhookDispatch for HomeWebhookDispatch {
             return Ok(HttpReply { status: 200, body: json!({"status": "accepted", "id": delivery_id}) });
         }
         self.store.update_delivery_status(name, delivery_id, "failed", Some("unknown endpoint")).await?;
-        tracing::warn!("unknown endpoint: {name}");
+        mixdog_rt::node_stderr!("mixdog webhook: unknown endpoint: {name}");
         Ok(HttpReply { status: 404, body: json!({"error": "unknown endpoint"}) })
     }
 }

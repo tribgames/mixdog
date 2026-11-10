@@ -17,6 +17,7 @@ use std::sync::LazyLock;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::EnrichedRow;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
@@ -42,6 +43,7 @@ use super::wire_route::route_for;
 use super::wire_route::wire_of_package;
 use crate::catalog::ListingLookup;
 use crate::catalog::keep_native;
+use crate::catalog::restate_row;
 use crate::catalog::seed_display_name;
 use crate::catalog::seed_roster;
 
@@ -82,6 +84,33 @@ fn native_record(info: &CompatModelInfo, publish_names: bool) -> ModelRecord {
     record
 }
 
+/// The row `listCompatModels` builds for a fetched entry, before `enrichModels` spreads over it
+/// (`openai-compat-models.mjs:168-185`): `id`, `name`, `provider`, the numeric limits (`0` / `null` when none),
+/// `created` (`null` when none), the native `mode` and `aliasTarget` when stated, and the declared effort info.
+fn node_row(provider: &str, native: &ModelRecord) -> serde_json::Map<String, Value> {
+    let mut row = serde_json::Map::new();
+    row.insert("id".into(), json!(native.id));
+    row.insert("name".into(), json!(native.name));
+    row.insert("provider".into(), json!(provider));
+    row.insert("contextWindow".into(), json!(native.context_window.unwrap_or(0)));
+    row.insert("outputTokens".into(), json!(native.max_output_tokens));
+    row.insert("created".into(), json!(native.created));
+    if let Some(mode) = &native.mode {
+        row.insert("mode".into(), json!(mode));
+    }
+    if let Some(alias) = &native.alias_target {
+        row.insert("aliasTarget".into(), json!(alias));
+    }
+    if let Some(reasoning) = native.supports_reasoning {
+        row.insert("supportsReasoning".into(), json!(reasoning));
+    }
+    if !native.reasoning_levels.is_empty() {
+        row.insert("reasoningLevels".into(), json!(native.reasoning_levels));
+        row.insert("reasoningOptions".into(), json!(native.picker.reasoning_options));
+    }
+    row
+}
+
 /// `listCompatModels` past the fetch: enrichment, then the native limits and
 /// mode restored over what it derived, then the sanitizer. A custom provider
 /// runs the same steps over its own endpoint's rows.
@@ -95,9 +124,14 @@ pub(crate) fn compat_rows_of(lookup: &ListingLookup, provider: &str, infos: &[Co
             row.name = None;
         }
     }
+    // The row each entry becomes, which enrichment writes over (`{ ...m, ...enrichment }`).
+    for (row, native) in lent.iter_mut().zip(&native) {
+        row.enriched = EnrichedRow(Some(node_row(provider, native)));
+    }
     let mut enriched = lookup.enrich_listed(provider, lent);
     for (row, native) in enriched.iter_mut().zip(&native) {
         row.name.clone_from(&native.name);
+        restate_row(row, "name", native.name.clone().map(Value::from));
     }
     lookup.sanitize_listed(provider, keep_native(&native, enriched))
 }
@@ -193,11 +227,14 @@ impl CompatAdapter {
             for row in &mut rows {
                 if let Some(name) = names.get(row.id.as_str()) {
                     row.name = Some((*name).to_owned());
+                    restate_row(row, "name", Some(json!(name)));
                 }
                 if row.reasoning_levels.is_empty() {
                     row.reasoning_levels = levels.iter().map(|l| (*l).to_owned()).collect();
+                    restate_row(row, "reasoningLevels", Some(json!(row.reasoning_levels)));
                 }
                 row.reasoning_content_field = Some("reasoning_content".to_owned());
+                restate_row(row, "reasoningContentField", Some(json!("reasoning_content")));
                 row.raw = Some(json!({ "reasoningContentField": "reasoning_content" }));
             }
         }
@@ -241,13 +278,17 @@ impl CompatAdapter {
             let name = tier_name(&candidate, seed_display_name(provider, &row.id).as_deref());
             // Node's Muse rows carry the label as `name` alone.
             row.display_name = None;
+            restate_row(row, "display", None);
             row.name = Some(if name.is_empty() { row.id.clone() } else { name });
+            restate_row(row, "name", row.name.clone().map(Value::from));
             if row.picker.reasoning_options.is_empty() && row.supports_reasoning != Some(false) {
                 row.picker.reasoning_options = effort_options(&levels);
+                restate_row(row, "reasoningOptions", Some(json!(row.picker.reasoning_options)));
             }
             if row.reasoning_levels.is_empty() {
                 row.reasoning_levels =
                     row.picker.reasoning_options.iter().find(|o| o.kind == "effort").map(|o| o.values.clone()).unwrap_or_default();
+                restate_row(row, "reasoningLevels", Some(json!(row.reasoning_levels)));
             }
         }
         Ok(rows)
@@ -299,9 +340,11 @@ impl CompatAdapter {
         let names: Vec<Option<String>> = native.iter_mut().map(|r| r.name.take()).collect();
         let mut rows = self.lookup.enrich_listed(provider, native);
         for (row, name) in rows.iter_mut().zip(names) {
+            restate_row(row, "name", name.clone().map(Value::from));
             row.name = name;
             // Node spreads the catalog's facts under the row (`displayName`), never as `display`.
             row.display_name = None;
+            restate_row(row, "display", None);
         }
         Ok(rows)
     }
@@ -431,13 +474,23 @@ fn console_record(id: &str, model: &Map<String, Value>, provider_package: &str) 
 impl ModelListing for CompatAdapter {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
         let rules = self.codec.profile().listing;
-        match rules.shape {
+        let rows = match rules.shape {
             ListingShape::Compat => self.compat_listing(&rules, None).await,
             ListingShape::Decorated { default_levels, seed_when_empty } => {
                 self.compat_listing(&rules, Some((default_levels, seed_when_empty))).await
             }
             ListingShape::Roster { default_levels } => self.roster_listing(&rules, default_levels).await,
             ListingShape::ConsoleConfig { url, provider_key } => self.console_listing(url, provider_key).await,
-        }
+        }?;
+        // `provider._enrichedModels = enriched`: the rows this listing returned are the ones the provider answers.
+        let provider = self.codec.profile().id.into();
+        self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&provider, row.clone()))).collect());
+        Ok(rows)
+    }
+}
+
+impl crate::catalog::CachedModelInfo for CompatAdapter {
+    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<Value>> {
+        self.rows.find(model)
     }
 }

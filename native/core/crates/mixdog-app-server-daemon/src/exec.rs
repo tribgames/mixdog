@@ -21,6 +21,8 @@ use crate::domain_seams::settings_effects::ConfiguredShell;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::TimerHandle;
+use mixdog_spawn::LocalProcessManager;
+use mixdog_spawn::survivors::ProcessSurvivors;
 use mixdog_spawn::tasks::HostShellJobs;
 use mixdog_spawn::tasks::ShellJobsState;
 use mixdog_spawn::tasks::TaskPublisher;
@@ -167,6 +169,14 @@ impl ShellSource for ConfiguredShell {
     }
 }
 
+/// What the runtime reaches outside itself. `processes` is the manager the tools spawn through
+/// (`ToolContext.processes`): the survivors of a finished command are looked up in the manager
+/// that started it, so it is the same one.
+pub struct ExecHosts {
+    pub ext_pool: Arc<dyn ExtPool>,
+    pub processes: LocalProcessManager,
+}
+
 /// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`);
 /// `shell_path` the default shell, probed on a lane (`shell_name::resolve_program_current_on`);
 /// `configured_shell` the one `ConfiguredShell` the settings effects write (its initial value is
@@ -178,7 +188,7 @@ pub fn build_exec(
     shell_path: String,
     configured_shell: Arc<ConfiguredShell>,
     skill_runtime: SkillRuntime,
-    ext_pool: Arc<dyn ExtPool>,
+    hosts: ExecHosts,
 ) -> (Exec, ExecEvents) {
     let (finished_tx, finished) = mpsc::channel(FINISHED_CAPACITY);
     let (threads, thread_strips) = watch::channel(HashMap::new());
@@ -205,14 +215,12 @@ pub fn build_exec(
         data_dir: Some(data_dir.to_path_buf()),
         skill_launcher_dir: Some(skill_launcher_dir),
         notifier: Some(Arc::new(ChannelNotifier(finished_tx))),
-        // WP-PROC's SurvivorWatch is not wired yet; until it lands a finished command's survivors
-        // are not tracked.
-        survivors: None,
+        survivors: Some(Arc::new(ProcessSurvivors::new(hosts.processes))),
         elevation: Arc::new(OsPromptElevation),
         oem: host_oem(),
         skill_runtime: Some(skill_runtime),
         shell: configured_shell.clone(),
-        script_syntax: Arc::new(ExtSyntax::new(ext_pool)),
+        script_syntax: Arc::new(ExtSyntax::new(hosts.ext_pool)),
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.
         powershell: cfg!(windows),
@@ -221,4 +229,244 @@ pub fn build_exec(
         now_ms: Arc::new(now_ms),
     });
     (Exec { runtime, wakes, configured_shell }, ExecEvents { finished, thread_strips, host_strip })
+}
+
+// The recorded Node fixture is the Windows form of the commands.
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::mock::MockApprovalGate;
+    use mixdog_core_api::domain::mock::MockExtPool;
+    use mixdog_core_api::domain::mock::MockFileService;
+    use mixdog_core_api::domain::mock::MockProgress;
+    use mixdog_core_api::domain::tool::*;
+    use mixdog_protocol::ToolCallId;
+    use mixdog_protocol::TurnId;
+    use mixdog_tools::exec::ShellTool;
+    use mixdog_tools::exec::TaskTool;
+    use tokio_util::sync::CancellationToken;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::CreateEventW;
+    use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+    use windows_sys::Win32::System::Threading::OpenProcess;
+    use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
+    use windows_sys::Win32::System::Threading::SetEvent;
+
+    /// `STILL_ACTIVE` (minwinbase.h): the exit code of a process that has not ended.
+    const STILL_ACTIVE: u32 = 259;
+
+    /// What Node's agent sees through the life of a survivors task (`fixtures/shell-survivors/golden.json`, recorded
+    /// from Node b6f10295a with a mixdog-spawn built from the same commit; see its MANIFEST.json). The task id,
+    /// the timestamps and the child's pid are placeholders there.
+    fn golden() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../../fixtures/shell-survivors/golden.json")).unwrap()
+    }
+
+    fn node_view(text: &str, id: &str) -> String {
+        let tail = if text.ends_with('\n') { "\n" } else { "" };
+        let pid_free = text.lines().map(|line| if line.starts_with("CHILD=") { "CHILD=<PID>" } else { line }).collect::<Vec<_>>();
+        pid_free
+            .join("\n")
+            .replace(id, "<TASK>")
+            .lines()
+            .map(|line| match line.split_once(": ") {
+                Some((key @ ("started" | "finished"), _)) => format!("{key}: <TIME>"),
+                _ => line.to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + tail
+    }
+
+    /// A named event the test owns. The fixture child (the recording's `<GATE>`) blocks on it before it does anything, so it
+    /// cannot end, and its pid cannot be reused, until the test has opened its handle and sets the event.
+    struct Gate {
+        name: String,
+        handle: windows_sys::Win32::Foundation::HANDLE,
+    }
+
+    impl Gate {
+        fn new(tag: &str) -> Self {
+            let name = format!("mixdog-survivor-gate-{}-{tag}", std::process::id());
+            let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+            // Manual reset, not signalled.
+            let handle = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide.as_ptr()) };
+            assert!(!handle.is_null(), "the gate could not be created: {}", std::io::Error::last_os_error());
+            Self { name, handle }
+        }
+
+        /// The recorded command with this gate's name in place of the recording's placeholder.
+        fn command(&self, template: &str) -> String {
+            template.replace("<GATE>", &self.name)
+        }
+
+        /// What the agent saw, as the recording writes it: the gate's name is a placeholder there.
+        fn view(&self, text: &str, id: &str) -> String {
+            node_view(&text.replace(&self.name, "<GATE>"), id)
+        }
+
+        fn open(&self) {
+            let set = unsafe { SetEvent(self.handle) };
+            assert!(set != 0, "the gate could not be opened: {}", std::io::Error::last_os_error());
+        }
+    }
+
+    impl Drop for Gate {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.handle) };
+        }
+    }
+
+    /// An owned handle on the child the command printed. It is opened while the child is held at its gate, so it is
+    /// certainly that process and a pid reused later cannot be mistaken for it. A failure to open or to query is a test error.
+    struct Child(windows_sys::Win32::Foundation::HANDLE);
+
+    impl Child {
+        fn open(pid: u32) -> Self {
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+            assert!(!handle.is_null(), "the child {pid} could not be opened: {}", std::io::Error::last_os_error());
+            Self(handle)
+        }
+
+        fn running(&self) -> bool {
+            let mut code = 0u32;
+            let known = unsafe { GetExitCodeProcess(self.0, &mut code) } != 0;
+            assert!(known, "the child's exit code could not be queried: {}", std::io::Error::last_os_error());
+            code == STILL_ACTIVE
+        }
+    }
+
+    impl Drop for Child {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+    fn ctx(dir: &Path, call: &str, processes: LocalProcessManager) -> ToolContext {
+        let tokens = mixdog_rt::testing::tokens();
+        ToolContext {
+            call_id: ToolCallId::from(call),
+            thread_id: ThreadId::from("t"),
+            turn_id: TurnId::from("r"),
+            tool: "shell".into(),
+            cwd: AbsPath::new(dir).unwrap(),
+            surface: SurfaceKind::Lead,
+            cancel: CancellationToken::new(),
+            deadline: None,
+            progress: Arc::new(MockProgress::default()),
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(MockFileService::default()),
+            processes: Arc::new(processes),
+            options: Default::default(),
+            review: None,
+        }
+    }
+
+    fn text(outcome: ToolOutcome) -> String {
+        match outcome {
+            Ok(out) => match &out.parts[0] {
+                ToolPart::Text(t) => t.clone(),
+                _ => panic!("not text"),
+            },
+            Err(e) => e.message_for_model,
+        }
+    }
+
+    struct Rig {
+        dir: tempfile::TempDir,
+        processes: LocalProcessManager,
+        shell: ShellTool,
+        task: TaskTool,
+    }
+
+    async fn rig() -> Rig {
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let processes = LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
+        let shell_path = crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.unwrap();
+        let (exec, _events) = build_exec(
+            &tokens,
+            dir.path(),
+            dir.path().join("launchers"),
+            shell_path,
+            Arc::new(ConfiguredShell::default()),
+            SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
+            ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
+        );
+        Rig { dir, processes, shell: ShellTool::new(exec.runtime.clone()), task: TaskTool::new(exec.runtime) }
+    }
+
+    impl Rig {
+        async fn run(&self, call: &str, command: &str) -> String {
+            text(self.shell.call(&ctx(self.dir.path(), call, self.processes.clone()), serde_json::json!({"command": command})).await)
+        }
+
+        async fn task(&self, call: &str, args: serde_json::Value) -> String {
+            text(self.task.call(&ctx(self.dir.path(), call, self.processes.clone()), args).await)
+        }
+
+        /// The child the command printed (`CHILD=<pid>`), whose life is the test's own evidence.
+        fn child_of(ran: &str) -> u32 {
+            ran.lines().find_map(|line| line.strip_prefix("CHILD=")?.trim().parse().ok()).expect("the command printed its child")
+        }
+    }
+
+    /// The daemon's runtime tracks what a finished command left running (Node's `probeShellDescendants` at the shell settle)
+    /// and cancels it as Node does: every text the agent reads equals Node's recording, the task starts with the command,
+    /// and the child the command printed is running while tracked and gone from the operating system after the cancel.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cancelled_survivors_task_reads_as_nodes_and_its_child_is_gone() {
+        let want = golden();
+        let rig = rig().await;
+        // The child waits at this gate, never opened: it can only end by the cancel.
+        let gate = Gate::new("cancelled");
+        let command = gate.command(want["cancelled"]["command"].as_str().unwrap());
+        let before = chrono::Utc::now().timestamp_millis();
+        let ran = rig.run("s1", &command).await;
+        let returned = chrono::Utc::now().timestamp_millis();
+        assert_eq!(gate.view(&ran, "task-s1"), want["cancelled"]["run"].as_str().unwrap());
+        // `started` lies inside the call; that it is the command's start rather than the moment its survivors were observed
+        // is asserted on a clock the test advances (mixdog-tools `a_survivors_task_starts_when_its_command_started`).
+        let started = ran.lines().find_map(|line| line.strip_prefix("started: ")).unwrap();
+        let started = chrono::DateTime::parse_from_rfc3339(started).unwrap().timestamp_millis();
+        assert!(before <= started && started <= returned, "started {started} is outside the call ({before}..{returned})");
+        let child = Child::open(Rig::child_of(&ran));
+        assert!(child.running(), "the child runs while it is tracked");
+        let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
+        assert_eq!(gate.view(&rig.task("r1", read.clone()).await, "task-s1"), want["cancelled"]["readRunning"].as_str().unwrap());
+        let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
+        assert_eq!(gate.view(&rig.task("c1", cancel.clone()).await, "task-s1"), want["cancelled"]["cancel"].as_str().unwrap());
+        // Checked as the call returns, without waiting: a cancel that reports success must already have ended the child.
+        assert!(!child.running(), "the child is gone when the cancel reports");
+        assert_eq!(gate.view(&rig.task("c2", cancel).await, "task-s1"), want["cancelled"]["cancelAgain"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("r2", read).await, "task-s1"), want["cancelled"]["read"].as_str().unwrap());
+        let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
+        assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["cancelled"]["tail"].as_str().unwrap());
+    }
+
+    /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_survivors_task_whose_child_ends_on_its_own_completes_as_nodes_does() {
+        let want = golden();
+        let rig = rig().await;
+        // The child waits at this gate until the test holds its handle and the task has been read once, as in the recording.
+        let gate = Gate::new("natural");
+        let ran = rig.run("s1", &gate.command(want["natural"]["command"].as_str().unwrap())).await;
+        assert_eq!(gate.view(&ran, "task-s1"), want["natural"]["run"].as_str().unwrap());
+        let child = Child::open(Rig::child_of(&ran));
+        assert!(child.running());
+        let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
+        assert_eq!(gate.view(&rig.task("r1", read.clone()).await, "task-s1"), want["natural"]["readRunning"].as_str().unwrap());
+        gate.open();
+        let wait = serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 30000});
+        assert_eq!(gate.view(&rig.task("w", wait).await, "task-s1"), want["natural"]["wait"].as_str().unwrap());
+        // Checked as the wait returns, without waiting: the task completed because its child had ended.
+        assert!(!child.running(), "the task completed while its child still runs");
+        assert_eq!(gate.view(&rig.task("r2", read).await, "task-s1"), want["natural"]["read"].as_str().unwrap());
+        let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
+        assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["natural"]["tail"].as_str().unwrap());
+        let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
+        assert_eq!(gate.view(&rig.task("c1", cancel).await, "task-s1"), want["natural"]["cancelAfterEnd"].as_str().unwrap());
+    }
 }

@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 32603,
+      "bytes": 2451352,
       "path": "golden.json",
-      "sha256": "fa0872546500c97918068a4ba80c44609185fd5a98aeb0271b7cfd87efaf35aa"
+      "sha256": "3408414744b40b274171b11088bb1ffe344f12424bb022f3ab003e809d524edc"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/context-status-route/record.mjs",
   "set": "context-status-route",
-  "totalBytes": 32603
+  "totalBytes": 2451352
 }

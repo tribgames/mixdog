@@ -150,7 +150,7 @@ pub async fn driven_relay_with(clients: Value, revoke_ok: bool) -> Relay {
             };
             // A refused upgrade ends this dial; the desktop backs off and dials again.
             let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(stream, upgrade).await else { continue };
-            let caps = json!({ "type": "relay-capabilities", "textFrames": 1, "maxFrameBytes": 1_048_576 });
+            let caps = json!({ "type": "relay-capabilities", "textFrames": 1, "maxFrameBytes": 1_048_576, "nativePush": 1, "nativePushPlatforms": ["fcm"], "webPush": 1 });
             ws.send(Message::Text(caps.to_string().into())).await.unwrap();
             loop {
                 tokio::select! {
@@ -293,6 +293,11 @@ impl Phone {
                 return reason;
             }
         }
+    }
+
+    /// Every frame for this phone that reached the relay so far, application frames and closes alike.
+    pub async fn arrived(&self) -> usize {
+        self.peer.arrived().await
     }
 
     /// The relay reports the phone gone.

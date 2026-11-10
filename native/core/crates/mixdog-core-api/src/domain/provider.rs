@@ -488,6 +488,9 @@ pub struct RequestThread {
     /// The turn this request serves, which scopes `x-codex-turn-state`;
     /// `None` for a request outside a turn (prewarm).
     pub turn: Option<TurnId>,
+    /// The turn's start (Node's `turnStartedAtUnixMs`), when the caller knows it; else the Codex metadata takes the
+    /// stamp of the session id.
+    pub turn_started_at_ms: Option<u64>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -673,6 +676,14 @@ pub enum StreamEvent {
     /// The session's provider state changed during the request (Node writes
     /// `opts.providerState` back); the whole new state, to be persisted.
     ProviderState(ProviderState),
+    /// A display-only transcript notice the adapter raised while preparing the request (Node
+    /// `opts.onStageChange('notice', { tone, message })`: Gemini's dated model redirect). `warn` is tone `warn`;
+    /// otherwise `info`. Folds into nothing.
+    Notice { message: String, warn: bool },
+    /// The model that answered when the adapter served the request as another one than the request named (Node
+    /// `send` result `model`: Gemini's dated redirect). The usage ledger books the send under it and the turn's
+    /// response reports it.
+    ServedModel(String),
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -885,10 +896,18 @@ pub struct ProviderError {
     /// rotation cools the whole account and rotates even when
     /// `unsafe_to_retry` is set.
     pub account_blocked: bool,
+    /// Display-only notices (message, `warn`) the adapter raised before the request failed, in the shape of
+    /// [`StreamEvent::Notice`]: Node's `onStageChange('notice', …)` fires before the request is built, so a
+    /// request that fails still shows them. Never matched or retried on.
+    pub notices: Vec<(String, bool)>,
     /// Re-sending this request is unsafe (Node `unsafeToRetry`) for a reason
     /// [`Exposure`] does not record, e.g. reasoning already streamed; set by
     /// the sender that knows it, never inferred downstream.
     pub unsafe_to_retry: bool,
+    /// A timer the call armed itself ended it (`AbortSignal.timeout`, `createTimeoutSignal`, or a bare
+    /// `controller.abort()` on a `setTimeout`): Node tells these from a connection failure by the error's name, which
+    /// this error does not carry.
+    pub timed_out: bool,
     /// The server's id of the limit the refusal named (Node `quotaLimit`), as
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
@@ -917,7 +936,9 @@ impl ProviderError {
             rejected_tool: None,
             account_blocked: false,
             unsafe_to_retry: false,
+            timed_out: false,
             quota_limit: None,
+            notices: Vec::new(),
         }
     }
 
@@ -1009,6 +1030,12 @@ pub trait ProviderAdapter: Send + Sync {
     /// 'session-deleted')`): its connections and per-session transport state go. Nothing to do
     /// for a provider that keeps none.
     fn release_session(&self, _session_id: &str) {}
+    /// A forked request's transport scope is disposed (`disposeTransportScope`:
+    /// `__mixdogCloseProviderConnectionsForSession(scope, 'transport_scope_disposed')`): the scope's
+    /// connections and transport state go. By default as [`Self::release_session`].
+    fn release_transport_scope(&self, scope: &str) {
+        self.release_session(scope);
+    }
     /// `provider.nativePdf !== false` (`providerTakesNativePdf`): the provider takes a PDF as a
     /// native document block. Each adapter class declares it; one that declares nothing takes it.
     fn native_pdf(&self) -> bool {

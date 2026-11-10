@@ -22,6 +22,19 @@ use crate::transport::http::HttpResponse;
 
 const GOLDEN: &str = include_str!("../../../../fixtures/cursor-usage/golden.json");
 
+/// The usage read that outlives its timer reads as the real Node call did (`sites.cursorUsageCall`): `callCursorUnary`'s own
+/// timer, labelled `Cursor request`.
+#[tokio::test(start_paused = true)]
+async fn a_read_that_outlives_its_timer_reads_as_nodes() {
+    use crate::transport::site_probe::{TimingOut, assert_thrown, assert_window};
+
+    let transport = TimingOut::new();
+    let reading = CursorUsage::new(PROVIDER_ID, transport.clone(), None, Live::from("1.0.0"), Arc::new(Token));
+    let error = reading.read().await.expect_err("never answers");
+    assert_window("cursorUsageCall", &transport);
+    assert_thrown("cursorUsageCall", &error.message);
+}
+
 struct Body(Option<Bytes>);
 
 #[async_trait]

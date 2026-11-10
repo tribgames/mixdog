@@ -30,6 +30,7 @@ use super::triggers::should_compact_for_expired_agent_cache;
 use super::triggers::should_compact_for_request_media;
 use super::summary_run::RouteResolver;
 use super::summary_run::SummarizeContext;
+use super::summary_run::elapsed_ms;
 use super::summary_run::SummaryMode;
 use super::summary_run::plan_steps;
 use super::summary_run::summarize_on_plan;
@@ -56,6 +57,8 @@ pub struct Handoff {
     pub text: String,
     /// Summary-model usage, billed to the turn.
     pub usage: Option<Usage>,
+    /// Whole milliseconds the summary request took (`generated.diagnostics.durationMs`).
+    pub summary_ms: f64,
 }
 
 /// The conversation summary: whether the conversation is large enough to
@@ -238,7 +241,10 @@ impl Compactor for FreshCompactor {
 
     async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
         self.prepare(request.messages).await;
+        // `runFreshContextCompact`'s `startedAt`: from the summary decision to the rebuilt transcript.
+        let started = tokio::time::Instant::now();
         let mut usage = None;
+        let mut summary_ms = None;
         let mut handoff_text = String::new();
         if let Some(summary) = self.summary.as_ref()
             && summary.triggered(request.messages).await
@@ -246,6 +252,7 @@ impl Compactor for FreshCompactor {
             let handoff = summary.handoff(request.messages, request.budget_tokens).await?;
             handoff_text = handoff.text;
             usage = handoff.usage;
+            summary_ms = Some(handoff.summary_ms);
         }
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, false);
@@ -255,8 +262,10 @@ impl Compactor for FreshCompactor {
             .map_err(failure)?;
         // A generated summary can differ from its prediction: an automatic
         // result is never equal-sized or larger than the original.
-        if request.require_reduction && meter.messages(&result.messages) >= meter.messages(request.messages) {
-            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, dropped_count: 0, dropped: None, skipped: true });
+        let reduces = !request.require_reduction || meter.messages(&result.messages) < meter.messages(request.messages);
+        let pipeline_ms = elapsed_ms(started);
+        if !reduces {
+            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, dropped_count: 0, dropped: None, skipped: true, pipeline_ms, summary_ms });
         }
         let (dropped_count, dropped) = if result.messages == request.messages {
             (0, None)
@@ -267,7 +276,7 @@ impl Compactor for FreshCompactor {
                 .await
                 .map_err(|unavailable| CompactError::Failed(unavailable.to_string()))?
         };
-        Ok(CompactOutput { messages: result.messages, usage, dropped_count, dropped, skipped: false })
+        Ok(CompactOutput { messages: result.messages, usage, dropped_count, dropped, skipped: false, pipeline_ms, summary_ms })
     }
 }
 
@@ -335,6 +344,6 @@ impl HandoffSource for PlannedHandoff {
             conversation_input: &input,
         };
         let (_, generated) = summarize_on_plan(&cx, &plan_steps(mode, warm)).await?;
-        Ok(Handoff { text: generated.summary, usage: generated.usage })
+        Ok(Handoff { text: generated.summary, usage: generated.usage, summary_ms: generated.duration_ms })
     }
 }

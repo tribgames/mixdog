@@ -121,6 +121,9 @@ pub trait DeleteSeams: Send + Sync {
     /// its life measured to `closed_at_ms`, the instant the close landed. `reason` is the close
     /// reason (`desktop-session-delete`), not the abort text.
     fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header, closed_at_ms: i64);
+    /// The delete mark landed, so a list no longer shows the conversation: what ends with its presence in the catalog (a phone's
+    /// downloads) ends now, before the purge, not when `thread/deleted` is published after it.
+    fn tombstoned(&self, thread: &ThreadId);
     /// The close's tombstone landed: the MCP scope the session holds is released and its servers
     /// close (the runtime's teardown, `disconnectAll({ scopeId })`, `runtime-stops.mjs:24`). Not awaited.
     fn release_mcp_scope(&self, session_id: &str);
@@ -156,9 +159,10 @@ pub(crate) fn sidebar_flag(header: &mixdog_store::schema::record::Header, key: &
 pub const AUTO_DELETE_REASON: &str = "desktop-auto-delete";
 
 /// Whether the thread's turn holds what Node's ask lock is held for (`tryAcquireSessionLock`
-/// refuses): a turn runs, starts or settles.
+/// refuses): a turn runs, starts or settles, other than a completion wake (Node wakes only its
+/// current session, so no ask lock is held for one; `idle_refusal` still refuses it as `busy`).
 fn ask_lock_held(directory: &super::directory::DirInner, thread: &ThreadId) -> bool {
-    directory.loaded_handle(thread).is_some_and(|handle| handle.cell.run.load().is_some() || handle.cell.turn_held.load(SeqCst))
+    directory.loaded_handle(thread).is_some_and(|handle| handle.cell.turn_held.load(SeqCst))
 }
 
 /// What `idleRefusal` reads of the thread before its record: the live state of the session.
@@ -316,6 +320,7 @@ async fn remove(
     if !hold.mark(directory).await {
         return false;
     }
+    deps.deletion.tombstoned(thread);
     deps.deletion.session_closed(thread.as_str(), closed.reason, &closed.header, closed.at_ms);
     deps.deletion.release_mcp_scope(thread.as_str());
     // A failed purge leaves the marked session's files for the next delete's purge or the
@@ -410,3 +415,4 @@ pub(crate) async fn delete_session(
     after_delete(&deps, id);
     Ok(true)
 }
+

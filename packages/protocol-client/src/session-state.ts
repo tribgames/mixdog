@@ -8,7 +8,7 @@
 //    `DesktopSessionState` the UI reads. `toolApproval`/`toolApprovalsWaiting` come from server requests (protocol.md §8.5) and
 //    `hostShellJobs` from the app feed, which are not part of the thread feed, so they are joined here and nowhere else.
 import type { Json, JsonRpcNotification, ProtocolClient, ServerRequest, ThreadReducer } from './api.ts';
-import { asObj } from './obj.ts';
+import { asObj, isObj } from './obj.ts';
 import type { Obj } from './obj.ts';
 import { mergeToolRows, mergeToolRowsSteps, rowOf } from './rows.ts';
 
@@ -126,13 +126,19 @@ function upsert(items: readonly Obj[], row: Obj): Obj[] {
 
 // ───────────────────────────── the reducer ─────────────────────────────
 
+/** The queue as clients hold it: a queued entry is named by the submission it answers (Node's `makeQueueEntry` id), which the core
+ * carries as `clientSubmissionId` beside its own queue id. */
+function queueOf(queued: Json | undefined): Json[] {
+  return Array.isArray(queued) ? queued.map((row) => (isObj(row) && typeof row.clientSubmissionId === 'string' && row.clientSubmissionId ? { ...row, id: row.clientSubmissionId } : row)) : [];
+}
+
 function fieldsOfState(state: Obj, hasOlder: boolean): Obj {
   let fields: Obj = {};
   for (const def of Object.values(SECTIONS)) fields = withSection(fields, def, state[def.stateKey]);
   if (typeof state.title === 'string') fields.desktopSessionTitle = state.title;
   if (hasOlder) fields.transcriptHasOlder = true;
   if (Array.isArray(state.promptHistoryList)) fields.promptHistoryList = state.promptHistoryList;
-  fields.queued = Array.isArray(state.queued) ? state.queued : [];
+  fields.queued = queueOf(state.queued);
   return fields;
 }
 
@@ -178,7 +184,7 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
       case 'thread/promptHistory/updated':
         return withField(s, 'promptHistoryList', promptHistoryOf(s.fields.promptHistoryList, asObj(p.value)));
       case 'thread/queue/changed':
-        return withField(s, 'queued', Array.isArray(p.queued) ? p.queued : []);
+        return withField(s, 'queued', queueOf(p.queued));
       case 'thread/name/updated':
         return withField(s, 'desktopSessionTitle', typeof p.title === 'string' ? p.title : undefined);
       case 'thread/goal/cleared':

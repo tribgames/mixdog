@@ -175,7 +175,7 @@ impl RawEmbedFlush {
         loop {
             check(cancel)?;
             if started.elapsed() >= timeout {
-                tracing::warn!("[embed] flush timed out after {}s; proceeding with partial state", timeout.as_secs_f64());
+                mixdog_rt::memory_stderr!("[embed] flush timed out after {}s; proceeding with partial state", timeout.as_secs_f64());
                 done.timed_out = true;
                 break;
             }
@@ -189,7 +189,7 @@ impl RawEmbedFlush {
                     if cancel.is_cancelled() {
                         return Err(FlushFailure::Cancelled);
                     }
-                    tracing::warn!(%error, "[embed] flush SKIP LOCKED claim failed");
+                    mixdog_rt::memory_stderr!("[embed] flush SKIP LOCKED claim failed: {error}");
                     // `memory-embed.mjs:258-271`: a rollback that fails too is part of the fault's text.
                     return Err(match rollback {
                         Err(rollback) => FlushFailure::Store(format!("{error}; rollback failed: {rollback}")),
@@ -219,7 +219,7 @@ impl RawEmbedFlush {
                 }
                 Err(FlushFailure::Cancelled) => aborted = true,
                 Err(error) => {
-                    tracing::warn!(%error, first = ids[0], last = ids[ids.len() - 1], "[embed] batch failed");
+                    mixdog_rt::memory_stderr!("[embed] batch failed (ids={}..{}): {error}", ids[0], ids[ids.len() - 1]);
                     done.failed.extend(&ids);
                 }
             }
@@ -229,7 +229,7 @@ impl RawEmbedFlush {
                 if !aborted {
                     return Err(error.into());
                 }
-                tracing::warn!(%error, "[embed] rollback after cancellation failed");
+                mixdog_rt::memory_stderr!("[embed] rollback after cancellation failed: {error}");
             }
             if aborted {
                 return Err(FlushFailure::Cancelled);
@@ -310,7 +310,7 @@ impl RawEmbedFlush {
                 continue;
             }
             if expected > 0.0 && vector.len() as f64 != expected {
-                tracing::warn!(id, got = vector.len(), expected, "[embed] dim mismatch");
+                mixdog_rt::memory_stderr!("[embed] dim mismatch (id={id} got={} expected={expected})", vector.len());
                 continue;
             }
             updates.push(Update { id, vector: embedding_to_sql(vector), element, summary, content });
@@ -372,7 +372,7 @@ impl RawEmbedFlush {
             }
         }
         if stale > 0 {
-            tracing::warn!("[embed-sync] {stale} stale-write(s) skipped: text changed since read");
+            mixdog_rt::memory_stderr!("[embed-sync] {stale} stale-write(s) skipped — text changed since read");
         }
         if concurrent > 0 {
             tracing::debug!("[embed-sync] {concurrent} concurrent embed write(s) skipped: already embedded");

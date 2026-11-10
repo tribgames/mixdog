@@ -82,23 +82,60 @@ async fn an_old_unreferenced_blob_is_collected_once_per_spacing() {
     assert_eq!(after, [digest_of(b"another orphan")]);
 }
 
-/// A trigger arms one census `START_DELAY` later and stamps it; a shutdown before then runs none.
+/// `what`, or a failure that names it: the bound is only how long a broken trigger may hang.
+async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{what} did not happen within 60 s"))
+}
+
+/// A trigger arms one census after the start delay and stamps it; a shutdown before then runs
+/// none. The delay is the test's own wait, so each step is taken when the trigger reaches it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_trigger_runs_one_census_after_the_delay_unless_shut_down_first() {
+    use tokio::sync::oneshot;
+
     let dir = tempfile::tempdir().unwrap();
     let (gc, _blobs, state) = gc(dir.path()).await;
     let clock: crate::maintenance::Clock = std::sync::Arc::new(|| 5_000_000);
     let on_error: crate::maintenance::ErrorSink = std::sync::Arc::new(|error| panic!("{error}"));
 
     let stopped = CancellationToken::new();
-    gc.schedule(clock.clone(), on_error.clone(), stopped.clone());
+    let (reached, at_delay) = oneshot::channel();
+    let delay = move || {
+        reached.send(()).unwrap();
+        std::future::pending()
+    };
+    let armed = gc.schedule_after(clock.clone(), on_error.clone(), stopped.clone(), delay).expect("nothing is armed yet");
+    within("the trigger reaching its start delay", at_delay).await.unwrap();
     stopped.cancel();
-    tokio::time::sleep(crate::blob_gc::START_DELAY + Duration::from_secs(1)).await;
+    within("the shut-down trigger ending", armed).await.unwrap();
     assert_eq!(state.meta(STAMP_KEY).await.unwrap(), None, "cancelled before the delay");
 
-    gc.schedule(clock, on_error, CancellationToken::new());
-    tokio::time::sleep(crate::blob_gc::START_DELAY + Duration::from_secs(1)).await;
+    let (reached, at_delay) = oneshot::channel();
+    let (release, released) = oneshot::channel::<()>();
+    let delay = move || {
+        reached.send(()).unwrap();
+        async move { released.await.unwrap() }
+    };
+    let armed = gc.schedule_after(clock, on_error, CancellationToken::new(), delay).expect("the ended trigger is disarmed");
+    within("the trigger reaching its start delay", at_delay).await.unwrap();
+    assert_eq!(state.meta(STAMP_KEY).await.unwrap(), None, "no census while the delay lasts");
+    release.send(()).unwrap();
+    within("the census after the delay", armed).await.unwrap();
     assert_eq!(state.meta(STAMP_KEY).await.unwrap().as_deref(), Some("5000000"));
+}
+
+/// While the trigger the daemon calls has a census armed, another trigger arms nothing more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_trigger_while_a_census_is_armed_arms_nothing_more() {
+    let dir = tempfile::tempdir().unwrap();
+    let (gc, _blobs, _state) = gc(dir.path()).await;
+    let clock: crate::maintenance::Clock = std::sync::Arc::new(|| 5_000_000);
+    let on_error: crate::maintenance::ErrorSink = std::sync::Arc::new(|error| panic!("{error}"));
+
+    let stopped = CancellationToken::new();
+    gc.schedule(clock.clone(), on_error.clone(), stopped.clone());
+    assert!(gc.schedule_after(clock, on_error, stopped.clone(), std::future::pending).is_none(), "one census is armed at a time");
+    stopped.cancel();
 }
 
 const LOG_ID: &str = "4f1c2a9e0b7d3c5a6e8f9012";

@@ -203,6 +203,8 @@ mod tests {
                 dropped_count: 0,
                 dropped: None,
                 skipped: request.budget_tokens == 0,
+                pipeline_ms: 0.0,
+                summary_ms: None,
             })
         }
         fn cache_expired(&self) -> bool {

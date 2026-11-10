@@ -37,6 +37,9 @@ struct Queue {
     bytes: Option<u64>,
     drains: u64,
     running: bool,
+    /// Woken when a drain ends with nothing left to write.
+    #[cfg(test)]
+    drained: Arc<tokio::sync::Notify>,
 }
 
 pub struct ToolEventsLog {
@@ -126,10 +129,21 @@ impl ToolEventsLog {
     }
 
     /// Resolves once everything queued so far has been written (or dropped).
+    #[cfg(test)]
     pub async fn flush(&self) {
-        while lock(&self.queue).running {
-            tokio::task::yield_now().await;
-        }
+        let drained = lock(&self.queue).drained.clone();
+        super::testing::awaiting(|| "the tool-events queue to drain".to_owned(), async {
+            loop {
+                let idle = drained.notified();
+                tokio::pin!(idle);
+                idle.as_mut().enable();
+                if !lock(&self.queue).running {
+                    return;
+                }
+                idle.await;
+            }
+        })
+        .await;
     }
 }
 
@@ -144,6 +158,8 @@ async fn drain(path: PathBuf, io: MaintenanceIo, queue: Arc<Mutex<Queue>>) {
             let mut state = lock(&queue);
             if state.lines.is_empty() {
                 state.running = false;
+                #[cfg(test)]
+                state.drained.notify_waiters();
                 return;
             }
             (state.lines.drain(..).collect::<String>(), state.bytes)

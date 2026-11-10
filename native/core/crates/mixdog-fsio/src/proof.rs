@@ -5,9 +5,12 @@ use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
+use mixdog_rt::SpawnIo;
 
 /// Lanes that may read files.
 pub trait IoLane: LaneToken {}
+/// Resolving a command to start looks at the files on its search path and a script's first line.
+impl IoLane for SpawnIo {}
 impl IoLane for InteractiveIo {}
 impl IoLane for DurabilityIo {}
 impl IoLane for MaintenanceIo {}

@@ -676,3 +676,109 @@ fn the_usage_log_follows_the_environment_when_not_given() {
     let opts = wrapper.args.into_options(Some("/log/usage.json".into())).unwrap();
     assert_eq!(opts.usage_log, Some(PathBuf::from("/log/usage.json")));
 }
+
+// ---- the read-only tool mode, replayed from Node's recording (`fixtures/exec-readonly`, `record-exec-readonly.mjs`) ----
+
+const EXEC_READONLY_CASES: [&str; 4] = [
+    include_str!("../../../../fixtures/exec-readonly/readonly-blocked.json"),
+    include_str!("../../../../fixtures/exec-readonly/readonly-json.json"),
+    include_str!("../../../../fixtures/exec-readonly/full-simple.json"),
+    include_str!("../../../../fixtures/exec-readonly/full-json.json"),
+];
+
+/// The events the core feeds the thread for what the recording's provider served: per model request the stages a request goes
+/// through, the tool calls it names, its usage and text, then each batch's results as the recorded next request carried them.
+fn recorded_core_events(case: &Value) -> Vec<RpcNotification> {
+    let requests = case["requests"].as_array().unwrap();
+    let marks = json!({ "dispatchStartedAt": T, "executionStartedAt": T, "executionCompletedAt": T, "postprocessStartedAt": T, "resultCompletedAt": T });
+    let mut events = Vec::new();
+    for (index, request) in requests.iter().enumerate() {
+        let served = &request["served"];
+        events.push(model_request());
+        for stage in ["requesting", "requesting", "streaming"] {
+            events.push(notif("thread/stage/updated", json!({ "threadId": "t", "stage": stage })));
+        }
+        let calls = served["calls"].as_array().unwrap();
+        for call in calls {
+            events.push(tool_started(call["id"].as_str().unwrap(), call["name"].as_str().unwrap(), call["input"].clone()));
+        }
+        events.push(usage(None, served["inputTokens"].as_u64().unwrap(), 0, 0, served["outputTokens"].as_u64().unwrap()));
+        if !served["text"].as_str().unwrap().is_empty() {
+            events.push(assistant(served["text"].as_str().unwrap()));
+        }
+        if calls.is_empty() {
+            continue;
+        }
+        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "started" })));
+        for (call, result) in calls.iter().zip(requests[index + 1]["toolResults"].as_array().unwrap()) {
+            assert_eq!(result["tool_use_id"], call["id"]);
+            let mut done = tool_done(call["id"].as_str().unwrap(), call["name"].as_str().unwrap(), call["input"].clone(), result["content"].as_str().unwrap(), marks.clone());
+            if result["is_error"] == true {
+                done.params.as_mut().unwrap()["item"]["run"]["isError"] = json!(true);
+            }
+            events.push(done);
+        }
+        events.push(notif("thread/toolBatch/updated", json!({ "threadId": "t", "status": "completed", "iteration": index + 1, "calls": calls.len(), "elapsedMs": 0 })));
+    }
+    events.push(turn_done("completed", None, requests.last().unwrap()["served"]["stopReason"].as_str(), None));
+    events
+}
+
+/// `mixdogd exec --tool-mode <mode>` against a core that feeds what Node's provider run did: the mode reaches the core as the
+/// options the runtime was created with, and every output of the run (stdout whole, stderr, exit code, usage document) is Node's.
+#[tokio::test]
+async fn the_read_only_exec_is_what_node_recorded_for_every_case() {
+    for text in EXEC_READONLY_CASES {
+        let case: Value = serde_json::from_str(text).unwrap();
+        let label = case["case"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let usage_path = dir.path().join("usage.json");
+        let mut argv = vec!["--provider", "anthropic", "--model", "claude-sonnet-4-6", "--cwd", "/work", "--tool-mode", case["mode"].as_str().unwrap()];
+        if case["json"] == true {
+            argv.push("--json");
+        }
+        argv.extend(["--usage-log", usage_path.to_str().unwrap(), "go"]);
+        let opts = parse(&argv).unwrap();
+        let launcher = FakeLauncher::new("sess_exec_readonly", vec![Turn::Events(recorded_core_events(&case))]);
+        let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
+
+        assert_eq!(code, case["code"], "{label}: exit code");
+        assert_eq!(sink.stdout().join(""), case["stdout"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stdout");
+        assert_eq!(sink.stderr().join(""), case["stderr"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stderr");
+        let document: Value = serde_json::from_str(&std::fs::read_to_string(&usage_path).unwrap()).unwrap();
+        assert_eq!(document, case["usage"], "{label}: usage document");
+        // The runtime options Node created the session with, whole (the mode is the one that differs).
+        let calls = launcher.calls();
+        assert_eq!(calls[0].0, "thread/start");
+        assert_eq!(calls[0].1["session"], case["runtimeOptions"], "{label}: the session options");
+        assert_eq!(launcher.prompts(), ["go"]);
+    }
+}
+
+/// Node's `classifyCliInvocation` (`headless-command.mjs`) over the recorded command lines (`fixtures/exec-readonly/cli.json`): the
+/// flag absent is mode `full`, a mode Node's exec does not know and the refused `--readonly` are its errors, word for word.
+#[test]
+fn the_exec_command_line_is_classified_as_nodes_is() {
+    let cases: Vec<Value> = serde_json::from_str(include_str!("../../../../fixtures/exec-readonly/cli.json")).unwrap();
+    assert!(!cases.is_empty());
+    for case in cases {
+        let argv: Vec<&str> = case["argv"].as_array().unwrap().iter().map(|arg| arg.as_str().unwrap()).collect();
+        assert_eq!(argv[0], "exec");
+        let node = &case["result"];
+        let parsed = parse(&argv[1..]);
+        match node["kind"].as_str().unwrap() {
+            "error" => assert_eq!(parsed.err(), Some(node["error"].as_str().unwrap().to_owned()), "{argv:?}"),
+            "exec" => {
+                let opts = parsed.unwrap_or_else(|error| panic!("{argv:?}: {error}"));
+                let node_options = &node["options"];
+                assert_eq!(opts.message, node["exec"]["message"].as_str().unwrap(), "{argv:?}: message");
+                assert_eq!(opts.provider.as_deref(), node_options["provider"].as_str(), "{argv:?}: provider");
+                assert_eq!(opts.model.as_deref(), node_options["model"].as_str(), "{argv:?}: model");
+                assert_eq!(opts.tool_mode.as_str(), node_options["toolMode"].as_str().unwrap(), "{argv:?}: tool mode");
+                assert_eq!(opts.json, node_options["json"], "{argv:?}: json");
+                assert_eq!(opts.web_search, node_options["webSearch"], "{argv:?}: web search");
+            }
+            kind => panic!("unexpected kind {kind}"),
+        }
+    }
+}

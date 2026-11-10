@@ -1,0 +1,234 @@
+{
+  "blocked": [
+    {
+      "calls": [
+        [
+          "read",
+          {
+            "path": "a.txt"
+          }
+        ],
+        [
+          "edit",
+          {
+            "path": "a.txt",
+            "old_string": "hello",
+            "new_string": "bye"
+          }
+        ],
+        [
+          "apply_patch",
+          {
+            "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-hello\n+bye\n*** End Patch"
+          }
+        ],
+        [
+          "shell",
+          {
+            "command": "echo hi > b.txt"
+          }
+        ],
+        [
+          "git",
+          {
+            "action": "status"
+          }
+        ],
+        [
+          "github",
+          {
+            "action": "repo"
+          }
+        ],
+        [
+          "task",
+          {
+            "action": "list"
+          }
+        ],
+        [
+          "agent",
+          {
+            "prompt": "look around"
+          }
+        ],
+        [
+          "office",
+          {
+            "action": "list"
+          }
+        ],
+        [
+          "tidy",
+          {
+            "action": "check"
+          }
+        ],
+        [
+          "web_search",
+          {
+            "query": "x"
+          }
+        ],
+        [
+          "web_fetch",
+          {
+            "url": "http://127.0.0.1/"
+          }
+        ],
+        [
+          "recall",
+          {
+            "query": "x"
+          }
+        ],
+        [
+          "mcp__fake__ping",
+          {}
+        ],
+        [
+          "no_such_tool",
+          {}
+        ],
+        [
+          "grep",
+          {
+            "pattern": "hello",
+            "path": "."
+          }
+        ]
+      ]
+    },
+    {
+      "calls": [
+        [
+          "load_tool",
+          {
+            "names": [
+              "shell"
+            ]
+          }
+        ],
+        [
+          "load_tool",
+          {
+            "names": [
+              "read"
+            ]
+          }
+        ],
+        [
+          "call_tool",
+          {
+            "name": "shell",
+            "arguments": {
+              "command": "echo hi > c.txt"
+            }
+          }
+        ],
+        [
+          "call_tool",
+          {
+            "name": "edit",
+            "arguments": {
+              "path": "a.txt",
+              "old_string": "hello",
+              "new_string": "bye"
+            }
+          }
+        ],
+        [
+          "call_tool",
+          {
+            "name": "apply_patch",
+            "arguments": {
+              "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n-hello\n+bye\n*** End Patch"
+            }
+          }
+        ],
+        [
+          "call_tool",
+          {
+            "name": "mcp__fake__ping",
+            "arguments": {}
+          }
+        ],
+        [
+          "call_tool",
+          {
+            "name": "agent",
+            "arguments": {
+              "prompt": "look around"
+            }
+          }
+        ],
+        [
+          "call_tool",
+          {
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "text": "final answer"
+    }
+  ],
+  "simple": [
+    {
+      "calls": [
+        [
+          "read",
+          {
+            "path": "a.txt"
+          }
+        ]
+      ]
+    },
+    {
+      "text": "done"
+    }
+  ],
+  "gated": [
+    {
+      "calls": [
+        [
+          "read",
+          {
+            "path": "a.txt"
+          }
+        ],
+        [
+          "web_search",
+          {
+            "query": "x"
+          }
+        ],
+        [
+          "web_fetch",
+          {
+            "url": "http://127.0.0.1/"
+          }
+        ],
+        [
+          "recall",
+          {
+            "query": "x"
+          }
+        ],
+        [
+          "memory",
+          {
+            "action": "list"
+          }
+        ]
+      ]
+    },
+    {
+      "text": "final answer"
+    }
+  ]
+}

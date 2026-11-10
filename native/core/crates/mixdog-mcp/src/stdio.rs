@@ -1,6 +1,7 @@
 //! stdio transport: one child process, newline-delimited JSON on its stdin/stdout. The child
 //! is created on the spawn lane; the process-group leader is killed as a group.
 
+use mixdog_rt::InLane;
 use mixdog_rt::Liveness;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -22,6 +23,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::containment::Containment;
+use crate::cross_spawn;
+use crate::cross_spawn::Launch;
 use crate::transport::CloseCause;
 use crate::transport::Incoming;
 use crate::transport::IncomingRx;
@@ -43,20 +46,56 @@ pub struct StdioSpec<'a> {
 pub struct StdioTransport {
     outgoing: mpsc::UnboundedSender<Vec<u8>>,
     shutdown: CancellationToken,
+    tail: Arc<Mutex<String>>,
 }
 
-fn resolve_program(spec: &StdioSpec<'_>) -> Result<std::path::PathBuf, TransportError> {
-    let path = spec
-        .env
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case("PATH"))
-        .map(|(_, v)| v.as_str());
-    let cwd = match spec.cwd {
-        Some(c) => std::path::PathBuf::from(c),
-        None => std::env::current_dir().map_err(TransportError::Spawn)?,
+/// The `cmd.exe /d /s /c "<line>"` of a command cross-spawn hands to the shell: the line is already
+/// escaped, so it goes on the command line as it is.
+fn shell_command(file: &str, args: &[String]) -> Command {
+    let mut command = Command::new(file);
+    #[cfg(windows)]
+    {
+        for arg in args {
+            command.raw_arg(arg);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        command.args(args);
+    }
+    command
+}
+
+/// Starts the server the way Node's SDK does ([`cross_spawn`]); a failed start reads as Node's
+/// `spawn <command> <code>`.
+fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>) -> Result<Child, TransportError> {
+    let (shown, mut process) = match cross_spawn::parse(lane, command, args, cwd, env) {
+        Launch::Direct { shown, program, args } => {
+            let mut process = Command::new(program);
+            process.args(args);
+            (shown, process)
+        }
+        Launch::Shell { file, args } => (file.clone(), shell_command(&file, &args)),
     };
-    which::which_in(spec.command, path, cwd)
-        .map_err(|_| TransportError::CommandNotFound(spec.command.to_owned()))
+    process
+        .env_clear()
+        .envs(env)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    if let Some(cwd) = cwd {
+        process.current_dir(cwd);
+    }
+    #[cfg(unix)]
+    process.process_group(0);
+    #[cfg(windows)]
+    process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    process.spawn().map_err(|source| TransportError::Spawn {
+        file: shown,
+        code: crate::uv_error::error_code(&source).unwrap_or("UNKNOWN"),
+        source,
+    })
 }
 
 fn push_tail(tail: &Mutex<String>, chunk: &str) {
@@ -79,37 +118,18 @@ fn kill_tree(child: &mut Child, containment: Option<&Containment>) {
 
 impl StdioTransport {
     pub async fn spawn(io: SpawnIo, spec: StdioSpec<'_>) -> Result<(Self, IncomingRx), TransportError> {
-        let program = resolve_program(&spec)?;
-        let mut command = Command::new(program);
-        command
-            .args(spec.args)
-            .env_clear()
-            .envs(spec.env)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
-        if let Some(cwd) = spec.cwd {
-            command.current_dir(cwd);
-        }
-        #[cfg(unix)]
-        command.process_group(0);
-        #[cfg(windows)]
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-
-        // Process creation blocks, so it runs on the spawn lane; the child registers with
-        // this runtime's reactor.
+        // Resolving the command and creating the process block, so both run on the spawn lane; the
+        // child registers with this runtime's reactor.
         let runtime = tokio::runtime::Handle::current();
+        let (command, args, cwd, env) =
+            (spec.command.to_owned(), spec.args.to_vec(), spec.cwd.map(str::to_owned), spec.env.clone());
         let job = io
-            .submit(&CancellationToken::new(), move |_lane| {
+            .submit(&CancellationToken::new(), move |lane| {
                 let _entered = runtime.enter();
-                command.spawn()
+                start(lane, &command, &args, cwd.as_deref(), &env)
             })
             .map_err(|_| TransportError::LaneFull)?;
-        let mut child = job
-            .await
-            .map_err(|_| TransportError::Closed)?
-            .map_err(TransportError::Spawn)?;
+        let mut child = job.await.map_err(|_| TransportError::Closed)??;
 
         let containment = Containment::attach(&child).ok();
         let stdin = child.stdin.take();
@@ -126,15 +146,23 @@ impl StdioTransport {
         let reader = stdout.map(|out| {
             mixdog_rt::spawn("mcp.stdio.read", TaskClass::Work, read_loop(out, incoming_tx.clone()))
         });
-        if let Some(err) = stderr {
-            mixdog_rt::spawn("mcp.stdio.stderr", TaskClass::Work, stderr_loop(err, tail.clone()));
-        }
+        let stderr_reader = stderr.map(|err| {
+            mixdog_rt::spawn("mcp.stdio.stderr", TaskClass::Work, stderr_loop(err, tail.clone()))
+        });
         mixdog_rt::spawn(
             "mcp.stdio.supervise",
             TaskClass::Work,
-            supervise(child, containment, shutdown.clone(), spec.shutdown_grace, reader, tail, incoming_tx),
+            supervise(
+                child,
+                containment,
+                shutdown.clone(),
+                spec.shutdown_grace,
+                (reader, stderr_reader),
+                tail.clone(),
+                incoming_tx,
+            ),
         );
-        Ok((Self { outgoing, shutdown }, incoming_rx))
+        Ok((Self { outgoing, shutdown, tail }, incoming_rx))
     }
 }
 
@@ -195,7 +223,7 @@ async fn supervise(
     containment: Option<Containment>,
     shutdown: CancellationToken,
     grace: Duration,
-    reader: Option<tokio::task::JoinHandle<()>>,
+    (reader, stderr_reader): (Option<tokio::task::JoinHandle<()>>, Option<tokio::task::JoinHandle<()>>),
     tail: Arc<Mutex<String>>,
     tx: IncomingTx,
 ) {
@@ -218,6 +246,15 @@ async fn supervise(
     // Messages the child wrote before exiting are delivered before `Closed`.
     if let Some(reader) = reader {
         let _ = tokio::time::timeout(grace, reader).await;
+    }
+    // The tail is complete only once stderr was read to its end.
+    // A descendant that keeps the pipe open ends the wait by abort, so the reader neither outlives
+    // this task nor races the snapshot below.
+    if let Some(mut stderr_reader) = stderr_reader
+        && tokio::time::timeout(grace, &mut stderr_reader).await.is_err()
+    {
+        stderr_reader.abort();
+        let _ = stderr_reader.await;
     }
     let reason = match status {
         Ok(status) => format!("process exited: {status}"),
@@ -244,5 +281,9 @@ impl Transport for StdioTransport {
 
     async fn close(&self) {
         self.shutdown.cancel();
+    }
+
+    fn stderr_tail(&self) -> String {
+        self.tail.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }

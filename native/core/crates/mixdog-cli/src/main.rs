@@ -252,10 +252,7 @@ fn ctl(args: CtlArgs) -> ExitCode {
         }
         Err(err) => {
             // A refusal carries its machine-readable code; scripts read it from stderr.
-            match err.code() {
-                Some(code) => eprintln!("mixdogd: refused: {code}: {err}"),
-                None => eprintln!("mixdogd: {err}"),
-            }
+            eprintln!("{}", err.cli_line());
             ExitCode::FAILURE
         }
     }

@@ -15,8 +15,11 @@ const paramsSchema = (method) => clientMethods.definitions[clientMethods.methods
 
 const HELD = { held: true };
 
-// A project path resolves to its folder first (project/directory); everything else answers ok.
-function lane(answer = async (method) => (method === 'project/directory' ? { path: '/resolved' } : { ok: true })) {
+// A project path resolves to its folder first (project/directory); the task workspace has its own folder; everything else answers ok.
+function lane(
+  answer = async (method) =>
+    method === 'project/directory' ? { path: '/resolved' } : method === 'project/taskWorkspace' ? { path: '/workspace' } : { ok: true }
+) {
   const calls = [];
   const notified = [];
   const service = createServiceLane({
@@ -38,9 +41,6 @@ const prompt = [{ type: 'text', text: 'hi' }];
 
 // [method, args, expected requests]
 const CASES = [
-  ['startProject', ['/proj'], [['thread/start', { kind: 'project', projectPath: '/proj' }]]],
-  ['startProjectTask', ['/proj'], [['thread/start', { kind: 'projectTask', projectPath: '/proj' }]]],
-  ['startTask', [], [['thread/start', { kind: 'task' }]]],
   [
     'submitNewTask',
     [prompt, { id: 's1', displayText: 'd', device: 'x', hop: 2 }, draft],
@@ -150,9 +150,9 @@ const CASES = [
     ['update', ['r1', { name: 'n2', maxRounds: 3 }]],
     [['room/update', { input: { roomId: 'r1', name: 'n2', maxRounds: 3 } }]],
   ],
-  ['agentRoomAction', ['proceed', ['r1']], [['room/continue', { input: { roomId: 'r1' } }]]],
   ['agentRoomAction', ['leave', ['r1']], [['room/leave', { input: { roomId: 'r1' } }]]],
   ['agentRoomAction', ['remove', ['r1']], [['room/remove', { input: { roomId: 'r1' } }]]],
+  ['agentRoomAction', ['reset', ['r1']], [['room/reset', { input: { roomId: 'r1' } }]]],
   [
     'inheritSession',
     ['t1', route, { compact: true }],
@@ -203,7 +203,7 @@ for (const [method, args, expected] of CASES) {
 
 test('the snapshot-returning methods answer with the held snapshot, the others with the core reply', async () => {
   const { service } = lane(async () => ({ reply: 1 }));
-  for (const [method, args] of [['startProject', ['/p']], ['setModelRoute', [route, 't1']], ['setFast', [true]]]) {
+  for (const [method, args] of [['setModelRoute', [route, 't1']], ['setFast', [true]]]) {
     assert.equal(await service.call(method, args), HELD, method);
   }
   assert.deepEqual(await service.call('listProjects', []), { reply: 1 });
@@ -302,7 +302,7 @@ test('a method with no request op is refused before anything is sent, with no fa
   for (const method of SERVICE_NOT_ROUTED) {
     await assert.rejects(service.call(method, []), (error) => error.code === 'unknownMethod', method);
   }
-  await assert.rejects(service.call('agentRoomAction', ['reset', ['r1']]), (error) => error.code === 'unknownMethod');
+  await assert.rejects(service.call('agentRoomAction', ['purge', ['r1']]), (error) => error.code === 'unknownMethod');
   assert.deepEqual(calls, []);
 });
 
@@ -352,7 +352,7 @@ test('a client with a service lane never starts the Node service and calls the l
   assert.equal(connected, 0);
   assert.deepEqual(
     calls.map(({ method }) => method),
-    ['project/list', 'thread/readState/update', 'thread/start']
+    ['project/list', 'thread/readState/update', 'project/taskWorkspace']
   );
 });
 

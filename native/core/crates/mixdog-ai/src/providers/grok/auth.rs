@@ -4,7 +4,7 @@
 //! URLs, the client id and the token-endpoint bodies.
 
 use crate::transport::deadlines::GROK_DISCOVERY;
-use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::deadlines::TOKEN_GROK;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -25,11 +25,16 @@ use serde_json::Value;
 use url::Url;
 
 use crate::oauth::AuthorizeRequest;
+use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
 use crate::oauth::Probe;
 use crate::oauth::RefreshFailure;
+use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
+use crate::oauth::http;
+use crate::oauth::pages;
+use crate::oauth::scrub::oauth_body_summary;
 use crate::providers::connect::ConnectFailure;
 use crate::providers::connect::provider_error;
 use crate::providers::connect::rewrite::Credential;
@@ -41,6 +46,7 @@ pub const SCOPE: &str = "openid profile email offline_access grok-cli:access api
 pub const DISCOVERY_URL: &str = "https://auth.x.ai/.well-known/openid-configuration";
 pub const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 pub const REAUTH_GUIDANCE: &str = "open /providers in mixdog to sign in again";
+const OPERATION: &str = "[grok-oauth] token exchange";
 
 /// `grok-oauth.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -160,7 +166,7 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
                 )],
                 body: refresh_form(tokens).into_bytes(),
             },
-            TOKEN_EXCHANGE,
+            TOKEN_GROK,
         )
         .await?;
     let success = head.is_success();
@@ -389,10 +395,14 @@ impl PkceProvider for GrokLogin {
         url.into()
     }
 
-    async fn exchange(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
+    fn callback_pages(&self) -> CallbackPages {
+        pages::GROK
+    }
+
+    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
         let code = code.trim();
         if code.is_empty() {
-            return Err(failed("invalid_callback", "authorization code is required".to_owned()));
+            return Err(failed("invalid_callback", "authorization code is required".to_owned()).into());
         }
         // xAI re-validates the PKCE challenge at the exchange, not only the
         // verifier: it is echoed back like the Grok CLI does.
@@ -406,39 +416,41 @@ impl PkceProvider for GrokLogin {
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
             .finish();
-        let head = self
-            .http
-            .send(
-                WireRequest {
-                    transport: TransportKind::Http1,
-                    method: "POST".to_owned(),
-                    url: self.token_endpoint.to_string(),
-                    headers: vec![(
-                        "content-type".to_owned(),
-                        "application/x-www-form-urlencoded".to_owned(),
-                    )],
-                    body: body.into_bytes(),
-                },
-                TOKEN_EXCHANGE,
-            )
-            .await
-            .map_err(|e| failed("transport", e.message))?;
-        let success = head.is_success();
-        let response = head.read_all().await.map_err(|e| failed("transport", e.message))?;
-        let json: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
-        if !success {
-            let status = response.status.unwrap_or(0);
-            return Err(match classify_refresh_failure(Some(status), &response.body) {
+        let reply = http::try_call(
+            self.http.as_ref(),
+            "POST",
+            self.token_endpoint.as_str(),
+            vec![("content-type", "application/x-www-form-urlencoded".to_owned())],
+            body.into_bytes(),
+        )
+        .await
+        .map_err(|error| {
+            let text = http::request_failed(OPERATION, &error);
+            Refusal { failure: failed("transport", text.clone()), detail: Some(text) }
+        })?;
+        if !reply.ok() {
+            // `oauthHttpError`: `<operation> <status>: <redacted body>`.
+            let summary = oauth_body_summary(&reply.text(), &[code, verifier, &challenge]);
+            let detail = if summary.is_empty() { String::new() } else { format!(": {summary}") };
+            let text = format!("{OPERATION} {}{detail}", reply.status);
+            let failure = match classify_refresh_failure(Some(reply.status), &reply.body) {
                 RefreshFailure::Definitive => LoginFailure::Denied,
-                _ => failed("token_exchange", format!("[grok-oauth] token exchange {status}")),
-            });
+                _ => failed("token_exchange", text.clone()),
+            };
+            return Err(Refusal { failure, detail: Some(text) });
         }
+        // `oauthResponseJson`: a body that does not parse is named by its status only.
+        let Some(json) = reply.json() else {
+            let text = format!("{OPERATION} returned a malformed response (HTTP {})", reply.status);
+            return Err(Refusal { failure: failed("token_exchange", text.clone()), detail: Some(text) });
+        };
         let text = |key: &str| json.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
         let (Some(access), Some(refresh_token)) = (text("access_token"), text("refresh_token")) else {
             return Err(failed(
                 "token_exchange",
                 "[grok-oauth] token exchange response missing access_token or refresh_token".to_owned(),
-            ));
+            )
+            .into());
         };
         let email = text("id_token")
             .and_then(email_claim)
@@ -498,6 +510,49 @@ mod tests {
         let throttled = refresh_error(429, &[], b"slow down");
         assert!(!throttled.reauth_required);
         assert_eq!(throttled.kind, ErrorKind::RateLimited);
+    }
+
+    /// Each Grok request that outlives its timer reads as the real Node function of the same site did
+    /// (`sites.grokDiscovery`, `grokRefresh`, `grokCodeExchange`): the refresh and the discovery under their labelled
+    /// timers, the authorization-code exchange under `AbortSignal.timeout` (not the refresh's label).
+    #[tokio::test(start_paused = true)]
+    async fn a_grok_request_that_outlives_its_timer_reads_as_nodes_site() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let tokens = StoredTokens {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            token_endpoint: "https://auth.x.ai/oauth2/token".into(),
+            ..StoredTokens::default()
+        };
+        let transport = TimingOut::new();
+        let error = refresh(transport.as_ref(), &tokens).await.expect_err("the token endpoint never answers");
+        assert_transport("grokRefresh", &transport);
+        assert_thrown("grokRefresh", &error.message);
+
+        let transport = TimingOut::new();
+        let error = refresh(transport.as_ref(), &StoredTokens { token_endpoint: String::new(), ..tokens.clone() })
+            .await
+            .expect_err("the discovery never answers");
+        assert_transport("grokDiscovery", &transport);
+        assert_thrown("grokDiscovery", &error.message);
+
+        let transport = TimingOut::new();
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(
+            dir.path().join("grok-oauth.json"),
+            CredentialIo { read: rt.interactive_io, write: rt.durability_io },
+        );
+        let login = GrokLogin::new(transport.clone(), file, "https://auth.x.ai/authorize", "https://auth.x.ai/oauth2/token").unwrap();
+        let failure = login.exchange("abc", "v", "http://127.0.0.1:56121/callback").await.expect_err("the exchange never answers");
+        assert_transport("grokCodeExchange", &transport);
+        // Node words the exchange's failure itself (`oauthRequestError`), and so does the Rust login.
+        assert_thrown("grokCodeExchange", login_message(&failure));
     }
 
     #[test]

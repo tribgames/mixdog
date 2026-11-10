@@ -181,6 +181,11 @@ impl Lifecycle {
         self.apply(|m| m.fence(reason));
     }
 
+    /// The discovery file could not be published (after the replace's retries): leave through the release with exit code 2.
+    pub fn fail_boot(self: &Arc<Self>) {
+        self.apply(Machine::fail_boot);
+    }
+
     /// [`Lifecycle::fence`] for a lost owner lock: Node words it with the lock file's path (`daemon.mjs:655`,
     /// `owner lock file ${OWNER_LOCK_PATH} was deleted or replaced`), which only the caller knows.
     pub fn fence_lock_file(self: &Arc<Self>, lock_file: &std::path::Path) {
@@ -269,7 +274,7 @@ impl Lifecycle {
             tracing::error!(%error, "last-exit.json was not written");
         }
         acknowledge();
-        self.ports.exiter.exit();
+        self.ports.exiter.exit(0);
         Ok(())
     }
 
@@ -390,7 +395,7 @@ impl Lifecycle {
         let flush = Arc::clone(core);
         supervise("flushLog", budgets.record_exit, move || flush.flush_log());
         self.apply(Machine::mark_stopped);
-        self.ports.exiter.exit();
+        self.ports.exiter.exit(cause.exit_code());
     }
 
     fn record_exit(&self, reason: &str, stuck_step: Option<&'static str>) {

@@ -1,0 +1,2427 @@
+{
+  "baseURL": "__BASE_URL__",
+  "seeds": {
+    "modelsDev": {
+      "anthropic": {
+        "id": "anthropic",
+        "name": "Anthropic",
+        "env": [
+          "ANTHROPIC_API_KEY"
+        ],
+        "models": {
+          "claude-sonnet-4-6": {
+            "id": "claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6",
+            "family": "claude-sonnet",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2090-01-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 3,
+              "output": 15,
+              "cache_read": 0.3,
+              "cache_write": 3.75
+            }
+          },
+          "claude-haiku-4-5-20251001": {
+            "id": "claude-haiku-4-5-20251001",
+            "name": "Claude Haiku 4.5",
+            "family": "claude-haiku",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2091-01-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 200000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 1,
+              "output": 5,
+              "cache_read": 0.1,
+              "cache_write": 1.25
+            }
+          },
+          "claude-opus-4-8": {
+            "id": "claude-opus-4-8",
+            "name": "Claude Opus 4.8",
+            "family": "claude-opus",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2092-01-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 500000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 15,
+              "output": 75,
+              "cache_read": 1.5,
+              "cache_write": 18.75
+            }
+          }
+        }
+      }
+    },
+    "litellm": {
+      "claude-sonnet-4-6": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 1000000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000003,
+        "output_cost_per_token": 0.000015,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      },
+      "claude-haiku-4-5-20251001": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 200000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000001,
+        "output_cost_per_token": 0.000005,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      },
+      "claude-opus-4-8": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 500000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000015,
+        "output_cost_per_token": 0.000075,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "name": "model-catalog",
+      "agent": {
+        "providers": {
+          "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Delta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/c/v1",
+            "auth": "none",
+            "enabled": true,
+            "modelOverrides": {
+              "disc-b": {
+                "hidden": true
+              },
+              "m1": {
+                "manual": true,
+                "name": "Manual One"
+              }
+            }
+          }
+        },
+        "presets": [
+          {
+            "id": "d1",
+            "name": "D1",
+            "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "model": "disc-a"
+          }
+        ],
+        "default": "d1"
+      },
+      "stub": {
+        "/c/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "disc-a",
+              "object": "model",
+              "owned_by": "fixture"
+            },
+            {
+              "id": "disc-b",
+              "object": "model",
+              "owned_by": "fixture"
+            },
+            {
+              "id": "disc-c",
+              "object": "model",
+              "owned_by": "fixture",
+              "context_length": 131072
+            }
+          ]
+        },
+        "/e/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "echo-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "calls": [
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-a",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-a",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-a",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "updateCustomProviderModel",
+          "args": [
+            "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "disc-a",
+            {
+              "hidden": true
+            }
+          ],
+          "ok": true,
+          "value": {
+            "id": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "name": "Delta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/c/v1",
+            "models": [
+              {
+                "id": "m1",
+                "name": "Manual One",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "disc-b": {
+                "hidden": true
+              },
+              "m1": {
+                "manual": true,
+                "name": "Manual One"
+              },
+              "disc-a": {
+                "hidden": true
+              }
+            }
+          },
+          "agentAfter": {
+            "providers": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Delta",
+                "protocol": "openai-chat",
+                "baseURL": "__BASE_URL__/c/v1",
+                "auth": "none",
+                "enabled": true,
+                "modelOverrides": {
+                  "disc-b": {
+                    "hidden": true
+                  },
+                  "m1": {
+                    "manual": true,
+                    "name": "Manual One"
+                  },
+                  "disc-a": {
+                    "hidden": true
+                  }
+                },
+                "discovery": {
+                  "newModelsHidden": false
+                }
+              }
+            },
+            "presets": [
+              {
+                "id": "d1",
+                "name": "D1",
+                "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "model": "disc-a"
+              }
+            ],
+            "default": "d1",
+            "enabledAgents": [
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "builtins": {
+              "git": {
+                "installed": true
+              },
+              "memory": {
+                "installed": true
+              },
+              "office": {
+                "installed": true
+              }
+            }
+          }
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "updateCustomProviderModel",
+          "args": [
+            "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "disc-a",
+            {
+              "hidden": true
+            }
+          ],
+          "ok": true,
+          "value": {
+            "id": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "name": "Delta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/c/v1",
+            "models": [
+              {
+                "id": "m1",
+                "name": "Manual One",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "disc-b": {
+                "hidden": true
+              },
+              "m1": {
+                "manual": true,
+                "name": "Manual One"
+              },
+              "disc-a": {
+                "hidden": true
+              }
+            }
+          },
+          "agentAfter": {
+            "providers": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Delta",
+                "protocol": "openai-chat",
+                "baseURL": "__BASE_URL__/c/v1",
+                "auth": "none",
+                "enabled": true,
+                "modelOverrides": {
+                  "disc-b": {
+                    "hidden": true
+                  },
+                  "m1": {
+                    "manual": true,
+                    "name": "Manual One"
+                  },
+                  "disc-a": {
+                    "hidden": true
+                  }
+                },
+                "discovery": {
+                  "newModelsHidden": false
+                }
+              }
+            },
+            "presets": [
+              {
+                "id": "d1",
+                "name": "D1",
+                "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "model": "disc-a"
+              }
+            ],
+            "default": "d1",
+            "enabledAgents": [
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "builtins": {
+              "git": {
+                "installed": true
+              },
+              "memory": {
+                "installed": true
+              },
+              "office": {
+                "installed": true
+              }
+            }
+          }
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "setModelPreferences",
+          "args": [
+            "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            [
+              {
+                "model": "disc-c",
+                "favorite": true
+              }
+            ]
+          ],
+          "ok": true,
+          "value": {
+            "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "changed": 1,
+            "customCatalogChanged": false
+          },
+          "agentAfter": {
+            "providers": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Delta",
+                "protocol": "openai-chat",
+                "baseURL": "__BASE_URL__/c/v1",
+                "auth": "none",
+                "enabled": true,
+                "modelOverrides": {
+                  "disc-b": {
+                    "hidden": true
+                  },
+                  "m1": {
+                    "manual": true,
+                    "name": "Manual One"
+                  },
+                  "disc-a": {
+                    "hidden": true
+                  }
+                },
+                "discovery": {
+                  "newModelsHidden": false
+                }
+              }
+            },
+            "presets": [
+              {
+                "id": "d1",
+                "name": "D1",
+                "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "model": "disc-a"
+              }
+            ],
+            "default": "d1",
+            "enabledAgents": [
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "builtins": {
+              "git": {
+                "installed": true
+              },
+              "memory": {
+                "installed": true
+              },
+              "office": {
+                "installed": true
+              }
+            },
+            "modelSettings": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd/disc-c": {
+                "favorite": true
+              }
+            }
+          }
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {},
+              "favorite": true
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "setModelPreferences",
+          "args": [
+            "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            [
+              {
+                "model": "disc-c",
+                "favorite": true
+              }
+            ]
+          ],
+          "ok": true,
+          "value": {
+            "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "changed": 1,
+            "customCatalogChanged": false
+          },
+          "agentAfter": {
+            "providers": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Delta",
+                "protocol": "openai-chat",
+                "baseURL": "__BASE_URL__/c/v1",
+                "auth": "none",
+                "enabled": true,
+                "modelOverrides": {
+                  "disc-b": {
+                    "hidden": true
+                  },
+                  "m1": {
+                    "manual": true,
+                    "name": "Manual One"
+                  },
+                  "disc-a": {
+                    "hidden": true
+                  }
+                },
+                "discovery": {
+                  "newModelsHidden": false
+                }
+              }
+            },
+            "presets": [
+              {
+                "id": "d1",
+                "name": "D1",
+                "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "model": "disc-a"
+              }
+            ],
+            "default": "d1",
+            "enabledAgents": [
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "builtins": {
+              "git": {
+                "installed": true
+              },
+              "memory": {
+                "installed": true
+              },
+              "office": {
+                "installed": true
+              }
+            },
+            "modelSettings": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd/disc-c": {
+                "favorite": true
+              }
+            }
+          }
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {},
+              "favorite": true
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "saveCustomProvider",
+          "args": [
+            {
+              "name": "Echo",
+              "protocol": "openai-chat",
+              "baseURL": "__BASE_URL__/e/v1",
+              "auth": "none",
+              "enabled": true
+            }
+          ],
+          "ok": true,
+          "value": {
+            "id": "custom-00000000-0000-4000-8000-000000000001",
+            "name": "Echo",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/e/v1",
+            "models": [],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {}
+          },
+          "agentAfter": {
+            "providers": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Delta",
+                "protocol": "openai-chat",
+                "baseURL": "__BASE_URL__/c/v1",
+                "auth": "none",
+                "enabled": true,
+                "modelOverrides": {
+                  "disc-b": {
+                    "hidden": true
+                  },
+                  "m1": {
+                    "manual": true,
+                    "name": "Manual One"
+                  },
+                  "disc-a": {
+                    "hidden": true
+                  }
+                },
+                "discovery": {
+                  "newModelsHidden": false
+                }
+              },
+              "custom-00000000-0000-4000-8000-000000000001": {
+                "enabled": true,
+                "baseURL": "__BASE_URL__/e/v1",
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Echo",
+                "protocol": "openai-chat",
+                "auth": "none",
+                "discovery": {
+                  "newModelsHidden": false
+                },
+                "modelOverrides": {}
+              }
+            },
+            "presets": [
+              {
+                "id": "d1",
+                "name": "D1",
+                "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "model": "disc-a"
+              }
+            ],
+            "default": "d1",
+            "enabledAgents": [
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "builtins": {
+              "git": {
+                "installed": true
+              },
+              "memory": {
+                "installed": true
+              },
+              "office": {
+                "installed": true
+              }
+            },
+            "modelSettings": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd/disc-c": {
+                "favorite": true
+              }
+            }
+          }
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {},
+              "favorite": true
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "echo-1",
+              "provider": "custom-00000000-0000-4000-8000-000000000001",
+              "display": "echo-1",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "echo-1",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Echo",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "removeCustomProvider",
+          "args": [
+            "custom-dddddddd-dddd-dddd-dddd-dddddddddddd"
+          ],
+          "ok": true,
+          "value": {
+            "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "type": "custom",
+            "removed": true
+          },
+          "agentAfter": {
+            "providers": {
+              "custom-00000000-0000-4000-8000-000000000001": {
+                "enabled": true,
+                "baseURL": "__BASE_URL__/e/v1",
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Echo",
+                "protocol": "openai-chat",
+                "auth": "none",
+                "discovery": {
+                  "newModelsHidden": false
+                },
+                "modelOverrides": {}
+              }
+            },
+            "default": null,
+            "enabledAgents": [
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "builtins": {
+              "git": {
+                "installed": true
+              },
+              "memory": {
+                "installed": true
+              },
+              "office": {
+                "installed": true
+              }
+            },
+            "modelSettings": {}
+          }
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "echo-1",
+              "provider": "custom-00000000-0000-4000-8000-000000000001",
+              "display": "echo-1",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "echo-1",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Echo",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "model-catalog-background",
+      "agent": {
+        "providers": {
+          "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Delta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/c/v1",
+            "auth": "none",
+            "enabled": true,
+            "modelOverrides": {
+              "disc-b": {
+                "hidden": true
+              },
+              "m1": {
+                "manual": true,
+                "name": "Manual One"
+              }
+            }
+          }
+        },
+        "presets": [
+          {
+            "id": "d1",
+            "name": "D1",
+            "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "model": "disc-a"
+          }
+        ],
+        "default": "d1"
+      },
+      "stub": {
+        "/c/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "disc-a",
+              "object": "model",
+              "owned_by": "fixture"
+            },
+            {
+              "id": "disc-b",
+              "object": "model",
+              "owned_by": "fixture"
+            },
+            {
+              "id": "disc-c",
+              "object": "model",
+              "owned_by": "fixture",
+              "context_length": 131072
+            }
+          ]
+        }
+      },
+      "calls": [
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-a",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-a",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-a",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "serveCatalog",
+          "stub": {
+            "/c/v1/models": {
+              "object": "list",
+              "data": [
+                {
+                  "id": "disc-a",
+                  "object": "model",
+                  "owned_by": "fixture"
+                },
+                {
+                  "id": "disc-b",
+                  "object": "model",
+                  "owned_by": "fixture"
+                },
+                {
+                  "id": "disc-c",
+                  "object": "model",
+                  "owned_by": "fixture",
+                  "context_length": 131072
+                },
+                {
+                  "id": "disc-d",
+                  "object": "model",
+                  "owned_by": "fixture"
+                }
+              ]
+            }
+          },
+          "ok": true
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {
+              "force": true
+            }
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-a",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-a",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-a",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-d",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-d",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-d",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-a",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-a",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-a",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-d",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-d",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-d",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        },
+        {
+          "action": "setModelPreferences",
+          "args": [
+            "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            [
+              {
+                "model": "disc-c",
+                "favorite": true
+              }
+            ]
+          ],
+          "ok": true,
+          "value": {
+            "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+            "changed": 1,
+            "customCatalogChanged": false
+          },
+          "agentAfter": {
+            "providers": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+                "type": "custom",
+                "schemaVersion": 2,
+                "name": "Delta",
+                "protocol": "openai-chat",
+                "baseURL": "__BASE_URL__/c/v1",
+                "auth": "none",
+                "enabled": true,
+                "modelOverrides": {
+                  "disc-b": {
+                    "hidden": true
+                  },
+                  "m1": {
+                    "manual": true,
+                    "name": "Manual One"
+                  }
+                }
+              }
+            },
+            "presets": [
+              {
+                "id": "d1",
+                "name": "D1",
+                "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "model": "disc-a"
+              }
+            ],
+            "default": "d1",
+            "enabledAgents": [
+              "front-worker",
+              "heavy-worker",
+              "maintainer",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ],
+            "builtins": {
+              "git": {
+                "installed": true
+              },
+              "memory": {
+                "installed": true
+              },
+              "office": {
+                "installed": true
+              }
+            },
+            "modelSettings": {
+              "custom-dddddddd-dddd-dddd-dddd-dddddddddddd/disc-c": {
+                "favorite": true
+              }
+            }
+          }
+        },
+        {
+          "action": "listProviderModels",
+          "args": [
+            {}
+          ],
+          "ok": true,
+          "value": [
+            {
+              "id": "disc-a",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-a",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-a",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "disc-c",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-c",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 131072,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-c",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {},
+              "favorite": true
+            },
+            {
+              "id": "disc-d",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "disc-d",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "disc-d",
+              "hidden": false,
+              "manual": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            },
+            {
+              "id": "m1",
+              "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+              "display": "Manual One",
+              "created": null,
+              "releaseDate": null,
+              "contextWindow": 0,
+              "maxContextWindow": null,
+              "outputTokens": null,
+              "family": null,
+              "tier": null,
+              "latest": false,
+              "description": "",
+              "supportsVision": false,
+              "supportsFunctionCalling": false,
+              "supportsWebSearch": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "serviceTiers": [],
+              "additionalSpeedTiers": [],
+              "defaultServiceTier": null,
+              "fastCapable": false,
+              "modelParameterOptions": [],
+              "parameterVariants": [],
+              "defaultModelParameters": {},
+              "defaultEffort": null,
+              "defaultFast": false,
+              "supportsMaxMode": false,
+              "mode": null,
+              "name": "Manual One",
+              "hidden": false,
+              "manual": true,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "providerName": "Delta",
+              "effortOptions": [],
+              "fastPreferred": false,
+              "autoEffortCapable": false,
+              "savedEffort": null,
+              "savedModelParameters": {}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

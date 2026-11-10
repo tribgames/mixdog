@@ -370,6 +370,20 @@ fn a_fence_leaves_at_once_with_its_reason() {
 }
 
 #[test]
+fn a_discovery_that_cannot_be_published_ends_the_core_through_the_release_with_exit_code_2() {
+    // Node: the awaited initial publication rejects into `main().catch`, `shutdown('fatal boot error', 2)`.
+    let fx = fixture();
+    fx.lifecycle.set_migrating(Migration { kind: "sessions".into(), done: 0, total: 1 }).unwrap();
+    fx.lifecycle.fail_boot();
+    fx.recorder.wait_exit();
+    assert_eq!(fx.recorder.exit_code(), Some(2));
+    assert_eq!(release_events(&fx.recorder.events()), RELEASE_ORDER);
+    assert_eq!(release_reason(&fx.recorder.events()), ["fatal boot error"]);
+    assert_eq!(last_exit(fx.runtime_root.path())["reason"], "fatalBoot");
+    assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Stopped);
+}
+
+#[test]
 fn terminate_answers_before_it_exits_and_records_the_stall() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();

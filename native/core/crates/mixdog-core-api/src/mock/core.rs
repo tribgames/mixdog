@@ -353,14 +353,21 @@ impl RunControl for MockThread {
         Ok(json!({}))
     }
 
-    fn steer(&self, expected_turn: &TurnId, input: Value, op: OpId) -> Result<Value, CoreError> {
-        self.check_turn(expected_turn)?;
+    fn steer(&self, expected_turn: Option<&TurnId>, input: Value, op: OpId) -> Result<Value, CoreError> {
+        let turn = match expected_turn {
+            Some(turn) => turn.clone(),
+            None => self.active_turn().ok_or_else(|| CoreError::TurnNotActive {
+                thread_id: self.id.clone(),
+                turn_id: None,
+            })?,
+        };
+        self.check_turn(&turn)?;
         lock(&self.control).push(ControlCall::Steer {
-            turn: expected_turn.clone(),
+            turn: turn.clone(),
             input,
             op,
         });
-        Ok(json!({ "turnId": expected_turn }))
+        Ok(json!({ "turnId": turn }))
     }
 
     fn active_turn(&self) -> Option<TurnId> {

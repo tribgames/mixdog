@@ -71,7 +71,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for FixedHandoff {
         _: &[mixdog_agent::message::AgentMessage],
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
-        Ok(mixdog_agent::compact::compactor::Handoff { text: self.0.clone(), usage: None })
+        Ok(mixdog_agent::compact::compactor::Handoff { text: self.0.clone(), usage: None, summary_ms: 0.0 })
     }
 }
 
@@ -122,5 +122,79 @@ async fn compactor_equals_node() {
             .unwrap_or_else(|e| panic!("{name}: {e:?}"));
         let got: Vec<_> = output.messages.iter().map(node_row).collect();
         assert_eq!(&got, scenario["result"].as_array().expect("result"), "{name}");
+    }
+}
+
+struct SlowHandoff;
+#[async_trait::async_trait]
+impl mixdog_agent::compact::compactor::HandoffSource for SlowHandoff {
+    async fn triggered(&self, _: &[mixdog_agent::message::AgentMessage]) -> bool {
+        true
+    }
+    async fn handoff(
+        &self,
+        _: &[mixdog_agent::message::AgentMessage],
+        _: u64,
+    ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
+        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, summary_ms: 33.0 })
+    }
+}
+
+/// `pipeline.totalMs` spans the summary decision, the summary and the rebuild (so it covers the summary request), whole
+/// milliseconds; `generated.durationMs` is the summary request's own; a pass with no summary reports none and a pipeline of the
+/// rebuild alone. Node's values are wall-clock times: the meaning is tested, never equal milliseconds.
+#[tokio::test]
+async fn the_pipeline_time_spans_the_summary_and_the_summary_time_is_its_own() {
+    use mixdog_agent::compact::compactor::CompactorConfig;
+    use mixdog_agent::compact::compactor::FreshCompactor;
+    use mixdog_agent::compact::compactor::FreshParts;
+    use mixdog_agent::env::CompactRequest;
+    use mixdog_agent::env::CompactTrigger;
+    use mixdog_agent::env::Compactor;
+    use std::sync::Arc;
+
+    let golden = golden!("fresh");
+    let session = golden["sessionId"].as_str().expect("session").to_owned();
+    let scenario = &golden["scenarios"].as_array().expect("scenarios")[0];
+    let messages: Vec<_> = scenario["messages"].as_array().expect("messages").iter().map(node_message).collect();
+    let o = &scenario["options"];
+    for summarize in [true, false] {
+        let compactor = FreshCompactor {
+            parts: Arc::new(FreshParts {
+                media: Arc::new(TextOnly),
+                replay_owner: replay_owner(),
+                rows: Arc::new(Rows),
+                archive: Arc::new(PreviewArchive { session: session.clone() }),
+                attachments: Arc::new(NoAttachments),
+                redactor: Arc::new(compact_support::NoRedaction),
+                blobs: Arc::new(compact_support::NoBlobs),
+            }),
+            triggers: None,
+            summary: summarize.then(|| Arc::new(SlowHandoff) as Arc<dyn mixdog_agent::compact::compactor::HandoffSource>),
+            config: CompactorConfig {
+                max_budget_tokens: o["maxBudgetTokens"].as_u64().unwrap_or(0),
+                context_window: o["contextWindow"].as_u64().unwrap_or(0),
+                ..CompactorConfig::default()
+            },
+        };
+        let output = compactor
+            .compact(CompactRequest {
+                messages: &messages,
+                budget_tokens: scenario["budget"].as_u64().expect("budget"),
+                trigger: CompactTrigger::Auto,
+                require_reduction: false,
+                reference_latest_attachments: false,
+            })
+            .await
+            .expect("compact");
+        assert_eq!(output.pipeline_ms.fract(), 0.0, "whole milliseconds");
+        if summarize {
+            assert_eq!(output.summary_ms, Some(33.0), "the summary request's own time");
+            assert!(output.pipeline_ms >= 40.0, "the pipeline covers the summary request: {}", output.pipeline_ms);
+        } else {
+            assert_eq!(output.summary_ms, None);
+            assert!(output.pipeline_ms < 40.0, "no summary request in the span: {}", output.pipeline_ms);
+        }
     }
 }

@@ -118,13 +118,11 @@ pub trait PublicBase: Send + Sync {
 }
 
 /// The agent runtime the channel runtime keeps in step: providers must be registered before
-/// the scheduler's first fire, and `reload_config` refreshes them.
+/// the scheduler's first fire.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync {
     /// Registers the configured providers; a failure is non-fatal to the start.
     async fn init_providers(&self) -> Result<(), String>;
-    /// Reloads providers, presets and maintenance.
-    async fn reload(&self) -> Result<(), String>;
 }
 
 /// The webhook listener the transport binds.

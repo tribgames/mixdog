@@ -84,6 +84,75 @@ pub(crate) struct Normalized {
     pub text: String,
 }
 
+/// The names and aliases of the registered slash commands (`SLASH_COMMANDS`, `tui/app/slash-commands.mjs`).
+const SLASH_TOKENS: &[&str] = &[
+    "clear", "new", "project", "projects", "compact", "btw", "goal", "autoclear", "resume", "context", "shells", "stop",
+    "fork", "inherit", "usage", "model", "websearch", "workflow", "outputstyle", "output-style", "style", "theme",
+    "agents", "effort", "fast", "mcp", "skills", "memory", "plugins", "providers", "settings", "setting", "config",
+    "profile", "update", "doctor", "quit", "exit", "q",
+];
+
+/// `isSlashQueuedEntry` (`queue-helpers.mjs`): the entry is not marked `skipSlashCommands` (JS truthiness) and its
+/// text (`content ?? text`, a queued prompt's `message` here) begins with `/` and a registered command or alias
+/// (`recognisedSlashToken`: `/^\s*\/(\S+)/`, lower-cased).
+pub(crate) fn is_slash_entry(entry: &Value) -> bool {
+    let skipped = match entry.get("skipSlashCommands") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(_) => true,
+    };
+    if skipped {
+        return false;
+    }
+    let content = ["content", "message", "text"]
+        .iter()
+        .find_map(|key| entry.get(*key).filter(|value| !value.is_null()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    recognised_slash_token(&content_text(&content)).is_some()
+}
+
+/// `recognisedSlashToken`: the lower-cased first token when it names a registered command or alias.
+pub(crate) fn recognised_slash_token(text: &str) -> Option<String> {
+    let rest = mixdog_js::js_trim_start(text).strip_prefix('/')?;
+    let token = mixdog_js::js_to_lowercase(rest.split(mixdog_js::is_js_space).next().unwrap_or_default());
+    (!token.is_empty() && SLASH_TOKENS.contains(&token.as_str())).then_some(token)
+}
+
+#[cfg(test)]
+mod slash_tests {
+    use super::*;
+
+    fn golden() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/capability-refusals/golden.json");
+        serde_json::from_str::<Value>(&std::fs::read_to_string(path).expect("golden")).expect("json")["slash"].clone()
+    }
+
+    /// Node's registry (`SLASH_COMMANDS` at b6f10295a, a static table with nothing added at runtime) names exactly these
+    /// tokens, and `recognisedSlashToken` answers the recorded token for every probe.
+    #[test]
+    fn the_slash_tokens_equal_nodes_registry_and_recognition() {
+        let slash = golden();
+        let mut recorded: Vec<String> = slash["commands"]
+            .as_array()
+            .expect("commands")
+            .iter()
+            .flat_map(|command| std::iter::once(command["name"].clone()).chain(command["aliases"].as_array().expect("aliases").clone()))
+            .map(|token| token.as_str().expect("token").to_owned())
+            .collect();
+        let mut ours: Vec<String> = SLASH_TOKENS.iter().map(|token| (*token).to_owned()).collect();
+        recorded.sort();
+        ours.sort();
+        assert_eq!(ours, recorded);
+        for probe in slash["probes"].as_array().expect("probes") {
+            let text = probe["text"].as_str().expect("text");
+            assert_eq!(recognised_slash_token(text), probe["token"].as_str().map(str::to_owned), "{text:?}");
+        }
+    }
+}
+
 /// `promptContentText`.
 fn content_text(content: &Value) -> String {
     match content {
@@ -94,6 +163,7 @@ fn content_text(content: &Value) -> String {
                 Value::String(text) => text.clone(),
                 _ => match part.get("type").and_then(Value::as_str) {
                     Some("image") => "[Image]".to_owned(),
+                    Some("file") => "[File]".to_owned(),
                     _ => part.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
                 },
             })

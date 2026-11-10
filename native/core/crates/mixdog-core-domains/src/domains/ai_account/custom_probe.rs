@@ -85,15 +85,20 @@ enum Stopped {
     Failed(ProviderError),
 }
 
-/// `withTimeout(run, ms, label)`; the run is dropped when the time is up (its abort).
+/// `withTimeout(run, ms, label)`; the run is dropped when the time is up (its abort). The clock is armed before the
+/// run and wins a tie: a run that bounds itself by the same `ms` (the discovery's own `timeoutMs`) expires with it, and
+/// Node's `setTimeout` armed first fires first.
 async fn bounded<T>(
     run: impl std::future::Future<Output = Result<T, ProviderError>>,
     limit: Duration,
     label: &str,
 ) -> Result<T, Stopped> {
-    match tokio::time::timeout(limit, run).await {
-        Ok(done) => done.map_err(Stopped::Failed),
-        Err(_) => Err(Stopped::Timeout(format!("{label} timed out after {}s", (limit.as_millis() as f64 / 1000.0).round()))),
+    tokio::select! {
+        biased;
+        () = tokio::time::sleep(limit) => {
+            Err(Stopped::Timeout(format!("{label} timed out after {}s", (limit.as_millis() as f64 / 1000.0).round())))
+        }
+        done = run => done.map_err(Stopped::Failed),
     }
 }
 
@@ -144,7 +149,7 @@ fn error_view(message: &str, status: Option<u16>, timed_out: bool, secrets: &[St
 }
 
 fn provider_error_view(error: &ProviderError, secrets: &[String]) -> Value {
-    error_view(&error.message, error.status, false, secrets)
+    error_view(&error.message, error.status, error.code.as_deref() == Some("EPROVIDERTIMEOUT"), secrets)
 }
 
 fn stopped_view(stopped: &Stopped, secrets: &[String]) -> Value {

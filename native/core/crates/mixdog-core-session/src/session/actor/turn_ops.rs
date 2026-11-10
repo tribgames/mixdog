@@ -504,7 +504,11 @@ impl SessionActor {
         let appended: Vec<_> = rows.into_iter().skip(snapshot.len()).collect();
         // The header the commit carries is computed here, where the rows a finished turn appended
         // meanwhile are known (withAppendedMessages), from the header as it stands.
-        let header = header.map(|header| header(&self.projected.header, &appended));
+        // The actor computes it itself once the compaction is applied (`ProducerMsg::Compacted`).
+        let header: Option<super::super::run::DeferredHeader> = header.map(|header| {
+            let appended = appended.clone();
+            Box::new(move |current: &_| header(current, &appended)) as super::super::run::DeferredHeader
+        });
         compaction.replacement.extend(appended);
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.

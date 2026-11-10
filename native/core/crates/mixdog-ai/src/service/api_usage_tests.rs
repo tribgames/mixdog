@@ -76,6 +76,33 @@ impl Environment for Env {
     }
 }
 
+/// The API-key lookups are bare `fetch` calls under an `AbortController` timer (`sites.apiUsage`, `api-usage.mjs:82`).
+#[tokio::test(start_paused = true)]
+async fn a_lookup_ends_as_nodes_does_when_its_timer_fires() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Arc::new(MemoryVault::default());
+    let env: Arc<dyn Environment> =
+        Arc::new(Env(HashMap::from([("XAI_MANAGEMENT_API_KEY".to_owned(), "k".to_owned()), ("XAI_TEAM_ID".to_owned(), "t".to_owned())])));
+    let tokens = mixdog_rt::testing::tokens();
+    let transport = TimingOut::new();
+    let service = ApiUsageService::new(
+        Arc::new(RoutedUsageHttp::following(transport.clone())),
+        ApiKeyStore::new(vault.clone(), env.clone(), false),
+        vault,
+        env,
+        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        dir.path().to_path_buf(),
+        Arc::new(|| 0),
+    );
+    let error = service.fetch("xai", true).await.err().expect("never answers");
+    assert_transport("apiUsage", &transport);
+    assert_thrown("apiUsage", &error.message);
+}
+
 #[tokio::test]
 async fn the_lookups_are_nodes_api_usage() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();

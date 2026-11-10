@@ -4,7 +4,7 @@
 // native/core/fixtures/model-lists/node-model-lists.json.
 //   node benchmarks/rust-core/recorders/model-lists/record.mjs --tree <tree>
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import http from 'node:http';
 import { dirname, join, resolve } from 'node:path';
@@ -27,11 +27,14 @@ const hits = [];
 const seeds = JSON.parse(readFileSync(join(HERE, 'seeds.json'), 'utf8'));
 
 let routes = {};
+let stubFile = null;
 const stub = http.createServer((request, response) => {
   response.setHeader('content-type', 'application/json');
   const path = new URL(request.url, 'http://127.0.0.1').pathname;
   hits.push(path);
-  const answer = routes[path] ?? { object: 'list', data: [] };
+  // A call of the scenario that carries `stub` swaps what the endpoint answers from then on (child.mjs writes it here).
+  const live = stubFile && existsSync(stubFile) ? JSON.parse(readFileSync(stubFile, 'utf8')) : routes;
+  const answer = live[path] ?? { object: 'list', data: [] };
   // `{ "__status": n }` answers that HTTP status with an empty object.
   response.statusCode = answer.__status ?? 200;
   response.end(JSON.stringify(answer.__status ? {} : answer));
@@ -56,6 +59,7 @@ for (const scenario of scenarios) {
   };
   for (const dir of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(dir, { recursive: true });
   routes = scenario.stub ?? {};
+  stubFile = join(root, 'stub.json');
   const now = Date.now();
   writeFileSync(join(paths.dataDir, 'modelsdev-catalog.json'), JSON.stringify({ fetchedAt: now, data: seeds.modelsDev }));
   writeFileSync(join(paths.dataDir, 'litellm-catalog.json'), JSON.stringify({ fetchedAt: now, data: seeds.litellm }));
@@ -63,7 +67,7 @@ for (const scenario of scenarios) {
   const agent = JSON.parse(JSON.stringify(scenario.agent).replaceAll('__BASE_URL__', baseURL));
   writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent }, null, 2));
   const file = join(root, 'scenario.json');
-  writeFileSync(file, JSON.stringify({ name: scenario.name, calls: scenario.calls, waitListed: scenario.waitListed }));
+  writeFileSync(file, JSON.stringify({ name: scenario.name, calls: JSON.parse(JSON.stringify(scenario.calls).replaceAll('__BASE_URL__', baseURL)), stubFile, waitListed: scenario.waitListed, recordConfig: scenario.recordConfig }));
   const env = {};
   for (const [name, value] of Object.entries(process.env)) if (!DROP.test(name)) env[name] = value;
   Object.assign(env, {
@@ -112,8 +116,8 @@ const kept = only ? JSON.parse(readFileSync(OUT, 'utf8')).scenarios.filter((s) =
 writeFileSync(OUT, JSON.stringify({ baseURL: '__BASE_URL__', seeds, scenarios: [...kept, ...recorded] }, null, 2).replaceAll(baseURL, '__BASE_URL__'));
 // A named set is a recording of its own: its manifest names the Node commit and says whether the loaded tree is exactly it.
 if (setName) {
-  const { writeSetManifest } = await import('../lib/common.mjs');
+  const { writeSetManifest, exactProductIdentity } = await import('../lib/common.mjs');
   const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
   const recorder = 'benchmarks/rust-core/recorders/model-lists/record.mjs';
-  writeSetManifest(dirname(OUT), { set: `model-lists-${setName}`, recorder, command: `node ${recorder} --tree <tree> --set ${setName}`, identityTree: NODE_TREE, identityRef: NODE_COMMIT });
+  writeSetManifest(dirname(OUT), { set: `model-lists-${setName}`, recorder, command: `node ${recorder} --tree <tree> --set ${setName}`, identity: exactProductIdentity(NODE_TREE, NODE_COMMIT) });
 }

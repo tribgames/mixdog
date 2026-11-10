@@ -9,3 +9,15 @@ globalThis.fetch = (input, init) => {
   if (BLOCKED.has(url.hostname)) return Promise.reject(new TypeError(`offline: ${url.hostname}`));
   return realFetch(input, init);
 };
+
+// The id a saved custom provider gets is `custom-${randomUUID()}` (provider-admin.mjs saveCustomProvider), so two recordings of
+// the same calls differ in it. Only that caller gets a counted id; every other randomUUID stays random.
+import crypto from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
+const realUUID = crypto.randomUUID;
+let providerIds = 0;
+crypto.randomUUID = (...args) =>
+  /provider-admin\.mjs/.test(new Error().stack ?? '')
+    ? `00000000-0000-4000-8000-${String(++providerIds).padStart(12, '0')}`
+    : realUUID.apply(crypto, args);
+syncBuiltinESMExports();

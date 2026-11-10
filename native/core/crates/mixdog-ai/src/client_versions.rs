@@ -16,7 +16,7 @@
 //! dialect's version before it goes out ([`ClientVersions::warm`]); what it then puts on the wire
 //! is read at request time ([`Live`]), so a version learned later reaches the next request.
 
-use crate::transport::deadlines::NODE_DISPATCHER;
+use crate::transport::deadlines::abort_signal;
 use std::cmp::Ordering;
 use std::convert::Infallible;
 use std::fmt;
@@ -233,15 +233,12 @@ async fn fetch_text(http: &dyn HttpSend, url: &str, headers: &[(String, String)]
         headers: headers.to_vec(),
         body: Vec::new(),
     };
-    let exchange = async {
-        let response = http.send(request, NODE_DISPATCHER).await.ok()?;
-        if !response.is_success() {
-            return None;
-        }
-        let read = response.read_all().await.ok()?;
-        Some(String::from_utf8_lossy(&read.body).into_owned())
-    };
-    tokio::time::timeout(deadline, exchange).await.ok().flatten()
+    let response = http.send(request, abort_signal(deadline)).await.ok()?;
+    if !response.is_success() {
+        return None;
+    }
+    let read = response.read_all().await.ok()?;
+    Some(String::from_utf8_lossy(&read.body).into_owned())
 }
 
 /// `parseNpmLatest`: the registry document's `version`, when it is x.y.z.
@@ -492,6 +489,8 @@ pub enum Dialect {
     Grok,
     Cursor,
     Antigravity,
+    /// `warmCliVersion` (`anthropic-oauth-client-version.mjs`): awaited by `ensureAuth`, so by the model listing too.
+    Claude,
 }
 
 impl Dialect {
@@ -502,6 +501,7 @@ impl Dialect {
             "grok-oauth" => Some(Self::Grok),
             "cursor-oauth" | "cursor-api" => Some(Self::Cursor),
             "antigravity-oauth" => Some(Self::Antigravity),
+            "anthropic-oauth" => Some(Self::Claude),
             _ => None,
         }
     }
@@ -511,8 +511,11 @@ impl Dialect {
 pub struct ClientVersions {
     codex: Arc<RemoteVersion>,
     grok: Arc<RemoteVersion>,
+    claude: Arc<RemoteVersion>,
     cursor: Arc<RemoteVersion>,
     antigravity: Arc<AntigravityVersion>,
+    /// `MIXDOG_CLI_VERSION`: when set, `warmCliVersion` does not look the live version up.
+    claude_env: String,
     /// `MIXDOG_GROK_CLIENT_VERSION` / `MIXDOG_CURSOR_CLIENT_VERSION`, read once as Node does.
     grok_env: String,
     cursor_env: String,
@@ -543,6 +546,8 @@ impl ClientVersions {
         Arc::new(Self {
             codex: npm(CODEX_NPM_PACKAGE, "codex-cli"),
             grok: npm(GROK_NPM_PACKAGE, "grok-cli"),
+            claude: npm("@anthropic-ai/claude-code", "claude-cli"),
+            claude_env: text("MIXDOG_CLI_VERSION"),
             cursor: RemoteVersion::new(
                 Arc::clone(&http),
                 CURSOR_INSTALL_URL.to_owned(),
@@ -611,7 +616,10 @@ impl ClientVersions {
             Dialect::Cursor if self.cursor_env.is_empty() => {
                 self.cursor.warm().await;
             }
-            Dialect::Grok | Dialect::Cursor => {}
+            Dialect::Claude if self.claude_env.is_empty() => {
+                self.claude.warm().await;
+            }
+            Dialect::Grok | Dialect::Cursor | Dialect::Claude => {}
             Dialect::Antigravity => {
                 self.antigravity.ensure().await;
             }

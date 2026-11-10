@@ -1162,6 +1162,15 @@ crate::client_request_definitions! {
         mutation: op(Room),
         origins: [Local, Ssh, Relay],
     },
+    /// Today's `agentRoomAction('reset', …)`: the room's log starts over, its members' sessions are emptied.
+    RoomReset => "room/reset" {
+        params: RoomResetParams,
+        result: JsonValue,
+        scope: global("room"),
+        class: C2,
+        mutation: op(Room),
+        origins: [Local, Ssh, Relay],
+    },
     /// Today's `agentRoomAction('remove', …)`.
     RoomRemove => "room/remove" {
         params: RoomRemoveParams,
@@ -2834,7 +2843,7 @@ crate::client_request_definitions! {
         scope: global("project"),
         class: C2,
         mutation: op(Project),
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Rename (alias).
     ProjectUpdate => "project/update" {
@@ -2870,7 +2879,7 @@ crate::client_request_definitions! {
         scope: shared_read("project"),
         class: C1,
         mutation: none,
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Today's `projectRecoveryDirectory`.
     ProjectRecoveryDirectory => "project/recoveryDirectory" {
@@ -2996,7 +3005,7 @@ crate::client_request_definitions! {
         scope: none,
         class: C1,
         mutation: none,
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Read an absolute path the connection may read.
     ProjectFsReadLocal => "projectFs/readLocal" {
@@ -3124,6 +3133,24 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).
+    ProjectFsPreviewFile => "projectFs/previewFile" {
+        params: ProjectFsPreviewFileParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// One bounded window of a previewable file, base64 (Node's `previewProjectFileRange`).
+    ProjectFsPreviewRange => "projectFs/previewRange" {
+        params: ProjectFsPreviewRangeParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Connection-owned watch; changes on scoped feed `fs:<watchId>`.
     FsWatch => "fs/watch" {
         params: FsWatchParams,
@@ -3195,6 +3222,33 @@ crate::client_request_definitions! {
         class: C1,
         mutation: none,
         origins: [Local, Ssh, Relay],
+    },
+    /// A paired phone's download, first stage: opens the file and answers a grant that expires.
+    TransferAuthorizeRead => "transfer/authorizeRead" {
+        params: TransferAuthorizeReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
+    },
+    /// A paired phone's download, second stage: consumes the grant once into a transfer.
+    TransferRedeemGrant => "transfer/redeemGrant" {
+        params: TransferRedeemGrantParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
+    },
+    /// A paired phone's download is done: the file must still be the leased version; the transfer ends either way.
+    TransferFinishRead => "transfer/finishRead" {
+        params: TransferFinishReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
     },
     /// Close a read (finish or abort).
     TransferEndRead => "transfer/endRead" {
@@ -4195,6 +4249,35 @@ crate::client_request_definitions! {
         class: C2,
         mutation: none,
         origins: [Local, Ssh],
+    },
+    /// A paired phone's WebRTC live-view signal (Node's `browserRemoteWebrtcSignal` relay call).
+    /// The reply settles once every signal it caused was pushed (`browser/webrtcSignal`).
+    BrowserWebrtcSignal => "browser/webrtcSignal" {
+        params: v2::host::BrowserWebrtcSignalParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Relay],
+    },
+    /// A phone starts or stops streaming a browser session (Node's `browserRemoteStream`).
+    BrowserStream => "browser/stream" {
+        params: v2::host::BrowserStreamParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Relay],
+    },
+    /// The displays a granted phone may choose for the remote screen (Node's
+    /// `browserRemoteScreenDisplays`): `RemoteScreenDisplaySummary[]` from the host.
+    BrowserScreenDisplays => "browser/screenDisplays" {
+        params: v2::host::ScreenDisplaysParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Relay],
     },
     /// Run a proxied model call for a server core; events as `modelProxy/run/event`.
     ModelProxyRun => "modelProxy/run" {

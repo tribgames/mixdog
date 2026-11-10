@@ -1,0 +1,827 @@
+{
+  "cases": [
+    {
+      "name": "defaults-present",
+      "inputText": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": true,\n    \"usagePinned\": true,\n    \"usageRailShortLong\": false,\n    \"usageAccountsExpanded\": false,\n    \"usageRailSlotsThree\": false,\n    \"usageRailSlotsAll\": false,\n    \"computerControl\": false,\n    \"computerObserveOnly\": false,\n    \"browserControl\": false,\n    \"browserAutoSignIn\": true,\n    \"browserHidDevices\": false,\n    \"saveChatLogins\": true,\n    \"computerInstalled\": false,\n    \"browserInstalled\": false,\n    \"notificationVolume\": 50,\n    \"sessionAutoArchiveDays\": 30\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": true,\n    \"usagePinned\": true,\n    \"usageRailShortLong\": false,\n    \"usageAccountsExpanded\": false,\n    \"usageRailSlotsThree\": false,\n    \"usageRailSlotsAll\": false,\n    \"computerControl\": false,\n    \"computerObserveOnly\": false,\n    \"browserControl\": false,\n    \"browserAutoSignIn\": true,\n    \"browserHidDevices\": false,\n    \"saveChatLogins\": true,\n    \"computerInstalled\": false,\n    \"browserInstalled\": false,\n    \"notificationVolume\": 50,\n    \"sessionAutoArchiveDays\": 30\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"computerInstalled\": false,\n    \"browserInstalled\": false,\n    \"notificationVolume\": 50,\n    \"sessionAutoArchiveDays\": 30,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"computerInstalled\": false,\n    \"browserInstalled\": false,\n    \"notificationVolume\": 50,\n    \"sessionAutoArchiveDays\": 30,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": true,\n    \"usagePinned\": true,\n    \"usageRailShortLong\": false,\n    \"usageAccountsExpanded\": false,\n    \"usageRailSlotsThree\": false,\n    \"usageRailSlotsAll\": false,\n    \"computerControl\": false,\n    \"computerObserveOnly\": false,\n    \"browserControl\": false,\n    \"browserAutoSignIn\": true,\n    \"browserHidDevices\": false,\n    \"saveChatLogins\": true,\n    \"computerInstalled\": false,\n    \"browserInstalled\": false,\n    \"notificationVolume\": 50,\n    \"sessionAutoArchiveDays\": 30\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "non-defaults",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": false,\n    \"usagePinned\": false,\n    \"usageRailShortLong\": true,\n    \"usageAccountsExpanded\": true,\n    \"usageRailSlotsThree\": true,\n    \"usageRailSlotsAll\": true,\n    \"computerControl\": true,\n    \"computerObserveOnly\": true,\n    \"browserControl\": true,\n    \"browserAutoSignIn\": false,\n    \"browserHidDevices\": true,\n    \"saveChatLogins\": false,\n    \"computerInstalled\": true,\n    \"browserInstalled\": true,\n    \"notificationVolume\": 0,\n    \"browserPermissions\": {\n      \"camera\": \"deny\"\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": false,\n    \"usagePinned\": false,\n    \"usageRailShortLong\": true,\n    \"usageAccountsExpanded\": true,\n    \"usageRailSlotsThree\": true,\n    \"usageRailSlotsAll\": true,\n    \"computerControl\": true,\n    \"computerObserveOnly\": true,\n    \"browserControl\": true,\n    \"browserAutoSignIn\": false,\n    \"browserHidDevices\": true,\n    \"saveChatLogins\": false,\n    \"computerInstalled\": true,\n    \"browserInstalled\": true,\n    \"notificationVolume\": 0,\n    \"browserPermissions\": {\n      \"camera\": \"deny\"\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": false,\n    \"usagePinned\": false,\n    \"usageRailShortLong\": true,\n    \"usageAccountsExpanded\": true,\n    \"usageRailSlotsThree\": true,\n    \"usageRailSlotsAll\": true,\n    \"computerControl\": true,\n    \"computerObserveOnly\": true,\n    \"browserControl\": true,\n    \"browserAutoSignIn\": false,\n    \"browserHidDevices\": true,\n    \"saveChatLogins\": false,\n    \"computerInstalled\": true,\n    \"browserInstalled\": true,\n    \"notificationVolume\": 0,\n    \"browserPermissions\": {\n      \"camera\": \"deny\"\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": false,\n    \"usagePinned\": false,\n    \"usageRailShortLong\": true,\n    \"usageAccountsExpanded\": true,\n    \"usageRailSlotsThree\": true,\n    \"usageRailSlotsAll\": true,\n    \"computerControl\": true,\n    \"computerObserveOnly\": true,\n    \"browserControl\": true,\n    \"browserAutoSignIn\": false,\n    \"browserHidDevices\": true,\n    \"saveChatLogins\": false,\n    \"computerInstalled\": true,\n    \"browserInstalled\": true,\n    \"notificationVolume\": 0,\n    \"browserPermissions\": {\n      \"camera\": \"deny\"\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": false,\n    \"usagePinned\": false,\n    \"usageRailShortLong\": true,\n    \"usageAccountsExpanded\": true,\n    \"usageRailSlotsThree\": true,\n    \"usageRailSlotsAll\": true,\n    \"computerControl\": true,\n    \"computerObserveOnly\": true,\n    \"browserControl\": true,\n    \"browserAutoSignIn\": false,\n    \"browserHidDevices\": true,\n    \"saveChatLogins\": false,\n    \"computerInstalled\": true,\n    \"browserInstalled\": true,\n    \"notificationVolume\": 0,\n    \"browserPermissions\": {\n      \"camera\": \"deny\"\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "mixed-with-dead-keys",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"zoomFactor\": 1.25,\n    \"runInBackground\": false,\n    \"git\": {\n      \"token\": \"x\"\n    },\n    \"usagePinned\": true,\n    \"other\": {\n      \"nested\": [\n        1,\n        2\n      ]\n    },\n    \"computerControl\": true,\n    \"browserControl\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"zoomFactor\": 1.25,\n    \"runInBackground\": false,\n    \"git\": {\n      \"token\": \"x\"\n    },\n    \"usagePinned\": true,\n    \"other\": {\n      \"nested\": [\n        1,\n        2\n      ]\n    },\n    \"computerControl\": true,\n    \"browserControl\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"other\": {\n      \"nested\": [\n        1,\n        2\n      ]\n    },\n    \"computerControl\": true,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"other\": {\n      \"nested\": [\n        1,\n        2\n      ]\n    },\n    \"computerControl\": true,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"zoomFactor\": 1.25,\n    \"runInBackground\": false,\n    \"git\": {\n      \"token\": \"x\"\n    },\n    \"usagePinned\": true,\n    \"other\": {\n      \"nested\": [\n        1,\n        2\n      ]\n    },\n    \"computerControl\": true,\n    \"browserControl\": false\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "dead-keys-only",
+      "inputText": "{\n  \"desktop\": {\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "already-separated",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1,\n    \"zoomFactor\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1,\n    \"zoomFactor\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        false,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1,\n    \"zoomFactor\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1,\n    \"zoomFactor\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "backups": [],
+      "backupsAfterSecond": 0
+    },
+    {
+      "name": "newer-version",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": true,\n    \"defaultsSeparationVersion\": 2\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": true,\n    \"defaultsSeparationVersion\": 2\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        false,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": true,\n    \"defaultsSeparationVersion\": 2\n  },\n  \"defaultsVersion\": 2\n}",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"keepAwake\": false,\n    \"runInBackground\": true,\n    \"defaultsSeparationVersion\": 2\n  },\n  \"defaultsVersion\": 2\n}",
+      "backups": [],
+      "backupsAfterSecond": 0
+    },
+    {
+      "name": "marker-float",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1.5\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1.5\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        false,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1.5\n  },\n  \"defaultsVersion\": 2\n}",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": 1.5\n  },\n  \"defaultsVersion\": 2\n}",
+      "backups": [],
+      "backupsAfterSecond": 0
+    },
+    {
+      "name": "marker-zero",
+      "inputText": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 0,\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 0,\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 0,\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "marker-string",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": \"1\",\n    \"usagePinned\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": \"1\",\n    \"usagePinned\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"usagePinned\": false\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1,\n    \"usagePinned\": false\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": \"1\",\n    \"usagePinned\": false\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "marker-null",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": null\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": null\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": null\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "marker-true",
+      "inputText": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": true,\n    \"saveChatLogins\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": true,\n    \"saveChatLogins\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": true,\n    \"saveChatLogins\": true\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "marker-negative",
+      "inputText": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": -1,\n    \"browserAutoSignIn\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": -1,\n    \"browserAutoSignIn\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": -1,\n    \"browserAutoSignIn\": true\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "no-desktop-section",
+      "inputText": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "afterCore": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "finalAfterSecond": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "no-desktop-section-unmarked",
+      "inputText": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "afterCore": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    },\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    },\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "finalAfterSecond": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    },\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backups": [
+        {
+          "source": "core",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}"
+        },
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    },\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"worker\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 2
+    },
+    {
+      "name": "desktop-string",
+      "inputText": "{\n  \"desktop\": \"compact\",\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": \"compact\",\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": \"compact\",\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "desktop-array",
+      "inputText": "{\n  \"desktop\": [\n    {\n      \"keepAwake\": true\n    }\n  ],\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": [\n    {\n      \"keepAwake\": true\n    }\n  ],\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": [\n    {\n      \"keepAwake\": true\n    }\n  ],\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "desktop-null",
+      "inputText": "{\n  \"desktop\": null,\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": null,\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": null,\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "desktop-empty",
+      "inputText": "{\n  \"desktop\": {},\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {},\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {},\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "malformed-values",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": \"true\",\n    \"runInBackground\": 1,\n    \"usagePinned\": null,\n    \"usageRailShortLong\": 0,\n    \"usageAccountsExpanded\": \"false\",\n    \"usageRailSlotsThree\": [],\n    \"usageRailSlotsAll\": {},\n    \"computerControl\": \"no\",\n    \"computerObserveOnly\": 0,\n    \"browserControl\": null,\n    \"browserAutoSignIn\": 1,\n    \"browserHidDevices\": \"\",\n    \"saveChatLogins\": \"yes\",\n    \"zoomFactor\": \"big\",\n    \"git\": \"x\"\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": \"true\",\n    \"runInBackground\": 1,\n    \"usagePinned\": null,\n    \"usageRailShortLong\": 0,\n    \"usageAccountsExpanded\": \"false\",\n    \"usageRailSlotsThree\": [],\n    \"usageRailSlotsAll\": {},\n    \"computerControl\": \"no\",\n    \"computerObserveOnly\": 0,\n    \"browserControl\": null,\n    \"browserAutoSignIn\": 1,\n    \"browserHidDevices\": \"\",\n    \"saveChatLogins\": \"yes\",\n    \"zoomFactor\": \"big\",\n    \"git\": \"x\"\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"keepAwake\": \"true\",\n    \"runInBackground\": 1,\n    \"usagePinned\": null,\n    \"usageRailShortLong\": 0,\n    \"usageAccountsExpanded\": \"false\",\n    \"usageRailSlotsThree\": [],\n    \"usageRailSlotsAll\": {},\n    \"computerControl\": \"no\",\n    \"computerObserveOnly\": 0,\n    \"browserControl\": null,\n    \"browserAutoSignIn\": 1,\n    \"browserHidDevices\": \"\",\n    \"saveChatLogins\": \"yes\",\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"keepAwake\": \"true\",\n    \"runInBackground\": 1,\n    \"usagePinned\": null,\n    \"usageRailShortLong\": 0,\n    \"usageAccountsExpanded\": \"false\",\n    \"usageRailSlotsThree\": [],\n    \"usageRailSlotsAll\": {},\n    \"computerControl\": \"no\",\n    \"computerObserveOnly\": 0,\n    \"browserControl\": null,\n    \"browserAutoSignIn\": 1,\n    \"browserHidDevices\": \"\",\n    \"saveChatLogins\": \"yes\",\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": \"true\",\n    \"runInBackground\": 1,\n    \"usagePinned\": null,\n    \"usageRailShortLong\": 0,\n    \"usageAccountsExpanded\": \"false\",\n    \"usageRailSlotsThree\": [],\n    \"usageRailSlotsAll\": {},\n    \"computerControl\": \"no\",\n    \"computerObserveOnly\": 0,\n    \"browserControl\": null,\n    \"browserAutoSignIn\": 1,\n    \"browserHidDevices\": \"\",\n    \"saveChatLogins\": \"yes\",\n    \"zoomFactor\": \"big\",\n    \"git\": \"x\"\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-default-list",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\"\n      ],\n      \"revision\": 4\n    },\n    \"keepAwake\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\"\n      ],\n      \"revision\": 4\n    },\n    \"keepAwake\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\"\n      ],\n      \"revision\": 4\n    },\n    \"keepAwake\": true\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-first-historical-list",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\"\n      ],\n      \"revision\": 1\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\"\n      ],\n      \"revision\": 1\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\"\n      ],\n      \"revision\": 1\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-second-historical-list",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\"\n      ]\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\"\n      ]\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\"\n      ]\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-custom-list",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-reordered-default",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"skills\",\n        \"extensions\",\n        \"projects\",\n        \"workflows\",\n        \"schedules\",\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"skills\",\n        \"extensions\",\n        \"projects\",\n        \"workflows\",\n        \"schedules\",\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"skills\",\n        \"extensions\",\n        \"projects\",\n        \"workflows\",\n        \"schedules\",\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"skills\",\n        \"extensions\",\n        \"projects\",\n        \"workflows\",\n        \"schedules\",\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"skills\",\n        \"extensions\",\n        \"projects\",\n        \"workflows\",\n        \"schedules\",\n        \"agents\",\n        \"sessions\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-default-plus-one",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\",\n        \"search\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\",\n        \"search\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\",\n        \"search\"\n      ],\n      \"revision\": 2\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\",\n        \"search\"\n      ],\n      \"revision\": 2\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        \"sessions\",\n        \"agents\",\n        \"schedules\",\n        \"workflows\",\n        \"projects\",\n        \"extensions\",\n        \"skills\",\n        \"search\"\n      ],\n      \"revision\": 2\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-revision-only",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"revision\": 3\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"revision\": 3\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"revision\": 3\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"revision\": 3\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"revision\": 3\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-not-a-list",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": \"sessions\",\n      \"revision\": 3\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": \"sessions\",\n      \"revision\": 3\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": \"sessions\",\n      \"revision\": 3\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": \"sessions\",\n      \"revision\": 3\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": \"sessions\",\n      \"revision\": 3\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-not-an-object",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": [\n      \"sessions\",\n      \"agents\",\n      \"schedules\",\n      \"workflows\",\n      \"projects\",\n      \"extensions\",\n      \"skills\"\n    ]\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": [\n      \"sessions\",\n      \"agents\",\n      \"schedules\",\n      \"workflows\",\n      \"projects\",\n      \"extensions\",\n      \"skills\"\n    ]\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"activityRailPins\": [\n      \"sessions\",\n      \"agents\",\n      \"schedules\",\n      \"workflows\",\n      \"projects\",\n      \"extensions\",\n      \"skills\"\n    ],\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"activityRailPins\": [\n      \"sessions\",\n      \"agents\",\n      \"schedules\",\n      \"workflows\",\n      \"projects\",\n      \"extensions\",\n      \"skills\"\n    ],\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": [\n      \"sessions\",\n      \"agents\",\n      \"schedules\",\n      \"workflows\",\n      \"projects\",\n      \"extensions\",\n      \"skills\"\n    ]\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "pins-non-string-entries",
+      "inputText": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        1,\n        2,\n        3,\n        4,\n        5\n      ],\n      \"revision\": 1\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        1,\n        2,\n        3,\n        4,\n        5\n      ],\n      \"revision\": 1\n    }\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        1,\n        2,\n        3,\n        4,\n        5\n      ],\n      \"revision\": 1\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        1,\n        2,\n        3,\n        4,\n        5\n      ],\n      \"revision\": 1\n    },\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"activityRailPins\": {\n      \"pins\": [\n        1,\n        2,\n        3,\n        4,\n        5\n      ],\n      \"revision\": 1\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "empty-object-file",
+      "inputText": "{}",
+      "afterCore": "{}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "missing-file",
+      "inputText": null,
+      "afterCore": null,
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "unmarked-legacy-with-desktop",
+      "inputText": "{\n  \"agent\": {\n    \"disabledAgents\": [\n      \"worker\",\n      \"reviewer\",\n      \"custom\"\n    ],\n    \"autoClear\": {\n      \"enabled\": true,\n      \"minContextPercent\": 10\n    },\n    \"update\": {\n      \"auto\": true\n    },\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"explore\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"channels\": {\n    \"webhook\": {\n      \"enabled\": true,\n      \"port\": 3333\n    }\n  },\n  \"outputStyle\": \" simple \",\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": true,\n    \"usagePinned\": true,\n    \"usageRailShortLong\": false,\n    \"usageAccountsExpanded\": false,\n    \"usageRailSlotsThree\": false,\n    \"usageRailSlotsAll\": false,\n    \"computerControl\": false,\n    \"computerObserveOnly\": false,\n    \"browserControl\": false,\n    \"browserAutoSignIn\": true,\n    \"browserHidDevices\": false,\n    \"saveChatLogins\": true,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  }\n}",
+      "afterCore": "{\n  \"agent\": {\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"disabledAgents\": [\n      \"custom\"\n    ],\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"security\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": true,\n    \"usagePinned\": true,\n    \"usageRailShortLong\": false,\n    \"usageAccountsExpanded\": false,\n    \"usageRailSlotsThree\": false,\n    \"usageRailSlotsAll\": false,\n    \"computerControl\": false,\n    \"computerObserveOnly\": false,\n    \"browserControl\": false,\n    \"browserAutoSignIn\": true,\n    \"browserHidDevices\": false,\n    \"saveChatLogins\": true,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"agent\": {\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"disabledAgents\": [\n      \"custom\"\n    ],\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"security\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"agent\": {\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"disabledAgents\": [\n      \"custom\"\n    ],\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"security\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "core",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"disabledAgents\": [\n      \"worker\",\n      \"reviewer\",\n      \"custom\"\n    ],\n    \"autoClear\": {\n      \"enabled\": true,\n      \"minContextPercent\": 10\n    },\n    \"update\": {\n      \"auto\": true\n    },\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"explore\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"channels\": {\n    \"webhook\": {\n      \"enabled\": true,\n      \"port\": 3333\n    }\n  },\n  \"outputStyle\": \" simple \",\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": true,\n    \"usagePinned\": true,\n    \"usageRailShortLong\": false,\n    \"usageAccountsExpanded\": false,\n    \"usageRailSlotsThree\": false,\n    \"usageRailSlotsAll\": false,\n    \"computerControl\": false,\n    \"computerObserveOnly\": false,\n    \"browserControl\": false,\n    \"browserAutoSignIn\": true,\n    \"browserHidDevices\": false,\n    \"saveChatLogins\": true,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  }\n}"
+        },
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"disabledAgents\": [\n      \"custom\"\n    ],\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"security\",\n      \"writer\"\n    ]\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": true,\n    \"usagePinned\": true,\n    \"usageRailShortLong\": false,\n    \"usageAccountsExpanded\": false,\n    \"usageRailSlotsThree\": false,\n    \"usageRailSlotsAll\": false,\n    \"computerControl\": false,\n    \"computerObserveOnly\": false,\n    \"browserControl\": false,\n    \"browserAutoSignIn\": true,\n    \"browserHidDevices\": false,\n    \"saveChatLogins\": true,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 2
+    },
+    {
+      "name": "unmarked-legacy-no-desktop",
+      "inputText": "{\n  \"agent\": {\n    \"disabledAgents\": [\n      \"worker\"\n    ],\n    \"recap\": {\n      \"enabled\": true\n    }\n  },\n  \"outputStyle\": \"simple\"\n}",
+      "afterCore": "{\n  \"agent\": {\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"agent\": {\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "finalAfterSecond": "{\n  \"agent\": {\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backups": [
+        {
+          "source": "core",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"disabledAgents\": [\n      \"worker\"\n    ],\n    \"recap\": {\n      \"enabled\": true\n    }\n  },\n  \"outputStyle\": \"simple\"\n}"
+        },
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"enabledAgents\": [\n      \"front-worker\",\n      \"heavy-worker\",\n      \"maintainer\",\n      \"reviewer\",\n      \"security\",\n      \"writer\"\n    ],\n    \"builtins\": {\n      \"git\": {\n        \"installed\": true\n      },\n      \"memory\": {\n        \"installed\": true\n      },\n      \"office\": {\n        \"installed\": true\n      }\n    }\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 2
+    },
+    {
+      "name": "version-one-with-desktop",
+      "inputText": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"agents\": {\n      \"debugger\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  }\n}",
+      "afterCore": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"agents\": {\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  }\n}\n",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"agents\": {\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "finalAfterSecond": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"agents\": {\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backups": [
+        {
+          "source": "core",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"agents\": {\n      \"debugger\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  }\n}"
+        },
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"enabledAgents\": [\n      \"worker\"\n    ],\n    \"agents\": {\n      \"mine\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  }\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 2
+    },
+    {
+      "name": "non-canonical-top-level",
+      "inputText": "{\n  \"autoClear\": {\n    \"enabled\": true\n  },\n  \"compaction\": {\n    \"auto\": true\n  },\n  \"shell\": {\n    \"path\": \"/bin/zsh\"\n  },\n  \"mcpServers\": {\n    \"a\": {}\n  },\n  \"desktop\": {\n    \"keepAwake\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"autoClear\": {\n    \"enabled\": true\n  },\n  \"compaction\": {\n    \"auto\": true\n  },\n  \"shell\": {\n    \"path\": \"/bin/zsh\"\n  },\n  \"mcpServers\": {\n    \"a\": {}\n  },\n  \"desktop\": {\n    \"keepAwake\": true\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"autoClear\": {\n    \"enabled\": true\n  },\n  \"compaction\": {\n    \"auto\": true\n  },\n  \"shell\": {\n    \"path\": \"/bin/zsh\"\n  },\n  \"mcpServers\": {\n    \"a\": {}\n  },\n  \"desktop\": {\n    \"keepAwake\": true\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "generated-marker",
+      "inputText": "{\n  \"_generated\": true,\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  }\n}",
+      "afterCore": "{\n  \"_generated\": true,\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  }\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "finalAfterSecond": "{\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  }\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "key-order",
+      "inputText": "{\n  \"zeta\": 1,\n  \"desktop\": {\n    \"b\": 1,\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": \"old\",\n    \"a\": 2,\n    \"runInBackground\": true\n  },\n  \"alpha\": {\n    \"x\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"zeta\": 1,\n  \"desktop\": {\n    \"b\": 1,\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": \"old\",\n    \"a\": 2,\n    \"runInBackground\": true\n  },\n  \"alpha\": {\n    \"x\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"zeta\": 1,\n  \"desktop\": {\n    \"b\": 1,\n    \"defaultsSeparationVersion\": 1,\n    \"a\": 2\n  },\n  \"alpha\": {\n    \"x\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"zeta\": 1,\n  \"desktop\": {\n    \"b\": 1,\n    \"defaultsSeparationVersion\": 1,\n    \"a\": 2\n  },\n  \"alpha\": {\n    \"x\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"zeta\": 1,\n  \"desktop\": {\n    \"b\": 1,\n    \"keepAwake\": true,\n    \"defaultsSeparationVersion\": \"old\",\n    \"a\": 2,\n    \"runInBackground\": true\n  },\n  \"alpha\": {\n    \"x\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "no-desktop-section-other-subtrees",
+      "inputText": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"notifications\": {\n    \"migratedAt\": 5\n  }\n}",
+      "afterCore": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"notifications\": {\n    \"migratedAt\": 5\n  }\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"notifications\": {\n    \"migratedAt\": 5\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "finalAfterSecond": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"notifications\": {\n    \"migratedAt\": 5\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"notifications\": {\n    \"migratedAt\": 5\n  }\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "byte-order-mark",
+      "inputText": "﻿{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "﻿{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "compact-text",
+      "inputText": "{\"desktop\":{\"keepAwake\":true,\"runInBackground\":false,\"zoomFactor\":2},\"defaultsVersion\":2}",
+      "afterCore": "{\"desktop\":{\"keepAwake\":true,\"runInBackground\":false,\"zoomFactor\":2},\"defaultsVersion\":2}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 2\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    },
+    {
+      "name": "unicode-and-numbers",
+      "inputText": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"label\": \"한국어 \\\"quote\\\" \\\\  \",\n    \"big\": 12345678901234567000,\n    \"small\": 1e-7,\n    \"neg\": 0,\n    \"volume\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"label\": \"한국어 \\\"quote\\\" \\\\  \",\n    \"big\": 12345678901234567000,\n    \"small\": 1e-7,\n    \"neg\": 0,\n    \"volume\": 1\n  },\n  \"defaultsVersion\": 2\n}",
+      "ran": [
+        true,
+        false
+      ],
+      "final": "{\n  \"desktop\": {\n    \"label\": \"한국어 \\\"quote\\\" \\\\  \",\n    \"big\": 12345678901234567000,\n    \"small\": 1e-7,\n    \"neg\": 0,\n    \"volume\": 1,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "finalAfterSecond": "{\n  \"desktop\": {\n    \"label\": \"한국어 \\\"quote\\\" \\\\  \",\n    \"big\": 12345678901234567000,\n    \"small\": 1e-7,\n    \"neg\": 0,\n    \"volume\": 1,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backups": [
+        {
+          "source": "desktop",
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"label\": \"한국어 \\\"quote\\\" \\\\  \",\n    \"big\": 12345678901234567000,\n    \"small\": 1e-7,\n    \"neg\": 0,\n    \"volume\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ],
+      "backupsAfterSecond": 1
+    }
+  ],
+  "failures": [
+    {
+      "name": "backup-root-is-a-file",
+      "inputText": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "error": {
+        "name": "Error",
+        "code": "EEXIST",
+        "message": "EEXIST: file already exists, mkdir '<data>/backups'"
+      },
+      "diagnosticLine": "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:05.678Z\",\"event\":\"defaults-separation-failed\",\"pid\":4242,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.4.5\",\"packaged\":true,\"bootId\":\"boot\",\"message\":\"EEXIST: file already exists, mkdir '<data>/backups'\"}\n",
+      "afterFailure": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "retried": true,
+      "afterRetry": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backupsAfterRetry": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ]
+    },
+    {
+      "name": "backup-root-is-a-file-no-desktop-section",
+      "inputText": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "afterCore": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "error": {
+        "name": "Error",
+        "code": "EEXIST",
+        "message": "EEXIST: file already exists, mkdir '<data>/backups'"
+      },
+      "diagnosticLine": "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:05.678Z\",\"event\":\"defaults-separation-failed\",\"pid\":4242,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.4.5\",\"packaged\":true,\"bootId\":\"boot\",\"message\":\"EEXIST: file already exists, mkdir '<data>/backups'\"}\n",
+      "afterFailure": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "retried": true,
+      "afterRetry": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backupsAfterRetry": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

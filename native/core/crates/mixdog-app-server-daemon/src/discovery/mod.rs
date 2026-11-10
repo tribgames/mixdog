@@ -191,7 +191,69 @@ pub fn names_instance(bytes: &[u8], instance_id: &str) -> bool {
 
 /// Publishes `discovery` at `<root>/daemon.json`: written owner-only to a
 /// staging file, synced, and renamed over the old file.
+///
+/// The replace is retried on the errors Windows answers while another process (the desktop reading the file, an
+/// indexer, a scanner) holds the destination open: Node's `renameWithRetry` schedule (see [`replace_backoffs_ms`]).
 pub fn publish(root: &Path, discovery: &Discovery) -> io::Result<()> {
+    publish_with(root, discovery, &sys::replace, &std::thread::sleep)
+}
+
+/// Node's `RETRY_MAX_MS` (`runtime/shared/file-lock.mjs`).
+const REPLACE_RETRY_MAX_MS: u64 = 200;
+
+/// Node's `DEFAULT_BACKOFFS_MS` (`runtime/shared/file-lock.mjs`): 25, 50, 100, then twenty of [`REPLACE_RETRY_MAX_MS`]. The replace
+/// is attempted once more than there are entries.
+pub fn replace_backoffs_ms() -> Vec<u64> {
+    [25, 50, 100].into_iter().chain(std::iter::repeat_n(REPLACE_RETRY_MAX_MS, 20)).collect()
+}
+
+/// Which of Node's `RETRY_CODES` (`atomic-file.mjs`: EPERM, EACCES, EBUSY, EEXIST) an OS error is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    /// EPERM or EACCES: also what renaming over a read-only file answers, which never clears.
+    Access,
+    /// EBUSY or EEXIST.
+    Other,
+}
+
+/// Node's `isReadOnlyFile`: a refusal to rename over a read-only file never clears, so it is not waited for.
+fn destination_is_read_only(to: &Path) -> bool {
+    std::fs::metadata(to).is_ok_and(|meta| meta.is_file() && sys::read_only(&meta))
+}
+
+/// The retry loop of Node's `renameWithRetry`: attempt `n` that fails with a transient error (not against a read-only destination)
+/// pauses `backoffs[n]` plus a jitter below `min(50, max(1, backoffs[n]))` ms, and the error of the last attempt is the result.
+fn replace_with_retry(
+    from: &Path,
+    to: &Path,
+    replace: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    pause: &dyn Fn(std::time::Duration),
+) -> io::Result<()> {
+    let backoffs = replace_backoffs_ms();
+    for backoff in backoffs {
+        match replace(from, to) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                match error.raw_os_error().and_then(sys::retry_class) {
+                    None => return Err(error),
+                    Some(Retry::Access) if destination_is_read_only(to) => return Err(error),
+                    Some(_) => {}
+                }
+                let jitter = rand::random_range(0..backoff.clamp(1, 50));
+                pause(std::time::Duration::from_millis(backoff + jitter));
+            }
+        }
+    }
+    replace(from, to)
+}
+
+/// [`publish`] with the replace and the pause between attempts supplied.
+fn publish_with(
+    root: &Path,
+    discovery: &Discovery,
+    replace: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    pause: &dyn Fn(std::time::Duration),
+) -> io::Result<()> {
     let mut bytes = serde_json::to_vec(discovery).map_err(io::Error::other)?;
     bytes.push(b'\n');
     let staging = root.join(format!(
@@ -204,7 +266,7 @@ pub fn publish(root: &Path, discovery: &Discovery) -> io::Result<()> {
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
-        sys::replace(&staging, &target)
+        replace_with_retry(&staging, &target, replace, pause)
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&staging);
@@ -247,6 +309,25 @@ mod sys {
     pub(super) fn replace(from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)?;
         File::open(to.parent().expect("discovery has a parent"))?.sync_all()
+    }
+
+    /// Node's `RETRY_CODES` by errno.
+    pub(super) fn retry_class(errno: i32) -> Option<super::Retry> {
+        match errno {
+            libc::EPERM | libc::EACCES => Some(super::Retry::Access),
+            libc::EBUSY | libc::EEXIST => Some(super::Retry::Other),
+            _ => None,
+        }
+    }
+
+    /// Node's `isReadOnlyFile` on POSIX: `(stat.mode & 0o200) === 0`, the owner's write bit alone.
+    pub(super) fn read_only(meta: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        mode_is_read_only(meta.mode())
+    }
+
+    pub(super) fn mode_is_read_only(mode: u32) -> bool {
+        mode & 0o200 == 0
     }
 }
 
@@ -368,6 +449,28 @@ mod sys {
         }
         // SAFETY: a valid file handle owned from here on.
         Ok(unsafe { File::from_raw_handle(handle) })
+    }
+
+    /// Node's `RETRY_CODES` by Win32 error: the errors libuv's `uv_translate_sys_error` (`src/win/error.c`) maps to EPERM, EACCES, EBUSY
+    /// or EEXIST, and no others (`ERROR_BUSY` maps to UNKNOWN there, so Node does not retry it).
+    pub(super) fn retry_class(code: i32) -> Option<super::Retry> {
+        match code {
+            // EPERM: ERROR_ACCESS_DENIED, ERROR_PRIVILEGE_NOT_HELD.
+            5 | 1314 => Some(super::Retry::Access),
+            // EACCES: WSAEACCES, ERROR_ELEVATION_REQUIRED, ERROR_CANT_ACCESS_FILE.
+            10013 | 740 | 1920 => Some(super::Retry::Access),
+            // EBUSY: ERROR_LOCK_VIOLATION, ERROR_PIPE_BUSY, ERROR_SHARING_VIOLATION.
+            33 | 231 | 32 => Some(super::Retry::Other),
+            // EEXIST: ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS.
+            183 | 80 => Some(super::Retry::Other),
+            _ => None,
+        }
+    }
+
+    /// Node's `isReadOnlyFile` on Windows: libuv reports the mode of a file with `FILE_ATTRIBUTE_READONLY` as 0o444 and any other as
+    /// 0o666, so `(mode & 0o200) === 0` is exactly the read-only attribute.
+    pub(super) fn read_only(meta: &std::fs::Metadata) -> bool {
+        meta.permissions().readonly()
     }
 
     pub(super) fn replace(from: &Path, to: &Path) -> io::Result<()> {

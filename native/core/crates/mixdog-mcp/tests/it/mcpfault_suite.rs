@@ -109,7 +109,7 @@ impl ExtensionHost for Host {
         Ok(Value::Object(Map::new()))
     }
 
-    async fn skills_status(&self) -> Value {
+    async fn skills_status(&self, _: Option<&str>) -> Value {
         Value::Null
     }
 }
@@ -255,6 +255,18 @@ impl SecretOps for Ops {
     }
 }
 
+struct NoToasts;
+
+impl mixdog_mcp::mcp_service::SessionToasts for NoToasts {
+    fn closed(&self) -> bool {
+        false
+    }
+
+    fn incarnation(&self, _: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+        None
+    }
+}
+
 struct Fixture {
     host: Arc<Host>,
     service: McpService,
@@ -283,7 +295,7 @@ fn fixture_over(servers: Value, host: Host) -> Fixture {
     });
     let secrets = Arc::new(McpServerSecrets::new(ops.clone(), Default::default()));
     let host = Arc::new(host);
-    let service = McpService::new(config.clone(), host.clone(), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"));
+    let service = McpService::new(config.clone(), host.clone(), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"), Arc::new(NoToasts));
     Fixture { host, service, config, ops, _home: home }
 }
 

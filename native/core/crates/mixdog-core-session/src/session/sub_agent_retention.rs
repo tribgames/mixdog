@@ -299,15 +299,22 @@ pub async fn sweep(host: &dyn RetentionHost, now: f64, cancel: &CancellationToke
     Ok(apply(host, &members, now, cancel).await)
 }
 
-fn now_ms() -> f64 {
+/// The wall clock in epoch milliseconds (`Date.now()`).
+pub fn now_ms() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
 /// Runs a pass every [`SWEEP_INTERVAL`], the first one an interval after the start, until
-/// `cancel`. A failed pass is reported to `on_error`; the next one runs on schedule. A pass under
-/// way when `cancel` fires admits nothing more and finishes what it admitted; the returned task
-/// ends after that, so awaiting it is the end of retention.
-pub fn start(host: Arc<dyn RetentionHost>, on_error: Arc<dyn Fn(&str) + Send + Sync>, cancel: CancellationToken) -> tokio::task::JoinHandle<()> {
+/// `cancel`, judging idleness at `now` (epoch ms; [`now_ms`] in production). A failed pass is
+/// reported to `on_error`; the next one runs on schedule. A pass under way when `cancel` fires
+/// admits nothing more and finishes what it admitted; the returned task ends after that, so
+/// awaiting it is the end of retention.
+pub fn start(
+    host: Arc<dyn RetentionHost>,
+    now: Arc<dyn Fn() -> f64 + Send + Sync>,
+    on_error: Arc<dyn Fn(&str) + Send + Sync>,
+    cancel: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
     mixdog_rt::spawn("sub-agent.retention", TaskClass::Work, async move {
         let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + SWEEP_INTERVAL, SWEEP_INTERVAL);
         loop {
@@ -315,7 +322,7 @@ pub fn start(host: Arc<dyn RetentionHost>, on_error: Arc<dyn Fn(&str) + Send + S
                 () = cancel.cancelled() => return,
                 _ = timer.tick() => {}
             }
-            match sweep(host.as_ref(), now_ms(), &cancel).await {
+            match sweep(host.as_ref(), now(), &cancel).await {
                 Ok(applied) => {
                     if !applied.archived.is_empty() || !applied.deleted.is_empty() {
                         tracing::debug!(archived = ?applied.archived, deleted = ?applied.deleted, "sub-agent retention");

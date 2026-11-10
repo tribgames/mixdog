@@ -36,6 +36,10 @@ pub trait SessionFollow: Send + Sync {
     async fn tune(&self, thread: &ThreadId) -> Result<(), PortError>;
     /// `continueSessionInModel`'s switch of the conversation in place.
     async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError>;
+    /// Whether the thread has its session (`getSession()?.id`).
+    async fn has_session(&self, thread: &ThreadId) -> Result<bool, PortError>;
+    /// `createCurrentSession`: the thread's session is made on the live route.
+    async fn seat(&self, thread: &ThreadId) -> Result<(), PortError>;
 }
 
 #[async_trait]
@@ -54,6 +58,14 @@ impl SessionFollow for SessionRoutes {
 
     async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
         SessionRoutes::switch_now(self, thread).await
+    }
+
+    async fn has_session(&self, thread: &ThreadId) -> Result<bool, PortError> {
+        SessionRoutes::has_session(self, thread).await
+    }
+
+    async fn seat(&self, thread: &ThreadId) -> Result<(), PortError> {
+        SessionRoutes::seat(self, thread).await
     }
 }
 
@@ -418,14 +430,13 @@ impl RouteService {
         clean(self.writer.route(thread).get("model")).is_empty()
     }
 
-    /// The created, empty thread takes the live route onto its header (`updateSessionInPlace`, the
-    /// follow of an `applyToCurrentSession` selection); a route without a model writes nothing.
+    /// The created, empty thread takes the live route onto its header (`materializeSession`: the
+    /// session is built on `rt.route`); a route without a model creates no session.
     pub async fn seat_route(&self, thread: &ThreadId) -> Result<(), String> {
         if clean(self.writer.route(thread).get("model")).is_empty() {
             return Ok(());
         }
-        let follow = FollowOptions { apply_to_current_session: true, lease: Some(self.session.open_lease(thread, None)), ..FollowOptions::default() };
-        self.session.follow(thread, &follow).await.map(|_| ()).map_err(port)
+        self.session.seat(thread).await.map_err(port)
     }
 
     /// `continueSessionInModel(sessionId, next)`: the quota escape hatch. The selection is adopted
@@ -433,7 +444,8 @@ impl RouteService {
     /// `{ modelSwitch }` with the recorded boundary, else `true` (nothing switched, or the
     /// session moved on while the selection resolved).
     pub async fn continue_session_in_model(&self, thread: &ThreadId, session_id: &str, next: &Obj) -> Result<Value, String> {
-        if session_id.is_empty() || session_id != thread.as_str() {
+        // `!sessionId || !session?.id || session.id !== sessionId`: a runtime without its session has no active one.
+        if session_id.is_empty() || session_id != thread.as_str() || !self.session.has_session(thread).await.map_err(port)? {
             return Err(format!("session {session_id} is not the active session"));
         }
         let lease = Some(self.session.open_lease(thread, None));

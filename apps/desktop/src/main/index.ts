@@ -1391,6 +1391,7 @@ const hostRole = createLocalHostRole({
     // The daemon already confined the path; the lease is owned by the window so it dies with it.
     localPageUrl: (root, rel, scope) =>
       localPageUrl(root, rel, { scope, owner: mainWindow?.webContents, authorize: async () => {} }),
+    trashItem: (path) => shell.trashItem(path),
   }),
   resolveProxy: (url) => session.defaultSession.resolveProxy(url),
   notifications: {

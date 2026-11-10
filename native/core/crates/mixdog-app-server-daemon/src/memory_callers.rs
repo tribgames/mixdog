@@ -124,6 +124,9 @@ mod tests {
         fn new_id(&self) -> String {
             "1".into()
         }
+        fn grants(&self) -> Arc<dyn mixdog_tools::policy::GrantStore> {
+            Arc::new(mixdog_tools::policy::MemoryGrantStore::default())
+        }
     }
 
     async fn caller_of(thread: &str, header: Option<Value>, scope: CallerScope, run: Option<RunInfo>) -> Value {

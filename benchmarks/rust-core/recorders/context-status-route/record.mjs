@@ -10,7 +10,7 @@
 //   (a junction <clone>\node_modules -> the product's node_modules; remove it with `rmdir` before deleting the clone)
 //   node benchmarks/rust-core/recorders/context-status-route/record.mjs --tree <clone>
 // Output: native/core/fixtures/context-status-route/golden.json (+ MANIFEST.json, identity = the commit above, exact)
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -110,6 +110,24 @@ const tokenized = (value) => {
   return JSON.parse(text);
 };
 const steps = tokenized(result.steps);
+// The second session as the seed turn left it: the ids are tokens, the folder paths stay raw (the prompt's token count prices them).
+let storedText = JSON.stringify(result.stored);
+for (const [raw, token] of tokens.slice(0, 2)) storedText = storedText.replaceAll(JSON.stringify(raw).slice(1, -1), token);
+const stored = JSON.parse(storedText);
+
+// Node's own functions on the second session the daemon left, run in a child of this process (sequence-child.mjs): the route
+// change, then the installation's compaction sync and a folder change in both orders, as the live session holds them.
+const SAVED_AFTER = { auto: false };
+// The folder change is the write `applyResolvedCwd` makes on the live session: `session.cwd = <next>`.
+const MOVED_TO = 'C:\\moved-folder';
+const sequenceFile = join(root, 'sequence.json');
+writeFileSync(sequenceFile, JSON.stringify({ provider: PROVIDER, model: MODEL, providers: CONFIG.agent.providers, saved: SAVED_AFTER, movedTo: MOVED_TO, stored: result.stored }));
+const sequenceRun = spawnSync(process.execPath, ['--experimental-transform-types', '--no-warnings', join(HERE, 'sequence-child.mjs'), tree, sequenceFile], { env, cwd: workspace, encoding: 'utf8', maxBuffer: 1 << 28, timeout: 240_000 });
+const sequenceLine = (sequenceRun.stdout || '').split(/\r?\n/).find((l) => l.startsWith('RESULT '));
+if (!sequenceLine) throw new Error(`no sequence result (exit ${sequenceRun.status})\n${sequenceRun.stdout}\n${sequenceRun.stderr}`);
+let sequenceText = sequenceLine.slice(7);
+for (const [raw, token] of tokens.slice(0, 2)) sequenceText = sequenceText.replaceAll(JSON.stringify(raw).slice(1, -1), token);
+const inFlight = JSON.parse(sequenceText);
 
 const rel = 'benchmarks/rust-core/recorders/context-status-route/record.mjs';
 const finalOut = join(FIXTURES_ROOT, 'context-status-route');
@@ -121,6 +139,9 @@ writeJson(join(out, 'golden.json'), {
   route: { provider: PROVIDER, model: MODEL },
   seedPrompt: SEED_PROMPT,
   config: CONFIG,
+  stored,
+  afterRoute: { compaction: result.afterRoute.compaction },
+  inFlight,
   steps,
 });
 writeSetManifest(out, {

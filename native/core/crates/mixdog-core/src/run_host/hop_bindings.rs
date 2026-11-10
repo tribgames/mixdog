@@ -54,7 +54,7 @@ impl WiringSource for ProcessWiring {
     fn facts(&self, provider: &str, model: &str, _adapter: &Arc<dyn ProviderAdapter>) -> ProviderFacts {
         let config = provider_entry(&self.config, provider).unwrap_or_else(|| json!({}));
         let custom = custom_config(&self.config, provider);
-        let cached = cached_row(&self.catalog, &self.config, provider, model).map(Value::Object);
+        let cached = cached_row(&self.catalog, provider, model).map(Value::Object);
         let wire: mixdog_agent::effort::WireEffort = match (is_custom_provider_name(provider), &custom, &cached) {
             // A custom route sends the level its row maps the effort to.
             (true, Some((protocol, base_url)), row) => {

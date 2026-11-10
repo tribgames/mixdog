@@ -68,7 +68,7 @@ struct Endpoint {
 #[async_trait]
 impl CustomEndpoint for Endpoint {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        self.listing.list_models().await
+        self.listing.list_models_within(DISCOVERY_TIMEOUT).await
     }
     fn discovery_error(&self) -> Option<ProviderError> {
         self.listing.discovery_error()
@@ -203,6 +203,97 @@ async fn a_send_that_never_answers_is_thrown_at_twenty_seconds() {
     let failure = CustomProbes::new(host).test(case["input"].clone()).await.unwrap_err();
     assert_eq!(failure.message(), "connection test timed out after 20s");
     assert_eq!(started.elapsed(), Duration::from_secs(20));
+}
+
+/// A refused port and a restricted port (`127.0.0.1:9`) through the real transport, the real listing and the real
+/// send path: the settings page shows what Node's probes recorded (`connect_errors.json` `probes`): `fetch failed` for
+/// the discovery's raw `fetch`, `Connection error.` for the connection test's SDK send.
+#[tokio::test]
+async fn an_unreachable_endpoint_reads_as_node_shows_it() {
+    use super::collaborators::CustomProviders as _;
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let closed = {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        format!("http://{}/v1", listener.local_addr().unwrap())
+    };
+    for (name, base) in [("refused", closed.as_str()), ("badPort", "http://127.0.0.1:9/v1")] {
+        let recorded = &golden["probes"][name];
+        let w = super::custom_admin_tests::world(std::collections::HashMap::new()).await;
+        let input = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });
+        let manual = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789", "schemaVersion": 2, "modelOverrides": { "m-manual": { "manual": true } } });
+        assert_eq!(w.admin.discover_models(input.clone()).await.unwrap(), recorded["discover"]["result"], "{name}: discover");
+        assert_eq!(w.admin.test(input).await.unwrap(), recorded["testDiscovery"]["result"], "{name}: test through discovery");
+        // The send retries on the 1, 2, 4, 8 s ladder before it throws; a refused loopback connect on Windows
+        // takes seconds per attempt and would outlast the 20 s limit, so only the restricted port (no connect) sends
+        // here; the refused send is `a_refused_send_throws_the_sdks_text_after_the_retry_ladder`.
+        if name == "badPort" {
+            let thrown = w.admin.test(manual).await.unwrap_err();
+            assert_eq!(thrown.message(), recorded["testSend"]["thrown"].as_str().unwrap(), "{name}: test send");
+        }
+    }
+}
+
+/// Refuses every send at once, as the link does a closed port, with the text of the exchange's class.
+struct Refusing {
+    sends: Mutex<Vec<mixdog_ai::transport::Surface>>,
+}
+
+#[async_trait]
+impl HttpSend for Refusing {
+    async fn send(&self, _request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        self.sends.lock().unwrap().push(exchange.surface);
+        let mut error = ProviderError::transport(TransportFault::Connect { os_code: Some(111) }, DeliveryState::NotSent);
+        error.message = exchange.surface.text(|| "connect refused".to_owned());
+        Err(error)
+    }
+}
+
+/// The connection test's send over a refusing link, through the real adapter, retry ladder and probe: what Node
+/// recorded (`probes.refused.testSend.thrown`) is thrown once the ladder is spent, and every send went out as the SDK
+/// class. The ladder's waits run on the paused clock.
+#[tokio::test]
+async fn a_refused_send_throws_the_sdks_text_after_the_retry_ladder() {
+    use super::collaborators::CustomProviders as _;
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let link = Arc::new(Refusing { sends: Mutex::new(Vec::new()) });
+    let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(link.clone())).await;
+    let manual = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "apiKey": "sk-DUMMY-probe-secret-0123456789", "schemaVersion": 2, "modelOverrides": { "m-manual": { "manual": true } } });
+    tokio::time::pause();
+    let started = tokio::time::Instant::now();
+    let thrown = w.admin.test(manual).await.unwrap_err();
+    assert_eq!(thrown.message(), golden["probes"]["refused"]["testSend"]["thrown"].as_str().unwrap());
+    let sends = link.sends.lock().unwrap();
+    assert!(sends.len() > 1, "the ladder retried: {}", sends.len());
+    assert!(sends.iter().all(|surface| *surface == mixdog_ai::transport::Surface::Sdk), "{sends:?}");
+    assert!(started.elapsed() < TEST_TIMEOUT, "the ladder ends inside the 20 s limit: {:?}", started.elapsed());
+}
+
+/// A transport whose every request outlives the timer of its exchange, through the link's own `deadline_error`.
+struct TimingOut;
+
+#[async_trait]
+impl HttpSend for TimingOut {
+    async fn send(&self, _request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        let expired = exchange.liveness.bound_head(std::future::pending::<()>()).await.expect_err("the request is never answered");
+        Err(mixdog_ai::transport::link::deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))
+    }
+}
+
+/// The settings page's discovery of an endpoint that never answers, on each protocol, through the real admin stack:
+/// the probe waits its own 60 s (the discovery's timer is the same 60 s and armed after it, so the probe's ends the
+/// wait), and shows what the real Node probe showed (`connect_errors.json` `sites.customOpenaiChatProbe`,
+/// `customAnthropicProbe`).
+#[tokio::test(start_paused = true)]
+async fn a_discovery_that_never_answers_ends_at_the_probes_sixty_seconds_as_node_shows() {
+    use super::collaborators::CustomProviders as _;
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    for (site, protocol, base) in [("customOpenaiChatProbe", "openai-chat", "https://x.test/v1"), ("customAnthropicProbe", "anthropic", "https://x.test")] {
+        let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(Arc::new(TimingOut))).await;
+        let input = json!({ "name": "Probe", "protocol": protocol, "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });
+        let started = tokio::time::Instant::now();
+        assert_eq!(w.admin.discover_models(input).await.unwrap(), golden["sites"][site]["value"], "{site}");
+        assert_eq!(started.elapsed(), Duration::from_secs(60), "{site}");
+    }
 }
 
 #[test]

@@ -166,8 +166,8 @@ impl ExtensionHost for LateExtensionHost {
     async fn current_cwd(&self, thread_id: Option<&str>) -> Result<PathBuf, String> {
         self.get().current_cwd(thread_id).await
     }
-    async fn skills_status(&self) -> Value {
-        self.get().skills_status().await
+    async fn skills_status(&self, thread_id: Option<&str>) -> Value {
+        self.get().skills_status(thread_id).await
     }
     async fn plugin_mcp_summary(&self, thread_id: Option<&str>) -> Result<Value, String> {
         self.get().plugin_mcp_summary(thread_id).await
@@ -261,6 +261,20 @@ impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
         if let Some(directory) = self.0.directory() {
             mixdog_tools::exec::TaskNotifier::finished(&*directory, owner, surface, task_id, status, notification).await;
         }
+    }
+}
+
+/// The sessions' toasts for the MCP service (`SessionToasts`): the session directory is built after the services, so it is read through the late cell.
+pub struct LateSessionToasts(pub Arc<mixdog_core::run_host::compose_parts::LateDirectory>);
+
+impl mixdog_mcp::mcp_service::SessionToasts for LateSessionToasts {
+    /// Before the directory exists no session is served, so nothing addressed it: not closed, and no runtime.
+    fn closed(&self) -> bool {
+        self.0.directory().is_some_and(|directory| mixdog_mcp::mcp_service::SessionToasts::closed(&*directory))
+    }
+
+    fn incarnation(&self, thread: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+        mixdog_mcp::mcp_service::SessionToasts::incarnation(&*self.0.directory()?, thread)
     }
 }
 
@@ -542,6 +556,8 @@ pub struct McpInputs {
     pub surface: Arc<dyn McpSurface>,
     /// The core's scoped feeds: the MCP sign-in flows publish `login:<flowId>` on them.
     pub scoped_feeds: Arc<dyn ScopedFeeds>,
+    /// Where a sign-in or sign-out posts its notice to the session that asked.
+    pub toasts: Arc<dyn mixdog_mcp::mcp_service::SessionToasts>,
     pub bridges: Arc<dyn BridgeFeatures>,
     /// `rt.hooksStatus()`: the one `HookStatus` the doctor reads (`DoctorInputs.hooks`).
     pub hooks: Arc<dyn HooksStatus>,
@@ -605,6 +621,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         glue.clone(),
         Arc::new(McpServerSecrets::new(secret_ops, process_env.clone())),
         home.clone(),
+        inputs.toasts.clone(),
     ));
     let skills = Arc::new(SkillsService::new(
         catalog.clone(),
@@ -713,6 +730,15 @@ mod tests {
 
     struct Quiet;
 
+    impl mixdog_mcp::mcp_service::SessionToasts for Quiet {
+        fn closed(&self) -> bool {
+            false
+        }
+
+        fn incarnation(&self, _: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+            None
+        }
+    }
     #[async_trait]
     impl GmailVerifier for Quiet {
         async fn verify(&self, _: &str, _: &str) -> Result<(), String> {
@@ -823,6 +849,9 @@ mod tests {
         }
         fn new_id(&self) -> String {
             "1".into()
+        }
+        fn grants(&self) -> Arc<dyn mixdog_tools::policy::GrantStore> {
+            Arc::new(mixdog_tools::policy::MemoryGrantStore::default())
         }
     }
     #[async_trait]
@@ -987,6 +1016,7 @@ mod tests {
             verifier: quiet.clone(),
             surface,
             scoped_feeds: feeds.clone(),
+            toasts: quiet.clone(),
             bridges: quiet.clone(),
             hooks: quiet.clone(),
             hook_observer: quiet.clone(),
@@ -1039,15 +1069,21 @@ mod tests {
 
     /// The composed MCP service publishes its sign-in flows on the core's scoped feeds: a sign-in begun
     /// through `mcp/beginMcpOAuthLogin` opens `login:<flowId>`, whose snapshot is what the flow's status read
-    /// answers (a configured server whose address refuses the connection fails the flow at once, so the feed holds
-    /// its final state). A server that is not configured is refused before any flow exists, so it opens no feed.
+    /// answers (a configured server whose address serves no request fails the flow at once, so the feed holds its
+    /// final state). A server that is not configured is refused before any flow exists, so it opens no feed.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_sign_in_begun_through_the_composition_publishes_its_login_feed() {
         let Composed { composed, extensions, feeds, .. } = compose_over(Arc::new(Quiet)).await;
         let owner = composed.mcp_domain.clone();
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/mcp", closed.local_addr().unwrap());
-        drop(closed);
+        // The address hangs up on every connection. A closed port would fail the flow the same way, but each of
+        // the flow's eleven requests then waits two seconds for Windows to refuse the connection.
+        let hangs_up = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", hangs_up.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = hangs_up.accept().await {
+                drop(socket);
+            }
+        });
         let mut agent = extensions.agent();
         agent.insert("mcpServers".to_owned(), serde_json::json!({"remote": {"type": "http", "url": url}}));
         extensions.save_agent(&extensions.agent(), &agent).await.unwrap();

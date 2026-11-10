@@ -182,7 +182,7 @@ impl OAuthProvider for FileOAuth {
     async fn describe(&self, account: &str) -> Value {
         let (id, now) = (self.id, (self.wiring.now_ms)());
         // `CURSOR_ACCESS_TOKEN` stands in for the default account's file only.
-        let token = (id == "cursor-oauth" && account == "default").then(|| self.wiring.env.var("CURSOR_ACCESS_TOKEN")).flatten();
+        let token = (id == "cursor-oauth" && account == "default").then(|| self.wiring.env.key_var("CURSOR_ACCESS_TOKEN")).flatten();
         let path = self.file(account).ok().map(|file| file.path().to_path_buf());
         // The credential file is read on the lane, as the other credential readers do. A read the
         // lane did not run describes the provider as not signed in, as an unreadable file does.
@@ -201,6 +201,15 @@ impl OAuthProvider for FileOAuth {
     }
     async fn forget(&self, account: &str) -> Result<Value, String> {
         forget_file(self.id, &self.file(account)?).await
+    }
+    async fn renew(&self, account: &str, minimum_validity_ms: u64) -> Result<(), String> {
+        if self.id != "anthropic-oauth" {
+            return Err(format!("{} credentials cannot be renewed ahead of use", self.id));
+        }
+        let now = Arc::clone(&self.wiring.now_ms);
+        let session = mixdog_ai::providers::anthropic::OAuthSession::new(self.file(account)?, Arc::clone(&self.wiring.http))
+            .with_clock(Arc::new(move || u64::try_from(now()).unwrap_or(0)));
+        session.ensure_lease(minimum_validity_ms).await.map(drop).map_err(|error| error.message)
     }
     fn login_flow(&self, account: &str) -> Option<Arc<dyn LoginFlow>> {
         let wiring = &self.wiring;

@@ -6,7 +6,7 @@
 //!
 //! The HTTP exchange is the shared `transport::HttpSend` seam.
 
-use crate::transport::deadlines::COMPAT_MODEL_LIST;
+use crate::transport::deadlines::compat_model_list;
 use crate::transport::deadlines::MODEL_STREAM;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -74,6 +74,8 @@ pub struct CompatAdapter {
     /// The wire a roster states per model (the console config's `wire`),
     /// published by the last listing; the user's `modelWires` win over it.
     pub(super) roster_wires: ArcSwap<HashMap<String, Wire>>,
+    /// The rows the last listing stored (`provider._enrichedModels`), which `getCachedModelInfo` answers.
+    pub(super) rows: crate::catalog::RowStore,
 }
 
 /// What the router is told about a model that the profile cannot know: the
@@ -95,6 +97,8 @@ impl CompatAdapter {
         http: Arc<dyn HttpSend>,
         key: Option<Arc<dyn ApiKeySource>>,
     ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         let profile = codec.profile();
         debug_assert_eq!(
             key.is_none(),
@@ -111,6 +115,7 @@ impl CompatAdapter {
             routing: RouteInputs::default(),
             lookup: ListingLookup::new(),
             roster_wires: ArcSwap::from_pointee(HashMap::new()),
+            rows: crate::catalog::RowStore::default(),
         }
     }
 
@@ -282,7 +287,7 @@ pub(super) async fn fetch_json(
                 headers,
                 body: Vec::new(),
             },
-            COMPAT_MODEL_LIST,
+            compat_model_list(profile.id),
         )
         .await?;
     let ok = response.is_success();
@@ -358,5 +363,26 @@ impl ModelStream for CompatStream {
 
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
+    }
+}
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    /// A model list that outlives its timer reads as the real Node function did (`sites.compatModelList`): the
+    /// labelled `"<provider> model list"` timer.
+    #[tokio::test(start_paused = true)]
+    async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
+        let transport = TimingOut::new();
+        let profile = CompatProfile::plain("groq", "http://x.test/v1", CredentialKind::Keyless);
+        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None)
+            .await
+            .expect_err("the endpoint never answers");
+        assert_transport("compatModelList", &transport);
+        assert_thrown("compatModelList", &error.message);
     }
 }

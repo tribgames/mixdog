@@ -13,10 +13,28 @@ pub mod deadlines;
 pub mod fault;
 pub mod http;
 pub mod link;
+pub mod node_http;
+pub mod preconnect;
 pub mod tcp;
 pub mod ws;
+mod wsio;
+
+/// The loopback TLS server and the recording manifest the wire parity checks of every provider share (the Rust half of
+/// `benchmarks/terminal-bench-2.1/analysis/parity/wire-server.mjs`).
+#[cfg(any(test, feature = "test-support"))]
+pub mod loopback;
+#[cfg(any(test, feature = "test-support"))]
+pub mod manifest;
+
+#[cfg(test)]
+pub(crate) mod site_probe;
 
 pub use link::BidiOpen;
+pub use link::ABORTED;
+pub use link::CONNECTION_ERROR;
+pub use link::FETCH_FAILED;
+pub use link::REQUEST_TIMED_OUT;
+pub use link::SIGNAL_TIMED_OUT;
 pub use link::BodyStream;
 pub use link::Exchange;
 pub use link::FrameSink;
@@ -25,6 +43,7 @@ pub use link::HttpSend;
 pub use link::KeepaliveDialer;
 pub use link::Redirect;
 pub use link::ReqwestLink;
+pub use link::Surface;
 pub use link::WsDial;
 pub use link::WsSocket;
 

@@ -43,6 +43,7 @@ use super::model::SessionModel;
 use super::splice::Splice;
 use super::splice::restore_header;
 use super::splice::splice;
+use crate::durable;
 use crate::error::Blocked;
 use crate::framework::ItemContext;
 use crate::json;
@@ -195,24 +196,39 @@ fn decode_record(v: &Value) -> Option<&Map<String, Value>> {
     ok.then_some(r)
 }
 
-/// The dev reader's fold (`dev:session-log-reader.mjs` `parseSessionLog`), strict: a
-/// line it would skip is `parse_error`, a sequence or length break `schema_violation`.
-/// A final line without LF is a torn tail and is excluded.
-pub fn fold_log(id: &str, bytes: &[u8], replaced: &mut u64) -> R<LogFold> {
-    // Every complete line ends with LF; the bytes after the last LF are the torn tail.
-    let lines: Vec<&[u8]> = match bytes.iter().rposition(|&b| b == b'\n') {
-        Some(end) => bytes[..end].split(|&b| b == b'\n').collect(),
-        None => Vec::new(),
-    };
-    let mut accepted: Vec<Map<String, Value>> = Vec::new();
+/// The dev reader's fold (`dev:session-log-reader.mjs` `parseSessionLog`): a line that holds
+/// no record of ours (blank, not JSON, not a record, of an unknown kind) is skipped as Node
+/// skips it, and a sequence or length break ends the replay there, keeping what came before as Node
+/// does; a log with no `session` + `compacted` base is `schema_violation`. A line is decoded as UTF-8
+/// with U+FFFD for invalid bytes, as Node's `toString('utf8')` does; a CR before the LF is JSON
+/// white space. A final line without LF is a torn tail and is excluded.
+///
+/// The log is read one line at a time and folded as it goes: a `compacted` record replaces the
+/// messages, so what is held is the working history plus the longest line, never the file
+/// (a 1.4.5 log repeats the whole history in every `compacted` record and reaches hundreds of
+/// MB). The result is the fold of the bytes read, not yet proven to be the manifest's: the
+/// caller `verify`s the handle before it uses it.
+pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<LogFold> {
+    let mut line = Vec::new();
+    // Lines accepted so far, which is also the sequence number the next one must carry.
+    let mut accepted = 0usize;
     let mut length: u64 = 0;
-    let mut last_compacted = 0usize;
-    for (n, line) in lines.into_iter().enumerate() {
-        let value = parse(line, QuarantineCode::ParseError, &format!("log line {}", n + 1), replaced)?;
-        let Some(record) = decode_record(&value) else {
-            return q(QuarantineCode::ParseError, format!("log line {} is not a record", n + 1));
-        };
-        let expected = accepted.len();
+    let mut base_id = String::new();
+    let mut header = Header::default();
+    let mut legacy = None;
+    let mut messages: Vec<Value> = Vec::new();
+    loop {
+        line.clear();
+        log.read_line_into(&mut line)?;
+        // Every complete line ends with LF; the bytes after the last LF are the torn tail.
+        if line.pop() != Some(b'\n') {
+            break;
+        }
+        let text = String::from_utf8_lossy(&line);
+        let Ok(parsed) = json::parse_source(text.as_bytes()) else { continue };
+        let value = parsed.value;
+        let Some(record) = decode_record(&value) else { continue };
+        let expected = accepted;
         let t = record["t"].as_str().unwrap_or("");
         let misplaced = count_of(record.get("s")) != Some(expected as u64)
             || (expected == 0 && t != "session")
@@ -235,56 +251,58 @@ pub fn fold_log(id: &str, bytes: &[u8], replaced: &mut u64) -> R<LogFold> {
                 _ => Some(length),
             }
         };
-        let Some(next) = next else {
-            return q(
-                QuarantineCode::SchemaViolation,
-                format!("log line {}: {} at sequence {expected}", n + 1, if misplaced { "sequence break" } else { "length mismatch" }),
-            );
-        };
+        // A record that does not follow the history before it is where Node's replay stops (`damage`):
+        // the records before it are the log, the rest is not read.
+        let Some(next) = next else { break };
         length = next;
-        if t == "compacted" {
-            last_compacted = accepted.len();
-        }
-        accepted.push(record.clone());
-    }
-    if accepted.len() < 2 {
-        return q(QuarantineCode::SchemaViolation, "log has no session + compacted base");
-    }
-    let base = &accepted[0];
-    if base["id"].as_str() != Some(id) {
-        return q(
-            QuarantineCode::IdMismatch,
-            format!("log base names {}", base["id"].as_str().unwrap_or("")),
-        );
-    }
-    let mut header = base["header"].as_object().cloned().unwrap_or_default();
-    for r in accepted.iter().filter(|r| r["t"] == "patch") {
-        for k in r["unset"].as_array().into_iter().flatten() {
-            header.shift_remove(k.as_str().unwrap_or(""));
-        }
-        for (k, v) in r["set"].as_object().into_iter().flatten() {
-            header.insert(k.clone(), v.clone());
-        }
-    }
-    let mut messages: Vec<Value> = Vec::new();
-    for r in &accepted[last_compacted..] {
-        let ms = || r["messages"].as_array().cloned().unwrap_or_default();
-        match r["t"].as_str().unwrap_or("") {
-            "compacted" => messages = ms(),
-            "append" => messages.extend(ms()),
-            "edit" => {
-                let at = count_of(r.get("at")).unwrap_or(0) as usize;
-                let del = count_of(r.get("del")).unwrap_or(0) as usize;
-                messages.splice(at..at + del, ms());
+        *replaced += parsed.replaced_surrogates;
+        let t = t.to_owned();
+        let Value::Object(mut record) = value else {
+            unreachable!("decode_record admits only objects");
+        };
+        // `length` is the validated length of `messages`, so every index below is in range.
+        let take_messages = |r: &mut Map<String, Value>| match r.remove("messages") {
+            Some(Value::Array(m)) => m,
+            _ => Vec::new(),
+        };
+        match t.as_str() {
+            "session" => {
+                base_id = record["id"].as_str().unwrap_or("").to_owned();
+                header = match record.remove("header") {
+                    Some(Value::Object(h)) => h,
+                    _ => Header::default(),
+                };
+                legacy = record.get("legacy").and_then(Value::as_object).map(|l| Legacy {
+                    sha1: l["sha1"].as_str().unwrap_or("").to_string(),
+                    redacted_from: l.get("redactedFrom").and_then(Value::as_str).map(str::to_string),
+                });
             }
-            "rollback" => messages.truncate(count_of(r.get("len")).unwrap_or(0) as usize),
+            "compacted" => messages = take_messages(&mut record),
+            "append" => messages.extend(take_messages(&mut record)),
+            "edit" => {
+                let at = count_of(record.get("at")).unwrap_or(0) as usize;
+                let del = count_of(record.get("del")).unwrap_or(0) as usize;
+                messages.splice(at..at + del, take_messages(&mut record));
+            }
+            "rollback" => messages.truncate(count_of(record.get("len")).unwrap_or(0) as usize),
+            "patch" => {
+                for k in record["unset"].as_array().into_iter().flatten() {
+                    header.shift_remove(k.as_str().unwrap_or(""));
+                }
+                for (k, v) in record["set"].as_object().into_iter().flatten() {
+                    header.insert(k.clone(), v.clone());
+                }
+            }
             _ => {}
         }
+        accepted += 1;
     }
-    let legacy = base.get("legacy").and_then(Value::as_object).map(|l| Legacy {
-        sha1: l["sha1"].as_str().unwrap_or("").to_string(),
-        redacted_from: l.get("redactedFrom").and_then(Value::as_str).map(str::to_string),
-    });
+    if accepted < 2 {
+        return q(QuarantineCode::SchemaViolation, "log has no session + compacted base");
+    }
+    if base_id != id {
+        return q(QuarantineCode::IdMismatch, format!("log base names {base_id}"));
+    }
     Ok(LogFold {
         header,
         messages,
@@ -940,16 +958,17 @@ impl Candidate {
 pub fn session_candidates<'a>(
     sessions: impl IntoIterator<Item = (&'a str, &'a [SourceFile])>,
     mut read: impl FnMut(&SourceFile) -> crate::error::Result<Vec<u8>>,
+    mut open: impl FnMut(&SourceFile) -> crate::error::Result<durable::OpenFile>,
 ) -> crate::error::Result<Vec<Candidate>> {
     let mut out = Vec::new();
     for (id, sources) in sessions {
-        let mut bytes = |suffix: &str| {
+        let find = |suffix: &str| {
             let rel = format!("sessions/{id}{suffix}");
-            sources.iter().find(|s| s.path == rel).map(&mut read).transpose()
+            sources.iter().find(|s| s.path == rel)
         };
-        let json = bytes(JSON_SUFFIX)?;
-        let log = bytes(LOG_SUFFIX)?;
-        if let Ok((header, _)) = header_and_messages(id, json.as_deref(), log.as_deref(), &mut 0) {
+        let json = find(JSON_SUFFIX).map(&mut read).transpose()?;
+        let log = find(LOG_SUFFIX).map(&mut open).transpose()?;
+        if let Ok((header, _)) = header_and_messages(id, json.as_deref(), log, &mut 0) {
             out.push(Candidate::of(id, &header));
         }
     }
@@ -1061,6 +1080,7 @@ fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile
                     all = Some(session_candidates(
                         sessions.filter_map(|i| Some((i.key.as_str().strip_prefix("session/")?, i.sources.as_slice()))),
                         |file| cx.read_source(file),
+                        |file| cx.open_source(file),
                     )?);
                 }
                 let Some(owner) = recover_owner(&entry, all.as_deref().unwrap_or_default()) else { continue };
@@ -1201,11 +1221,14 @@ fn message_rows(iids: Vec<String>, messages: Vec<Value>, turn: Option<&str>) -> 
 }
 
 /// Header and messages of a session: its log's when the log wins over its json (`log_wins`).
-fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<&[u8]>, replaced: &mut u64) -> R<(Header, Vec<Value>)> {
+fn header_and_messages(id: &str, json: Option<&[u8]>, log: Option<durable::OpenFile>, replaced: &mut u64) -> R<(Header, Vec<Value>)> {
     match log {
-        Some(log) => {
+        Some(mut log) => {
             let mut log_replaced = 0;
-            let fold = fold_log(id, log, &mut log_replaced)?;
+            let folded = fold_log(id, &mut log, &mut log_replaced);
+            // A log that is not the manifest's is no source, whatever it folded to.
+            log.verify()?;
+            let fold = folded?;
             if log_wins(fold.legacy.as_ref(), json) {
                 *replaced += log_replaced;
                 Ok((fold.header, fold.messages))
@@ -1228,14 +1251,17 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         }
     };
     let json_bytes = read(format!("sessions/{id}{JSON_SUFFIX}"))?;
-    let log_bytes = read(format!("sessions/{id}{LOG_SUFFIX}"))?;
+    let log = match source(item, &format!("sessions/{id}{LOG_SUFFIX}")) {
+        Some(file) => Some(cx.open_source(file)?),
+        None => None,
+    };
     let archive = read(format!("sessions/{id}{ARCHIVE_SUFFIX}"))?;
     let pending = read(format!("sessions/{id}{PENDING_SUFFIX}"))?;
     let ckpt_header = read(format!("turn-checkpoints/{id}.json"))?;
     let ckpt_journal = read(format!("turn-checkpoints/{id}.jsonl"))?;
 
     let (mut header, mut messages) =
-        header_and_messages(id, json_bytes.as_deref(), log_bytes.as_deref(), &mut replaced)?;
+        header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?;
 
     let (archive_rows, superseded) =
         archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced)?;

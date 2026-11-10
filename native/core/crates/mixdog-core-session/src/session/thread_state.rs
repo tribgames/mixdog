@@ -29,6 +29,13 @@ impl SessionDirectory {
     /// change is computed from the header as it stands there and is the next record, so a
     /// concurrent write is neither lost nor raced. Opens the thread as the ports' reads do.
     pub async fn update_header(&self, thread: &ThreadId, update: HeaderUpdate) -> Result<(), CoreError> {
+        self.submit_header_update(thread, update).await?.durable().await
+    }
+
+    /// [`Self::update_header`] split at the actor's mailbox: resolves once the update is accepted into the inbox (queued
+    /// behind whatever the actor is doing), and the returned handle resolves once the change is durable. Lets a caller
+    /// know a write is queued before it releases what the actor waits on.
+    pub async fn submit_header_update(&self, thread: &ThreadId, update: HeaderUpdate) -> Result<PendingHeaderUpdate, CoreError> {
         let ctx = CallContext::internal("ports");
         let handle = self.open_handle(thread, &ctx).await?;
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -37,8 +44,39 @@ impl SessionDirectory {
             .send(super::actor::Inbox::UpdateHeader { update, tx })
             .await
             .map_err(|_| CoreError::Internal { incident_id: "header-update-closed".into() })?;
+        Ok(PendingHeaderUpdate(rx))
+    }
+
+    /// [`Self::update_header`] over a step that awaits its outside reads on the actor: the actor handles nothing else
+    /// while it waits, so every other header write queues behind this one.
+    pub async fn update_header_awaiting(&self, thread: &ThreadId, update: super::actor::AwaitingHeaderUpdate) -> Result<(), CoreError> {
+        let ctx = CallContext::internal("ports");
+        let handle = self.open_handle(thread, &ctx).await?;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        handle
+            .inbox
+            .send(super::actor::Inbox::UpdateHeaderAwaiting { update, tx })
+            .await
+            .map_err(|_| CoreError::Internal { incident_id: "header-update-closed".into() })?;
         rx.await.map_err(|_| CoreError::Internal { incident_id: "header-update-dropped".into() })??;
         Ok(())
+    }
+}
+
+/// A header update accepted into a thread's inbox, not yet durable.
+pub struct PendingHeaderUpdate(tokio::sync::oneshot::Receiver<Result<Reply, CoreError>>);
+
+impl PendingHeaderUpdate {
+    /// Resolves once the change is durable (or refused).
+    pub async fn durable(self) -> Result<(), CoreError> {
+        self.0.await.map_err(|_| CoreError::Internal { incident_id: "header-update-dropped".into() })??;
+        Ok(())
+    }
+
+    /// Whether the actor has not answered yet. An answer that is already there is taken by this check, so it is for a
+    /// caller that treats an early answer as a failure.
+    pub fn still_waiting(&mut self) -> bool {
+        matches!(self.0.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty))
     }
 }
 

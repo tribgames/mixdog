@@ -215,7 +215,10 @@ impl Sessions for AgentSessions {
         covered.push(session_id.to_owned());
         let _cancelling = self.registry.begin_cancellation(&covered);
         let thread = ThreadId::from(session_id);
-        if !matches!(crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await, Ok(true)) {
+        // `Ok(false)`: the record is already gone (deleted), which Node's close counts as closed
+        // (`finishClose`, `outcome.absent`), so releasing the tag of a deleted session goes on to
+        // forget the row and the tag can start a fresh session.
+        if crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
             return false;
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
@@ -260,18 +263,25 @@ mod tests {
     #[tokio::test]
     async fn a_teardown_closes_the_workers_before_it_cancels_the_descendants() {
         let log = std::sync::Mutex::new(Vec::new());
-        let cancelled = teardown_in_order(
+        let (started, close_started) = tokio::sync::oneshot::channel();
+        let (finish, finish_close) = tokio::sync::oneshot::channel::<()>();
+        let mut teardown = std::pin::pin!(teardown_in_order(
             async {
-                tokio::task::yield_now().await;
+                started.send(()).unwrap();
+                finish_close.await.unwrap();
                 log.lock().unwrap().push("close_all");
             },
             async {
                 log.lock().unwrap().push("cancel_descendants");
                 true
             },
-        )
-        .await;
-        assert!(cancelled);
+        ));
+        // The close has begun and is held: a teardown running both at once would have logged the cancel by now.
+        assert!(futures::poll!(teardown.as_mut()).is_pending());
+        crate::session::testing::awaiting(|| "the close to begin".to_owned(), close_started).await.unwrap();
+        assert!(log.lock().unwrap().is_empty(), "the descendants wait for the close");
+        finish.send(()).unwrap();
+        assert!(crate::session::testing::awaiting(|| "the teardown to end once the close has".to_owned(), teardown).await);
         assert_eq!(*log.lock().unwrap(), ["close_all", "cancel_descendants"]);
     }
 }

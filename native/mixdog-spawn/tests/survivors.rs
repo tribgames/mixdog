@@ -4,11 +4,11 @@
 mod common;
 
 use std::time::Duration;
-use std::time::Instant;
 
 use common::*;
 use mixdog_core_api::domain::process::CommandSpec;
 use mixdog_spawn::survivors::ProcessSurvivors;
+use tokio_util::sync::CancellationToken;
 
 /// A command whose root exits at once, leaving a long sleeper that does not hold its output.
 fn leaves_a_sleeper() -> CommandSpec {
@@ -32,8 +32,16 @@ async fn run_and_find_sleeper(
     m: &mixdog_spawn::LocalProcessManager,
     h: &mixdog_protocol::ProcessHandle,
 ) -> u32 {
+    run_and_find(m, h, leaves_a_sleeper()).await
+}
+
+async fn run_and_find(
+    m: &mixdog_spawn::LocalProcessManager,
+    h: &mixdog_protocol::ProcessHandle,
+    command: CommandSpec,
+) -> u32 {
     use mixdog_core_api::domain::process::ProcessManager;
-    m.spawn(request(h, leaves_a_sleeper())).await.unwrap();
+    m.spawn(request(h, command)).await.unwrap();
     let (bytes, _) = collect(m, h).await;
     let out = text(&bytes);
     let at = out.find("CHILD=").expect("the command printed its child");
@@ -61,17 +69,18 @@ async fn a_survivor_is_listed_and_its_end_wakes_the_waiter() {
 
     let waiter = tokio::spawn({
         let (watch, h) = (watch.clone(), h.clone());
-        async move { watch.wait_gone(&h).await }
+        async move { watch.wait_gone(&h, &CancellationToken::new()).await }
     });
     // Nothing ends while the sleeper runs, however long the waiter has been parked.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(!waiter.is_finished(), "the waiter returned with a survivor running");
+    let mut waiter = waiter;
+    assert!(tokio::time::timeout(Duration::from_millis(300), &mut waiter).await.is_err(), "the waiter returned with a survivor running");
 
     end_externally(sleeper);
-    tokio::time::timeout(Duration::from_secs(10), waiter)
+    let confirmed = tokio::time::timeout(Duration::from_secs(10), waiter)
         .await
         .expect("the survivor's end wakes the waiter")
         .unwrap();
+    assert!(confirmed, "the end of the last survivor is a confirmation");
     assert_eq!(watch.survivors(&h), None);
 }
 
@@ -83,12 +92,49 @@ async fn kill_ends_the_survivors_and_a_second_look_finds_none() {
     let sleeper = run_and_find_sleeper(&m, &h).await;
     assert!(watch.survivors(&h).is_some());
     assert!(watch.kill(&h).await, "a fresh look finds every survivor gone");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while pid_alive(sleeper) {
-        assert!(Instant::now() < deadline, "the sleeper survived the kill");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    assert!(!pid_alive(sleeper), "the sleeper survived the kill");
     assert_eq!(watch.survivors(&h), None);
     // Nothing left: waiting returns at once.
-    tokio::time::timeout(Duration::from_secs(2), watch.wait_gone(&h)).await.expect("nothing to wait for");
+    let confirmed = tokio::time::timeout(Duration::from_secs(2), watch.wait_gone(&h, &CancellationToken::new())).await.expect("nothing to wait for");
+    assert!(confirmed);
+}
+
+/// An abort ends the wait with `false` (`waitForShellDescendants`), not with a confirmation: the survivor is still there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_abort_ends_the_wait_unconfirmed_and_leaves_the_survivor_running() {
+    let m = manager();
+    let watch = ProcessSurvivors::new(m.clone());
+    let h = handle("survivor-abort");
+    let sleeper = run_and_find_sleeper(&m, &h).await;
+    let abort = CancellationToken::new();
+    let waiter = tokio::spawn({
+        let (watch, h, abort) = (watch.clone(), h.clone(), abort.clone());
+        async move { watch.wait_gone(&h, &abort).await }
+    });
+    abort.cancel();
+    let confirmed = tokio::time::timeout(Duration::from_secs(10), waiter).await.expect("the abort ends the wait").unwrap();
+    assert!(!confirmed, "an aborted wait confirms nothing");
+    assert!(pid_alive(sleeper), "aborting a wait does not touch the survivor");
+    assert!(watch.survivors(&h).is_some());
+    assert!(!watch.wait_gone(&h, &abort).await, "an abort already raised answers false at once");
+    end_externally(sleeper);
+}
+
+/// The cancel's own schedule (`killShellDescendants`): SIGTERM to the group first, and a survivor that ignores it is ended by
+/// the forced stop that follows, so the kill still reports every one gone.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_survivor_that_ignores_sigterm_is_ended_by_the_forced_stop() {
+    let m = manager();
+    let watch = ProcessSurvivors::new(m.clone());
+    let h = handle("survivor-ignores-term");
+    let ignoring = CommandSpec::Shell {
+        script: "(trap '' TERM; exec sleep 90) >/dev/null 2>&1 & echo CHILD=$!".to_owned(),
+        shell: None,
+    };
+    let sleeper = run_and_find(&m, &h, ignoring).await;
+    assert!(watch.survivors(&h).is_some());
+    assert!(watch.kill(&h).await, "the forced stop ends what SIGTERM did not");
+    assert!(!pid_alive(sleeper), "the sleeper survived the kill");
+    assert_eq!(watch.survivors(&h), None);
 }

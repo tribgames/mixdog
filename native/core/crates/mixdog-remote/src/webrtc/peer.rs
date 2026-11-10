@@ -73,11 +73,7 @@ impl PeerBudget {
     /// Runs `work`; when it outlasts the budget or the connection was closed, drops it and
     /// reports a fault naming `what`.
     pub(crate) async fn step<T>(&self, what: &'static str, work: impl Future<Output = T>) -> Result<T, PeerFault> {
-        // A std deadline: `Scope` puts it on the tokio clock itself (its distance from the std clock now,
-        // added to the tokio clock now). Converting a tokio instant to std here left that distance short by
-        // the real time that passed, so a paused test clock fired the step early.
-        let deadline = std::time::Instant::now() + STEP_BUDGET;
-        match Scope::new().cancel(&self.cancel).deadline(Some(deadline)).run(work).await {
+        match Scope::new().cancel(&self.cancel).within(STEP_BUDGET).run(work).await {
             Scoped::Done(out) => Ok(out),
             Scoped::Cancelled => Err(PeerFault::new(PeerFailure::PeerHostUnavailable, "connection closed")),
             Scoped::DeadlineExceeded => {

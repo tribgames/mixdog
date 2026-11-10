@@ -3,6 +3,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_api::turn_review::ReviewContent;
@@ -57,9 +58,16 @@ pub trait ReviewWorktrees: Send + Sync {
     async fn create(&self, worktree: &str) -> Option<Arc<dyn WorktreeBase>>;
     /// `noteTurnWorktreeChange(paths)`: a boundary signal; `None` means anything may have changed.
     fn note_change(&self, paths: Option<&[String]>);
+    /// `onTurnReviewChanged(listener)`: the listener runs once after the task that stamped a worktree
+    /// or changed a snapshot's review.
+    fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn Fn() -> bool + Send + Sync>;
     /// `canonicalPath(path)`: the path with the symlinks of its nearest existing ancestor
     /// resolved, spelled the way Git reports the root.
     fn canonical_path(&self, path: &str) -> String;
+    /// Resolves once every review signal raised so far has reached its listeners (what a Node caller gets from one `await` after the
+    /// signal's task). Only a worktree port that dispatches signals has anything to wait for.
+    #[cfg(any(test, feature = "test-support"))]
+    async fn review_signal_settled(&self) {}
 }
 
 pub struct GitRun {
@@ -80,12 +88,35 @@ pub trait ReviewGit: Send + Sync {
 }
 
 /// What runGitOffThread takes besides the arguments.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct GitOptions {
     /// nv: { GIT_INDEX_FILE }: the scratch index a command reads and writes.
     pub index_file: Option<std::path::PathBuf>,
     /// maxBytes: output past it fails the run with [OUTPUT_OVERFLOW].
     pub max_bytes: Option<u64>,
+    /// timeoutMs: the child is killed and the run fails once it has run this long.
+    pub timeout: Duration,
+}
+
+impl Default for GitOptions {
+    fn default() -> Self {
+        Self { index_file: None, max_bytes: None, timeout: COMMAND_TIMEOUT }
+    }
+}
+
+/// `COMMAND_TIMEOUT_MS` of `turn-worktree-snapshot.mjs`: every shadow-repository command.
+pub const COMMAND_TIMEOUT: Duration = Duration::from_millis(30_000);
+/// The `timeoutMs: 300_000` of `scheduleShadowGc`.
+pub const GC_TIMEOUT: Duration = Duration::from_millis(300_000);
+/// `APPLY_TIMEOUT_MS` of `turn-changes.mjs`: the Git reads and the apply of an Undo/Reapply.
+pub const APPLY_TIMEOUT: Duration = Duration::from_millis(60_000);
+/// The `timeoutMs: 10_000` of `ignoredChangePaths` (`turn-snapshot.mjs`).
+pub const IGNORED_PATHS_TIMEOUT: Duration = Duration::from_millis(10_000);
+
+impl GitOptions {
+    pub fn timeout(timeout: Duration) -> Self {
+        Self { timeout, ..Self::default() }
+    }
 }
 
 /// The Err of a run whose output passed maxBytes (Node's EMAXBUFFER).

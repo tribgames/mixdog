@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-shipped-retirement.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1310297,
+      "path": "twin.json",
+      "sha256": "7d22918ac10d0168c93c2bacd9d0f43c1ad85a39927cca9823bd9b52121d04be"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shipped-retirement.mjs",
+  "set": "shipped-retirement",
+  "totalBytes": 1310297
+}

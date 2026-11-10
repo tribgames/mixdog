@@ -393,6 +393,9 @@ pub enum QueueAction {
     /// The entry of a queued `qid` is replaced in place (it keeps its queue position): Node
     /// edits a queued entry's `content` where it stands.
     Update,
+    /// The entry of a queued `qid` is replaced and moves to the front of the queue: Node's
+    /// `prioritizeQueued` splices the entry out of the pending list and puts it first, at priority `now`.
+    Prioritize,
     Dequeue,
 }
 

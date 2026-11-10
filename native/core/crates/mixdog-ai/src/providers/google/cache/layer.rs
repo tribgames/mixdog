@@ -6,7 +6,7 @@
 //! ([`CacheRuntime`]) runs the detached create and the delayed delete.
 
 use crate::transport::deadlines::CACHE_CREATE;
-use crate::transport::deadlines::NODE_DISPATCHER;
+use crate::transport::deadlines::CACHE_DELETE;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -48,6 +48,7 @@ use super::registry::Create;
 use super::registry::DELETE_GRACE_MS;
 use super::registry::Registry;
 use mixdog_core_api::domain::provider::ProviderState;
+use crate::transport::BodyStream;
 use crate::transport::HttpSend;
 use crate::transport::TransportKind;
 
@@ -79,7 +80,34 @@ pub struct Answer {
     pub cache_name: Option<String>,
     /// `Some` when the state changed (an attach, create or refresh).
     pub state: Option<ProviderState>,
+    /// The connection of the create this caller made, held until the caller has sent the request it asked for.
+    pub held: HeldConnection,
 }
+
+/// A read answer whose connection stays out of the pool until the next request to its origin has its connection, or
+/// this is dropped: Node's caller reads the create's
+/// answer and sends its generate call on the same turn of the event loop, before undici has handed the create's socket
+/// back, so the generate call goes out on another connection ([`crate::transport::HttpResponse::read_all_held`]).
+#[derive(Default)]
+pub struct HeldConnection(Option<Box<dyn BodyStream>>);
+
+impl std::fmt::Debug for HeldConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "HeldConnection(held)" } else { "HeldConnection(none)" })
+    }
+}
+
+/// A held connection is not part of what an answer says.
+impl PartialEq for HeldConnection {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for HeldConnection {}
+
+/// Where the create task leaves its answer's held connection for the caller that owns the create.
+type HeldSlot = Arc<std::sync::Mutex<Option<Box<dyn BodyStream>>>>;
 
 pub struct ExplicitCache {
     api_key: String,
@@ -92,6 +120,12 @@ pub struct ExplicitCache {
 }
 
 impl ExplicitCache {
+    /// The Gemini API's clock: the one time source of the cache layer (`CacheRuntime::now_ms`), which the dated
+    /// model redirects read too (`this._now`).
+    pub(in crate::providers::google) fn now_ms(&self) -> u64 {
+        self.runtime.now_ms()
+    }
+
     pub fn new(
         api_key: impl Into<String>,
         origin: impl Into<String>,
@@ -112,6 +146,20 @@ impl ExplicitCache {
         }
     }
 
+    /// The same cache, serving the key a request is sent with: Node reads the key per send (`_getApiKey()`), and
+    /// the cache it makes, finds and drops belongs to that key's fingerprint.
+    pub fn keyed(&self, api_key: &str) -> Self {
+        Self {
+            fingerprint: policy::credential_fingerprint(api_key),
+            api_key: api_key.to_owned(),
+            origin: self.origin.clone(),
+            http: self.http.clone(),
+            runtime: self.runtime.clone(),
+            registry: self.registry.clone(),
+            tuning: self.tuning,
+        }
+    }
+
     /// The key was rejected (401): every cache made under it is unusable
     /// (`_invalidateGeminiCachesForCredentialFingerprint`).
     pub fn forget_credential(&self) {
@@ -124,24 +172,26 @@ impl ExplicitCache {
     }
 
     fn wire(&self, method: &str, url: String, body: Vec<u8>) -> WireRequest {
-        let mut headers = vec![("x-goog-api-key".to_owned(), self.api_key.clone())];
+        // `geminiApiHeaders(apiKey, json)` (gemini.mjs:93-95): `Content-Type` first when there is a body, then the key.
+        let mut headers = Vec::new();
         if !body.is_empty() {
-            headers.push(("content-type".to_owned(), "application/json".to_owned()));
+            headers.push(("Content-Type".to_owned(), "application/json".to_owned()));
         }
+        headers.push(("x-goog-api-key".to_owned(), self.api_key.clone()));
         WireRequest { transport: TransportKind::Http1, method: method.into(), url, headers, body }
     }
 
     /// `_ensureGeminiCache`.
     pub async fn ensure(&self, ask: Ask<'_>) -> Answer {
-        let none = Answer { cache_name: None, state: None };
+        let none = || Answer { cache_name: None, state: None, held: HeldConnection::default() };
         if self.tuning.disabled {
-            return none;
+            return none();
         }
         let state = ask.state.and_then(|s| s.gemini.as_ref());
         let now = self.runtime.now_ms();
         let decision =
             policy::decide(state, ask.model, &self.fingerprint, &ask.request, ask.iteration, now, &self.tuning);
-        let attached = || Answer { cache_name: state.filter(|_| decision.can_attach).map(|s| s.cache_name.clone()), state: None };
+        let attached = || Answer { cache_name: state.filter(|_| decision.can_attach).map(|s| s.cache_name.clone()), state: None, held: HeldConnection::default() };
         if decision.can_reuse {
             return attached();
         }
@@ -151,7 +201,7 @@ impl ExplicitCache {
             return attached();
         }
         if self.api_key.is_empty() || policy::explicit_cache_min_tokens(ask.model).is_none() {
-            return none;
+            return none();
         }
         if policy::prefix_below_minimum(ask.model, &ask.request) {
             return attached();
@@ -166,6 +216,7 @@ impl ExplicitCache {
                 gemini: Some(entry.attach(ask.iteration)),
                 rest: ask.state.map(|s| s.rest.clone()).unwrap_or_default(),
             }),
+            held: HeldConnection::default(),
         };
         match self.registry.claim(&key, now) {
             Claim::Live(entry) => adopted(&entry),
@@ -180,9 +231,13 @@ impl ExplicitCache {
             }
             Claim::Own { done, wait } => {
                 let prior = state.map(|s| s.cache_name.clone());
-                let made = self.own_create(&key, ask.model, &ask.request, count, hash, prior, done, wait).await;
+                let held: HeldSlot = Arc::default();
+                let made = self.own_create(&key, ask.model, &ask.request, count, hash, prior, done, wait, held.clone()).await;
+                let held = HeldConnection(held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
                 // A failed refresh must not silently keep a cache that may have expired.
-                made.map_or(none, |entry| adopted(&entry))
+                let mut answer = made.map_or_else(none, |entry| adopted(&entry));
+                answer.held = held;
+                answer
             }
         }
     }
@@ -200,6 +255,7 @@ impl ExplicitCache {
         prior: Option<String>,
         done: oneshot::Sender<Option<CacheEntry>>,
         wait: Create,
+        held: HeldSlot,
     ) -> Option<CacheEntry> {
         let body = policy::create_body(model, &self.tuning, request, count);
         let job = CreateJob {
@@ -217,6 +273,7 @@ impl ExplicitCache {
             post: self.wire("POST", format!("{}/v1beta/cachedContents", self.origin), body.to_string().into_bytes()),
             delete_headers: self.wire("DELETE", String::new(), Vec::new()).headers,
             guard: FlightGuard { registry: self.registry.clone(), key: key.to_owned(), armed: true },
+            held,
         };
         self.runtime.spawn(job.run(done).boxed());
         wait.await.ok().flatten()
@@ -237,6 +294,11 @@ fn create_retry_policy(tuning: &Tuning) -> RetryPolicy {
     policy
 }
 
+/// The line `_createGeminiCache` writes to stderr when the create fails (`gemini.mjs:596`).
+fn log_create_failure(message: &str) {
+    mixdog_rt::node_stderr!("[gemini] cachedContents.create error: {message}");
+}
+
 struct CreateJob {
     http: Arc<dyn HttpSend>,
     runtime: Arc<dyn CacheRuntime>,
@@ -252,6 +314,8 @@ struct CreateJob {
     post: WireRequest,
     delete_headers: Vec<(String, String)>,
     guard: FlightGuard,
+    /// Where the accepted answer's connection is left for the caller that owns the create.
+    held: HeldSlot,
 }
 
 /// Frees the key if the create's task is dropped before it finished (runtime
@@ -286,7 +350,10 @@ impl CreateJob {
         let deadline = self.runtime.deadline(self.tuning.create_total_ms as u64);
         let entry = match select(Box::pin(self.create()), deadline).await {
             Either::Left((entry, _)) => entry,
-            Either::Right(((), _)) => None,
+            Either::Right(((), _)) => {
+                log_create_failure(&format!("Gemini cachedContents.create total timed out after {}ms", self.tuning.create_total_ms as u64));
+                None
+            }
         };
         self.registry.finish(&self.key, entry, done, self.runtime.now_ms());
         self.guard.disarm();
@@ -299,21 +366,28 @@ impl CreateJob {
     async fn create(&self) -> Option<CacheEntry> {
         let policy = create_retry_policy(&self.tuning);
         let mut state = RetryState::new(RetryClass::Request, self.model.clone());
+        let mut attempt = 0_u32;
         let (name, token_size) = loop {
+            attempt += 1;
             let deadline = self.runtime.deadline(self.tuning.create_attempt_ms as u64);
             let error = match select(Box::pin(self.post_once()), deadline).await {
                 Either::Left((Ok(made), _)) => break made,
                 Either::Left((Err(error), _)) => error,
-                // `ProviderTimeoutError`: a transient transport fact.
+                // `ProviderTimeoutError`: a transient transport fact, worded by the attempt's timer (`withRetry`).
                 Either::Right(((), _)) => {
-                    ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous)
+                    let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous);
+                    error.message = format!("Gemini cachedContents.create attempt {attempt} timed out after {}ms", self.tuning.create_attempt_ms as u64);
+                    error
                 }
             };
             let decision = StandardRetryDecider.verdict(&error, &state, &policy, random_samples());
             state = decision.next;
             match decision.verdict {
                 Verdict::Retry { delay, .. } => self.runtime.deadline(delay.as_millis() as u64).await,
-                _ => return None,
+                _ => {
+                    log_create_failure(&error.message);
+                    return None;
+                }
             }
         };
         let now = self.runtime.now_ms();
@@ -338,9 +412,15 @@ impl CreateJob {
         let response = self.http.send(self.post.clone(), CACHE_CREATE).await?;
         if !response.is_success() {
             let rejected = response.read_all().await?;
-            return Err(classify(&rejected, ErrorDialect { capacity_by_status: false }));
+            let mut error = classify(&rejected, ErrorDialect { capacity_by_status: false });
+            // `geminiRestError`'s message, which the create's catch writes to stderr.
+            let text = String::from_utf8_lossy(&rejected.body);
+            error.message = format!("Gemini cachedContents.create {}: {}", rejected.status.unwrap_or(0), mixdog_js::slice_utf16(&text, 300));
+            return Err(error);
         }
-        let body = response.read_all().await?.body;
+        let (read, connection) = response.read_all_held().await?;
+        *self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(connection);
+        let body = read.body;
         let unreadable = || ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
         let data: Value = serde_json::from_slice(&body).map_err(|_| unreadable())?;
         let name = data
@@ -375,7 +455,7 @@ impl CreateJob {
                 if registry.name_is_live(&name, clock.now_ms()) {
                     return;
                 }
-                let _ = http.send(request, NODE_DISPATCHER).await;
+                let _ = http.send(request, CACHE_DELETE).await;
             }
             .boxed(),
         );

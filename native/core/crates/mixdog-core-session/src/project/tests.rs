@@ -506,6 +506,9 @@ async fn every_recorded_step_equals_nodes_over_real_state() {
     r.folders.push(("solo-wt".to_owned(), solo.clone()));
     std::fs::write(solo.join("wip.txt"), "wip\n").unwrap();
     let remove = "project/removeWorktree";
+    rig.state.lock().unwrap().turn_running = true;
+    r.step("remove: session runs a turn", remove, json!({ "threadId": "lead", "input": { "force": true } }), true).await;
+    rig.state.lock().unwrap().turn_running = false;
     r.step("remove: stale revision", remove, json!({ "threadId": "lead", "input": { "expectedRevision": 99 } }), true).await;
     r.step("remove: dirty without force", remove, json!({ "threadId": "lead", "input": {} }), true).await;
     r.step("remove: session works there", remove, json!({ "threadId": "lead", "input": { "force": true } }), true).await;

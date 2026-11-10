@@ -309,6 +309,8 @@ pub struct Owed {
     /// `markUnattendedRun`'s registry over the late run stamps (`UnattendedRunRegistry::new(Arc::new(LateRunStamps(directory)))`): the setup tool's held
     /// requests read it before the path exists, so the composition builds it and the path takes it.
     pub unattended: Arc<super::unattended::UnattendedRunRegistry>,
+    /// Where a run's approval asks go (see `TurnPathParts::approvals`).
+    pub approvals: Arc<dyn super::run_approvals::RunApprovals>,
     /// The one set of tool exclusions (see `TurnPathParts::exclusions`).
     pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
     pub tokens: LaneTokens,
@@ -363,6 +365,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         connectors: owed.connectors,
         resolver: ready.resolver,
         unattended: owed.unattended.clone(),
+        approvals: owed.approvals,
         exclusions: owed.exclusions.clone(),
         agents: owed.agents,
         allow_all: ready.allow_all,

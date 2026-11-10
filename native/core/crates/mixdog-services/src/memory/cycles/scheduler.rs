@@ -58,6 +58,8 @@ struct Inner {
     /// `mainConfig`: the memory section as the last tick read it.
     main_config: Mutex<Value>,
     in_flight: Mutex<Option<(u64, Shared1)>>,
+    /// The task of the latest run, which an abandoned shutdown aborts.
+    run_task: Mutex<Option<tokio::task::AbortHandle>>,
     next_run: Mutex<u64>,
     tick: Mutex<Tick>,
     checking: AtomicBool,
@@ -109,6 +111,7 @@ impl CycleScheduler {
             tick_every: TICK,
             main_config: Mutex::new(Value::Null),
             in_flight: Mutex::new(None),
+            run_task: Mutex::new(None),
             next_run: Mutex::new(0),
             tick: Mutex::new(Tick { active: false, started_at: 0, stop: None, task: None }),
             checking: AtomicBool::new(false),
@@ -185,18 +188,50 @@ impl CycleScheduler {
         self.0.runner.retries().cancel_all();
     }
 
-    /// Daemon shutdown: [`Self::stop_cycles`], then the run in progress is cancelled and awaited.
+    /// Daemon shutdown: [`Self::stop_cycles`], then the run in progress is cancelled and awaited. A shutdown abandoned while it waits ends the tick it took
+    /// (the run in flight stays reachable for [`Self::abandon`]).
     pub async fn shutdown(&self) {
         self.stop_cycles();
         self.0.shutdown.cancel();
         let task = self.0.tick.lock().expect("tick").task.take();
         if let Some(task) = task {
+            let _abandoned = crate::memory::AbortOnDrop(task.abort_handle());
             let _ = task.await;
         }
         let running = self.0.in_flight.lock().expect("in flight").as_ref().map(|(_, run)| run.clone());
         if let Some(run) = running {
             let _ = run.await;
         }
+    }
+
+    /// The stop's bound passed while [`Self::shutdown`] waited: the tick and the run in flight are aborted, whatever they were waiting on.
+    pub fn abandon(&self) {
+        self.stop_cycles();
+        self.0.shutdown.cancel();
+        let tick = self.0.tick.lock().expect("tick").task.take();
+        if let Some(tick) = tick {
+            tick.abort();
+        }
+        let run = self.0.run_task.lock().expect("run task").take();
+        if let Some(run) = run {
+            run.abort();
+        }
+    }
+
+    /// A run in flight that ends only when the returned sender sends (or is dropped, then with an error): the scheduler's shutdown and abandon over a
+    /// run held as long as a test wants, without a database.
+    #[cfg(test)]
+    pub(crate) fn hold_run(&self) -> tokio::sync::oneshot::Sender<()> {
+        use futures::FutureExt as _;
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let task = spawn_work_value("memory-cycle1-run", async move {
+            let _ = held.await;
+            Err("released".to_owned())
+        });
+        *self.0.run_task.lock().expect("run task") = Some(task.abort_handle());
+        let shared: Shared1 = async move { task.await.unwrap_or_else(|e| Err(e.to_string())) }.boxed().shared();
+        *self.0.in_flight.lock().expect("in flight") = Some((0, shared));
+        release
     }
 
     /// `resetInFlight`: a later start begins from a clean slate.
@@ -320,6 +355,7 @@ impl Inner {
             }
             outcome
         });
+        *self.run_task.lock().expect("run task") = Some(task.abort_handle());
         let shared: Shared1 = async move { task.await.unwrap_or_else(|e| Err(e.to_string())) }.boxed().shared();
         *self.in_flight.lock().expect("in flight") = Some((id, shared.clone()));
         let _ = registered.send(());

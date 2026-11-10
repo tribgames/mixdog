@@ -372,11 +372,28 @@ impl ComputerSessionPool {
 pub struct ReapingShells {
     shells: Arc<dyn OwnedShells>,
     computer: Arc<ComputerSessionPool>,
+    /// The releases still running, for the tests to await.
+    #[cfg(test)]
+    releases: Mutex<Vec<tokio::task::JoinHandle<bool>>>,
 }
 
 impl ReapingShells {
     pub fn new(shells: Arc<dyn OwnedShells>, computer: Arc<ComputerSessionPool>) -> Self {
-        Self { shells, computer }
+        Self {
+            shells,
+            computer,
+            #[cfg(test)]
+            releases: Mutex::default(),
+        }
+    }
+
+    /// Returns once every release started so far has ended.
+    #[cfg(test)]
+    async fn released(&self) {
+        let tasks = std::mem::take(&mut *self.releases.lock().unwrap_or_else(PoisonError::into_inner));
+        for task in tasks {
+            mixdog_core_session::session::testing::awaiting(|| "a session's computer release to end".to_owned(), task).await.expect("a session's computer release");
+        }
     }
 }
 
@@ -384,7 +401,9 @@ impl OwnedShells for ReapingShells {
     fn cancel_owned(&self, owner: &ThreadId) {
         self.shells.cancel_owned(owner);
         let (computer, session) = (self.computer.clone(), owner.as_str().to_owned());
-        tokio::spawn(async move { computer.release(&session).await });
+        let _release = tokio::spawn(async move { computer.release(&session).await });
+        #[cfg(test)]
+        self.releases.lock().unwrap_or_else(PoisonError::into_inner).push(_release);
     }
 }
 
@@ -396,21 +415,40 @@ impl OwnedShells for ReapingShells {
 pub struct SettlingSnapshots {
     snapshots: Arc<dyn TurnSnapshots>,
     computer: Arc<ComputerSessionPool>,
+    /// The settlements still running, for the tests to await.
+    #[cfg(test)]
+    settlements: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl SettlingSnapshots {
     pub fn new(snapshots: Arc<dyn TurnSnapshots>, computer: Arc<ComputerSessionPool>) -> Self {
-        Self { snapshots, computer }
+        Self {
+            snapshots,
+            computer,
+            #[cfg(test)]
+            settlements: Mutex::default(),
+        }
+    }
+
+    /// Returns once every settlement started so far has ended.
+    #[cfg(test)]
+    async fn settled(&self) {
+        let tasks = std::mem::take(&mut *self.settlements.lock().unwrap_or_else(PoisonError::into_inner));
+        for task in tasks {
+            mixdog_core_session::session::testing::awaiting(|| "a turn's computer settlement to end".to_owned(), task).await.expect("a turn's computer settlement");
+        }
     }
 }
 
 impl TurnSnapshots for SettlingSnapshots {
     fn turn_settled(&self, thread: &ThreadId) {
         let (computer, session) = (self.computer.clone(), thread.as_str().to_owned());
-        tokio::spawn(async move {
+        let _settlement = tokio::spawn(async move {
             computer.end_execution(&session).await;
             computer.defer_release(&session);
         });
+        #[cfg(test)]
+        self.settlements.lock().unwrap_or_else(PoisonError::into_inner).push(_settlement);
         self.snapshots.turn_settled(thread);
     }
 
@@ -599,19 +637,6 @@ mod tests {
         assert!(paths(&[], &[], None).computer_sessions(manager(), plain(), quiet()).await.is_none());
     }
 
-    /// Node keeps the helper's state per request session: two threads never share a backend, a
-    /// thread keeps its own across calls, a request naming no thread is the `default` session, and
-    /// a released session starts over with fresh state.
-    async fn eventually(mut done: impl FnMut() -> bool) {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !done() {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the spawned step ran");
-    }
-
     struct Shells(Mutex<Vec<String>>);
 
     impl OwnedShells for Shells {
@@ -627,9 +652,11 @@ mod tests {
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet()).await.expect("helper");
         let _ = (pool.backend("closing"), pool.backend("other"));
         let shells = Arc::new(Shells(Mutex::default()));
-        ReapingShells::new(shells.clone(), pool.clone()).cancel_owned(&ThreadId::from("closing"));
+        let reaping = ReapingShells::new(shells.clone(), pool.clone());
+        reaping.cancel_owned(&ThreadId::from("closing"));
         assert_eq!(*shells.0.lock().unwrap_or_else(PoisonError::into_inner), vec!["closing".to_owned()]);
-        eventually(|| !pool.entries().contains_key("closing")).await;
+        reaping.released().await;
+        assert!(!pool.entries().contains_key("closing"));
         assert!(pool.entries().contains_key("other"));
     }
 
@@ -657,10 +684,14 @@ mod tests {
         settling.turn_settled(&ThreadId::from("never"));
         settling.turn_settled(&ThreadId::from("used"));
         assert_eq!(snapshots.0.lock().unwrap_or_else(PoisonError::into_inner).len(), 2, "the workspace release still runs");
-        eventually(|| pool.entries().get("used").is_some_and(|entry| entry.idle.is_some())).await;
+        settling.settled().await;
+        assert!(pool.entries().get("used").is_some_and(|entry| entry.idle.is_some()));
         assert!(!pool.entries().contains_key("never"), "a session that never reached the helper owns nothing there");
     }
 
+    /// Node keeps the helper's state per request session: two threads never share a backend, a
+    /// thread keeps its own across calls, a request naming no thread is the `default` session, and
+    /// a released session starts over with fresh state.
     #[tokio::test]
     async fn two_threads_get_separate_helper_state() {
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet()).await.expect("helper");
@@ -681,11 +712,12 @@ mod tests {
     }
 
     /// A process manager whose spawn never answers: the helper of a session is stuck.
-    struct Stuck;
+    struct Stuck(tokio::sync::Notify);
 
     #[async_trait]
     impl ProcessManager for Stuck {
         async fn spawn(&self, _: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            self.0.notify_one();
             std::future::pending().await
         }
         fn subscribe(
@@ -713,17 +745,34 @@ mod tests {
     }
 
     /// Node bounds each shutdown release (`client.mjs:761`): a helper that never answers is given up on after the timeout, so `release_all` ends and the stop steps after it
-    /// (memory, PostgreSQL) still run. Paused time: the timeout elapses without a sleep.
+    /// (memory, PostgreSQL) still run. The clock is paused and held, so the timeout elapses only by the test's own advance.
     #[tokio::test(start_paused = true)]
     async fn a_stuck_helper_release_ends_at_the_shutdown_timeout() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(Arc::new(Stuck), plain(), quiet()).await.expect("helper");
+        use mixdog_core_session::session::testing::{HeldClock, awaiting};
+
+        let _held = HeldClock::hold();
+        let stuck = Arc::new(Stuck(tokio::sync::Notify::new()));
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(stuck.clone(), plain(), quiet()).await.expect("helper");
         let backend = pool.backend("stuck");
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        let call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
-        eventually(|| pool.entries().get("stuck").is_some_and(|entry| entry.process.is_bound())).await;
-        let started = tokio::time::Instant::now();
-        assert_eq!(pool.release_all().await, 0, "the stuck release is unconfirmed");
-        assert!(started.elapsed() >= SHUTDOWN_RELEASE, "the release was given its whole bound");
+        let mut call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
+        // The call's spawn is the helper that never answers; a call that ends without spawning it is the failure.
+        awaiting(|| "the call to spawn the helper".to_owned(), async {
+            tokio::select! {
+                biased;
+                () = stuck.0.notified() => {}
+                ended = &mut call => panic!("the call ended without spawning the helper: {ended:?}"),
+            }
+        })
+        .await;
+        assert!(pool.entries().get("stuck").is_some_and(|entry| entry.process.is_bound()));
+        // The test polls the release itself, so its timeout is armed against the clock as it stands before any advance.
+        let mut release = std::pin::pin!(pool.release_all());
+        assert!(futures::poll!(release.as_mut()).is_pending(), "the stuck helper's release waits");
+        tokio::time::advance(SHUTDOWN_RELEASE - Duration::from_millis(1)).await;
+        assert!(futures::poll!(release.as_mut()).is_pending(), "the release is given its whole bound");
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert_eq!(awaiting(|| "the stuck release to end at the timeout".to_owned(), release).await, 0, "the stuck release is unconfirmed");
         assert!(!pool.entries().contains_key("stuck"), "the session's state goes anyway");
         call.abort();
     }

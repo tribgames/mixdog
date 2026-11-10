@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-standalone-defaults.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2701,
+      "path": "twin.json",
+      "sha256": "6fcfbc43fae325af165257c0f8dce4020256a94360f3eaa89456bf526a680671"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-standalone-defaults.mjs",
+  "set": "standalone-defaults",
+  "totalBytes": 2701
+}

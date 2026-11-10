@@ -225,6 +225,8 @@ pub struct CatalogRow {
     pub agent_tag: Option<crate::worker::TagKeys>,
     /// The header's delete mark (`summary::is_deleted`); a row once deleted stays deleted.
     pub deleted: bool,
+    /// The header's `title` when its `titleSource` is `user`.
+    pub user_name: Option<String>,
 }
 
 /// FORMAT.md §8.2 `fold(x)`: Unicode default lowercase, no normalization.
@@ -261,6 +263,34 @@ impl Folds {
         }
     }
 }
+
+/// A catalog row as the index holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredRow {
+    /// The JSON list row.
+    pub summary: String,
+    pub archived: bool,
+    pub deleted: bool,
+    /// The name the user gave the session (`titleSource: user`), as Node's desktop kept it in `names`.
+    pub user_name: Option<String>,
+}
+
+/// A catalog row write that changed the row: what the index held before it (`None`: no row) and what it holds now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowEdge {
+    pub id: String,
+    pub before: Option<StoredRow>,
+    pub after: StoredRow,
+}
+
+/// Told, in write order and after the transaction that wrote them committed, of every row write that changed a row (Node's
+/// `onSessionCatalogDbChange`). Called on the index writer thread: it must not block.
+pub trait RowSink: Send + Sync {
+    fn written(&self, edge: RowEdge);
+}
+
+/// The sink of a store, set once after the store opens.
+pub type RowSinkCell = Arc<std::sync::OnceLock<Arc<dyn RowSink>>>;
 
 /// What an upsert does to the RL §9.2 dirty mark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -374,10 +404,10 @@ INSERT INTO sessions (id, dirty, status, damage, deleted, base_session, log_id, 
     activity, created_at, updated_at, closed, archived_at, cwd, visibility, owner_session_id,
     parent_session_id, agent, source_type, classification, archived, title_kind, id_key,
     title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold, summary,
-    title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner)
+    title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner, user_name)
 VALUES (?1, ?2, 'ok', NULL, ?36, ?3, ?4, 0, 0, 0, 0, 0, 0, 0,
     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35)
+    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?37)
 ON CONFLICT(id) DO UPDATE SET
     dirty = CASE WHEN ?28 THEN dirty ELSE excluded.dirty END,
     deleted = max(deleted, excluded.deleted),
@@ -394,20 +424,40 @@ ON CONFLICT(id) DO UPDATE SET
     summary = excluded.summary, title = excluded.title, worker = excluded.worker,
     worker_tag = excluded.worker_tag, worker_owner = excluded.worker_owner,
     worker_host_pid = excluded.worker_host_pid, agent_tag = excluded.agent_tag,
-    agent_owner = excluded.agent_owner";
+    agent_owner = excluded.agent_owner, user_name = excluded.user_name";
 
 /// Writes the catalog row of `head` with the message state projected so far; the bytes
 /// of the list row.
 fn upsert(tx: &Transaction<'_>, head: &CatalogHead, dirty: DirtyMark, labels: &PlaceholderLabels) -> rusqlite::Result<usize> {
+    upsert_edge(tx, head, dirty, labels, false).map(|(written, _)| written)
+}
+
+/// [`upsert`], and with `watch` the change it made to the row.
+fn upsert_edge(
+    tx: &Transaction<'_>,
+    head: &CatalogHead,
+    dirty: DirtyMark,
+    labels: &PlaceholderLabels,
+    watch: bool,
+) -> rusqlite::Result<(usize, Option<RowEdge>)> {
     // A fork whose inherited state is still being computed keeps its row until it is done.
     if crate::message_index::has_pending_view(tx, &head.session)? {
-        return Ok(0);
+        return Ok((0, None));
     }
     let with_incoming = crate::agent_mode::wants_incoming_tail(&head.session);
     let stats = crate::message_index::read_stats(tx, &head.session, with_incoming)?.into_stats(&head.session);
     let row = crate::summary::catalog_row(head, &stats, now_ms());
+    let before = if watch {
+        tx.prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
+            .query_row([&row.id], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? }))
+            .optional()?
+    } else {
+        None
+    };
     write_row(tx, &row, dirty, labels)?;
-    Ok(row.summary.len())
+    let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted, user_name: row.user_name.clone() };
+    let edge = (watch && before.as_ref() != Some(&after)).then(|| RowEdge { id: row.id.clone(), before, after });
+    Ok((row.summary.len(), edge))
 }
 
 fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &PlaceholderLabels) -> rusqlite::Result<()> {
@@ -449,6 +499,7 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
         row.agent_tag.as_ref().map(|t| &t.tag),
         row.agent_tag.as_ref().map(|t| &t.owner),
         row.deleted,
+        row.user_name,
     ])?;
     Ok(())
 }
@@ -467,6 +518,21 @@ enum Command {
     Labels { labels: PlaceholderLabels, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
+    /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
+    #[cfg(any(test, feature = "test-support"))]
+    Close,
+}
+
+impl Command {
+    #[cfg(any(test, feature = "test-support"))]
+    fn closes(&self) -> bool {
+        matches!(self, Command::Close)
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn closes(&self) -> bool {
+        false
+    }
 }
 
 /// A projection being applied: frames before `next` are committed.
@@ -500,6 +566,8 @@ struct Writer {
     /// Rows per append transaction and per maintenance step (tests shrink them).
     append_rows: usize,
     step_rows: usize,
+    /// Told of the rows an append transaction changed, once it committed.
+    sink: RowSinkCell,
 }
 
 const LABELS_KEY: &str = "ui:placeholder_labels";
@@ -546,6 +614,7 @@ impl Writer {
             seq: 0,
             append_rows: APPEND_ROWS,
             step_rows: STEP_ROWS,
+            sink: RowSinkCell::default(),
         })
     }
 
@@ -680,11 +749,15 @@ impl Writer {
         loop {
             if self.idle() {
                 match rx.recv() {
+                    Ok(cmd) if cmd.closes() => return,
                     Ok(cmd) => self.take(cmd),
                     Err(_) => return,
                 }
             }
             while let Ok(cmd) = rx.try_recv() {
+                if cmd.closes() {
+                    return;
+                }
                 self.take(cmd);
             }
             self.append_transaction();
@@ -708,6 +781,8 @@ impl Writer {
         let mut rows = 0usize;
         let mut bytes = 0usize;
         let mut waiting: Vec<(String, CatalogHead)> = Vec::new();
+        let mut edges: Vec<RowEdge> = Vec::new();
+        let watch = self.sink.get().is_some();
         let result = (|| -> rusqlite::Result<()> {
             let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             // Small commands (dirty marks, status): one row each.
@@ -739,6 +814,8 @@ impl Writer {
                         self.refold = true;
                         acks.push(ack);
                     }
+                    #[cfg(any(test, feature = "test-support"))]
+                    Command::Close => unreachable!("the writer stops before it queues a close"),
                     Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } => {
                         unreachable!("queued separately")
                     }
@@ -786,7 +863,8 @@ impl Writer {
                 }
                 let (head, dirty, waiters, _) = self.upserts.remove(&id).expect("listed");
                 rows += 1;
-                let written = upsert(&tx, &head, dirty, &self.labels)?;
+                let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch)?;
+                edges.extend(edge);
                 if written == 0 {
                     waiting.push((id.clone(), (*head).clone()));
                 }
@@ -813,6 +891,12 @@ impl Writer {
         if result.is_ok() {
             self.waiting.extend(waiting);
             self.views |= advanced;
+            // Durable: the sink may read the rows back.
+            if let Some(sink) = self.sink.get() {
+                for edge in edges {
+                    sink.written(edge);
+                }
+            }
         }
         send(acks, &result);
     }
@@ -1152,6 +1236,10 @@ fn refresh_prompt(tx: &Transaction<'_>, session: &str, key: &str) -> rusqlite::R
 struct Shared {
     path: PathBuf,
     pool: Arc<ReadPool>,
+    rows: RowSinkCell,
+    /// The writer thread, joined by [`SqliteStore::close`].
+    #[cfg(any(test, feature = "test-support"))]
+    writer: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 /// Cloneable handle on `index/store.sqlite`. The writer thread finishes the queued
@@ -1278,17 +1366,41 @@ impl SqliteStore {
             }
         };
         writer.boot_purge(lane, data, &incomplete)?;
+        let rows = writer.sink.clone();
         let (sender, rx) = mpsc::channel();
-        thread
+        let handle = thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
             .map_err(|e| DbError::Write(e.to_string()))?;
+        #[cfg(not(any(test, feature = "test-support")))]
+        drop(handle);
         Ok(SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 pool: ReadPool::new(path, read_lane),
+                rows,
+                #[cfg(any(test, feature = "test-support"))]
+                writer: Mutex::new(Some(handle)),
             }),
             sender,
         })
+    }
+
+    /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
+    /// its connection closes, and the read pool's idle connections close, so the database files can be removed while other
+    /// handles still exist. Returns once the writer thread has ended.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn close(&self) {
+        let _ = self.sender.send(Command::Close);
+        let handle = self.shared.writer.lock().expect("writer handle").take();
+        if let Some(handle) = handle {
+            let _ = handle.join();
+        }
+        self.shared.pool.close();
+    }
+
+    /// Connects the sink of the catalog row writes. Set once; the second call is refused.
+    pub fn observe_rows(&self, sink: Arc<dyn RowSink>) -> Result<(), &'static str> {
+        self.shared.rows.set(sink).map_err(|_| "the row sink is already set")
     }
 
     fn submit(&self, cmd: Command) -> Result<(), DbError> {
@@ -1419,35 +1531,25 @@ impl SqliteStore {
     /// are the session actor's to check).
     pub async fn thread_op(&self, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
         let (session, op_id) = (session.to_owned(), op_id.to_owned());
-        self.read(move |c| {
-            Ok(c.prepare_cached(THREAD_OP_SQL)?
-            .query_row([&session, &op_id], |r| {
-                let state: String = r.get(2)?;
-                Ok(ThreadOp {
-                    method: r.get(0)?,
-                    payload_digest: r.get(1)?,
-                    state: serde_json::from_value(serde_json::Value::String(state)).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-                    })?,
-                    pos: FramePos { ordinal: r.get::<_, i64>(3)? as u64, file_no: r.get(4)?, offset: r.get::<_, i64>(5)? as u64 },
-                    frame_len: r.get::<_, i64>(6)? as u64,
-                })
-            })
-            .optional()?)
-        })
-        .await
+        self.read(move |c| thread_op_on(c, &session, &op_id)).await
+    }
+
+    /// `thread_op` inside a job already on the read lane: answered on the job's thread, so the job never waits for a lane slot
+    /// behind itself.
+    pub fn thread_op_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
+        self.shared.pool.with(|c| thread_op_on(c, session, op_id))
     }
 
     /// The ops of `session` that `op/status{fence}` fenced (P §9.4): an actor refuses them at
     /// load, so a fence survives a reload.
     pub async fn fenced_ops(&self, session: &str) -> Result<Vec<String>, DbError> {
-        let (session, fenced) = (session.to_owned(), serde_name(&crate::schema::record::OpState::Fenced));
-        self.read(move |c| {
-            let mut rows = c.prepare_cached("SELECT op_id FROM thread_ops WHERE session = ?1 AND state = ?2")?;
-            let ids = rows.query_map([&session, &fenced], |r| r.get::<_, String>(0))?;
-            Ok(ids.collect::<Result<Vec<_>, _>>()?)
-        })
-        .await
+        let session = session.to_owned();
+        self.read(move |c| fenced_ops_on(c, &session)).await
+    }
+
+    /// `fenced_ops` inside a job already on the read lane.
+    pub fn fenced_ops_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str) -> Result<Vec<String>, DbError> {
+        self.shared.pool.with(|c| fenced_ops_on(c, session))
     }
 
     /// The compaction dividers of the display history placed before rows of
@@ -1469,6 +1571,19 @@ impl SqliteStore {
         to: u64,
     ) -> Result<Vec<Divider>, DbError> {
         self.read(move |c| dividers_on(c, &lineage, cut, level, from, to)).await
+    }
+
+    /// `dividers` inside a job already on the read lane.
+    pub fn dividers_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        level: usize,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<Divider>, DbError> {
+        self.shared.pool.with(|c| dividers_on(c, lineage, cut, level, from, to))
     }
 
     /// The JSON list row of a session; `None` for a session whose log has no readable
@@ -2230,6 +2345,30 @@ fn projected_on(c: &Connection, session: &str) -> Result<Option<FramePos>, DbErr
         .optional()?)
 }
 
+fn thread_op_on(c: &Connection, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
+    Ok(c.prepare_cached(THREAD_OP_SQL)?
+        .query_row([session, op_id], |r| {
+            let state: String = r.get(2)?;
+            Ok(ThreadOp {
+                method: r.get(0)?,
+                payload_digest: r.get(1)?,
+                state: serde_json::from_value(serde_json::Value::String(state)).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                pos: FramePos { ordinal: r.get::<_, i64>(3)? as u64, file_no: r.get(4)?, offset: r.get::<_, i64>(5)? as u64 },
+                frame_len: r.get::<_, i64>(6)? as u64,
+            })
+        })
+        .optional()?)
+}
+
+fn fenced_ops_on(c: &Connection, session: &str) -> Result<Vec<String>, DbError> {
+    let fenced = serde_name(&crate::schema::record::OpState::Fenced);
+    let mut rows = c.prepare_cached("SELECT op_id FROM thread_ops WHERE session = ?1 AND state = ?2")?;
+    let ids = rows.query_map([session, fenced.as_str()], |r| r.get::<_, String>(0))?;
+    Ok(ids.collect::<Result<Vec<_>, _>>()?)
+}
+
 pub(crate) fn blob_referenced_on(c: &Connection, digest: &Digest) -> Result<bool, DbError> {
     Ok(c.prepare_cached(BLOB_REF_SQL)?
         .query_row([digest.as_str()], |_| Ok(()))
@@ -2245,6 +2384,12 @@ pub(crate) struct ReadPool {
     path: PathBuf,
     lane: InteractiveIo,
     conns: Mutex<Vec<Connection>>,
+    /// Test support only: `true` once [`close`](Self::close) has run. Every read holds it shared from before it takes or opens a
+    /// connection until that connection is back or closed, and `close` takes it exclusively, so `close` waits for the reads in
+    /// flight and no read opens a connection after it returned. A release build has no close: its pool keeps its connections until
+    /// the last owner of the store drops it.
+    #[cfg(any(test, feature = "test-support"))]
+    closed: std::sync::RwLock<bool>,
 }
 
 impl ReadPool {
@@ -2253,10 +2398,27 @@ impl ReadPool {
             path: path.to_path_buf(),
             lane,
             conns: Mutex::new(Vec::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            closed: std::sync::RwLock::new(false),
         })
     }
 
+    /// Test support only (a test's data folder closes its databases before it is removed): waits for the reads in flight, closes
+    /// every pooled connection, and makes every later read fail as the stopped writer does.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn close(&self) {
+        let mut closed = self.closed.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *closed = true;
+        self.conns.lock().expect("pool lock").clear();
+    }
+
     pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
+        #[cfg(any(test, feature = "test-support"))]
+        let closed = self.closed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        #[cfg(any(test, feature = "test-support"))]
+        if *closed {
+            return Err(DbError::Stopped);
+        }
         let conn = self.conns.lock().expect("pool lock").pop();
         let conn = match conn {
             Some(c) => c,

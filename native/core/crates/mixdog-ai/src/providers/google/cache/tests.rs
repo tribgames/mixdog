@@ -338,6 +338,102 @@ impl HttpSend for StallOnce {
     }
 }
 
+/// Runs only the backoff waits: the attempt and total limits never fire, so each failure the transport reports is the
+/// attempt's own, and the retry ladder runs to its end.
+struct LadderRuntime;
+
+impl CacheRuntime for LadderRuntime {
+    fn now_ms(&self) -> u64 {
+        0
+    }
+    fn spawn(&self, task: BoxFuture<'static, ()>) {
+        tokio::spawn(task);
+    }
+    fn spawn_after(&self, _delay_ms: u64, _task: BoxFuture<'static, ()>) {}
+    fn deadline(&self, ms: u64) -> BoxFuture<'static, ()> {
+        if ms >= 120_000 { Box::pin(futures::future::pending()) } else { Box::pin(futures::future::ready(())) }
+    }
+}
+
+/// The create's request is bounded by Node's total timer (`sites.geminiCacheCreate`: `armed` 180 s, the fetch rejected
+/// with `Gemini cachedContents.create total timed out after 180000ms`); the timeouts are retried and, once the ladder is
+/// spent, the create resolves no cache and logs the line Node's catch writes to stderr.
+#[tokio::test(start_paused = true)]
+async fn a_create_the_transport_times_out_is_retried_then_resolves_no_cache() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_transport;
+    use crate::transport::site_probe::capture_logs;
+    use crate::transport::site_probe::recorded;
+
+    let (logged, _guard) = capture_logs();
+    let g = golden();
+    let (tools, tool_config, contents) = parts(&g);
+    let system = system(1);
+    let transport = TimingOut::new();
+    let cache = ExplicitCache::new(
+        g["apiKey"].as_str().unwrap(),
+        "https://generativelanguage.googleapis.com",
+        transport.clone(),
+        Arc::new(LadderRuntime),
+        Arc::new(Registry::default()),
+        Tuning::default(),
+    );
+    let ask = Ask {
+        model: g["model"].as_str().unwrap(),
+        request: CacheRequest { system_instruction: &system, tools: &tools, tool_config: tool_config.as_ref(), contents: &contents },
+        state: None,
+        iteration: 1,
+        fork: false,
+    };
+    let answer = cache.ensure(ask).await;
+    assert_eq!(answer.cache_name, None);
+    assert!(transport.seen().len() > 1, "a timeout is retried");
+    assert_transport("geminiCacheCreate", &transport);
+    let want: Vec<String> = recorded("geminiCacheCreate")["logged"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect();
+    assert_eq!(logged(), want);
+}
+
+/// Answers every request with a 400 and the body the Node recording used.
+struct Rejects;
+
+#[async_trait]
+impl HttpSend for Rejects {
+    async fn send(&self, _request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        Ok(HttpResponse { status: 400, headers: vec![], body: Box::new(Once(Some(Bytes::from(r#"{"error":{"message":"bad things"}}"#)))) })
+    }
+}
+
+/// A rejected create writes the line `gemini.mjs` writes to stderr, byte for byte as a real Node run wrote it
+/// (`node-stderr/lines.json`, `geminiCreate400`).
+#[tokio::test(start_paused = true)]
+async fn a_rejected_create_writes_the_line_node_wrote() {
+    use crate::transport::site_probe::capture_logs;
+
+    let (logged, _guard) = capture_logs();
+    let g = golden();
+    let (tools, tool_config, contents) = parts(&g);
+    let system = system(1);
+    let cache = ExplicitCache::new(
+        g["apiKey"].as_str().unwrap(),
+        "https://generativelanguage.googleapis.com",
+        Arc::new(Rejects),
+        Arc::new(LadderRuntime),
+        Arc::new(Registry::default()),
+        Tuning::default(),
+    );
+    let ask = Ask {
+        model: g["model"].as_str().unwrap(),
+        request: CacheRequest { system_instruction: &system, tools: &tools, tool_config: tool_config.as_ref(), contents: &contents },
+        state: None,
+        iteration: 1,
+        fork: false,
+        };
+    assert_eq!(cache.ensure(ask).await.cache_name, None);
+    let recorded: Value = serde_json::from_str(include_str!("../../../../../../fixtures/node-stderr/lines.json")).unwrap();
+    let want: Vec<String> = recorded["sites"]["geminiCreate400"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().strip_suffix('\n').unwrap().to_owned()).collect();
+    assert_eq!(logged(), want);
+}
+
 /// Node's `withRetry` around the create: an attempt stalled past the 120 s
 /// attempt limit is retried after the backoff, inside the 180 s total.
 #[tokio::test(start_paused = true)]

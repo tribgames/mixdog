@@ -71,7 +71,7 @@ pub fn plugins_announce(data_dir: PathBuf, durability: DurabilityIo) -> Arc<dyn 
                 Err(_) => Err("the durability lane is full".to_owned()),
             };
             if let Err(error) = outcome {
-                tracing::warn!(%error, "[config] secret change marker write failed");
+                mixdog_rt::node_stderr!("[config] secret change marker write failed: {error}");
             }
         });
     })

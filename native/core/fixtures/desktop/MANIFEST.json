@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 65,
+  "fileCount": 66,
   "files": [
     {
       "bytes": 1973,
@@ -319,6 +319,11 @@
       "sha256": "ce39e4dc65b996fcff554e62a7857b55fbad7221b56a91bbb19d12b2d5699952"
     },
     {
+      "bytes": 711160,
+      "path": "settings/write-errors-twin.json",
+      "sha256": "5f16c23b6e2762beb3ef6ffa397a2451ad3a8f5b117f2473e0ca6b5adf9f0503"
+    },
+    {
       "bytes": 2251,
       "path": "terminal/corpus.json",
       "sha256": "95c74701dc3b950cef89052b84da319e001c4968c9b565f04f48a4fbae7add62"
@@ -352,5 +357,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 40974596
+  "totalBytes": 41685756
 }

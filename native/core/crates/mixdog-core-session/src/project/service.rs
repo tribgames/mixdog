@@ -41,6 +41,7 @@ use serde_json::json;
 use super::connectors::ProjectConnectors;
 use crate::session::worktree::LiveSessions;
 use crate::session::worktree::SessionWorkspaces;
+use crate::session::worktree::scm_error;
 use crate::session::worktree::Workspace;
 
 const DOMAIN: &str = "project";
@@ -112,11 +113,12 @@ fn plain(message: impl Into<String>) -> ScmFailure {
     ScmFailure::git(message)
 }
 
-/// Plain errors travel as `{ error: message }`, coded ones with their code and detail.
+/// Plain errors travel as `{ error: message }`, coded ones with their code and detail, worded as the
+/// thread worktree actions word them (`scm_error`: Node throws the same typed errors to both).
 fn wire(failure: ScmFailure) -> CoreError {
     match failure {
         ScmFailure::Command { domain, text } => failed(domain, text),
-        other => other.into(),
+        other => scm_error(other),
     }
 }
 

@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_ai::netproxy::RoutedClients;
+use mixdog_ai::transport::FETCH_FAILED;
+use mixdog_ai::transport::SIGNAL_TIMED_OUT;
 
 use super::catalog_fetch::{CatalogHttp, HttpFailure, HttpReply};
 
@@ -23,9 +25,9 @@ impl RoutedCatalogHttp {
 fn transport(error: &reqwest::Error) -> HttpFailure {
     if error.is_timeout() {
         // `AbortSignal.timeout`: a `TimeoutError`.
-        HttpFailure { message: "The operation was aborted due to timeout".to_owned(), timed_out: true }
+        HttpFailure { message: SIGNAL_TIMED_OUT.to_owned(), timed_out: true }
     } else {
-        HttpFailure { message: "fetch failed".to_owned(), timed_out: false }
+        HttpFailure { message: FETCH_FAILED.to_owned(), timed_out: false }
     }
 }
 
@@ -43,7 +45,7 @@ impl CatalogHttp for RoutedCatalogHttp {
         // credential sent on to another host.
         let status = response.status();
         if status.is_redirection() || response.url().as_str() != url && !same_after_normalising(response.url().as_str(), url) {
-            return Err(HttpFailure { message: "fetch failed".to_owned(), timed_out: false });
+            return Err(HttpFailure { message: FETCH_FAILED.to_owned(), timed_out: false });
         }
         let body = response.text().await.map_err(|error| transport(&error))?;
         Ok(HttpReply { status: status.as_u16(), body })

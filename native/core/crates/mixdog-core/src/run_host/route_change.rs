@@ -19,6 +19,7 @@ use mixdog_core_ports::ports::route::Route;
 use mixdog_core_run::run_host::session_context_meta::ContextMeta;
 use mixdog_core_session::session::route_session::route_changed;
 use mixdog_core_session::session::route_session::RouteChange;
+use mixdog_core_session::session::route_session::RouteLookups;
 
 /// What a route change reads from the provider registry and the cache policy.
 #[async_trait::async_trait]
@@ -34,12 +35,22 @@ pub trait RouteFacts: Send + Sync {
 
     /// The tool surface, rules variant and deferred-tool fields a new route rebuilds
     /// (`_prepareResumeTools`, `applyAgentToolExposure`, `_refreshSessionRuleVariantsForModel`).
-    /// Async: the tools are resolved from a skill list collected now. Nothing by default (facts
-    /// that rebuild no surface).
-    async fn surface_change(&self, _header: &Header, _previous: &Route) -> HeaderChange {
+    /// Synchronous and pure, over the skill list [`RouteFacts::surface_lookup`] collected for the header on the session's actor, before the
+    /// change ran. Nothing by default (facts that rebuild no surface).
+    fn surface_change(&self, _header: &Header, _previous: &Route, _lookup: &SurfaceLookup) -> HeaderChange {
         HeaderChange { set: Map::new(), unset: Vec::new() }
     }
+
+    /// The skill list the surface is resolved from, collected now (Node collects it inside the call):
+    /// the working folder it was collected for, and the listing or why there is none. Nothing by
+    /// default.
+    async fn surface_lookup(&self, _header: &Header, _previous: &Route) -> SurfaceLookup {
+        None
+    }
 }
+
+/// What [`RouteFacts::surface_lookup`] collected: the working folder and its skill listing.
+pub type SurfaceLookup = Option<(std::path::PathBuf, Result<bool, String>)>;
 
 /// `providerCacheKey(provider)`.
 pub fn provider_cache_key(provider: &str) -> String {
@@ -135,7 +146,7 @@ impl RunHostRouteChange {
 
     /// `resetSessionForRouteChange`: a new provider/model starts a fresh cache chain, usage baseline
     /// and tool surface.
-    async fn reset(&self, header: &Header, previous: &Route, change: &mut HeaderChange) {
+    fn reset(&self, header: &Header, previous: &Route, lookup: &SurfaceLookup, change: &mut HeaderChange) {
         let provider = text(header.get("provider"));
         set(change, "promptCacheKey", json!(provider_cache_key(provider)));
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
@@ -158,7 +169,7 @@ impl RunHostRouteChange {
         unset(change, "_providerPrefixGuardState");
         // The new route resolves its own wire before its first request.
         set(change, "wireRoute", Value::Null);
-        merge(change, self.facts.surface_change(header, previous).await);
+        merge(change, self.facts.surface_change(header, previous, lookup));
     }
 
     /// `invalidateContextUsageSnapshot` and `invalidateProviderContextBaseline` (WP-COMPACT's
@@ -183,12 +194,25 @@ impl RouteChange for RunHostRouteChange {
         crate::run_host::prompt_session::reset_environment(header, &blocks).change
     }
 
-    async fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange {
+    async fn lookups(&self, header: &Header, route: &Route) -> RouteLookups {
+        let mut previous = Route::new();
+        for key in ["provider", "model"] {
+            if let Some(value) = header.get(key) {
+                previous.insert(key.to_owned(), value.clone());
+            }
+        }
+        let lookup: SurfaceLookup = if route_changed(route, &previous) { self.facts.surface_lookup(header, &previous).await } else { None };
+        Box::new(lookup)
+    }
+
+    fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool, lookups: &RouteLookups) -> HeaderChange {
+        let none: SurfaceLookup = None;
+        let lookup = lookups.downcast_ref::<SurfaceLookup>().unwrap_or(&none);
         let route_changed = route_changed(route, previous);
         let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
         self.context_window(header, route, route_changed, &mut change);
         if route_changed {
-            self.reset(header, previous, &mut change).await;
+            self.reset(header, previous, lookup, &mut change);
             if cross_provider {
                 Self::invalidate(&mut change);
             }
@@ -260,7 +284,8 @@ mod tests {
             for (key, value) in &route {
                 header.insert(key.clone(), value.clone());
             }
-            let result = change.route_change(&header, &route, &previous, cross).await;
+            let lookups = change.lookups(&before, &route).await;
+            let result = change.route_change(&header, &route, &previous, cross, &lookups);
             for key in &result.unset {
                 header.shift_remove(key);
             }
@@ -310,7 +335,8 @@ mod tests {
         let change = RunHostRouteChange::new(Arc::new(Facts), Arc::new(Fixed));
         let route: Route = [("provider", "openai"), ("model", "gpt-5")].iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
         let header: Header = json!({ "id": "sess_new", "provider": "openai", "model": "gpt-5" }).as_object().unwrap().clone().into_iter().collect();
-        let result = change.route_change(&header, &route, &Route::new(), false).await;
+        let lookups = change.lookups(&header, &route).await;
+        let result = change.route_change(&header, &route, &Route::new(), false, &lookups);
         for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens", "lastContextTokensUpdatedAt", "lastContextTokensStaleAfterCompact"] {
             assert!(!result.set.contains_key(key), "{key}");
         }

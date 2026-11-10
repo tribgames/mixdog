@@ -139,14 +139,24 @@ impl ListHost {
         route: Arc<dyn Fn() -> Obj + Send + Sync>,
         initial: serde_json::Map<String, Value>,
     ) -> Self {
-        let cache = CacheState { flight: None, flights: 0, loaded: false, seq: 0, observed: readiness.catalog_revision() };
+        let cache = Arc::new(Mutex::new(CacheState { flight: None, flights: 0, loaded: false, seq: 0, observed: readiness.catalog_revision() }));
+        // The catalog's fetching lookups pin only while this sequence stands (`snapshotIsCurrent`); read with the
+        // revision synced, as `lookupModelMeta` reads it. Weak: the readiness owns the catalog that holds this.
+        let (shared, owner) = (cache.clone(), Arc::downgrade(&readiness));
+        readiness.bind_load_seq(move || {
+            let mut cache = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(readiness) = owner.upgrade() {
+                cache.sync(readiness.catalog_revision());
+            }
+            cache.seq
+        });
         Self {
             readiness,
             effective,
             config,
             route,
             last: Arc::new(Mutex::new(initial)),
-            cache: Arc::new(Mutex::new(cache)),
+            cache,
             #[cfg(test)]
             joined: Arc::new(tokio::sync::Semaphore::new(0)),
             #[cfg(test)]
@@ -206,6 +216,13 @@ impl ListHost {
         }
         cache.sync(self.readiness.catalog_revision());
         (cache.loaded, if owns { cache.seq } else { started })
+    }
+
+    /// `snapshotIsCurrent(revision, seq)`: the revision synced, no invalidation since the load took `seq`.
+    pub(super) fn current(&self, seq: u64) -> bool {
+        let mut cache = self.cache();
+        cache.sync(self.readiness.catalog_revision());
+        cache.seq == seq
     }
 
     /// `adoptProviderModelCache`: the revision is synced before the sequence is checked
@@ -291,6 +308,9 @@ impl ListHost {
         let (loaded, seq) = self.claim(started);
         if !loaded {
             catalog.refresh_due().await;
+            if self.current(seq) {
+                remember_loaded_rows(catalog);
+            }
         }
         if load_secrets {
             self.adopt(seq);
@@ -386,13 +406,27 @@ impl ModelListService {
                 Some(provider) => self.catalog.refresh_matching(provider).await,
                 None => self.catalog.refresh().await,
             };
+            self.remember_loaded(seq);
             self.adopt(seq);
             return;
         }
         if !loaded {
             self.catalog.refresh_due().await;
+            self.remember_loaded(seq);
         }
         self.adopt(seq);
+    }
+
+    /// The load's rows go to the route memo while the load is current (`catalog-load.mjs` `remember`). A host
+    /// without a provider registry has no cache sequence to outlive.
+    fn remember_loaded(&self, seq: Option<u64>) {
+        let current = match (&self.host, seq) {
+            (Some(host), Some(seq)) => host.current(seq),
+            _ => true,
+        };
+        if current {
+            remember_loaded_rows(&self.catalog);
+        }
     }
 
     /// The authoritative load ran (`providerModelsCache.models` is an array). A refresh with no source
@@ -420,6 +454,7 @@ impl ModelListService {
     /// `invalidateProviderCaches()`: the shared catalog starts a new epoch and the cache above it is dropped.
     pub fn invalidate(&self) {
         self.catalog.invalidate_accounts();
+        self.catalog.forget_route_meta();
         if let Some(host) = &self.host {
             host.invalidate();
         }
@@ -515,25 +550,11 @@ impl ModelListService {
     }
     /// The catalog flattened into deduplicated cache rows; a hidden custom model leaves the picker.
     pub fn cache_rows(&self, snapshot: &CatalogSnapshot) -> Vec<Value> {
-        let mut seen = HashSet::new();
-        let mut rows = Vec::new();
-        for (provider, records) in &snapshot.models {
-            let name = provider.as_str();
-            for record in records {
-                let listing = listing_value(record);
-                if record.id.is_empty() || !is_selectable_llm_model(&listing) {
-                    continue;
-                }
-                let catalog_row = self.catalog.model_meta(name, &record.id);
-                let web_search = web_search_capable_for(name, &record.id, Some(&listing), Some(&catalog_row));
-                let row = provider_model_cache_row(name, &listing, web_search);
-                if !seen.insert(format!("{name}:{}", record.id)) || row.get("hidden") == Some(&Value::Bool(true)) {
-                    continue;
-                }
-                rows.push(Value::Object(row));
-            }
-        }
-        rows
+        loaded_rows(&self.catalog, snapshot)
+            .into_iter()
+            .filter(|row| row.get("hidden") != Some(&Value::Bool(true)))
+            .map(Value::Object)
+            .collect()
     }
 
     /// `providerModelsFromCacheRows`: availability applied at read time, then hydrated and sorted.
@@ -549,6 +570,40 @@ impl ModelListService {
             .collect();
         sort_provider_models(&mut rows, &(self.primary_provider)());
         rows
+    }
+}
+
+/// The rows of a load (`rowsForEntry` over every entry, deduplicated by provider and id): ids that are empty and
+/// models that are not selectable are left out; a hidden custom model stays (it leaves the picker, not the load).
+pub(super) fn loaded_rows(catalog: &CatalogService, snapshot: &CatalogSnapshot) -> Vec<Obj> {
+    let mut seen = HashSet::new();
+    let mut rows = Vec::new();
+    for (provider, records) in &snapshot.models {
+        let name = provider.as_str();
+        for record in records {
+            let listing = listing_value(record);
+            if record.id.is_empty() || !is_selectable_llm_model(&listing) {
+                continue;
+            }
+            let catalog_row = catalog.listed_meta(name, &record.id);
+            let web_search = web_search_capable_for(name, &record.id, Some(&listing), Some(&catalog_row));
+            if seen.insert(format!("{name}:{}", record.id)) {
+                rows.push(provider_model_cache_row(name, &listing, web_search));
+            }
+        }
+    }
+    rows
+}
+
+/// `if (meta.snapshotIsCurrent(revision, seq)) meta.remember(row.provider, row.id, row)` over the load's rows; the
+/// caller says the load is still current. A hidden custom model's metadata still resolves for routes already on it.
+fn remember_loaded_rows(catalog: &CatalogService) {
+    for row in loaded_rows(catalog, &catalog.snapshot()) {
+        let (Some(provider), Some(id)) = (row.get("provider").and_then(Value::as_str), row.get("id").and_then(Value::as_str)) else {
+            continue;
+        };
+        let (provider, id) = (provider.to_owned(), id.to_owned());
+        catalog.remember_meta(&provider, &id, Value::Object(row));
     }
 }
 

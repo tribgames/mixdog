@@ -1,0 +1,15 @@
+{
+  "source": "b6f10295a",
+  "stamp": 1794196679432,
+  "sites": {
+    "geminiCreate400": [
+      "[gemini] cachedContents.create error: Gemini cachedContents.create 400: {\"error\":{\"message\":\"bad things\"}}\n"
+    ],
+    "graphDownloadRetry": [
+      "[graph-fetcher] download attempt 1 failed ([graph-fetcher] asset HTTP 500 — <BASE>/flaky), retrying in 1000ms…\n"
+    ],
+    "stateDamaged": [
+      "[state] <DIR>\\state.json is damaged (Unexpected end of JSON input); kept as <DIR>\\state.json.corrupt-<STAMP>; starting empty\n"
+    ]
+  }
+}

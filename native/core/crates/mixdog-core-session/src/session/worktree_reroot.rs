@@ -526,11 +526,10 @@ mod tests {
     #[test]
     fn a_session_without_a_conversation_is_rerooted_in_place_exactly_as_node_does() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/prompt-reroot/golden.json")).expect("golden");
-        let cases = golden["cases"].as_array().expect("cases");
+        let cases: Vec<&Value> = golden["cases"].as_array().expect("cases").iter().filter(|case| case["before"]["systemOnly"] == Value::Bool(true)).collect();
         assert_eq!(cases.len(), 11);
         for case in cases {
             let name = &case["name"];
-            assert_eq!(case["before"]["systemOnly"], Value::Bool(true), "{name}: no conversation");
             let before = stored(&case["before"]);
             let cwd = case["context"]["cwd"].as_str().expect("cwd");
             let (change, undo) = in_place_reroot_patch(&before, cwd, &context_of(&case["context"]));

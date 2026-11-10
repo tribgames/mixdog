@@ -19,6 +19,7 @@ use crate::rpc::JsonRpcErrorBody;
 use crate::v2::approval::ServerRequestResolvedParams;
 use crate::v2::feed::AppSnapshotParams;
 use crate::v2::feed::FeedSnapshotParams;
+use crate::v2::host::BrowserWebrtcSignalParams;
 use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::CoreDrainParams;
 use crate::v2::host::HostNotificationShowParams;
@@ -157,13 +158,13 @@ crate::notification_definitions! {
     ThreadSetupUiRequestUpdated => "thread/setupUiRequest/updated" (ThreadSectionParams<Option<SetupUiRequest>>) @thread,
     /// Section `roomView`: a group room log's view while the room runs (`decorateRoomSnapshot`).
     ThreadRoomViewUpdated => "thread/roomView/updated" (ThreadSectionParams<Option<ThreadRoomView>>) @thread,
-    /// Section `reviewDiff`, key = thread id.
-    ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @thread,
     // ---- connection-scoped
     Error => "error" (ErrorNotificationParams) @connection,
     ServerRequestResolved => "serverRequest/resolved" (ServerRequestResolvedParams) @connection,
     HostNotificationShow => "host/notification/show" (HostNotificationShowParams) @connection,
     HostBrowserViewFrames => "host/browser/viewFrames" (HostBrowserViewFramesParams) @connection,
+    /// The core's live-view signal to one phone (offer, candidate, promote, demote, close, geometry).
+    BrowserWebrtcSignal => "browser/webrtcSignal" (BrowserWebrtcSignalParams) @connection,
     ModelProxyRunEvent => "modelProxy/run/event" (ModelProxyRunEventParams) @connection,
     ModelProxyCancel => "model/proxy/cancel" (ModelProxyCancelParams) @connection,
     // ---- app feed (P §6.2, DS §2.4)
@@ -204,6 +205,8 @@ crate::notification_definitions! {
     CoreStateUpdated => "core/state/updated" (SectionUpdate) @app,
     CoreHealthUpdated => "core/health/updated" (SectionUpdate) @app,
     MigrationProgress => "migration/progress" (SectionUpdate) @app,
+    /// Section `reviewDiff`: the app-wide tell that open reviews may read differently (Node's `turn-review-changed`).
+    ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @app,
     // ---- scoped feeds (DS §2.1)
     /// Snapshot of any scoped feed (its read model).
     FeedSnapshot => "feed/snapshot" (FeedSnapshotParams) @scoped(Any),
@@ -281,6 +284,10 @@ pub enum ClientNotification {
     #[serde(rename = "host/browser/surface")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/browser/surface"))]
     HostBrowserSurface(crate::v2::host::HostBrowserSurfaceParams),
+    /// What a viewed browser page shows now: its document and locked geometry (`null` = ended).
+    #[serde(rename = "host/browser/page")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/browser/page"))]
+    HostBrowserPage(crate::v2::host::HostBrowserPageParams),
     #[serde(rename = "host/notification/clicked")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/notification/clicked"))]
     HostNotificationClicked(crate::v2::host::HostNotificationClickedParams),
@@ -354,6 +361,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/browser/surface",
         params: "HostBrowserSurfaceParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/browser/page",
+        params: "HostBrowserPageParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

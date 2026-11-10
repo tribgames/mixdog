@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-oauth-callback-local.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 66256,
+      "path": "golden.json",
+      "sha256": "20b7f84a56c22885b7c08a07d02a88d5bab54aa6b76007d47bf9e83baa8ca231"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-oauth-callback-local.mjs",
+  "set": "oauth-callback-local",
+  "totalBytes": 66256
+}

@@ -44,16 +44,20 @@ pub mod late_tool_surface;
 pub mod os_probe;
 pub mod control;
 pub mod daemon_log;
+pub mod desktop_defaults;
 pub mod discovery;
 pub mod domain_seams;
 pub mod js_runtime;
 pub mod event_pipeline;
 pub mod held_requests;
+#[cfg(test)]
+mod held_runs_tests;
 pub mod memory_callers;
 pub mod hook_rule_setup;
 pub mod setup_status;
 pub mod lifecycle;
 pub mod mcp_surface;
+pub mod live_view;
 pub mod media;
 pub mod exec;
 pub mod exec_events;
@@ -63,6 +67,7 @@ pub mod project_workspaces;
 pub mod server;
 pub mod serving;
 pub mod server_ensure;
+pub mod session_retention;
 pub mod session_sweep;
 pub mod shell_name;
 pub mod signals;
@@ -120,6 +125,7 @@ pub fn run() -> Result<(), ServeError> {
 ///
 /// The core is the real composition (see [`compose`]); the transport and the server attach here.
 async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), ServeError> {
+    let booted_at = std::time::Instant::now();
     // Every install ships the manifest: a missing or broken one is a startup error.
     let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
     // The install names its ONNX Runtime library in the same manifest; one that names none has no models.
@@ -147,13 +153,16 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     .await?;
     let boot::Begun { started, booting, watch } = begun;
     let ownership: std::sync::Arc<dyn mixdog_core_api::domain::ownership::Ownership> = started.ownership().clone();
-    // The daemon's run token and the one daemon log (`<data>/daemon.log`), enabled where the daemon starts, as Node enables its log at
-    // startup. Compose and every writer share the log; the one stop procedure (`ComposedCore::run_stop_steps`) flushes it after the
-    // last step (Node: daemon.mjs:411, `await flushDaemonLogs()` before the exit) and then cancels the token. A forced exit that skips the
-    // stop steps is covered by the release procedure's own `flush_log` step (run-host-25).
+    // The daemon's run token and the one daemon log (`<data>/daemon.log`). Compose and every writer share the log; the one stop procedure
+    // (`ComposedCore::run_stop_steps`) flushes it after the last step (Node: daemon.mjs:411, `await flushDaemonLogs()` before the exit) and
+    // then cancels the token. A forced exit that skips the stop steps is covered by the release procedure's own `flush_log` step (run-host-25).
+    // Until the ready boundary (below) a log line and a Node stderr line go bare to the process's stderr, which is where Node's go.
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
-    log.enable_file_logging();
+    log.attach_memory_log(daemon_log::DaemonLog::new(data_dir.join("memory-runtime-proxy.log"), tokens.maintenance_io, stop.clone()));
+    // The memory worker starts during composition and mirrors its stderr into its proxy log from its first line, ready or not.
+    mixdog_rt::node_log::install(log.memory_sink());
+    let ready_log = log.clone();
     let sweep_dir = data_dir.clone();
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
@@ -166,6 +175,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         log,
         stop: stop.clone(),
         catalog_http: catalog::production_http().map_err(compose::ComposeError::Catalog)?,
+        #[cfg(test)]
+        pg_install: None,
     };
     // A stop that arrives while the core composes (the stop watcher is the one installed at boot) cancels the composition's slow waits, and the composition then fails
     // through its own cleanup: what it had acquired (PostgreSQL) is given back before the error returns. The composition is never dropped half done.
@@ -186,12 +197,6 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     tracing::info!("core composed");
     // From here the core's own stop procedure gives everything back: a failure before the core serves runs it with Node's boot-error reason (`daemon.mjs:1347`).
     let served = async {
-        // The webhook event queue ticks from here (Node starts it with the channels): it takes the proof that startup finished.
-        mixdog_rt::spawn("event-pipeline", mixdog_rt::TaskClass::Work, core.event_pipeline().clone().run(started.clone(), stop.clone()));
-        // Node's idle cleanup starts with the session runtime (`runtime-bootstrap.mjs:97`): first cycle one interval after the start, then every interval; it ends with the run token.
-        mixdog_rt::spawn("idle-sweep", mixdog_rt::TaskClass::Work, session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()));
-        // Mixy's heartbeat (`daemon.mjs:1212`): after the session service and the routine host exist, before the recoveries.
-        core.start_heartbeat();
         let serving = serving::attach(booting, core.clone(), outgoing).await?;
         serving.lifecycle.set_serving()?;
         Ok::<_, ServeError>(serving)
@@ -204,6 +209,32 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
             return Err(error);
         }
     };
+    // Node's ready boundary (`announceDaemonReady`, daemon.mjs:836-845): `enableFileLogging()` then `installRedirect()`. From here the file has
+    // the log, and a line Node writes to its stderr lands where its redirect put it (`mixdog_rt::node_log`): the memory worker's in its own
+    // proxy log, every other in `daemon.log`, each as a `[<ISO>] ` row.
+    ready_log.enable_file_logging();
+    // `MIXDOG_DAEMON_ALLOW_STDERR=1` skips only `installRedirect` (daemon-log.mjs:162): the daemon's lines stay bare, the memory mirror keeps its sink (installed above).
+    if std::env::var("MIXDOG_DAEMON_ALLOW_STDERR").as_deref() != Ok("1") {
+        mixdog_rt::node_log::install(ready_log.node_sink());
+    }
+    // `announceDaemonReady` (daemon.mjs:856-857), the first two rows the file gets: the ready line (Node's `port` is the front door the clients discover; here the RPC listener) and the
+    // boot-phase mark, whose `totalMs` is one decimal and prints as a JS number does.
+    let ready_ms = booted_at.elapsed().as_secs_f64() * 1000.0;
+    for line in daemon_log::ready_lines(serving.discovery.rpc_port().unwrap_or(0), std::process::id(), ready_ms) {
+        ready_log.log(&line);
+    }
+    // The tasks Node starts after ready (the webhook queue with the channels, the idle sweep and the retention with the session runtime's first interval, the heartbeat's first tick): their
+    // lines land after the redirect, stamped, as Node's do.
+    // The webhook event queue ticks from here: it takes the proof that startup finished.
+    mixdog_rt::spawn("event-pipeline", mixdog_rt::TaskClass::Work, core.event_pipeline().clone().run(started.clone(), stop.clone()));
+    // Node's idle cleanup starts with the session runtime (`runtime-bootstrap.mjs:97`): first cycle one interval after the start, then every interval; it ends with the run token.
+    mixdog_rt::spawn("idle-sweep", mixdog_rt::TaskClass::Work, session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()));
+    // The sub-agent retention is part of that same cycle in Node (`_retainSubAgents`): same start, same first delay, ended by the stop procedure before the directory shuts down.
+    core.start_sub_agent_retention();
+    // Mixy's heartbeat (`daemon.mjs:1212`): its first check comes one `FIRST_TICK` later.
+    core.start_heartbeat();
+    // `startPostgresInBackground` (daemon.mjs:1274), after ready: the memory database starts here only where a cluster already exists.
+    core.open_memory_in_background();
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
     let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.

@@ -2834,6 +2834,29 @@
     },
     {
       "class": "C2",
+      "method": "room/reset",
+      "mutation": {
+        "domain": "room",
+        "kind": "op"
+      },
+      "opScope": {
+        "domain": "room",
+        "kind": "domain"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "RoomResetParams",
+      "result": "JsonValue",
+      "scope": {
+        "key": "room",
+        "kind": "global"
+      }
+    },
+    {
+      "class": "C2",
       "method": "room/remove",
       "mutation": {
         "domain": "room",
@@ -7095,7 +7118,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectTouchParams",
       "result": "JsonValue",
@@ -7183,7 +7207,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectDirectoryParams",
       "result": "JsonValue",
@@ -7478,7 +7503,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectFsEntryPathParams",
       "result": "JsonValue",
@@ -7777,6 +7803,46 @@
     },
     {
       "class": "C1",
+      "method": "projectFs/previewFile",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "ProjectFsPreviewFileParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "projectFs/previewRange",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "ProjectFsPreviewRangeParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "fs/watch",
       "mutation": {
         "kind": "none"
@@ -7935,6 +8001,60 @@
       ],
       "params": "TransferReadRangeParams",
       "result": "v2::op::BlobReadResponse",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/authorizeRead",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferAuthorizeReadParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/redeemGrant",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferRedeemGrantParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/finishRead",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferFinishReadParams",
+      "result": "JsonValue",
       "scope": {
         "kind": "none"
       }
@@ -10314,6 +10434,60 @@
     },
     {
       "class": "C2",
+      "method": "browser/webrtcSignal",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "v2::host::BrowserWebrtcSignalParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "browser/stream",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "v2::host::BrowserStreamParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "browser/screenDisplays",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "v2::host::ScreenDisplaysParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "modelProxy/run",
       "mutation": {
         "kind": "none"
@@ -10377,6 +10551,11 @@
       "delivery": null,
       "method": "host/browser/surface",
       "params": "HostBrowserSurfaceParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/browser/page",
+      "params": "HostBrowserPageParams"
     },
     {
       "delivery": null,
@@ -10591,11 +10770,6 @@
       "params": "ThreadSectionParams<Option<ThreadRoomView>>"
     },
     {
-      "delivery": "thread",
-      "method": "review/diff/updated",
-      "params": "SectionUpdate"
-    },
-    {
       "delivery": "connection",
       "method": "error",
       "params": "ErrorNotificationParams"
@@ -10614,6 +10788,11 @@
       "delivery": "connection",
       "method": "host/browser/viewFrames",
       "params": "HostBrowserViewFramesParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "browser/webrtcSignal",
+      "params": "BrowserWebrtcSignalParams"
     },
     {
       "delivery": "connection",
@@ -10801,6 +10980,11 @@
       "params": "SectionUpdate"
     },
     {
+      "delivery": "app",
+      "method": "review/diff/updated",
+      "params": "SectionUpdate"
+    },
+    {
       "delivery": "anyScoped",
       "method": "feed/snapshot",
       "params": "FeedSnapshotParams"
@@ -10921,6 +11105,18 @@
       "result": "JsonValue"
     },
     {
+      "method": "host/browser/liveControl",
+      "params": "HostBrowserLiveControlParams",
+      "requires": "host.browser",
+      "result": "JsonValue"
+    },
+    {
+      "method": "host/screen/displays",
+      "params": "ScreenDisplaysParams",
+      "requires": "host.browser",
+      "result": "JsonValue"
+    },
+    {
       "method": "host/visualize/command",
       "params": "HostVisualizeCommandParams",
       "requires": "host.visualize",
@@ -10955,6 +11151,12 @@
       "params": "HostLocalPageUrlParams",
       "requires": "host.files",
       "result": "String"
+    },
+    {
+      "method": "host/files/trashItem",
+      "params": "HostFilesTrashItemParams",
+      "requires": "host.files",
+      "result": "JsonValue"
     },
     {
       "method": "model/proxy/execute",

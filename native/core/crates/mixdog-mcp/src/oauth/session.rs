@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
+#[cfg(not(feature = "test-support"))]
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -21,22 +22,15 @@ use mixdog_rt::DurabilityIo;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
-use serde_json::json;
+use super::account::identity_from_token_response;
 use sha2::Digest;
 use sha2::Sha256;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
-use url::Url;
 
 use super::account::AccountMode;
 use super::account::Identity;
-use super::account::identity_from_token_response;
-use super::account::set_query;
-use super::account::with_account_params;
-use super::callback::CALLBACK_PATH;
 use super::callback::Callback;
-use super::callback::PageOutcome;
 use super::callback::Pasted;
 use super::callback::parse_pasted;
 use super::protocol::ClientCredentials;
@@ -44,10 +38,7 @@ use super::protocol::Discovery;
 use super::protocol::Protocol;
 use super::protocol::TokenError;
 use super::protocol::parse_challenge;
-use super::protocol::pkce;
-use super::protocol::random_state;
 use super::shared::OAuthError;
-use super::shared::missing_scopes;
 use super::store::MarkerFiles;
 use super::store::SecretStore;
 use super::store::StoredIdentity;
@@ -55,8 +46,12 @@ use crate::config::OAuthBinding;
 use crate::transport::Authorizer;
 use crate::transport::TransportError;
 
-/// A sign-in nobody finishes ends here, ahead of the five minutes the callback page is held.
-const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60 - 10);
+mod login;
+
+/// A sign-in nobody finishes ends here (Node's `MCP_OAUTH_TIMEOUT_MS`).
+#[cfg(not(feature = "test-support"))]
+const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60);
+
 
 /// Where sign-ins are stored.
 #[derive(Clone)]
@@ -83,8 +78,13 @@ struct Entry {
     redirect_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     discovery: Option<Discovery>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    identity: Option<Identity>,
+    /// `Some(None)`: stored as `null`, which a browser sign-in whose answer named nobody leaves.
+    #[serde(default, deserialize_with = "some_null", skip_serializing_if = "Option::is_none")]
+    identity: Option<Option<Identity>>,
+}
+
+fn some_null<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Option<Identity>>, D::Error> {
+    Ok(Some(Option::<Identity>::deserialize(deserializer)?))
 }
 
 fn access_token(entry: &Entry) -> Option<String> {
@@ -259,7 +259,7 @@ impl McpOAuth {
         let text = serde_json::to_string(entry).map_err(|e| OAuthError::Store(e.to_string()))?;
         self.store.set(&self.account, &text).await.map_err(store_error)?;
         let endpoint = entry.discovery.as_ref().and_then(Discovery::authorization_endpoint_text);
-        let identity = entry.identity.clone().unwrap_or_default();
+        let identity = entry.identity.clone().flatten().unwrap_or_default();
         let who = has_tokens.then_some((&identity, endpoint.as_deref()));
         self.files.write_identity(&self.account, who).await.map_err(store_error)
     }
@@ -340,7 +340,7 @@ impl McpOAuth {
                     e.tokens = Some(tokens);
                     e.discovery = Some(discovery);
                     if identity.is_some() {
-                        e.identity = identity;
+                        e.identity = Some(identity);
                     }
                 })
                 .await?;
@@ -350,20 +350,18 @@ impl McpOAuth {
                 self.erase(&mut cache).await?;
                 Err(OAuthError::ReauthenticationRequired)
             }
-            Err(TokenError::Oauth(_)) => {
+            Err(TokenError::Oauth(code)) if code == "invalid_grant" => {
                 // The grant is gone. The registration goes too: an authorization server that
                 // forgot its clients would fail every later sign-in at the authorization endpoint.
-                let dynamic = self.binding.client.is_none();
                 self.persist(&mut cache, |e| {
                     e.tokens = None;
-                    if dynamic {
-                        e.client_information = None;
-                    }
+                    e.client_information = None;
                 })
                 .await?;
                 Err(OAuthError::ReauthenticationRequired)
             }
-            Err(TokenError::Failed) => Err(OAuthError::ReauthenticationRequired),
+            // Any other answer invalidates nothing (the SDK's `auth()` recovers only from the two above).
+            Err(TokenError::Oauth(_) | TokenError::Failed) => Err(OAuthError::ReauthenticationRequired),
         }
     }
 
@@ -405,7 +403,7 @@ impl McpOAuth {
 
     /// The sign-in flow of this server, as the login mechanism runs it.
     pub fn login_flow(self: &Arc<Self>, server: &str, mode: AccountMode) -> McpLoginFlow {
-        McpLoginFlow { oauth: Arc::clone(self), target: LoginTarget::McpServer(server.to_owned()), mode, transactional: false }
+        McpLoginFlow { oauth: Arc::clone(self), target: LoginTarget::McpServer(server.to_owned()), mode, transactional: false, hint: None }
     }
 
     /// A sign-in beside the stored one, in any mode (an account of a multi-account connector):
@@ -438,7 +436,8 @@ struct Pending {
     redirect_url: String,
     state: String,
     callbacks: mpsc::UnboundedSender<Callback>,
-    stop: CancellationToken,
+    /// Closes the listener, as a pasted callback does before the exchange runs.
+    stopper: super::callback::Stopper,
 }
 
 struct Control {
@@ -458,201 +457,22 @@ impl Control {
     }
 }
 
-impl McpOAuth {
-    async fn run_login(self: &Arc<Self>, mode: AccountMode, transactional: bool, ctl: &Control) -> Result<Option<String>, Stop> {
-        ctl.emit(LoginState::Starting);
-        let switch = mode == AccountMode::Switch;
-        let server = &self.binding.url;
-        let stored = self.load().await?.entry.clone();
-        let mut work = Entry { url: server.to_string(), ..Entry::default() };
-        if let Some(stored) = &stored {
-            work.client_information = stored.client_information.clone();
-            work.redirect_url = stored.redirect_url.clone();
-            work.discovery = stored.discovery.clone();
-            // A switch never reuses the stored tokens or identity.
-            if !switch {
-                work.tokens = stored.tokens.clone();
-                work.identity = stored.identity.clone();
-            }
-        }
-        let discovery = match work.discovery.clone() {
-            Some(d) if d.authorization_endpoint().is_some() && d.token_endpoint().is_some() => d,
-            _ => self.protocol.discover(server, None).await,
-        };
-        let authorization_endpoint = discovery.authorization_endpoint().ok_or(OAuthError::LoginFailed)?;
-        if !discovery.supports_s256() {
-            return Err(OAuthError::LoginFailed.into());
-        }
-        work.discovery = Some(discovery.clone());
-
-        let state = random_state();
-        let (callbacks, mut callback_rx) = mpsc::unbounded_channel();
-        // Keep the registered redirect URI (its port) when a registration exists.
-        let port = work.redirect_url.as_deref().and_then(|u| Url::parse(u).ok()).and_then(|u| u.port()).unwrap_or(0);
-        let listener = super::callback::listen(port, state.clone(), self.binding.display_name.clone(), callbacks.clone())
-            .await
-            .map_err(|_| OAuthError::LoginFailed)?;
-        let redirect_url = format!("http://127.0.0.1:{}{CALLBACK_PATH}", listener.port);
-        work.redirect_url = Some(redirect_url.clone());
-
-        let static_client = self.binding.client.as_ref();
-        let scope = static_client
-            .filter(|c| !c.scopes.is_empty())
-            .map(|c| c.scopes.join(" "))
-            .or_else(|| discovery.resource_scopes());
-        let credentials = match self.client_credentials(&work).await? {
-            Some(credentials) => {
-                if static_client.is_some() {
-                    work.client_information = Some(match &credentials.client_secret {
-                        Some(secret) => json!({"client_id": credentials.client_id, "client_secret": secret}),
-                        None => json!({"client_id": credentials.client_id}),
-                    });
-                }
-                credentials
-            }
-            None => {
-                let info = self
-                    .protocol
-                    .register(&discovery, &redirect_url, scope.as_deref())
-                    .await
-                    .map_err(|_| OAuthError::LoginFailed)?;
-                let credentials = ClientCredentials::from_info(&info).ok_or(OAuthError::LoginFailed)?;
-                work.client_information = Some(info);
-                credentials
-            }
-        };
-        if !switch {
-            let (ci, ru, di) = (work.client_information.clone(), work.redirect_url.clone(), work.discovery.clone());
-            let mut cache = self.lock_cache().await;
-            self.persist(&mut cache, |e| {
-                e.client_information = ci;
-                e.redirect_url = ru;
-                e.discovery = di;
-            })
-            .await?;
-        }
-
-        let pair = pkce();
-        let mut url = authorization_endpoint;
-        {
-            let mut query = url.query_pairs_mut();
-            query
-                .append_pair("response_type", "code")
-                .append_pair("client_id", &credentials.client_id)
-                .append_pair("code_challenge", &pair.challenge)
-                .append_pair("code_challenge_method", "S256")
-                .append_pair("redirect_uri", &redirect_url)
-                .append_pair("state", &state);
-            if let Some(scope) = &scope {
-                query.append_pair("scope", scope);
-            }
-            if static_client.is_none() {
-                query.append_pair("resource", &discovery.resource(server));
-            }
-        }
-        if let Some(client) = static_client {
-            for (key, value) in &client.auth_params {
-                set_query(&mut url, key, value);
-            }
-        } else if let Some(scope) = &scope
-            && discovery.offers_scope("offline_access")
-            && !scope.split(' ').any(|s| s == "offline_access")
-        {
-            // Without `offline_access` such a server issues no refresh token.
-            set_query(&mut url, "scope", &format!("{scope} offline_access"));
-            url.query_pairs_mut().append_pair("prompt", "consent");
-        }
-        let url = with_account_params(&url, mode);
-
-        *ctl.pending.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(Pending { redirect_url: redirect_url.clone(), state, callbacks, stop: listener.stopper() });
-        ctl.emit(LoginState::Authorize { url: url.to_string(), manual_url: None });
-
-        let waited = tokio::select! {
-            () = ctl.cancel.cancelled() => Err(Stop::Cancelled),
-            () = tokio::time::sleep(LOGIN_DEADLINE) => Err(Stop::Expired),
-            callback = callback_rx.recv() => callback.ok_or(Stop::Failed(OAuthError::LoginFailed)),
-        };
-        ctl.pending.lock().unwrap_or_else(|e| e.into_inner()).take();
-        listener.stopper().cancel();
-        match waited {
-            Ok(callback) => {
-                ctl.emit(LoginState::Waiting);
-                let finished = match callback.code {
-                    Some(code) => self.finish(mode, transactional, ctl, work.clone(), &credentials, &pair.verifier, &redirect_url, code).await,
-                    None => Err(Stop::Failed(OAuthError::LoginFailed)),
-                };
-                let outcome = match &finished {
-                    Ok(_) => PageOutcome::Done,
-                    Err(Stop::Failed(OAuthError::ScopeNotGranted(_))) => PageOutcome::Failed { scope_not_granted: true },
-                    Err(_) => PageOutcome::Failed { scope_not_granted: false },
-                };
-                let _ = callback.respond.send(outcome);
-                finished
-            }
-            Err(stop) => {
-                // A server that no longer knows our client_id answers the browser with an HTTP
-                // error nobody here sees: register again next time.
-                if !switch && static_client.is_none() {
-                    let mut cache = self.lock_cache().await;
-                    let _ = self.persist(&mut cache, |e| e.client_information = None).await;
-                }
-                Err(stop)
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments, reason = "one exchange's inputs")]
-    async fn finish(
-        self: &Arc<Self>,
-        mode: AccountMode,
-        transactional: bool,
-        ctl: &Control,
-        mut work: Entry,
-        credentials: &ClientCredentials,
-        verifier: &str,
-        redirect_url: &str,
-        code: String,
-    ) -> Result<Option<String>, Stop> {
-        let discovery = work.discovery.clone().unwrap_or_default();
-        let form = vec![
-            ("grant_type", "authorization_code".to_owned()),
-            ("code", code),
-            ("code_verifier", verifier.to_owned()),
-            ("redirect_uri", redirect_url.to_owned()),
-        ];
-        let resource = self.binding.client.is_none().then(|| discovery.resource(&self.binding.url));
-        let tokens = self.protocol.token(&discovery, credentials, form, resource).await.map_err(|_| OAuthError::LoginFailed)?;
-        // A browser sign-in of a client with its own scopes must be granted all of them (a
-        // granular consent screen lets the user uncheck some): nothing is stored then.
-        if let Some(client) = &self.binding.client {
-            let missing = missing_scopes(&client.scopes, tokens.get("scope").and_then(Value::as_str));
-            if !missing.is_empty() {
-                return Err(OAuthError::ScopeNotGranted(missing).into());
-            }
-        }
-        if ctl.cancel.is_cancelled() {
-            return Err(Stop::Cancelled);
-        }
-        // A browser sign-in may be another account: its identity replaces the stored one.
-        let identity = identity_from_token_response(&tokens);
-        work.tokens = Some(tokens);
-        work.identity = identity.clone();
-        let mut cache = self.lock_cache().await;
-        if mode == AccountMode::Switch || transactional {
-            *self.switched_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache.entry.clone());
-        }
-        let url = self.binding.url.to_string();
-        self.persist(&mut cache, move |e| *e = Entry { url, ..work }).await?;
-        Ok(identity.map(|i| i.account).filter(|a| !a.is_empty()))
-    }
-}
-
 pub struct McpLoginFlow {
     oauth: Arc<McpOAuth>,
     target: LoginTarget,
     mode: AccountMode,
     transactional: bool,
+    /// The `resource_metadata` URL of the `WWW-Authenticate` challenge that asked for the sign-in.
+    hint: Option<String>,
+}
+
+impl McpLoginFlow {
+    /// The challenge of the request the server refused: discovery asks the resource metadata URL it names.
+    #[must_use]
+    pub fn with_challenge(mut self, challenge: Option<&str>) -> Self {
+        self.hint = parse_challenge(challenge).resource_metadata_url;
+        self
+    }
 }
 
 struct Session {
@@ -690,9 +510,9 @@ impl LoginFlow for McpLoginFlow {
             cancel,
             pending: Mutex::new(None),
         });
-        let (oauth, mode, transactional, task_control) = (Arc::clone(&self.oauth), self.mode, self.transactional, Arc::clone(&control));
+        let (oauth, mode, transactional, hint, task_control) = (Arc::clone(&self.oauth), self.mode, self.transactional, self.hint.clone(), Arc::clone(&control));
         mixdog_rt::spawn("mcp.oauth.login", mixdog_rt::TaskClass::Work, async move {
-            let last = match oauth.run_login(mode, transactional, &task_control).await {
+            let last = match oauth.run_login(mode, transactional, hint, &task_control).await {
                 Ok(account) => LoginState::Done { account },
                 Err(Stop::Cancelled) => LoginState::Cancelled,
                 Err(Stop::Expired) => LoginState::Failed(LoginFailure::Expired),
@@ -733,20 +553,22 @@ impl LoginSession for Session {
         if self.state().is_terminal() {
             return Err(LoginError::Finished);
         }
-        let mut pending = self.control.pending.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(waiting) = pending.as_ref() else { return Err(LoginError::InputNotExpected) };
-        let parsed = parse_pasted(&pasted, &waiting.redirect_url, &waiting.state).map_err(|message| {
-            LoginError::Failed(LoginFailure::Failed { code: "invalidCallback".to_owned(), message: message.to_owned() })
-        })?;
-        // The same answer the loopback would give; an invalid paste above leaves the login pending.
-        let waiting = pending.take().ok_or(LoginError::InputNotExpected)?;
-        waiting.stop.cancel();
-        let (respond, _) = oneshot::channel();
+        let (waiting, parsed) = {
+            let mut pending = self.control.pending.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(waiting) = pending.as_ref() else { return Err(LoginError::InputNotExpected) };
+            let parsed = parse_pasted(&pasted, &waiting.redirect_url, &waiting.state).map_err(|message| {
+                LoginError::Failed(LoginFailure::Failed { code: "invalidCallback".to_owned(), message: message.to_owned() })
+            })?;
+            // The same answer the loopback would give; an invalid paste above leaves the login pending.
+            (pending.take().ok_or(LoginError::InputNotExpected)?, parsed)
+        };
+        // Node stops listening before it answers the callback: while the exchange runs, the browser is refused.
+        waiting.stopper.shutdown(None).await;
         let code = match parsed {
             Pasted::Code(code) => Some(code),
             Pasted::Denied => None,
         };
-        let _ = waiting.callbacks.send(Callback { code, respond });
+        let _ = waiting.callbacks.send(Callback::unheld(code));
         Ok(())
     }
 

@@ -3,7 +3,7 @@
 //!
 //! Node: `session-runtime/services/channel-admin.mjs` (`normalizeChannelsConfig`,
 //! `setWebhookConfigAsync`), `runtime/channels/lib/webhook/relay-tunnel.mjs` (`readHookPublicBase`),
-//! `runtime/channels/lib/tool-dispatch.mjs` (`reload_config`: `initProviders` + `refreshCatalogs`),
+//! `runtime/channels/lib/tool-dispatch.mjs` (`reload_config`),
 //! `owned-runtime/automation-services.mjs` (the webhook server's start and stop).
 //! The recorded Node run of the settings writer is `fixtures/channel-settings/golden.json`
 //! (`record-channel-settings.mjs`).
@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::registry::ProviderRegistry;
 use mixdog_core_config::config::{Config, ConfigError};
 use mixdog_rt::{CancellationToken, DurabilityIo};
@@ -179,18 +178,17 @@ impl PublicBase for HookIdentityBase {
     }
 }
 
-/// The channel runtime's view of the agent runtime: `reload_config` re-registers the providers of
-/// the live config and refreshes every catalog (`initProviders(agentConfig.providers || {})`,
-/// `refreshCatalogs({ force: true })`).
+/// The channel runtime's view of the agent runtime: the start registers the providers of the live
+/// config (`initProviders(agentConfig.providers || {})`). `reload_config` leaves them alone, as
+/// the worker's `MIXDOG_STANDALONE=1` does (`tool-dispatch.mjs:66`).
 pub struct RegistryAgentRuntime {
     config: Config,
     registry: Arc<ProviderRegistry>,
-    catalog: Arc<CatalogService>,
 }
 
 impl RegistryAgentRuntime {
-    pub fn new(config: Config, registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) -> Self {
-        Self { config, registry, catalog }
+    pub fn new(config: Config, registry: Arc<ProviderRegistry>) -> Self {
+        Self { config, registry }
     }
 }
 
@@ -199,12 +197,6 @@ impl AgentRuntime for RegistryAgentRuntime {
     async fn init_providers(&self) -> Result<(), String> {
         let providers = self.config.agent().get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
         self.registry.init_providers(&providers).await.map_err(|error| error.to_string())
-    }
-
-    async fn reload(&self) -> Result<(), String> {
-        self.init_providers().await?;
-        self.catalog.refresh().await;
-        Ok(())
     }
 }
 

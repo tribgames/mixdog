@@ -35,6 +35,7 @@ use sha2::Sha256;
 use super::nodepath;
 use super::patch::clean;
 use super::patch::split_patch_sections;
+use super::ports::GC_TIMEOUT;
 use super::ports::GitOptions;
 use super::ports::GitRun;
 use super::ports::OUTPUT_OVERFLOW;
@@ -187,6 +188,108 @@ struct ReposShared {
     states: Mutex<IndexMap<String, Arc<Root>>>,
     maintained: Mutex<HashSet<PathBuf>>,
     temp_seq: AtomicU64,
+    /// `onTurnReviewChanged` listeners (`turn-boundary-signal.mjs`).
+    review_listeners: Mutex<Listeners>,
+    /// `reviewQueued` (`pending`) and whether a dispatch task is in flight (`running`), one lock so a
+    /// signal either joins the delivery still to come or starts the next one.
+    review_signal: Mutex<SignalState>,
+    /// The latest dispatch task, for [`ShadowRepos::review_signal_settled`].
+    #[cfg(any(test, feature = "test-support"))]
+    review_dispatch: Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+#[derive(Default)]
+struct SignalState {
+    pending: bool,
+    running: bool,
+}
+
+type Listener = Arc<dyn Fn() + Send + Sync>;
+
+/// How long a test waits for a signal's dispatch task: a failure guard, never a pause (the wait ends when the task does).
+#[cfg(any(test, feature = "test-support"))]
+const SIGNAL_DISPATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A JS `Set` of functions as a delivery walks it: a function is in it once (adding it again changes nothing), and the walk sees
+/// what happens to the set meanwhile. An entry removed before the walk reaches it is skipped, one added meanwhile is reached, and
+/// one removed and added again goes to the end (so a walk that already ran it runs it again).
+#[derive(Default)]
+struct Listeners {
+    /// Each entry's position in the set's order; later additions take larger numbers.
+    entries: Vec<(u64, Listener)>,
+    next: u64,
+}
+
+impl Listeners {
+    fn position(&self, listener: &Listener) -> Option<usize> {
+        self.entries.iter().position(|(_, held)| std::ptr::addr_eq(Arc::as_ptr(held), Arc::as_ptr(listener)))
+    }
+
+    /// `set.add(fn)`.
+    fn add(&mut self, listener: &Listener) {
+        if self.position(listener).is_none() {
+            self.entries.push((self.next, listener.clone()));
+            self.next += 1;
+        }
+    }
+
+    /// `set.delete(fn)`: whether it was in the set.
+    fn delete(&mut self, listener: &Listener) -> bool {
+        let Some(at) = self.position(listener) else { return false };
+        self.entries.remove(at);
+        true
+    }
+
+    /// The entry after position `after` (none: the first), with its position.
+    fn following(&self, after: Option<u64>) -> Option<(u64, Listener)> {
+        self.entries.iter().find(|(at, _)| after.is_none_or(|seen| *at > seen)).cloned()
+    }
+}
+
+impl ReposShared {
+    /// `noteTurnReviewChanged`: signals within one task reach the listeners once, after it (Node queues
+    /// one microtask). The dispatch is one task spawned from the signalling task, so on the runtime's
+    /// worker it runs once that task yields (tokio keeps a freshly spawned task in the spawning worker's
+    /// LIFO slot, which other workers do not steal). One dispatch is in flight at a time: a signal raised
+    /// by a listener, as in Node, is delivered by the next round, after this one ends.
+    fn note_review_changed(self: &Arc<Self>) {
+        {
+            let mut state = self.review_signal.lock().unwrap_or_else(|e| e.into_inner());
+            state.pending = true;
+            if state.running {
+                return;
+            }
+            state.running = true;
+        }
+        let shared = self.clone();
+        let dispatch = tokio::spawn(async move {
+            loop {
+                {
+                    let mut state = shared.review_signal.lock().unwrap_or_else(|e| e.into_inner());
+                    if !state.pending {
+                        state.running = false;
+                        return;
+                    }
+                    state.pending = false;
+                }
+                // `for (const fn of host.reviews)`: the live set, read again after every listener.
+                let mut seen = None;
+                loop {
+                    let next = shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).following(seen);
+                    let Some((at, listener)) = next else { break };
+                    seen = Some(at);
+                    // Node: `try { fn() } catch {}`.
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener()));
+                }
+            }
+        });
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            *self.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()) = Some(dispatch);
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        drop(dispatch);
+    }
 }
 
 pub struct ShadowRepos {
@@ -214,8 +317,53 @@ impl ShadowRepos {
                 states: Mutex::new(IndexMap::new()),
                 maintained: Mutex::new(HashSet::new()),
                 temp_seq: AtomicU64::new(0),
+                review_listeners: Mutex::new(Listeners::default()),
+                review_signal: Mutex::new(SignalState::default()),
+                #[cfg(any(test, feature = "test-support"))]
+                review_dispatch: Mutex::new(None),
             }),
         }
+    }
+
+    /// A bare `noteTurnReviewChanged()`, for the tests of the dispatch itself.
+    #[cfg(test)]
+    pub(super) fn raise_review_signal(&self) {
+        self.shared.note_review_changed();
+    }
+
+    /// `onTurnReviewChanged(listener)`: registers it and returns `() => set.delete(fn)`. Like the set, the registration is the
+    /// function's: one registered twice is one entry, and any unsubscribe that names it removes it, however often it was handed out.
+    pub fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        self.shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).add(&listener);
+        let shared = Arc::downgrade(&self.shared);
+        Arc::new(move || shared.upgrade().is_some_and(|shared| shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).delete(&listener)))
+    }
+
+    /// Resolves once every signal raised so far has reached its listeners (what a Node caller gets from one
+    /// `await` after the signal's task). A dispatch task that panicked or was cancelled fails the wait, and so does one that
+    /// has not finished within [`SIGNAL_DISPATCH_DEADLINE`] (a listener that never returns).
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn review_signal_settled(&self) {
+        self.review_signal_settled_within(SIGNAL_DISPATCH_DEADLINE).await;
+    }
+
+    /// [`review_signal_settled`](Self::review_signal_settled) with the deadline for each dispatch task named.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn review_signal_settled_within(&self, deadline: std::time::Duration) {
+        loop {
+            let dispatch = self.shared.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()).take();
+            let Some(mut dispatch) = dispatch else { break };
+            match tokio::time::timeout(deadline, &mut dispatch).await {
+                Ok(joined) => joined.expect("the review signal dispatch ended without delivering"),
+                Err(_) => {
+                    // Still in flight: a later wait can still join it.
+                    *self.shared.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()) = Some(dispatch);
+                    panic!("the review signal dispatch to the onTurnReviewChanged listeners did not finish within {deadline:?}");
+                }
+            }
+        }
+        let state = self.shared.review_signal.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!state.pending && !state.running, "a signal is still waiting for its delivery");
     }
 
     /// `repositoryRoot(worktree)`.
@@ -265,6 +413,7 @@ impl ShadowRepos {
             for state in &states {
                 state.state.lock().unwrap_or_else(|e| e.into_inner()).change_stamp += 1;
             }
+            self.shared.note_review_changed();
             return;
         }
         let roots: Vec<(usize, String)> = states
@@ -296,8 +445,12 @@ impl ShadowRepos {
                 }
             }
         }
+        let any = !stamped.is_empty();
         for index in stamped {
             states[index].state.lock().unwrap_or_else(|e| e.into_inner()).change_stamp += 1;
+        }
+        if any {
+            self.shared.note_review_changed();
         }
     }
 
@@ -372,6 +525,11 @@ impl Root {
 
     pub(super) fn bump_change(&self) {
         self.st().change_stamp += 1;
+    }
+
+    /// `noteTurnReviewChanged()`: a capture changed what a review shows.
+    pub(super) fn note_review_changed(&self) {
+        self.repos.note_review_changed();
     }
 
     pub(super) fn change_stamp(&self) -> u64 {
@@ -789,7 +947,7 @@ impl Root {
     }
 
     async fn apply_in_index(&self, tree: &str, entries: &[ToolEntry], files: &mut Vec<Value>, index: Option<&Path>) -> R<String> {
-        let options = GitOptions { index_file: index.map(Path::to_path_buf), max_bytes: None };
+        let options = GitOptions { index_file: index.map(Path::to_path_buf), ..GitOptions::default() };
         let run = |args: Vec<&str>, input: Vec<u8>| {
             let args = self.shadow_args(&args, None);
             let options = options.clone();
@@ -830,7 +988,7 @@ impl Root {
     async fn patch_sections_by_path(&self, baseline: &str, current: &str, pathspec: &[String], max_bytes: usize) -> R<Option<IndexMap<String, Vec<u8>>>> {
         let mut args = vec!["diff", "--no-ext-diff", "--unified=3", "--find-renames", baseline, current, "--"];
         args.extend(pathspec.iter().map(String::as_str));
-        let options = GitOptions { index_file: None, max_bytes: Some(max_bytes as u64 + PATCH_OUTPUT_SLACK_BYTES) };
+        let options = GitOptions { max_bytes: Some(max_bytes as u64 + PATCH_OUTPUT_SLACK_BYTES), ..GitOptions::default() };
         match self.run_args(self.shadow_args(&args, None)?, Vec::new(), &options, false).await {
             Ok(out) => Ok(Some(sections_by_path(&String::from_utf8_lossy(&out.stdout)))),
             Err(e) if e == OUTPUT_OVERFLOW => Ok(None),
@@ -842,7 +1000,7 @@ impl Root {
     async fn combined_tree_diff(&self, range: &[String]) -> R<Option<Combined>> {
         let mut args = vec!["diff", "--raw", "--numstat", "--patch", "--no-ext-diff", "--unified=3", "-z"];
         args.extend(range.iter().map(String::as_str));
-        let options = GitOptions { index_file: None, max_bytes: Some(COMMAND_MAX_BYTES + PATCH_OUTPUT_SLACK_BYTES) };
+        let options = GitOptions { max_bytes: Some(COMMAND_MAX_BYTES + PATCH_OUTPUT_SLACK_BYTES), ..GitOptions::default() };
         let out = match self.run_args(self.shadow_args(&args, None)?, Vec::new(), &options, true).await {
             Ok(out) => out,
             Err(e) if e == OUTPUT_OVERFLOW => return Ok(None),
@@ -1021,7 +1179,7 @@ impl Root {
             // Outside the state lock: collection can run for minutes and git serializes itself
             // through gc.lock. `forget_root` waits for this before deleting the repository.
             if let Ok(args) = root.shadow_args(&["gc", "--auto", &format!("--prune={SHADOW_GC_PRUNE}"), "--quiet"], None) {
-                let _ = root.run_args(args, Vec::new(), &GitOptions::default(), true).await;
+                let _ = root.run_args(args, Vec::new(), &GitOptions::timeout(GC_TIMEOUT), true).await;
             }
         });
         *self.gc.lock().unwrap_or_else(|e| e.into_inner()) = Some(Gc { started, task });

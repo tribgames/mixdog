@@ -426,14 +426,14 @@ pub(super) fn separate_defaults_in_config(root: &Doc, data_dir: &Path) -> Doc {
 
 /// `statSync(path).mode & 0o777`.
 #[cfg(unix)]
-fn source_mode(meta: &std::fs::Metadata) -> u32 {
+pub(crate) fn source_mode(meta: &std::fs::Metadata) -> u32 {
     use std::os::unix::fs::PermissionsExt;
     meta.permissions().mode() & 0o777
 }
 
 /// Where a file has no Unix mode, the new-file default of the publisher.
 #[cfg(not(unix))]
-fn source_mode(_: &std::fs::Metadata) -> u32 {
+pub(crate) fn source_mode(_: &std::fs::Metadata) -> u32 {
     mixdog_statefile::Opts::default().mode
 }
 
@@ -442,15 +442,22 @@ fn source_mode(_: &std::fs::Metadata) -> u32 {
 /// for it alone. Nothing when there is no file.
 fn backup(lane: &InLane<DurabilityIo>, source: &Path, data_dir: &Path, now_ms: i64) -> Result<(), ConfigError> {
     let Some(bytes) = mixdog_statefile::read_content(source)? else { return Ok(()) };
-    let parent = data_dir.join("backups");
-    mixdog_statefile::create_dir_all(lane, &parent)?;
-    let stamp = chrono::DateTime::from_timestamp_millis(now_ms).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default();
-    let stem = format!("defaults-separation-{}", stamp.replace([':', '.'], "-"));
-    let dir = claim_dir(lane, &parent, &stem)?;
+    let dir = claim_backup_dir(lane, data_dir, now_ms)?;
     // `writeFileAtomicSync(target, bytes, { mode: statSync(source).mode & 0o777 })`: the copy keeps the file's own mode.
     let opts = mixdog_statefile::Opts { mode: source_mode(&mixdog_statefile::metadata(lane, source)?), ..mixdog_statefile::Opts::default() };
     let written = mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts);
     written.map(|_| ()).map_err(ConfigError::Publish)
+}
+
+/// A fresh `<data>/backups/defaults-separation-<timestamp>[-n]` folder: the one both separation passes (this one and the
+/// `desktop` section's, `desktop_separation.rs`) put their copy of the config in.
+pub(super) fn claim_backup_dir(lane: &InLane<DurabilityIo>, data_dir: &Path, now_ms: i64) -> Result<std::path::PathBuf, ConfigError> {
+    let parent = data_dir.join("backups");
+    mixdog_statefile::create_dir_all(lane, &parent)
+        .map_err(|error| ConfigError::Publish(mixdog_statefile::PublishFailure { step: mixdog_statefile::Step::Mkdir(parent.clone()), error }))?;
+    let stamp = chrono::DateTime::from_timestamp_millis(now_ms).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default();
+    let stem = format!("defaults-separation-{}", stamp.replace([':', '.'], "-"));
+    claim_dir(lane, &parent, &stem)
 }
 
 /// The folder named `stem`, or `stem-1`, `stem-2`, ... when that name is taken: each name is tried by creating
@@ -464,7 +471,7 @@ fn claim_dir(lane: &InLane<DurabilityIo>, parent: &Path, stem: &str) -> Result<s
         match mixdog_statefile::create_dir(lane, &dir) {
             Ok(()) => return Ok(dir),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(ConfigError::Publish(mixdog_statefile::PublishFailure { step: mixdog_statefile::Step::Mkdir(dir), error })),
         }
     }
 }
@@ -478,31 +485,39 @@ impl Shared {
         let mut raised = super::lock(&self.writer);
         let current = self.doc.load_full();
         let data_dir = self.path.parent().unwrap_or_else(|| Path::new(""));
-        let separating = needs_separation(&current);
-        let mut next = if separating { separate_defaults_in_config(&current, data_dir) } else { (*current).clone() };
-        if separating {
-            if !js_deep_equal(&Value::Object(next.clone()), &Value::Object((*current).clone())) {
-                backup(lane, &self.path, data_dir, now_ms)?;
+        // Node's pass is `updateConfig`: it starts from what `readAllForRmW` settles on.
+        let written = self.guard.locked(lane, |baseline| {
+            let base = baseline.doc.unwrap_or_else(|| (*current).clone());
+            let separating = needs_separation(&base);
+            let mut next = if separating { separate_defaults_in_config(&base, data_dir) } else { base.clone() };
+            if separating {
+                if !js_deep_equal(&Value::Object(next.clone()), &Value::Object(base.clone())) {
+                    backup(lane, &self.path, data_dir, now_ms)?;
+                }
+                next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
             }
-            next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
-        }
-        if let Some(Value::Object(agent)) = next.get("agent") {
-            let catalog = super::storage::saved_catalog(data_dir).unwrap_or_default();
-            if let Some(canonical) = super::storage::migrated_agent(agent, &catalog, now_ms) {
-                next.insert("agent".into(), Value::Object(canonical));
+            if let Some(Value::Object(agent)) = next.get("agent") {
+                let catalog = super::storage::saved_catalog(data_dir).unwrap_or_default();
+                if let Some(canonical) = super::storage::migrated_agent(agent, &catalog, now_ms) {
+                    next.insert("agent".into(), Value::Object(canonical));
+                }
             }
+            let next = super::canonical::canonicalize(next);
+            if next == *current && !baseline.forced {
+                return Ok(None);
+            }
+            self.guard.write(lane, &next, "post-config-write")?;
+            Ok(Some(next))
+        })?;
+        match written {
+            Some(next) if next != *current => Ok(self.install(&mut raised, &current, next)),
+            _ => Ok(Applied::default()),
         }
-        let next = super::canonical::canonicalize(next);
-        if next == *current {
-            return Ok(Applied::default());
-        }
-        super::persist(lane, &self.path, &next)?;
-        Ok(self.install(&mut raised, &current, next))
     }
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::config) mod tests;
 
 impl Config {
     /// `ensureDefaultsSeparated()`, as Node's boot runs it before any session reads the config.

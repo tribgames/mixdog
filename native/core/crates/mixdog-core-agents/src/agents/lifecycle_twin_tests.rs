@@ -277,6 +277,37 @@ async fn new_agents_are_greeted_once_as_nodes_host_greeted_them() {
     assert!(ran > 80, "the twin ran {ran} calls");
 }
 
+/// A catalog read that arrives while a dialog's save is in flight (the save itself rebuilds the pushed catalog) must not greet the agent
+/// being saved: Node's `noteCreated` is awaited before the save's reply (`session-host-lifecycle.ts:1181`), its catalog read comes after.
+#[tokio::test]
+async fn a_catalog_read_during_a_save_does_not_greet_the_saved_agent() {
+    let bot = json!({ "id": "new-bot", "custom": true, "kind": "bot", "label": "New Bot", "route": { "provider": "p", "model": "m" } });
+    let deps = std::sync::Arc::new(Greeting(Mutex::new(Seen { stored: Some(vec!["old".into()]), catalog: json!([bot]), fail: Vec::new(), log: Vec::new() })));
+    let greetings = AgentGreetings::new(deps.clone());
+    let read = greetings.clone();
+    let catalog = json!([bot]);
+    let reading = std::sync::Arc::new(Mutex::new(None));
+    let started = reading.clone();
+    greetings
+        .saving(
+            async move {
+                // The single-threaded runtime gives the spawned read its whole turn at each yield, so it reaches the queue (or, without
+                // the hold, finishes) before the save returns.
+                *started.lock().unwrap() = Some(tokio::spawn(async move { read.reconcile(&catalog).await }));
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+                Ok::<_, CoreError>(json!({ "id": "new-bot" }))
+            },
+            |saved| saved["id"].as_str().map(str::to_owned),
+        )
+        .await
+        .unwrap();
+    let handle = reading.lock().unwrap().take().unwrap();
+    handle.await.unwrap().unwrap();
+    let log = deps.0.lock().unwrap().log.clone();
+    assert!(!log.iter().any(|entry| entry[0] == "greet"), "the saved agent was greeted: {log:?}");
+    assert_eq!(deps.0.lock().unwrap().stored.clone().unwrap(), ["old", "new-bot"].map(String::from).to_vec());
+}
 #[test]
 fn the_greeting_text_is_what_node_sends() {
     for case in twin()["kickoff"].as_array().unwrap() {

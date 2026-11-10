@@ -5,7 +5,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_session::session::SessionDirectory;
-use mixdog_core_session::session::route_session::has_user_conversation;
 use mixdog_core_session::session::worktree::worktree_host::{JobCwd, LeadActivity, LiveSession, Undo};
 use mixdog_core_session::session::worktree::worktree_host_impl::{HostRuntime, WorkspaceContext};
 use mixdog_scm::error::ScmFailure;
@@ -91,11 +90,6 @@ impl HostRuntime for LiveHostRuntime {
     /// The runtime cwd is the header's `cwd` (`assemble.rs cwd_of`).
     fn runtime_cwd(&self, id: &str) -> String {
         self.header_text(id, "cwd").unwrap_or_default()
-    }
-
-    /// The live turn's messages (`route_session.rs` `live_turn_messages`).
-    fn has_messages(&self, id: &str) -> bool {
-        self.directory.handle(&ThreadId::from(id)).is_some_and(|handle| has_user_conversation(&handle.turn_messages_snapshot()))
     }
 
     /// Node `applyResolvedCwd`: `writeLastSessionCwd(cwd, session.clientHostPid)`, then `moveLeadRow` (`update_lead_worker_cwd`, which cannot throw; Node swallows its

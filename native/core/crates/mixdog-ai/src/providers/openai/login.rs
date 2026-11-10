@@ -19,11 +19,14 @@ use super::oauth::TOKEN_URL;
 use super::oauth::account_of;
 use super::oauth::claims_of;
 use crate::oauth::AuthorizeRequest;
+use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
 use crate::oauth::RefreshFailure;
 use crate::oauth::Redirect;
+use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
+use crate::oauth::pages;
 use crate::oauth::http;
 use crate::oauth::scrub::oauth_body_summary;
 use crate::transport::HttpSend;
@@ -33,6 +36,7 @@ pub const SCOPE: &str = "openid profile email offline_access api.connectors.read
 /// Bytes of the PKCE verifier (`createOAuthPkce(64)`).
 const VERIFIER_BYTES: usize = 64;
 const PROFILE_CLAIM: &str = "https://api.openai.com/profile";
+const OPERATION: &str = "[openai-oauth] token exchange";
 
 fn failed(code: &str, message: &str) -> LoginFailure {
     LoginFailure::Failed { code: code.into(), message: message.into() }
@@ -124,10 +128,14 @@ impl PkceProvider for OpenAiLogin {
         url.into()
     }
 
-    async fn exchange(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
+    fn callback_pages(&self) -> CallbackPages {
+        pages::OPENAI
+    }
+
+    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
         let code = code.trim();
         if code.is_empty() {
-            return Err(failed("invalid_callback", "[openai-oauth] authorization code is required"));
+            return Err(failed("invalid_callback", "[openai-oauth] authorization code is required").into());
         }
         let body = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("grant_type", "authorization_code")
@@ -137,32 +145,41 @@ impl PkceProvider for OpenAiLogin {
             .append_pair("code_verifier", verifier)
             .finish()
             .into_bytes();
-        let reply = http::call(
+        let reply = http::try_call(
             self.http.as_ref(),
             "POST",
             &self.token_url,
             vec![("Content-Type", "application/x-www-form-urlencoded".to_owned())],
             body,
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            let text = http::request_failed(OPERATION, &error);
+            Refusal { failure: failed("transport", &text), detail: Some(text) }
+        })?;
         if !reply.ok() {
-            return Err(match classify_refresh_failure(Some(reply.status), &reply.body) {
+            // `oauthHttpError`: `<operation> <status>: <redacted body>`.
+            let summary = oauth_body_summary(&reply.text(), &[code, verifier]);
+            let detail = if summary.is_empty() { String::new() } else { format!(": {summary}") };
+            let text = format!("{OPERATION} {}{detail}", reply.status);
+            let failure = match classify_refresh_failure(Some(reply.status), &reply.body) {
                 RefreshFailure::Definitive => LoginFailure::Denied,
-                _ => {
-                    // `oauthHttpError`: `<operation> <status>: <redacted body>`.
-                    let summary = oauth_body_summary(&reply.text(), &[code, verifier]);
-                    let detail = if summary.is_empty() { String::new() } else { format!(": {summary}") };
-                    failed("token_exchange", &format!("[openai-oauth] token exchange {}{detail}", reply.status))
-                }
-            });
+                _ => failed("token_exchange", &text),
+            };
+            return Err(Refusal { failure, detail: Some(text) });
         }
-        let json = reply.json().unwrap_or(Value::Null);
+        // `oauthResponseJson`: a body that does not parse is named by its status only.
+        let Some(json) = reply.json() else {
+            let text = format!("{OPERATION} returned a malformed response (HTTP {})", reply.status);
+            return Err(Refusal { failure: failed("token_exchange", &text), detail: Some(text) });
+        };
         let text = |key: &str| json.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
         let (Some(access), Some(refresh)) = (text("access_token"), text("refresh_token")) else {
             return Err(failed(
                 "token_exchange",
                 "[openai-oauth] token exchange response missing access_token or refresh_token",
-            ));
+            )
+            .into());
         };
         // `expires_in` when the server sends a number, else the token's own `exp`.
         let expires_at = json
@@ -192,5 +209,29 @@ impl PkceProvider for OpenAiLogin {
             .await
             .map_err(|_| failed("storage", "the tokens could not be stored"))?;
         Ok(label)
+    }
+}
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+    use crate::transport::site_probe::login_message;
+
+    /// The code exchange of the product's login (`sites.openaiCodeExchange`, through the callback; `...Manual`, through a pasted
+    /// code) is a raw `fetch` under `AbortSignal.timeout`, and the login ends with `oauthRequestError`'s wording; no crash.
+    #[tokio::test(start_paused = true)]
+    async fn the_code_exchange_ends_the_login_with_nodes_wrapped_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let failure = OpenAiLogin::new(file, transport.clone()).exchange("abc", "v", "http://localhost/cb").await.expect_err("never answers");
+        assert_transport("openaiCodeExchange", &transport);
+        assert_thrown("openaiCodeExchange", login_message(&failure));
+        assert_thrown("openaiCodeExchangeManual", login_message(&failure));
     }
 }

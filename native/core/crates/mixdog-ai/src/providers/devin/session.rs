@@ -15,6 +15,7 @@ use url::Host;
 use url::Url;
 
 use super::decoder::MAX_DECOMPRESSED_BYTES;
+use super::error::connection_failed;
 use super::error::http_error;
 use super::error::protocol_error;
 use super::schema::Metadata;
@@ -155,7 +156,8 @@ pub async fn unary(
             },
             DEVIN_EXCHANGE,
         )
-        .await?;
+        .await
+        .map_err(|error| connection_failed(error, secrets))?;
     if (300..400).contains(&head.status) {
         let mut error = protocol_error("Devin server redirected the request; redirects are refused");
         error.status = Some(head.status);
@@ -311,6 +313,20 @@ pub async fn exchange_user_jwt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A unary call arms no timer (`devinUnary`, `devin-wire-transport.mjs:469`): it ends at the dispatcher's, and reads as
+    /// the real Node function did (`sites.devinUnary`).
+    #[tokio::test(start_paused = true)]
+    async fn a_unary_call_reads_as_nodes_when_the_dispatcher_ends_it() {
+        use crate::transport::site_probe::{TimingOut, assert_dispatcher, assert_thrown};
+
+        let transport = TimingOut::new();
+        let error = unary(transport.as_ref(), "http://x.test", "/exa.auth_pb.AuthService/GetUserJwt", Vec::new(), &[])
+            .await
+            .expect_err("never answers");
+        assert_dispatcher("devinUnary", &transport);
+        assert_thrown("devinUnary", &error.message);
+    }
 
     #[test]
     fn session_token_gets_its_scheme_once() {

@@ -38,6 +38,17 @@ impl Default for RuntimeFlags {
 }
 
 impl RuntimeFlags {
+    /// The flags of a standalone start: `ensureStandaloneEnvironment` (`seeds.mjs:26`) does `MIXDOG_EMBED_WARMUP ??= '0'`, so an unset
+    /// variable keeps the eager paths off (the model still loads on demand), while a set one is read by `envFlag(name, true)`
+    /// (`memory-config-flags.mjs:36`): an empty or unrecognised value keeps the default `true`.
+    pub fn from_env(env: &dyn Fn(&str) -> Option<String>) -> Self {
+        let eager_warmup = env("MIXDOG_EMBED_WARMUP").is_some_and(|raw| match mixdog_js::js_trim(&raw).to_lowercase().as_str() {
+            "0" | "false" | "off" | "no" => false,
+            _ => true,
+        });
+        Self { eager_warmup, ..Self::default() }
+    }
+
     /// `embeddingWarmupCanStart`: the eager paths.
     pub fn warmup_can_start(self) -> bool {
         onnx_runtime_supported() && self.eager_warmup && !self.secondary

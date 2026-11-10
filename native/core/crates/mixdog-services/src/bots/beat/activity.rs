@@ -60,7 +60,7 @@ impl UserActivity {
         let store = Arc::clone(&self.store);
         mixdog_rt::spawn("services.heartbeat.user-turn", TaskClass::Work, async move {
             if let Err(error) = store.update(Change::UserTurn { time: at }).await {
-                tracing::warn!("mixdog heartbeat: user turn note not saved yet: {error}");
+                mixdog_rt::node_stderr!("mixdog heartbeat: user turn note not saved yet: {error}");
             }
         });
     }
@@ -106,7 +106,7 @@ impl UserActivity {
         let store = Arc::clone(&self.store);
         mixdog_rt::spawn("services.heartbeat.app-input-write", TaskClass::Work, async move {
             if let Err(error) = store.update(Change::AppInput { value }).await {
-                tracing::warn!("mixdog heartbeat: app input note not saved yet: {error}");
+                mixdog_rt::node_stderr!("mixdog heartbeat: app input note not saved yet: {error}");
             }
         });
         writes.at = value;

@@ -5,6 +5,8 @@
 //! `thread/resizeImage`). Each answers the action's own value, as the session action lane
 //! (`session-action.mjs`) returns it as `value`.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
@@ -28,7 +30,74 @@ pub enum CompactionCommit {
     Moved,
 }
 
+/// One incarnation of a loaded session, as a session call addressed it when it began (`entryForSession`'s entry): it keeps
+/// meaning that runtime however the thread is reloaded after. Holds the actor's inbox weakly, so a call in flight never keeps
+/// a session that unloads alive.
+pub struct SessionIncarnation {
+    cell: Arc<super::control::ControlCell>,
+    inbox: tokio::sync::mpsc::WeakSender<super::actor::Inbox>,
+}
+
+impl SessionIncarnation {
+    /// Whether this runtime ended (closed, deleted, unloaded or stopped): Node's `entry.disposed`.
+    pub fn disposed(&self) -> bool {
+        self.cell.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// `pushNotice(text, tone)` of this runtime (no `transcript` option): a toast of the session, published to its clients when
+    /// this returns (after any earlier record the session still holds unacknowledged). Posting to a runtime that ended is
+    /// accepted and shown to no one, as Node's posting to a disposed runtime's state is. The error is the cause that dropped
+    /// the toast from a live runtime: its record was not stored, or the actor stopped without ending the runtime.
+    pub async fn push_toast(&self, text: &str, tone: &str) -> Result<(), String> {
+        let Some(inbox) = self.inbox.upgrade() else { return self.ended("the session stopped before the notice was posted") };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if inbox.send(super::actor::Inbox::PushToast { text: text.to_owned(), tone: tone.to_owned(), tx }).await.is_err() {
+            return self.ended("the session stopped before the notice was posted");
+        }
+        match rx.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(error.to_string()),
+            Err(_) => self.ended("the session stopped before the notice was published"),
+        }
+    }
+
+    /// A post that found its actor gone: no error when the runtime is disposed (the actor releases its slot, closing the cell,
+    /// before anything else it holds is dropped: `SessionActor::slot`).
+    fn ended(&self, cause: &str) -> Result<(), String> {
+        if self.disposed() { Ok(()) } else { Err(cause.to_owned()) }
+    }
+}
+
+#[async_trait]
+impl mixdog_mcp::mcp_service::Incarnation for SessionIncarnation {
+    async fn toast(&self, text: &str, tone: &str) -> Result<(), String> {
+        self.push_toast(text, tone).await
+    }
+
+    fn disposed(&self) -> bool {
+        SessionIncarnation::disposed(self)
+    }
+}
+
+impl mixdog_mcp::mcp_service::SessionToasts for super::SessionDirectory {
+    /// Node's `isClosed()` of the session service: the directory's shutdown began ([`super::SessionDirectory::shutdown_for`]).
+    fn closed(&self) -> bool {
+        self.is_closed()
+    }
+
+    fn incarnation(&self, thread: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+        self.hosting(&ThreadId::from(thread)).map(|incarnation| Arc::new(incarnation) as Arc<dyn mixdog_mcp::mcp_service::Incarnation>)
+    }
+}
+
 impl super::SessionDirectory {
+    /// The incarnation of `thread` a session call addressed now; `None` for a thread no loaded session hosts (a cold session
+    /// is not disposed: Node reopens it).
+    pub fn hosting(&self, thread: &ThreadId) -> Option<SessionIncarnation> {
+        let handle = self.handle(thread)?;
+        (!handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst)).then(|| SessionIncarnation { cell: handle.cell.clone(), inbox: handle.inbox.downgrade() })
+    }
+
     /// Commits `compaction`, planned on the model context whose item ids are `snapshot`, to
     /// `thread`. Opens the thread as `loadSession` does. `header` is what the commit sets in the
     /// thread's header with the compaction; `None` writes none (the pre-send pass's telemetry counts it).
@@ -122,6 +191,10 @@ pub trait ManualCompaction: Send + Sync {
     /// (`trigger`) runs once the manager's savings gate passes, best-effort. `None` is Node's
     /// `null` (no session, or nothing to report); a `skipped` result is returned as is.
     async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError>;
+    /// `compactConversationForHeir` (`inheritance.mjs`): the conversation of `source` compacted to fit `budget_tokens`, on a
+    /// copy - nothing of the source is touched. `summarize` (an explicitly chosen compacted carry) summarizes whatever the
+    /// size. The rows of the result, system blocks included; `None` when the compaction yields no conversation.
+    async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError>;
     /// `session.postCompactHook({ trigger })`, best-effort.
     async fn post_compact(&self, thread: &ThreadId, trigger: &str);
     /// `rearmLateDeferredTools` and `rearmPromptSettingsNotice`: the compaction dropped what the

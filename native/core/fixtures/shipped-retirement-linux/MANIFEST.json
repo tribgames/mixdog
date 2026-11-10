@@ -1,0 +1,28 @@
+{
+  "command": "RETIRE_OTHER_VOLUME=<a mount other than TMPDIR> node benchmarks/rust-core/recorders/record-shipped-retirement.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146 (on Linux, Node v22.20.0)",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 155826,
+      "path": "twin.json",
+      "sha256": "43e415ee34f7fea6b5c6a422aa029d6bbbc6b5018237ff07d15764e8e67671e9"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shipped-retirement.mjs",
+  "set": "shipped-retirement-linux",
+  "totalBytes": 155826
+}

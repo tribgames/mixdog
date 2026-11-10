@@ -443,7 +443,7 @@ pub struct SystemProxy {
 
 impl Default for SystemProxy {
     fn default() -> Self {
-        Self::new(Arc::new(|line| tracing::warn!("{line}")))
+        Self::new(Arc::new(|line| mixdog_rt::node_stderr!("{line}")))
     }
 }
 

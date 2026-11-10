@@ -1,0 +1,282 @@
+{
+ "gitCommand": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe",
+ "timeoutCases": [
+  {
+   "args": [
+    "rev-parse",
+    "--show-toplevel"
+   ],
+   "timeoutMs": 300,
+   "code": "ETIMEDOUT",
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe rev-parse --show-toplevel timed out after 300ms"
+  },
+  {
+   "args": [
+    "rev-parse",
+    "--show-object-format"
+   ],
+   "timeoutMs": 450,
+   "code": "ETIMEDOUT",
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe rev-parse --show-object-format timed out after 450ms"
+  },
+  {
+   "args": [
+    "check-ignore",
+    "-z",
+    "--stdin"
+   ],
+   "timeoutMs": 600,
+   "code": "ETIMEDOUT",
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe check-ignore -z --stdin timed out after 600ms"
+  },
+  {
+   "args": [
+    "cat-file",
+    "-t",
+    "abc123"
+   ],
+   "timeoutMs": 250,
+   "code": "ETIMEDOUT",
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe cat-file -t abc123 timed out after 250ms"
+  }
+ ],
+ "realKill": {
+  "args": [
+   "-c",
+   "alias.wedge=!sleep 600 > held.marker",
+   "wedge"
+  ],
+  "timeoutMs": 5000,
+  "code": "ETIMEDOUT",
+  "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe -c alias.wedge=!sleep 600 > held.marker wedge timed out after 5000ms",
+  "aliasReached": true,
+  "heldFileReleased": true
+ },
+ "measured": {
+  "captures": {
+   "first": {
+    "hung": {
+     "verb": "write-tree",
+     "args": [
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "core.safecrlf=false",
+      "-c",
+      "core.quotepath=false",
+      "--git-dir",
+      "<work>\\data\\turn-worktree-snapshots-v1\\<key>",
+      "--work-tree",
+      "<work>\\capture",
+      "write-tree"
+     ]
+    },
+    "code": "ETIMEDOUT",
+    "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe -c core.autocrlf=false -c core.safecrlf=false -c core.quotepath=false --git-dir <work>\\data\\turn-worktree-snapshots-v1\\<key> --work-tree <work>\\capture write-tree timed out after 30000ms",
+    "afterSeconds": 30
+   },
+   "second": {
+    "resolved": true,
+    "hasBaselineTree": true,
+    "afterSeconds": 31,
+    "startedGitOnlyAfterFirstTimedOut": true
+   }
+  },
+  "begin": {
+   "hung": {
+    "verb": "write-tree",
+    "args": [
+     "-c",
+     "core.autocrlf=false",
+     "-c",
+     "core.safecrlf=false",
+     "-c",
+     "core.quotepath=false",
+     "--git-dir",
+     "<work>\\data\\turn-worktree-snapshots-v1\\<key>",
+     "--work-tree",
+     "<work>\\begin",
+     "write-tree"
+    ]
+   },
+   "token": {
+    "generation": 1,
+    "checkpointId": "cp-1"
+   },
+   "afterSeconds": 30
+  },
+  "apply": {
+   "hung": {
+    "verb": "apply",
+    "args": [
+     "-c",
+     "core.autocrlf=false",
+     "-c",
+     "core.eol=lf",
+     "-c",
+     "core.quotepath=false",
+     "apply",
+     "-R",
+     "--whitespace=nowarn",
+     "-"
+    ]
+   },
+   "code": "ETIMEDOUT",
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe -c core.autocrlf=false -c core.eol=lf -c core.quotepath=false apply -R --whitespace=nowarn - timed out after 60000ms",
+   "afterSeconds": 60
+  },
+  "ignoredPaths": {
+   "hung": {
+    "verb": "check-ignore",
+    "args": [
+     "check-ignore",
+     "-z",
+     "--stdin"
+    ]
+   },
+   "status": "ready",
+   "files": [
+    "a.txt"
+   ],
+   "flaggedIgnored": 0,
+   "afterSeconds": 10
+  },
+  "gc": {
+   "hung": {
+    "verb": "gc",
+    "args": [
+     "-c",
+     "core.autocrlf=false",
+     "-c",
+     "core.safecrlf=false",
+     "-c",
+     "core.quotepath=false",
+     "--git-dir",
+     "<work>\\data\\turn-worktree-snapshots-v1\\<key>",
+     "--work-tree",
+     "<work>\\capture",
+     "gc",
+     "--auto",
+     "--prune=7.days.ago",
+     "--quiet"
+    ]
+   },
+   "startedSecondsAfterCapture": 60,
+   "killedAfterSeconds": 301
+  },
+  "hungChildrenGone": 9
+ },
+ "sourceLimits": {
+  "commandTimeoutMs": 30000,
+  "gcTimeoutMs": 300000,
+  "applyTimeoutMs": 60000,
+  "ignoredPathsTimeoutMs": 10000,
+  "turnCleanupSettleMs": 2000
+ },
+ "finish": {
+  "settleMs": 400,
+  "abortAtMs": 80,
+  "scenarios": [
+   {
+    "name": "seal resolves",
+    "abortedAtFinish": false,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": false,
+    "returnedAt": "none",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "seal never resolves",
+    "abortedAtFinish": false,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "settle",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "seal never resolves, the turn is cancelled while it waits",
+    "abortedAtFinish": false,
+    "continueTurn": false,
+    "abortDuringWait": true,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "abort",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "cancelled turn seals in the background",
+    "abortedAtFinish": true,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "none",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "cancelled turn whose review never began",
+    "abortedAtFinish": true,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": false,
+    "sealHangs": false,
+    "returnedAt": "none",
+    "completeCalls": []
+   },
+   {
+    "name": "cancelled completion wake",
+    "abortedAtFinish": true,
+    "continueTurn": true,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "none",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

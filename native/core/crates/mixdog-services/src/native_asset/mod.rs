@@ -64,15 +64,20 @@ impl AssetDownloader for ReleaseDownloader {
             },
             &cancel,
             |attempt, wait, error| {
-                tracing::warn!("{LABEL} download attempt {attempt} failed ({error}), retrying in {}ms…", wait.as_millis());
+                mixdog_rt::node_stderr!("{LABEL} download attempt {attempt} failed ({}), retrying in {}ms…", failure_text(error), wait.as_millis());
             },
         )
         .await
         .map(|_| ())
-        .map_err(|error| match error {
-            DownloadError::Http { status, url, note, .. } => format!("{LABEL} asset HTTP {status}{note} — {url}"),
-            other => other.to_string(),
-        })
+        .map_err(|error| failure_text(&error))
+    }
+}
+
+/// The message of the error the downloader throws: what the retry line and the caller both carry.
+fn failure_text(error: &DownloadError) -> String {
+    match error {
+        DownloadError::Http { status, url, note, .. } => format!("{LABEL} asset HTTP {status}{note} — {url}"),
+        other => other.to_string(),
     }
 }
 
