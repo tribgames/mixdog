@@ -294,8 +294,9 @@ pub struct BuildInputs<'a> {
     pub effort: Option<&'a EffortProjection>,
     /// Verdict cache for tool schemas; without one every build re-validates.
     pub schemas: Option<&'a SchemaMemo>,
-    /// The body's `prompt_cache_key` where the route derives it from more than the request's own key.
-    pub prompt_cache_key: Option<&'a str>,
+    /// The body's `prompt_cache_key` where the route derives it from the request's prefix (instructions, tools, effort,
+    /// service tier) as well as its own key.
+    pub prompt_cache_key: Option<&'a dyn Fn(&super::cache_key::Prefix<'_>) -> String>,
 }
 
 impl<'a> BuildInputs<'a> {
@@ -543,7 +544,16 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
     } else {
         true
     };
-    let cache_key = inputs.prompt_cache_key.or(options.prompt_cache_key.as_deref()).filter(|k| !k.is_empty());
+    let derived = inputs.prompt_cache_key.map(|derive| {
+        derive(&super::cache_key::Prefix {
+            model: &request.model,
+            instructions: instructions.as_deref().unwrap_or_default(),
+            tools: &tools,
+            effort: reasoning.as_ref().and_then(|r| r.get("effort")).and_then(Value::as_str),
+            service_tier: profile.service_tier.as_deref(),
+        })
+    });
+    let cache_key = derived.as_deref().or(options.prompt_cache_key.as_deref()).filter(|k| !k.is_empty());
 
     let mut body = Map::new();
     let mut input = Some(input);

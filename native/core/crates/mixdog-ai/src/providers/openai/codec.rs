@@ -15,7 +15,6 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::body::build_with;
-use super::cache_key;
 use super::client_meta::Metadata;
 use super::delta;
 use super::config::CODEX_HTTP_BETA;
@@ -45,7 +44,7 @@ impl OpenAiCodec {
         Self { config, transport }
     }
 
-    fn headers(&self, request: &ModelRequest, tier: Option<&str>) -> Vec<(String, String)> {
+    fn headers(&self, request: &ModelRequest, tier: Option<&str>, body_cache_key: Option<&str>) -> Vec<(String, String)> {
         let ctx = &self.config.context;
         let ws = self.transport == TransportKind::WebSocket;
         let mut headers = Vec::new();
@@ -83,7 +82,7 @@ impl OpenAiCodec {
                 } else {
                     // `_buildOpenAIHttpFallbackHeaders`: the three anchors carry the body's cache key; the thread's
                     // window and metadata ride only the WebSocket.
-                    let key = cache_key::codex_prompt_cache_key(&request.options);
+                    let key = body_cache_key.unwrap_or_default().to_owned();
                     push("session_id", key.clone());
                     push("session-id", key.clone());
                     push("thread-id", key);
@@ -188,12 +187,12 @@ impl OpenAiCodec {
     ) -> Result<WireRequest, ProviderError> {
         let ws = self.transport == TransportKind::WebSocket;
         let route = self.config.route();
-        let (map, tier) = if ws {
+        let (map, tier, key) = if ws {
             let (body, tier) = self.ws_body(request, effort);
-            (self.ws_frame(request, delta::response_create(&body, None, None)), tier)
+            (self.ws_frame(request, delta::response_create(&body, None, None)), tier, None)
         } else {
             let built = build_with(&self.config, request, effort);
-            (built.map, built.service_tier)
+            (built.map, built.service_tier, built.cache_key)
         };
         let body = serde_json::to_vec(&Value::Object(map))
             .expect("a JSON object with string keys always serializes");
@@ -201,7 +200,7 @@ impl OpenAiCodec {
             transport: self.transport,
             method: if ws { "GET" } else { "POST" }.into(),
             url: if ws { route.ws_url() } else { route.http_url() }.into(),
-            headers: self.headers(request, tier),
+            headers: self.headers(request, tier, key.as_deref()),
             body,
         })
     }

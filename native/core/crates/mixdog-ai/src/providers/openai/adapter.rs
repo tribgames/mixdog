@@ -83,6 +83,9 @@ const ERROR_BODY_LIMIT: usize = 1024 * 1024;
 const ZSTD_MIN_BYTES: usize = 8 * 1024;
 /// zstd's default level, which `zlib.zstdCompress` uses.
 const ZSTD_LEVEL: i32 = 3;
+/// `_openaiReqZstdLatch`: set once a request the backend refused (400/415) as compressed was accepted plain, after which
+/// no body of this process is compressed (Node's latch is module-wide, so it outlives the provider that set it).
+static ZSTD_LATCHED: AtomicBool = AtomicBool::new(false);
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -134,6 +137,8 @@ struct TurnStates {
 struct Sources {
     now: Box<dyn Fn() -> u64 + Send + Sync>,
     request_id: Box<dyn Fn() -> String + Send + Sync>,
+    /// Node's `process.env`: the process environment unless a recording gives its own.
+    var: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
 }
 
 impl Default for Sources {
@@ -145,6 +150,7 @@ impl Default for Sources {
                     .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
             }),
             request_id: Box::new(|| rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect()),
+            var: Box::new(|name| std::env::var(name).ok()),
         }
     }
 }
@@ -166,7 +172,13 @@ impl SessionContext {
     /// A context whose clock and request ids are the given ones: the wire
     /// parity recording runs both sides on one fixed clock and id.
     pub fn with_sources(now: impl Fn() -> u64 + Send + Sync + 'static, request_id: impl Fn() -> String + Send + Sync + 'static) -> Self {
-        Self { states: Mutex::default(), sources: Sources { now: Box::new(now), request_id: Box::new(request_id) } }
+        Self { states: Mutex::default(), sources: Sources { now: Box::new(now), request_id: Box::new(request_id), ..Sources::default() } }
+    }
+
+    /// The same context reading its settings from ar instead of the process environment.
+    pub fn with_var(mut self, var: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
+        self.sources.var = Box::new(var);
+        self
     }
 
     /// The first token a turn is issued wins for the whole turn; a new turn
@@ -206,6 +218,10 @@ impl WireContext for SessionContext {
         (self.sources.now)()
     }
 
+    fn var(&self, name: &str) -> Option<String> {
+        (self.sources.var)(name)
+    }
+
     fn turn_state(&self, scope: &str, turn_id: &str) -> Option<String> {
         let states = self.states.lock().unwrap_or_else(PoisonError::into_inner);
         states
@@ -235,9 +251,6 @@ pub struct OpenAiAdapter {
     mode: TransportMode,
     models: OpenAiModels,
     compress_lane: CpuBulk,
-    /// `_openaiReqZstdLatch`: set once a request the backend refused (400/415) as compressed was accepted plain, after
-    /// which no body is compressed.
-    zstd_latched: AtomicBool,
 }
 
 /// The seams and sources an adapter runs on.
@@ -281,7 +294,6 @@ impl OpenAiAdapter {
             mode: TransportMode::default(),
             models,
             compress_lane: links.compress_lane,
-            zstd_latched: AtomicBool::new(false),
         }
     }
 
@@ -323,7 +335,8 @@ impl OpenAiAdapter {
     /// run sends the plain body.
     async fn compressed(&self, wire: &WireRequest) -> Option<WireRequest> {
         if self.codec.route() != Route::Codex
-            || self.zstd_latched.load(Ordering::Relaxed)
+            || ZSTD_LATCHED.load(Ordering::Relaxed)
+            || self.context.var("MIXDOG_OPENAI_REQ_ZSTD").as_deref() == Some("0")
             || wire.body.len() < ZSTD_MIN_BYTES
             || wire.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
         {
@@ -354,7 +367,7 @@ impl OpenAiAdapter {
             let _ = read_failure(response).await;
             response = self.http.send(wire, MODEL_STREAM_FETCH).await?;
             if response.is_success() {
-                self.zstd_latched.store(true, Ordering::Relaxed);
+                ZSTD_LATCHED.store(true, Ordering::Relaxed);
             }
         }
         if response.is_success() {

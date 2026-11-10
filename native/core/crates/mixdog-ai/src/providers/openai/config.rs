@@ -85,6 +85,10 @@ pub trait WireContext: Send + Sync {
     /// The `x-codex-turn-state` token of the logical turn `turn_id` in
     /// `scope`, if an earlier response of this turn issued one.
     fn turn_state(&self, scope: &str, turn_id: &str) -> Option<String>;
+    /// A process setting the wire depends on (Node's `process.env`); the process environment unless a test injects one.
+    fn var(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
 }
 
 /// The client identity the Codex backend fingerprints.
