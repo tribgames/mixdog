@@ -226,6 +226,16 @@ for (const scenario of selected(doc.scenarios)) {
     const scope = opts.transportScope || opts.sessionId;
     traffic.held = () => disposeTransportScope(scope, provider);
   }
+  // `sendWhenHeld`: once the server withholds an answer, the same provider sends the scenario's request once more,
+  // alongside the send still waiting, and the withheld answer is written when that second send has ended; it must
+  // succeed.
+  let second = null;
+  if (scenario.sendWhenHeld) {
+    traffic.held = () => {
+      second = provider.send(messages, route.model, tools, opts).finally(() => server.release());
+      second.catch(() => {});
+    };
+  }
   try {
     if (scenario.compaction) {
       // The compaction summary as Node's compaction sends it (`summarizeOnSharedPrefix`, forked-summary.mjs): a fork of the
@@ -246,6 +256,10 @@ for (const scenario of selected(doc.scenarios)) {
     if (error instanceof Deadline) throw error;
     if (!scenario.expectError) throw error;
     entry.outcome = entry.unanswered ? 'unanswered' : 'error';  }
+  if (scenario.sendWhenHeld) {
+    if (!second) throw new Error(`${scenario.id}: no answer was withheld, so the second send never went out`);
+    await within(`the second send of ${scenario.id}`, second);
+  }
   if (!scenario.expectError && entry.unanswered) throw new Error(`${scenario.id}: a ${entry.unanswered} request had no scripted answer`);
   if (traffic.script.dials.length || traffic.script.replies.length || traffic.script.http.length) throw new Error(`${scenario.id}: the script was not consumed (${JSON.stringify(traffic.script).slice(0, 200)})`);
   if (scenario.awaitClose === 'first') {

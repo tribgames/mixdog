@@ -505,6 +505,8 @@ impl NodeClient {
         let mut replayed = false;
         loop {
             let reused = self.pool.take(&key).await;
+            // This request has its connection (or dials one): a connection held for it is free for the next.
+            self.pool.free_held(&key);
             let was_reused = reused.is_some();
             let outcome = match reused {
                 Some(Taken::H1(conn)) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,

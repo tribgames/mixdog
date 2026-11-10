@@ -51,7 +51,9 @@ const serverFrame = (opcode, payload) => {
  *   ws:      one per data message received: a list of events (sent as text frames), or { events, then: 'close' | 'reset'
  *            | 'hold' | 'mute' } ('hold': nothing more is sent, and `traffic.held()` is called once the events are
  *            written; 'mute': the client's close frames on this connection are no longer answered)
- *   http:    one per request: a list of events (a 200 event stream), or { status, headers, events | body, then: 'reset' }
+ *   http:    one per request: a list of events (a 200 event stream), or { status, headers, events | body, then: 'reset'
+ *            | 'withhold' } ('withhold': the answer is written when the caller calls `release()`, and `traffic.held()` is
+ *            called once it is withheld)
  *   awaitClose: a connection number the scenario ends on once it closed
  * A request with nothing left to answer it is recorded, and `traffic.unanswered(kind)` is called.
  */
@@ -59,6 +61,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
   const live = new Set();
   const ended = new Map();
   const upgraded = new Set();
+  // The writers of withheld http answers (`then: 'withhold'`), across connections.
+  const withheld = [];
   let next = 0;
   const server = net.createServer((socket) => {
     live.add(socket);
@@ -162,9 +166,14 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       const text = events ? events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('') : body ?? '';
       const bytes = Buffer.from(text);
       const fields = { ...(events ? { 'content-type': 'text/event-stream' } : {}), ...headers, 'content-length': bytes.length };
-      socket.write(`HTTP/1.1 ${status} X\r\n${Object.entries(fields).map(([n, v]) => `${n}: ${v}\r\n`).join('')}\r\n`);
-      socket.write(bytes);
-      if (then === 'reset') socket.destroy();
+      const answer = () => {
+        socket.write(`HTTP/1.1 ${status} X\r\n${Object.entries(fields).map(([n, v]) => `${n}: ${v}\r\n`).join('')}\r\n`);
+        socket.write(bytes);
+        if (then === 'reset') socket.destroy();
+      };
+      if (then !== 'withhold') return answer();
+      withheld.push(answer);
+      traffic.held?.();
     };
     socket.on('data', (chunk) => {
       buffer = Buffer.concat([buffer, chunk]);
@@ -184,6 +193,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
     },
     /** The numbers of the connections that upgraded to a WebSocket. */
     openSockets: () => [...ended.keys()].filter((conn) => upgraded.has(conn)),
+    /** Writes the withheld http answers, in the order they were withheld. */
+    release: () => { for (const write of withheld.splice(0)) write(); },
     stop: () => { for (const socket of live) socket.destroy(); server.close(); },
   };
 }

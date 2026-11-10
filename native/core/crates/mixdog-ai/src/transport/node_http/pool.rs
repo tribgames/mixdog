@@ -48,6 +48,9 @@ struct State {
     /// used was decided; one that meets a later count when it would go into the pool is closed instead, so a
     /// connection dialled or checked out while the route changed does not idle under its old route.
     generation: u64,
+    /// Connections whose answer was read whole by a caller that sends again at once ([`Pool::hold_h1`]), by key: each
+    /// with its hold's number and its keep-alive.
+    held: HashMap<String, Vec<(u64, Conn, Duration)>>,
 }
 
 impl State {
@@ -151,6 +154,40 @@ impl Pool {
                     pool.expire(&key, stamp);
                 }
             });
+        }
+    }
+
+    /// `conn`'s answer was read whole by a caller that sends its next request at once: undici gives the socket back a
+    /// turn of the event loop after the body ended, so that request finds it busy and a request after it finds it free
+    /// (`resendIfEncodingRejected`, request-compression.mjs:60-68). It stays out of the pool until the next request of
+    /// `key` has its connection ([`Pool::free_held`]) or the hold ends ([`Pool::end_hold`]); the hold's number is returned.
+    pub fn hold_h1(&self, key: String, conn: Conn, ttl: Duration) -> u64 {
+        let hold = self.birth();
+        self.lock().held.entry(key).or_default().push((hold, conn, ttl));
+        hold
+    }
+
+    /// The next request of `key` has its connection: every connection held for it goes into the pool.
+    pub fn free_held(self: &Arc<Self>, key: &str) {
+        let freed = self.lock().held.remove(key).unwrap_or_default();
+        for (_, conn, ttl) in freed {
+            self.put_h1(key.to_owned(), conn, ttl);
+        }
+    }
+
+    /// The hold `hold` of `key` ends with no request after it: its connection goes into the pool if it is still held.
+    pub fn end_hold(self: &Arc<Self>, key: &str, hold: u64) {
+        let freed = {
+            let mut state = self.lock();
+            let Some(list) = state.held.get_mut(key) else { return };
+            let freed = list.iter().position(|(h, ..)| *h == hold).map(|at| list.remove(at));
+            if list.is_empty() {
+                state.held.remove(key);
+            }
+            freed
+        };
+        if let Some((_, conn, ttl)) = freed {
+            self.put_h1(key.to_owned(), conn, ttl);
         }
     }
 

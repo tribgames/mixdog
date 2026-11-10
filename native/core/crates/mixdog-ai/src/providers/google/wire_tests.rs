@@ -260,7 +260,7 @@ fn options_of(recorded: &Value) -> RequestOptions {
 async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
     let document = recording("gemini.json");
     let scenarios = document["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 44);
+    assert_eq!(scenarios.len(), 54);
     // The recording was made with TZ=UTC: a row's day is the local day.
     let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::UTC);
     let mut differences = Vec::new();

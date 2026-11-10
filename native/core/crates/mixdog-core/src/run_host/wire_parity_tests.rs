@@ -193,6 +193,12 @@ fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
 
 /// Every scenario through the production adapters and transports; the recording per scenario, in Node's shape.
 async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
+    // Node recorded in a new process: a replay starts from that state by its own doing, with nothing an earlier replay
+    // of this process left (a compression latch, a message thread, a warmed origin, a Gemini cache) and no other
+    // replay running beside it.
+    static REPLAY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _alone = within("the end of this process's other replay", REPLAY.lock()).await;
+    mixdog_ai::reset_process_state();
     let session: Value = serde_json::from_str(SESSION).unwrap();
     let doc: Value = serde_json::from_str(SCENARIOS).unwrap();
     let now = doc["nowMs"].as_u64().unwrap();
@@ -309,7 +315,31 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
             let sent = request(&session, scenario, model, &stored);
             // `abortWhenHeld`: the turn is cancelled (its stream let go of) once the server has written a held reply.
             let cancel_when_held = scenario["abortWhenHeld"] == true;
-            within(format_args!("the reply of {id}"), async {
+            // `sendWhenHeld`: once the server withholds an answer, the same adapter sends the scenario's request once
+            // more, alongside the send still waiting, and the withheld answer is written when that second send has
+            // ended; it must succeed.
+            let again = Arc::new(sent.clone());
+            let second = async {
+                if scenario["sendWhenHeld"] != true {
+                    return;
+                }
+                server.held().await;
+                let ended = match adapter.attempt(again).await {
+                    Ok(mut stream) => {
+                        let mut ended = Ok(());
+                        while let Some(next) = stream.next().await {
+                            ended = ended.and(next.map(drop));
+                        }
+                        ended
+                    }
+                    Err(error) => Err(error),
+                };
+                server.release();
+                if let Err(error) = ended {
+                    panic!("{id}: the second send failed: {error:?}");
+                }
+            };
+            let first = async {
                 match adapter.attempt(Arc::new(sent.clone())).await {
                     Ok(mut stream) => {
                         // The reply folded as the loop folds it, for a later compaction's fork.
@@ -338,8 +368,8 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
                     }
                     Err(_) => "error",
                 }
-            })
-            .await
+            };
+            within(format_args!("the reply of {id}"), async { tokio::join!(first, second).0 }).await
         };
         let mut entry = json!({ "id": id, "provider": provider, "model": model, "outcome": outcome });
         if let Some(kind) = server.unanswered() {

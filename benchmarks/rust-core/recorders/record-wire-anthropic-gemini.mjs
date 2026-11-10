@@ -58,6 +58,7 @@ const P = 'src/runtime/agent/orchestrator/providers/';
 process.env.MIXDOG_USAGE_LEDGER_PATH = ':memory:';
 const { UsageLedger, closeUsageLedgers } = await load('src/runtime/shared/llm/usage-ledger.mjs');
 const { accountProviderSend } = await load('src/runtime/shared/llm/usage-accounting.mjs');
+const { persistProviderState } = await load('src/runtime/agent/orchestrator/session/manager/ask-turn-commit.mjs');
 const { sanitizeToolPairs } = await load('src/runtime/agent/orchestrator/session/context-utils.mjs');
 const { createNoticeSurface } = await load('src/tui/session/notice-surface.mjs');
 let ledgerRows = [];
@@ -481,6 +482,23 @@ keyScenario('lite25.key-named-env-removed', [rejected({ WIRE_GEMINI_KEY: null })
 gemini({ id: 'g3pro.key-rejected-after-create', model: GEMINI_MODELS.g3pro, user: 'Read every file.', turns: [answered(toolTurn(1, 'Reading.')), finalTurn('Done.')], config: { apiKey: FAKE } });
 gemini({ id: 'g3pro.key-rejected-with-cache', model: GEMINI_MODELS.g3pro, user: 'Read every file.', turns: [toolTurn(1, 'Reading.'), answered(toolTurn(2, 'Reading more.')), finalTurn('Done.')], config: { apiKey: FAKE } });
 
+// A cache-attached generate call refused with 400 is sent once more without the cache only when the error names the
+// cached content (`isGeminiCachedContentError` over the message and `err.data`), and `err.data` is the parsed payload
+// whenever `payload?.error || payload` is truthy (`geminiRestError`, gemini.mjs:199). Each body names it only past the
+// first 300 characters, which are all the message keeps: a falsy `error` of every kind, a payload that is not an
+// object, and a body that is not JSON.
+const PAD = 'x'.repeat(300);
+const NAMED = 'CachedContent not found';
+const cacheRefusal = (id, body) => gemini({ id, model: GEMINI_MODELS.g3pro, user: 'Read every file.', turns: [{ ...finalTurn('Done.'), fail: { status: 400, body, once: true } }, finalTurn('Again.')] });
+for (const [name, error] of [['null', null], ['false', false], ['zero', 0], ['empty', ''], ['absent', undefined]]) {
+  cacheRefusal(`g3pro.cache-refused-error-${name}`, JSON.stringify({ error, padding: PAD, message: NAMED }));
+}
+cacheRefusal('g3pro.cache-refused-error-object', JSON.stringify({ error: { code: 400, message: 'bad request' }, padding: PAD, note: NAMED }));
+cacheRefusal('g3pro.cache-refused-string-payload', JSON.stringify(`${PAD} ${NAMED}`));
+cacheRefusal('g3pro.cache-refused-array-payload', JSON.stringify([PAD, NAMED]));
+cacheRefusal('g3pro.cache-refused-null-payload', 'null');
+cacheRefusal('g3pro.cache-refused-not-json', `${PAD} ${NAMED}`);
+
 async function runGemini(realTool) {
   const { GeminiProvider } = await load(`${P}gemini.mjs`);
   const cache = await load(`${P}gemini-cache.mjs`);
@@ -521,7 +539,7 @@ async function runGemini(realTool) {
             if (value === null) delete process.env[name];
             else process.env[name] = value;
           }
-          return { status: turn.fail.status, json: true, body: JSON.stringify({ error: { code: turn.fail.status, message: turn.fail.message, status: turn.fail.reason } }) };
+          return { status: turn.fail.status, json: true, body: turn.fail.body ?? JSON.stringify({ error: { code: turn.fail.status, message: turn.fail.message, status: turn.fail.reason } }) };
         }
         return { status: 200, body: reply };
       };
@@ -562,13 +580,17 @@ async function runGemini(realTool) {
       }
       // The scheduled delete of a superseded cache fires inside the gap that follows the send.
       await advance(turn.gapMs ?? scenario.gapMs);
-      providerState = used.providerState;
+      // The session keeps the state of a delivered result only (`persistProviderState`, run by the turn's commit); a
+      // failed send leaves it as it was, whatever the send did to its own options.
+      const session = { providerState };
+      if (result) persistProviderState(session, result);
+      providerState = session.providerState;
       sends.push({
         messages: structuredClone(messages),
         opts: before,
         now: at,
         gapMs: turn.gapMs ?? scenario.gapMs,
-        providerStateAfter: structuredClone(used.providerState ?? null),
+        providerStateAfter: structuredClone(providerState ?? null),
         freshProcess: turn.freshProcess === true,
         newProvider: turn.newProvider === true,
         notices,

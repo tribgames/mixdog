@@ -84,7 +84,8 @@ pub struct Answer {
     pub held: HeldConnection,
 }
 
-/// A read answer whose connection stays out of the pool until this is dropped: Node's caller reads the create's
+/// A read answer whose connection stays out of the pool until the next request to its origin has its connection, or
+/// this is dropped: Node's caller reads the create's
 /// answer and sends its generate call on the same turn of the event loop, before undici has handed the create's socket
 /// back, so the generate call goes out on another connection ([`crate::transport::HttpResponse::read_all_held`]).
 #[derive(Default)]

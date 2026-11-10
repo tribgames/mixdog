@@ -87,6 +87,13 @@ const ZSTD_LEVEL: i32 = 3;
 /// `_openaiReqZstdLatch`: set once a request the backend refused (400/415) as compressed was accepted plain, after which
 /// no body of this process is compressed (Node's latch is module-wide, so it outlives the provider that set it).
 static ZSTD_LATCHED: AtomicBool = AtomicBool::new(false);
+
+/// The latch as a new process has it (`createCompressionLatch(...).reset`, `request-compression.mjs:23-25`).
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_zstd_latch() {
+    ZSTD_LATCHED.store(false, Ordering::Relaxed);
+}
+
 /// `CODEX_BACKEND_ORIGIN` (`openai-codex-endpoints.mjs:10`), the one origin the Codex route warms.
 const CODEX_BACKEND_ORIGIN: &str = "https://chatgpt.com";
 
