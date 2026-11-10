@@ -50,6 +50,7 @@ use crate::transport::http::HttpSend;
 
 use crate::warmer::send::{Post, WarmContext, send_cache_warm};
 use crate::warmer::stream::{WarmFailure, WarmUsage};
+use super::before_output::BeforeOutput;
 use super::fast_mode::CapacityError;
 use super::fast_mode;
 use super::betas::BetaFeatures;
@@ -256,10 +257,11 @@ impl AnthropicAdapter {
     fn after_floor_rejection(
         &self,
         request: &ModelRequest,
-        rejected: &ErrorResponse,
+        status: Option<u16>,
+        text: &str,
         replayed: &mut Vec<Feature>,
     ) -> Option<Result<WireRequest, ProviderError>> {
-        let feature = claude_floors::rejection(rejected.status, &String::from_utf8_lossy(&rejected.body))?;
+        let feature = claude_floors::rejection(status, text)?;
         if replayed.contains(&feature) {
             return None;
         }
@@ -407,7 +409,19 @@ impl ProviderAdapter for AnthropicAdapter {
         loop {
             let response = self.post(&wire, &secret).await?;
             if (200..300).contains(&response.status) {
-                return Ok(Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request))));
+                let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)));
+                // OAuth replays only a rejected initial response (`_resendAfterRejection`).
+                if self.codec.flavor() != Flavor::ApiKey {
+                    return Ok(stream);
+                }
+                let opened = BeforeOutput::read(stream).await;
+                if let Some(err) = opened.failure()
+                    && let Some(rebuilt) = self.after_floor_rejection(&request, err.status, &err.message, &mut floor_replays)
+                {
+                    wire = rebuilt?;
+                    continue;
+                }
+                return Ok(Box::new(opened));
             }
             let rejected = response.read_all().await?;
             // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
@@ -420,7 +434,9 @@ impl ProviderAdapter for AnthropicAdapter {
                 speed_dropped = true;
                 continue;
             }
-            if let Some(rebuilt) = self.after_floor_rejection(&request, &rejected, &mut floor_replays) {
+            if let Some(rebuilt) =
+                self.after_floor_rejection(&request, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays)
+            {
                 wire = rebuilt?;
                 continue;
             }

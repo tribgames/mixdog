@@ -16,7 +16,9 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, parseArgs, productIdentity, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+// The commit the exported tree is (`--commit`; b6f10295a when not given). Re-recorded from 7f633e730, whose
+// offline model list (lib/anthropic-models.mjs) is what this listing answers.
+const NODE_COMMIT = parseArgs().get('commit') ?? 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-claude-oauth-cold-listing.mjs';
 const SCENARIOS = [
   { name: 'registry-answers', env: {}, net: [{ status: 200, body: JSON.stringify({ version: '2.1.500' }) }] },
@@ -70,5 +72,5 @@ if (!identity.refComparison.exact) throw new Error(`the tree is not an exact exp
 const finalDir = join(FIXTURES_ROOT, 'claude-oauth-cold-listing');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { scenarios: results });
-writeSetManifest(stage, { set: 'claude-oauth-cold-listing', recorder, command: `node ${recorder} --tree <tree>`, identity });
+writeSetManifest(stage, { set: 'claude-oauth-cold-listing', recorder, command: `node ${recorder} --tree <tree> --commit ${NODE_COMMIT}`, identity });
 commitStage(stage, finalDir);

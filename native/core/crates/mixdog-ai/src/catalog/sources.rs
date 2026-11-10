@@ -425,7 +425,7 @@ mod floor_tests {
     async fn a_failed_anthropic_listing_answers_nodes_models_floor() {
         // `anthropic-models.mjs` MODELS: one id per family, window 1 000 000, family stated.
         let rows = source("anthropic", None).list().await.unwrap();
-        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5"]);
+        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5"]);
         assert_eq!(rows[0].display_name.as_deref(), Some("Claude Opus 5.5"));
         assert_eq!((rows[0].context_window, rows[0].family.as_deref()), (Some(1_000_000), Some("opus")));
         assert!(rows.iter().all(|r| r.provider.as_str() == "anthropic" && !r.picker.latest && r.picker.tier.is_none()));
@@ -443,7 +443,7 @@ mod floor_tests {
         let provider = ProviderId::from("anthropic-oauth");
         let env = |name: &str| (name == "ANTHROPIC_DEFAULT_SONNET_MODEL").then(|| "claude-sonnet-custom".to_owned());
         let rows = Floor::AnthropicOauth.rows(&provider, &env);
-        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-custom"]);
+        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-custom"]);
         assert!(rows.iter().all(|r| r.picker.latest && r.picker.tier.as_deref() == Some("family") && r.provider == provider));
         assert!(source("anthropic-oauth", None).list().await.is_ok());
     }
