@@ -37,10 +37,15 @@ core = [
     "windows-sys/Win32_Networking_WinSock",
 ]
 
+# The terminal size leases on a clock a test steps by hand (`MIXDOG_TERMINAL_LEASE_CLOCK`): only the tests and the phone
+# terminal replay's core (`mixdogd` built with `--features terminal-lease-clock`) enable it; no shipped artifact does.
+lease-clock = ["core"]
+
 # The tests of the library half run with `--features core-test`; the binary's own tests do not
 # see them.
 core-test = [
     "core",
+    "lease-clock",
     "mixdog-rt/test-support",
     "mixdog-core-api/mock",
     "tokio/rt-multi-thread",

@@ -9,7 +9,7 @@
 //! of the stream.
 
 mod bridge;
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 mod clock_control;
 mod integration;
 mod markers;
@@ -128,6 +128,10 @@ pub struct TerminalConfig {
     /// exactly the bytes the replay window holds. See `crate::scripted`.
     #[cfg(feature = "core-test")]
     pub piped: bool,
+    /// Tests only: told the id whose claim gate a caller found taken, just before it waits for it. A test holds an
+    /// announcement under the gate and waits for this signal, so "the call waits for the gate" is an event, not a quiet period.
+    #[cfg(feature = "core-test")]
+    pub gate_waiting: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
 
 impl TerminalConfig {
@@ -144,6 +148,8 @@ impl TerminalConfig {
             events,
             #[cfg(feature = "core-test")]
             piped: false,
+            #[cfg(feature = "core-test")]
+            gate_waiting: None,
         }
     }
 
@@ -419,14 +425,14 @@ struct SizeClaim {
     /// Which arming of the lease is current: a lapse of an older arming is ignored.
     epoch: u64,
     /// On the manual lease clock (debug builds only), when this claim lapses.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "lease-clock")]
     due: Option<std::time::Duration>,
 }
 
 /// The lease clock a replay steps by hand. It exists in debug builds only, and only when
 /// `MIXDOG_TERMINAL_LEASE_CLOCK=<directory>` is set: the leases then lapse exactly when [`Claims::advance`]
 /// moves time past them, instead of on the ticker. A release build has neither the clock nor the switch.
-#[cfg(debug_assertions)]
+#[cfg(feature = "lease-clock")]
 struct ManualLeaseClock {
     now: Mutex<std::time::Duration>,
 }
@@ -443,14 +449,21 @@ struct Claims {
     tabs: Arc<Mutex<HashMap<String, Slot>>>,
     events: Arc<dyn TerminalEvents>,
     epoch: AtomicU64,
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "lease-clock")]
     manual: Option<ManualLeaseClock>,
+    #[cfg(feature = "core-test")]
+    gate_waiting: Option<Arc<dyn Fn(&str) + Send + Sync>>,
 }
+
+/// How many ids one connection may hold a size claim on at once. Node bounds nothing (`sizeClaims`, terminal-manager.ts:455): a
+/// client renewing claims on arbitrary ids kept a map entry and a timer alive for each. A phone claims the tabs it shows; a claim
+/// beyond this many is ignored, as a claim on a tab that is gone would be.
+const MAX_CLAIMS_PER_CLIENT: usize = 256;
 
 impl Claims {
     /// Moves the manual lease clock on by `by` and ends, in the order of their lapse, every claim now due. Returns
     /// how many lapsed; without the manual clock nothing is done.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "lease-clock")]
     fn advance(&self, by: std::time::Duration) -> usize {
         let Some(clock) = &self.manual else {
             return 0;
@@ -478,7 +491,7 @@ impl Claims {
     /// The replay's handle on the manual clock, with no wire method (the method table is shared with release builds): a loopback
     /// socket whose port is written to `<dir>/port`. A client sends `advance <ms>\n`; the clock steps by `ms`, ends every claim then due,
     /// and answers `lapsed <n>\n` (`n` claims ended), so the answer is the completion signal. Each connection has a thread of its own.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "lease-clock")]
     fn serve_manual_clock(claims: &Arc<Self>, dir: std::path::PathBuf) {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the manual lease clock binds a loopback port");
         let port = listener.local_addr().expect("the bound port").port();
@@ -494,14 +507,27 @@ impl Claims {
     }
 
     /// One control connection, served on its own thread: a client that leaves a line unfinished holds only its own connection.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "lease-clock")]
     fn serve_manual_clock_connection(claims: &std::sync::Weak<Self>, stream: std::net::TcpStream) {
-        use clock_control::{Ended, IDLE_DEADLINE, LINE_DEADLINE, WRITE_DEADLINE};
+        use clock_control::{Ended, IDLE_DEADLINE, LINE_DEADLINE, SECRET_VAR, WRITE_DEADLINE};
         let Ok(reader) = stream.try_clone() else { return };
         let mut stream = stream;
         let mut lines = std::io::BufReader::new(reader);
+        // Any local process can reach a loopback port: only a client that knows the run's secret (set by the test that started
+        // this core) moves the clock. Without a secret in the environment nobody does.
+        let secret = std::env::var(SECRET_VAR).ok().filter(|s| !s.is_empty());
+        let mut admitted = false;
         loop {
             let answer = match clock_control::read_command(&mut lines, IDLE_DEADLINE, LINE_DEADLINE) {
+                Ok(line) if !admitted => {
+                    if secret.as_deref().is_some_and(|secret| line.trim_end() == format!("secret {secret}")) {
+                        admitted = true;
+                        "admitted\n".to_owned()
+                    } else {
+                        let _ = clock_control::answer(&mut stream, "refused: the first line must be `secret <the run's secret>`\n", WRITE_DEADLINE);
+                        return;
+                    }
+                }
                 Ok(line) => match (line.strip_prefix("advance ").and_then(|ms| ms.trim().parse::<u64>().ok()), claims.upgrade()) {
                     (Some(ms), Some(claims)) => format!("lapsed {}\n", claims.advance(std::time::Duration::from_millis(ms))),
                     _ => "refused\n".to_owned(),
@@ -520,7 +546,7 @@ impl Claims {
             }
         }
     }
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "lease-clock")]
     fn due_at(&self) -> Option<std::time::Duration> {
         self.manual.as_ref().map(|clock| *clock.now.lock().unwrap_or_else(|e| e.into_inner()) + SIZE_OWNER_LEASE)
     }
@@ -529,7 +555,16 @@ impl Claims {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut hasher);
-        self.gates[hasher.finish() as usize % GATES].lock().unwrap_or_else(|e| e.into_inner())
+        let gate = &self.gates[hasher.finish() as usize % GATES];
+        #[cfg(feature = "core-test")]
+        if let Some(waiting) = &self.gate_waiting {
+            match gate.try_lock() {
+                Ok(guard) => return guard,
+                Err(std::sync::TryLockError::Poisoned(e)) => return e.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => waiting(id),
+            }
+        }
+        gate.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Vec<SizeClaim>>> {
@@ -544,7 +579,10 @@ impl Claims {
         })
     }
 
+    /// The owner once every change of the id's claims under way has fitted the PTY and been announced (read under the id's gate):
+    /// an attach never shows an owner whose fit and announcement are still to come.
     fn owner_of(&self, id: &str) -> Option<SizeOwner> {
+        let _gate = self.gate(id);
         self.lock().get(id).and_then(|list| Self::owner_in(list))
     }
 
@@ -579,7 +617,7 @@ impl Claims {
     }
 
     fn arm(self: &Arc<Self>, id: &str, client: &str, epoch: u64) -> Option<mixdog_rt::TimerHandle> {
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "lease-clock")]
         if self.manual.is_some() {
             return None;
         }
@@ -600,11 +638,15 @@ impl Claims {
         let _gate = self.gate(id);
         let (before, after) = {
         let mut map = self.lock();
+        let renewing = map.get(id).is_some_and(|list| list.iter().any(|claim| claim.client == client));
+        if !renewing && map.values().filter(|list| list.iter().any(|claim| claim.client == client)).count() >= MAX_CLAIMS_PER_CLIENT {
+            return;
+        }
         let list = map.entry(id.to_owned()).or_default();
         let before = Self::owner_in(list);
         let epoch = self.epoch.fetch_add(1, Ordering::AcqRel) + 1;
         let lease = self.arm(id, client, epoch);
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "lease-clock")]
         let due = self.due_at();
         match list.iter_mut().find(|claim| claim.client == client) {
             Some(claim) => {
@@ -615,7 +657,7 @@ impl Claims {
                 claim.rows = rows;
                 claim.lease = lease;
                 claim.epoch = epoch;
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "lease-clock")]
                 {
                     claim.due = due;
                 }
@@ -626,7 +668,7 @@ impl Claims {
                 rows,
                 lease,
                 epoch,
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "lease-clock")]
                 due,
             }),
         }
@@ -673,10 +715,9 @@ impl Claims {
     }
 
     /// The tab was disposed: its claims go with it, and no owner change is announced (Node's `forgetSizeClaims`,
-    /// terminal-manager.ts:490, emits nothing). The consumer is told under the id's gate, so a claim made right
+    /// terminal-manager.ts:490, emits nothing). The caller holds the id's gate for the whole disposal, so a claim made right
     /// after is queued behind it and is not undone by it.
-    fn forget(&self, id: &str) {
-        let _gate = self.gate(id);
+    fn forget_held(&self, id: &str) {
         let Some(list) = self.lock().remove(id) else {
             return;
         };
@@ -686,6 +727,20 @@ impl Claims {
             }
         }
         self.events.size_claims_forgotten(id);
+    }
+}
+
+/// Input a tab's queue was full for (see [`TerminalTabs::write`]).
+pub struct PendingInput {
+    manager: LocalProcessManager,
+    handle: ProcessHandle,
+    bytes: Vec<u8>,
+}
+
+impl PendingInput {
+    /// Waits for room in the tab's input queue and writes the input; a tab that has gone meanwhile takes nothing, as Node's killed pty did.
+    pub async fn finish(self) {
+        let _ = self.manager.write_input_wait(&self.handle, self.bytes).await;
     }
 }
 
@@ -720,10 +775,12 @@ impl TerminalTabs {
             tabs: Arc::clone(&tabs),
             events: Arc::clone(&config.events),
             epoch: AtomicU64::new(0),
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "lease-clock")]
             manual: std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK").map(|_| ManualLeaseClock { now: Mutex::new(std::time::Duration::ZERO) }),
+            #[cfg(feature = "core-test")]
+            gate_waiting: config.gate_waiting.clone(),
         });
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "lease-clock")]
         if let Some(dir) = std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK") {
             Claims::serve_manual_clock(&claims, std::path::PathBuf::from(dir));
         }
@@ -1137,17 +1194,22 @@ impl TerminalTabs {
 
     // ----- input, size, focus, flow control -------------------------------------------------
 
-    /// Types `data` into the tab; a missing or exited tab ignores it.
-    pub fn write(&self, id: &str, data: &str) {
-        let Some(tab) = self.running(id) else {
-            return;
+    /// Types `data` into the tab; a missing or exited tab ignores it. Input the tab's queue has no room for yet is not dropped (Node's
+    /// `pty.write` queued whatever it was given): it comes back as a [`PendingInput`] whose `finish` waits for room and writes it.
+    #[must_use = "input the queue could not take yet is written by `PendingInput::finish`"]
+    pub fn write(&self, id: &str, data: &str) -> Option<PendingInput> {
+        let tab = self.running(id)?;
+        let bytes = data.as_bytes().to_vec();
+        let pending = match self.manager.write_input(&tab.handle, bytes.clone()) {
+            Err(ProcessError::Overloaded { .. }) => Some(PendingInput { manager: self.manager.clone(), handle: tab.handle.clone(), bytes }),
+            _ => None,
         };
-        let _ = self.manager.write_input(&tab.handle, data.as_bytes().to_vec());
         let mut state = tab.lock();
         if state.scanner.is_some() {
             let change = state.activity.input(data);
             tab.publish(change);
         }
+        pending
     }
 
     /// A view reports its size (`terminal-manager.ts` `resize`). `client` is the connection of a
@@ -1230,7 +1292,7 @@ impl TerminalTabs {
             tab.publish(change);
             (was_paused, state.buffer.cursor())
         };
-        self.claims.forget(&tab.id);
+        self.claims.forget_held(&tab.id);
         if was_paused {
             // A paused reader must be released before the kill, or the exit cannot arrive.
             tab.sync_pause();
@@ -1245,7 +1307,11 @@ impl TerminalTabs {
         let _ = self.manager.kill_with(&tab.handle, KillReason::Requested);
     }
 
+    /// The whole disposal (the tab's removal, its activity end, the forgetting of its claims and the kill) holds the id's claim
+    /// gate, so a claim of the same id runs wholly before it (its owner announced, then the end) or wholly after it (the claim
+    /// stands on an id with no tab): Node's two serialisations (terminal-manager.ts:455, :536), nothing in between.
     pub fn dispose(&self, id: &str) {
+        let _gate = self.claims.gate(id);
         let removed = {
             let mut table = self.table();
             match table.get(id) {
@@ -1281,6 +1347,7 @@ impl TerminalTabs {
         let tabs = self.all_tabs();
         self.table().clear();
         for tab in tabs {
+            let _gate = self.claims.gate(&tab.id);
             self.dispose_tab(&tab);
         }
     }

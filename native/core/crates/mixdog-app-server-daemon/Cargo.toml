@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The phone terminal replay's core only: the terminal size leases on a clock the replay steps (mixdog-spawn `lease-clock`).
+terminal-lease-clock = ["mixdog-spawn/lease-clock"]
+
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }

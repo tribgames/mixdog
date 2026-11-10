@@ -11,6 +11,10 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
+[features]
+# Built only for the phone terminal replay (apps/desktop/src/renderer/remote-protocol-terminal.scenario.mjs); no release build enables it.
+terminal-lease-clock = ["mixdog-app-server-daemon/terminal-lease-clock"]
+
 [dependencies]
 mixdog-app-server-daemon = { workspace = true }
 mixdog-app-server-client = { workspace = true }

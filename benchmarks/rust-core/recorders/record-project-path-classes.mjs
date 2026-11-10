@@ -12,8 +12,10 @@
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-project-path-classes.mjs --tree <git archive of b6f10295a with node_modules>
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { register } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, join, parse } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -90,18 +92,57 @@ for (const [name, run] of Object.entries(operations)) {
   for (const input of inputs) answers[name].push(await answer(run, input.template));
 }
 
+// The registry's own rule, `resolveProjectPath` (projects.mjs:251, `toAbsolute`), with the POSIX rules: projects.mjs loaded with node:path as
+// path.posix (lib/posix-path-hook.mjs). Its working directory is a POSIX folder, the one a POSIX host would hand `process.cwd()`; it is the
+// only thing the rule reads besides the input, and it is written into the recording.
+const POSIX_CWD = '/home/user/work';
+const POSIX_INPUTS = [
+  ['absolute', '/home/user/proj'],
+  ['trailing separator', '/home/user/proj/'],
+  ['double slashes', '//home//user/proj'],
+  ['dot-dot inside', '/home/user/proj/sub/..'],
+  ['dot-dot above the root', '/../../proj'],
+  ['padded', '  /home/user/proj  '],
+  ['trimmed tab and newline', '\t/home/user/proj\n'],
+  ['case is kept', '/Home/User/PROJ'],
+  ['relative', 'proj'],
+  ['relative dot', './proj'],
+  ['relative dot-dot', '../work/proj'],
+  ['relative, a nested folder', 'made/deep'],
+  ['relative above the root', '../../../../x'],
+  ['backslashes are a file name', 'a\\b'],
+  ['drive-looking', 'C:\\proj'],
+  ['drive-looking with slashes', 'C:/proj'],
+  ['root', '/'],
+  ['empty', ''],
+  ['blank', '   '],
+  ['NUL inside', '/home/user/pr\u0000oj'],
+].map(([name, value]) => ({ name, value }));
+register(pathToFileURL(join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'posix-path-hook.mjs')).href);
+const posixProjects = await import(`${pathToFileURL(join(tree, 'src/runtime/shared/projects.mjs')).href}?posix`);
+const windowsCwd = process.cwd;
+process.cwd = () => POSIX_CWD;
+const posixAnswers = POSIX_INPUTS.map((input) => ({ result: posixProjects.resolveProjectPath(input.value) }));
+process.cwd = windowsCwd;
+
 const out = stageSet(FIXTURES);
 writeJson(join(out, 'golden.json'), {
   note: "What Node answers per class of project path, on a Windows host with the working directory on the project's parent: `known` (the registry's lookup), `ensure` (the folder the catalog makes) and `add` (the real path `addProject` registers); `{proj}` is the registered folder, `{tmp}` its parent. Answers are in the order of `inputs`.",
   inputs,
   answers,
+  posix: {
+    note: "resolveProjectPath (projects.mjs:251) loaded with node:path as path.posix and `cwd` as the working directory: Node's answers on a POSIX host, '' for an input it resolves to nothing.",
+    cwd: POSIX_CWD,
+    inputs: POSIX_INPUTS,
+    answers: posixAnswers,
+  },
 });
 writeSetManifest(out, {
   set: 'project-path-classes',
   recorder: 'benchmarks/rust-core/recorders/record-project-path-classes.mjs',
   command: `node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-project-path-classes.mjs --tree <git archive of ${REF} (src, apps) with node_modules>`,
   identity: exactProductIdentity(tree, REF),
-  extra: { inputs: inputs.length, operations: Object.keys(operations) },
+  extra: { inputs: inputs.length, operations: Object.keys(operations), posixInputs: POSIX_INPUTS.length },
 });
 commitStage(out, FIXTURES);
 console.log(`project-path-classes: ${inputs.length} inputs x ${Object.keys(operations).join(', ')}`);

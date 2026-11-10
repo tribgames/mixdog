@@ -394,7 +394,9 @@ impl TerminalPort for TabsTerminalPort {
         }
         let target = target_of(&open, tab)?.clone();
         let before = self.tabs.snapshot(&target.id, None).ok_or_else(|| gone(target.tab))?;
-        self.tabs.write(&target.id, &mixdog_spawn::terminal::terminal_command_input(command));
+        if let Some(pending) = self.tabs.write(&target.id, &mixdog_spawn::terminal::terminal_command_input(command)) {
+            pending.finish().await;
+        }
         // Only a command that was entered is revealed, so the dock never opens on a failed run.
         let shown = self.host.reveal(session, &target, &open).await;
         Ok(TerminalRun { tab: info_of(&target), cursor: before.cursor, shown: Some(shown) })

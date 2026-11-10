@@ -333,27 +333,61 @@ fn relative_win32(from: &str, to: &str) -> String {
     if from_orig == to_orig {
         return String::new();
     }
-    let from: Vec<char> = from_orig.to_lowercase().chars().collect();
-    let to: Vec<char> = to_orig.to_lowercase().chars().collect();
+    // Node lower-cases each whole string (`toLowerCase`, which may change its length: `İ` becomes two units) and then reads positions
+    // of the lower-cased strings, in UTF-16 units, and slices the original `to` at them (String.prototype.slice, which clamps). The
+    // same here, unit for unit, so a length-changing character gives Node's answer and never an out-of-range slice.
+    let from: Vec<u16> = crate::js_to_lowercase(&from_orig).encode_utf16().collect();
+    let to: Vec<u16> = crate::js_to_lowercase(&to_orig).encode_utf16().collect();
     if from == to {
         return String::new();
     }
-    let to_orig_chars: Vec<char> = to_orig.chars().collect();
+    // A lower-casing that changed a length: Node compares segment by segment instead (path.js `win32.relative`).
+    if crate::utf16_len(&from_orig) != from.len() || crate::utf16_len(&to_orig) != to.len() {
+        let mut from_split: Vec<&str> = from_orig.split('\\').collect();
+        let mut to_split: Vec<&str> = to_orig.split('\\').collect();
+        if from_split.last() == Some(&"") {
+            from_split.pop();
+        }
+        if to_split.last() == Some(&"") {
+            to_split.pop();
+        }
+        let length = from_split.len().min(to_split.len());
+        let i = (0..length).find(|&i| crate::js_to_lowercase(from_split[i]) != crate::js_to_lowercase(to_split[i])).unwrap_or(length);
+        if i == 0 {
+            return to_orig;
+        }
+        if i == length {
+            if to_split.len() > length {
+                return to_split[i..].join("\\");
+            }
+            if from_split.len() > length {
+                return format!("{}..", "..\\".repeat(from_split.len() - 1 - i));
+            }
+            return String::new();
+        }
+        return format!("{}{}", "..\\".repeat(from_split.len() - i), to_split[i..].join("\\"));
+    }
+    let to_orig_units: Vec<u16> = to_orig.encode_utf16().collect();
+    let slice = |start: usize, end: usize| -> String {
+        let end = end.min(to_orig_units.len());
+        String::from_utf16_lossy(&to_orig_units[start.min(end)..end])
+    };
+    const SEP: u16 = b'\\' as u16;
     let mut from_start = 0usize;
-    while from_start < from.len() && from[from_start] == '\\' {
+    while from_start < from.len() && from[from_start] == SEP {
         from_start += 1;
     }
     let mut from_end = from.len();
-    while from_end > from_start + 1 && from[from_end - 1] == '\\' {
+    while from_end > from_start + 1 && from[from_end - 1] == SEP {
         from_end -= 1;
     }
     let from_len = from_end - from_start;
     let mut to_start = 0usize;
-    while to_start < to.len() && to[to_start] == '\\' {
+    while to_start < to.len() && to[to_start] == SEP {
         to_start += 1;
     }
     let mut to_end = to.len();
-    while to_end > to_start + 1 && to[to_end - 1] == '\\' {
+    while to_end > to_start + 1 && to[to_end - 1] == SEP {
         to_end -= 1;
     }
     let to_len = to_end - to_start;
@@ -364,7 +398,7 @@ fn relative_win32(from: &str, to: &str) -> String {
         let f = from[from_start + i];
         if f != to[to_start + i] {
             break;
-        } else if f == '\\' {
+        } else if f == SEP {
             last_common_sep = i as isize;
         }
         i += 1;
@@ -375,15 +409,15 @@ fn relative_win32(from: &str, to: &str) -> String {
         }
     } else {
         if to_len > length {
-            if to[to_start + i] == '\\' {
-                return to_orig_chars[to_start + i + 1..].iter().collect();
+            if to[to_start + i] == SEP {
+                return slice(to_start + i + 1, usize::MAX);
             }
             if i == 2 {
-                return to_orig_chars[to_start + i..].iter().collect();
+                return slice(to_start + i, usize::MAX);
             }
         }
         if from_len > length {
-            if from[from_start + i] == '\\' {
+            if from[from_start + i] == SEP {
                 last_common_sep = i as isize;
             } else if i == 2 {
                 last_common_sep = 3;
@@ -396,21 +430,20 @@ fn relative_win32(from: &str, to: &str) -> String {
     let mut out = String::new();
     let mut k = from_start as isize + last_common_sep + 1;
     while k <= from_end as isize {
-        if k == from_end as isize || from[k as usize] == '\\' {
+        if k == from_end as isize || from[k as usize] == SEP {
             out.push_str(if out.is_empty() { ".." } else { "\\.." });
         }
         k += 1;
     }
     let to_start = (to_start as isize + last_common_sep) as usize;
     if !out.is_empty() {
-        let rest: String = to_orig_chars[to_start..to_end].iter().collect();
-        return format!("{out}{rest}");
+        return format!("{out}{}", slice(to_start, to_end));
     }
     let mut to_start = to_start;
-    if to_orig_chars.get(to_start) == Some(&'\\') {
+    if to_orig_units.get(to_start) == Some(&SEP) {
         to_start += 1;
     }
-    to_orig_chars[to_start..to_end].iter().collect()
+    slice(to_start, to_end)
 }
 
 /// The host's `resolve`/`relative`/`isAbsolute`.
@@ -445,4 +478,22 @@ pub fn split_segments(path: &str) -> Vec<&str> {
     }
     out.push(&path[start..]);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `path.win32.relative` as Node answers it where the lower-cased comparison meets a character whose lower case has another
+    /// length (`İ`), characters outside the BMP and the other case-insensitive pairs (`testdata/path_relative.json`, written by Node).
+    #[test]
+    fn win32_relative_is_nodes_where_lower_casing_changes_lengths() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../testdata/path_relative.json")).unwrap();
+        let rows = golden["rows"].as_array().unwrap();
+        for row in rows {
+            let (from, to) = (row["from"].as_str().unwrap(), row["to"].as_str().unwrap());
+            assert_eq!(relative(Style::Win32, from, to), row["relative"].as_str().unwrap(), "{from:?} -> {to:?}");
+        }
+        assert_eq!(rows.len(), 21);
+    }
 }

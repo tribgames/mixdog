@@ -42,7 +42,8 @@ struct State {
     /// Events below this sequence number were handed to a subscriber and are never merged into.
     handed_seq: u64,
     paused: bool,
-    /// The reader is parked at the gate, waiting for a consumer to catch up or for the feed to be resumed.
+    /// Tests only: the reader is parked at the gate, waiting for a consumer to catch up or for the feed to be resumed.
+    #[cfg(feature = "core-test")]
     blocked: bool,
     /// The process was killed or ended: the reader no longer waits for consumers.
     released: bool,
@@ -72,6 +73,7 @@ impl Feed {
                 stored: 0,
                 handed_seq: 0,
                 paused: false,
+                #[cfg(feature = "core-test")]
                 blocked: false,
                 released: false,
                 done: false,
@@ -110,10 +112,16 @@ impl Feed {
             if !state.paused && !over {
                 break;
             }
-            state.blocked = true;
-            self.changed.notify_waiters();
+            #[cfg(feature = "core-test")]
+            {
+                state.blocked = true;
+                self.changed.notify_waiters();
+            }
             state = self.gate.wait(state).unwrap_or_else(|e| e.into_inner());
-            state.blocked = false;
+            #[cfg(feature = "core-test")]
+            {
+                state.blocked = false;
+            }
         }
         state.pushed += bytes.len() as u64;
         state.stored += bytes.len();
@@ -187,7 +195,8 @@ impl Feed {
     }
 
     /// Returns the bytes pushed once the reader is parked at the gate (a consumer trails by the ring bound, or the feed is paused): the
-    /// reader's own signal that it is held back, which no quiet period stands in for.
+    /// reader's own signal that it is held back, which no quiet period stands in for. Tests only.
+    #[cfg(feature = "core-test")]
     pub(crate) async fn blocked_pushed(&self) -> u64 {
         loop {
             let changed = self.changed.notified();
