@@ -15,7 +15,7 @@ use super::recall::{CASES, Provider, SEED, load_seed};
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::ingest::embed_flush::RawEmbedFlush;
-use crate::memory::ingest::{SessionIngest, system_now};
+use crate::memory::ingest::SessionIngest;
 use crate::memory::pg::db::Schema;
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::{Recall, RecallDeps};
@@ -130,7 +130,9 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
         trace: None,
     });
-    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, system_now(), mixdog_rt::testing::tokens().durability_io);
+    // The seed's clock is the store's clock too: what the service ingests is stamped at the recall's `now`.
+    let seed_now: crate::memory::ingest::NowMs = Arc::new(move || now_ms);
+    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, seed_now.clone(), mixdog_rt::testing::tokens().durability_io);
     let memory = Arc::new(LocalMemory::new(db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io));
     let service = MemoryService::new(memory, Arc::new(Sessions { session: None, cwd: None, title: String::new() }));
 
@@ -147,8 +149,9 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     }
     assert!(compared >= 10, "{compared}");
 
-    // With a live session whose own messages do not match, the scoped recall runs first; its
-    // answer is the recall of the arguments the Node product sent.
+    // With a live session whose own messages do not match, the service ingests the session and then runs the scoped recall, in the order of the Node
+    // product's calls (`calls[0]` the `ingest_session`, `calls[1]` the recall): its answer is the recall of the arguments Node sent, over the store as that
+    // ingest left it.
     let scenarios: Vec<Value> = serde_json::from_str(COMPOSITION).expect("golden");
     let scoped = scenarios.iter().find(|s| s["name"] == "no-own-match-ingests-then-scoped").expect("scenario");
     let session_id = seed["entries"][0]["session_id"].as_str().expect("seeded session").to_owned();
@@ -158,7 +161,7 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
         title: String::new(),
     };
     let scoped_db = service_db(&pg).await;
-    let ingest = SessionIngest::new(scoped_db.clone(), Arc::new(RawEmbedFlush::new(scoped_db.clone(), None)), None, system_now(), mixdog_rt::testing::tokens().durability_io);
+    let ingest = SessionIngest::new(scoped_db.clone(), Arc::new(RawEmbedFlush::new(scoped_db.clone(), None)), None, seed_now, mixdog_rt::testing::tokens().durability_io);
     let service = MemoryService::new(
         Arc::new(LocalMemory::new(scoped_db, pg.dir.path().join("data"), recall.clone(), ingest, mixdog_rt::testing::tokens().durability_io)),
         Arc::new(sessions),
@@ -167,8 +170,48 @@ async fn over_the_pg_module_a_session_less_recall_equals_the_recorded_recall_gol
     expected_args["query"] = json!("zzz unrelated");
     expected_args["sessionId"] = json!(session_id);
     expected_args["currentSessionId"] = json!(session_id);
+    let answer = ask(&service, json!({ "query": "zzz unrelated", "args": {} })).await;
     let expected = recall.recall(&expected_args).await.text;
-    assert_eq!(ask(&service, json!({ "query": "zzz unrelated", "args": {} })).await, expected);
+    assert_eq!(answer, expected);
+}
+
+/// The first recall on a fresh profile whose runtime is installed (the stack opens the database at that call: `initdb`, the postmaster, the schema) from a new,
+/// empty session answers what Node's answered (`record-memory-first-request.mjs`, the `value` of its `session.configure` result).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
+async fn the_first_recall_on_a_fresh_profile_answers_as_node() {
+    use crate::memory::boot::{MemoryBoot, MemoryStack, PgRuntimeSource};
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/memory-first-request/golden.json")).expect("golden");
+    let scenario = golden["scenarios"].as_array().expect("scenarios").iter().find(|s| s["name"] == "recall on a fresh profile whose runtime is installed").expect("recorded");
+    let recorded = &scenario["requests"][0];
+    let runtime = std::path::PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let dir = tempfile::tempdir().expect("dir");
+    let stack = MemoryStack::start(MemoryBoot {
+        data_dir: dir.path().to_owned(),
+        pg_runtime: PgRuntimeSource::Dir(runtime),
+        embedder: None,
+        embedding_provider: None,
+        flags: crate::memory::runtime::RuntimeFlags::default(),
+        progress: None,
+        sensitive: Arc::new(crate::memory::sensitive::SensitiveStore::default()),
+        lane: mixdog_rt::testing::tokens().durability_io,
+        maintenance: mixdog_rt::testing::tokens().maintenance_io,
+        transcripts: None,
+        cycles: None,
+        backfill: None,
+        processes: crate::tidy::process::Processes::for_tests(),
+        cancel: tokio_util::sync::CancellationToken::new(),
+    })
+    .await
+    .expect("built");
+    let sessions = Sessions { session: Some(SessionData { id: "sess-new".into(), messages: Vec::new() }), cwd: Some(dir.path().join("work").to_string_lossy().into_owned()), title: String::new() };
+    let service = MemoryService::new(stack.module(), Arc::new(sessions));
+    let args = recorded["args"].as_array().expect("args");
+    let answer = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(super::awaiting::awaiting("the first recall", ask(&service, json!({ "query": args[0], "args": args[1] }))))).await;
+    // The postmaster the call started is stopped whatever the call did.
+    stack.stop().await.expect("stops");
+    let answer = answer.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    assert_eq!(answer, recorded["answer"]["body"]["result"]["value"].as_str().expect("Node's answer"));
 }
 
 async fn service_db(pg: &TestPg) -> crate::memory::pg::db::Db {
