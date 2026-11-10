@@ -2,14 +2,15 @@
   "command": "node benchmarks/rust-core/recorders/record-session-tool-control.mjs --tree <tree>",
   "exclusions": [
     "The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.",
+    "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
     "Room sends, members and asks are not recorded (out of scope)."
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1786075,
+      "bytes": 2924657,
       "path": "golden.json",
-      "sha256": "4cd239179317ceb4a877a049fd56ee085a618af3736d9de360885a477ebaed5e"
+      "sha256": "6a226ce8263a4326cccf4ad3a0263a80aa1a83ef7842e9a8041ca11661d9d748"
     }
   ],
   "product": {
@@ -38,10 +39,10 @@
     ],
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-    "recorderSha256": "39381cfb9a061aa3d21599a50d29671852ff6283ed9854af416fa7b4ea795809"
+    "recorderSha256": "57b046f777ddd4dbade739034d63ae6ae81445dc7ae913875a130d740c8673db"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-  "scenarios": 44,
+  "scenarios": 61,
   "set": "session-tool-control",
-  "totalBytes": 1786075
+  "totalBytes": 2924657
 }

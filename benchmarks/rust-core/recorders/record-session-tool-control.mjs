@@ -38,6 +38,7 @@ const { createSessionControl } = await importFrom(tree, 'src/standalone/daemon-s
 const { decodeCatalogCursor, encodeCatalogCursor, isAfterCursor } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs');
 const { readTranscriptRange } = await importFrom(tree, 'src/standalone/session-service/projection/transcript-window.mjs');
 const { registerSessionSidebarHost } = await importFrom(tree, 'src/runtime/shared/session-sidebar-host.mjs');
+const { hasPendingAgentWork, sessionsWithPendingWork } = await importFrom(tree, 'src/runtime/shared/pending-agent-work.mjs');
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 
@@ -87,9 +88,91 @@ const HUMAN = { id: 'sess_lead1', sourceType: 'lead' };
 const ANN_CHAT = { id: 'sess_home_ann', sourceType: 'exec' };
 const RUN = { id: 'sess_run1', sourceType: 'exec', owner: 'agent' };
 const BOTS = [{ id: 'ann', name: 'Ann' }];
-const NO_LIVE = { own: [], agents: [] };
+// `storedLiveWork`'s sources: the turns in flight here (`working`, `agentWorking`), the Agents pool
+// rows and `Date.now()`.
+const NOW = T0 + 50_000;
+const NO_LIVE = { working: [], agentWorking: [], pool: [], now: NOW };
+const iso = (ms) => new Date(ms).toISOString();
+const worker = (sessionId, status, at, extra = {}) => ({ sessionId, status, updatedAt: iso(at), ...extra });
 
-const base = { caller: HUMAN, catalog: CATALOG, archived: {}, live: NO_LIVE, transcripts: { sess_b: TRANSCRIPT, sess_home_ann: SHORT } };
+// Sessions of other Projects and owners, a closed one, and sub-agent sessions in the shapes the
+// catalog holds them.
+const WIDE_CATALOG = [
+  row('sess_a', T0 + 9000),
+  row('sess_other_proj', T0 + 8500, { cwd: 'D:/elsewhere', title: 'Other project' }),
+  row('sess_other_owner', T0 + 8000, { ownerSessionId: 'sess_lead2', title: 'Other owner' }),
+  row('sess_closed', T0 + 7500, { closed: true, status: 'closed', title: 'Closed one' }),
+  row('sess_child_vis', T0 + 7000, { sessionVisibility: 'agent-only', parentSessionId: 'sess_a', title: 'Child by visibility' }),
+  row('sess_child_owner', T0 + 6500, { owner: 'agent', parentSessionId: 'sess_a', title: 'Child by owner' }),
+  row('sess_child_parent', T0 + 6000, { parentSessionId: 'sess_a', title: 'Child by parent only' }),
+  row('sess_child_v2', T0 + 5500, { visibility: 'agent-only', title: 'Child by visibility field' }),
+  row('sess_d', T0 + 4000),
+];
+
+// One row of each tool kind the read summarizes with an empty result, and the shapes of their arguments.
+const TOOL_KINDS = [
+  tool('k1', 'skill', { args: { name: 'example' }, rawResult: '' }),
+  tool('k2', 'skill_view', { args: JSON.stringify({ skill: 'viewed' }) }),
+  tool('k3', 'skill_execute', { args: { input: { skill_name: 'runner' } } }),
+  tool('k4', 'use_skill', { args: { name: '  ' } }),
+  tool('k5', 'skills_list', { args: {} }),
+  tool('k6', 'skill', { args: { name: `${'n'.repeat(90)}` } }),
+  tool('k7', 'apply_patch', { args: { path: 'C:\\proj\\src\\main.rs' } }),
+  tool('k8', 'apply_patch', { args: { file: 'a/b/c.txt', dry_run: true } }),
+  tool('k9', 'apply_patch', { args: { path: '' } }),
+  tool('k10', 'git', { args: { command: 'status' } }),
+  tool('k11', 'bash', {}),
+  tool('k12', 'job-wait', {}),
+  tool('k13', 'memory', {}),
+  tool('k14', 'functions.shell', {}),
+  tool('k15', 'media', { args: { action: 'status' } }),
+  tool('k16', 'grep', {}),
+  tool('k17', 'code_graph', {}),
+  tool('k18', 'web_fetch', {}),
+  tool('k19', 'agent', {}),
+  tool('k20', 'session', {}),
+  tool('k21', 'mcp__srv__tool', {}),
+  tool('k22', 'skill', { args: { name: 'failed' }, isError: true, status: 'error' }),
+  tool('k23', 'tool_search', {}),
+  tool('k24', '', {}),
+  tool('k25', 'read', { result: null, rawResult: null }),
+  tool('k26', 'shell', { rawResult: 0 }),
+  tool('k27', 'list', { args: 'not json' }),
+];
+
+// What a real compaction leaves in the display transcript: the divider of the archived history and
+// the command's done row.
+const COMPACTED = [
+  { kind: 'user', id: 'cu1', text: 'before compaction' },
+  { kind: 'statusdone', id: 'arch1_divider', status: 'compacted', label: 'Earlier conversation compacted', at: T0 + 100 },
+  { kind: 'statusdone', id: 'cd1', status: 'compacted', label: 'Compact complete', detail: '42k → 6k tokens', elapsedMs: 900 },
+  { kind: 'assistant', id: 'ca1', text: 'after compaction' },
+];
+
+// Credential-shaped text a transcript may hold; the read quotes it as stored.
+const SENSITIVE = [
+  { kind: 'user', id: 'se1', text: 'my key is sk-DUMMY-abcdefghijklmnopqrstuvwxyz0123 and password=hunter2' },
+  { kind: 'assistant', id: 'se2', text: 'Authorization: Bearer abc.def.ghi\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG' },
+];
+
+const ROOM_MEMBER = { id: 'sess_rmem_abcdef_ann', sourceType: 'exec' };
+
+const base = {
+  caller: HUMAN,
+  catalog: CATALOG,
+  archived: {},
+  live: NO_LIVE,
+  transcripts: {
+    sess_b: TRANSCRIPT,
+    sess_home_ann: SHORT,
+    sess_lead1: SHORT,
+    sess_closed: SHORT,
+    sess_empty: [],
+    sess_tools: TOOL_KINDS,
+    sess_compacted: COMPACTED,
+    sess_sensitive: SENSITIVE,
+  },
+};
 const SCENARIOS = [
   { name: 'list-default', args: { action: 'list' } },
   { name: 'list-limit', args: { action: 'list', limit: 3 } },
@@ -106,20 +189,51 @@ const SCENARIOS = [
   { name: 'list-limit-high', args: { action: 'list', limit: 101 } },
   {
     name: 'list-live-pinned',
-    live: { own: [['sess_d', T0 + 20_000], ['sess_f', T0 + 30_000], ['sess_gone', T0 + 40_000]], agents: ['sess_c'] },
+    live: {
+      ...NO_LIVE,
+      working: ['sess_gone'],
+      agentWorking: ['sess_c'],
+      pool: [worker('sess_d', 'running', T0 + 20_000), worker('sess_f', 'queued', T0 + 30_000)],
+    },
     args: { action: 'list', limit: 4 },
   },
   {
     name: 'list-live-later-page',
-    live: { own: [['sess_d', T0 + 20_000]], agents: ['sess_c'] },
+    live: { ...NO_LIVE, working: ['sess_d'], agentWorking: ['sess_c'] },
     args: { action: 'list', limit: 3, cursor: encodeCatalogCursor(CATALOG[1]) },
   },
   {
     name: 'list-live-fills-page',
-    live: { own: [['sess_d', T0 + 20_000], ['sess_e', T0 + 20_000]], agents: [] },
+    live: { ...NO_LIVE, pool: [worker('sess_d', 'running', T0 + 20_000), worker('sess_e', 'pending', T0 + 20_000)] },
     args: { action: 'list', limit: 2 },
   },
-  { name: 'list-live-archived', archived: { sess_d: T0 }, live: { own: [['sess_d', T0 + 20_000]], agents: [] }, args: { action: 'list', limit: 2 } },
+  { name: 'list-live-archived', archived: { sess_d: T0 }, live: { ...NO_LIVE, working: ['sess_d'] }, args: { action: 'list', limit: 2 } },
+  // A queued agent worker with no turn in flight here: its session and its owner lead the page.
+  {
+    name: 'list-live-queued-worker',
+    live: { ...NO_LIVE, pool: [worker('sess_f', 'queued', T0 + 25_000, { ownerSessionId: 'sess_e' })] },
+    args: { action: 'list', limit: 1 },
+  },
+  {
+    name: 'list-live-pool-shapes',
+    live: {
+      ...NO_LIVE,
+      pool: [
+        worker('sess_c', 'done', T0 + 60_000),
+        worker('sess_d', 'cancelling', T0 + 21_000),
+        worker('sess_e', '', T0 + 22_000, { stage: 'streaming' }),
+        worker('sess_f', 'running', T0 + 23_000, { ownerSessionId: 'sess_b' }),
+        worker('sess_a', 'cancelled', T0 + 24_000, { ownerSessionId: 'sess_c' }),
+        { sessionId: 'sess_b', status: 'queued', updatedAt: 'not a date' },
+      ],
+    },
+    args: { action: 'list', limit: 6 },
+  },
+  { name: 'list-other-projects-and-owners', catalog: WIDE_CATALOG, args: { action: 'list' } },
+  { name: 'list-agents-hidden', catalog: WIDE_CATALOG, args: { action: 'list', include_agents: false } },
+  { name: 'list-agents-shown', catalog: WIDE_CATALOG, args: { action: 'list', include_agents: true } },
+  { name: 'list-closed-archived', catalog: WIDE_CATALOG, archived: { sess_closed: T0 }, args: { action: 'list', include_archived: true } },
+  { name: 'list-room-scope', caller: ROOM_MEMBER, args: { action: 'list' } },
   { name: 'list-bot-scope', caller: ANN_CHAT, args: { action: 'list' } },
   { name: 'list-headless', caller: RUN, args: { action: 'list' } },
   { name: 'list-budget', catalog: BIG_CATALOG, args: { action: 'list', limit: 100 } },
@@ -147,6 +261,17 @@ const SCENARIOS = [
   { name: 'read-offset-fraction', args: { action: 'read', session_id: 'sess_b', offset: 0.5 } },
   { name: 'read-text-offset-negative', args: { action: 'read', session_id: 'sess_b', offset: 0, limit: 1, item_id: 'd1', text_offset: -1 } },
   { name: 'read-headless', caller: RUN, args: { action: 'read', session_id: 'sess_home_ann', limit: 1 } },
+  { name: 'read-own-session', args: { action: 'read', session_id: 'sess_lead1' } },
+  { name: 'read-closed-archived', catalog: WIDE_CATALOG, archived: { sess_closed: T0 }, args: { action: 'read', session_id: 'sess_closed' } },
+  { name: 'read-room-scope', caller: ROOM_MEMBER, args: { action: 'read', session_id: 'sess_b', limit: 2 } },
+  { name: 'read-empty', args: { action: 'read', session_id: 'sess_empty' } },
+  { name: 'read-compacted', args: { action: 'read', session_id: 'sess_compacted' } },
+  { name: 'read-sensitive', args: { action: 'read', session_id: 'sess_sensitive' } },
+  { name: 'read-tool-kinds', args: { action: 'read', session_id: 'sess_tools', limit: 30 } },
+  // The oldest rows of the long transcript (its attachments and empty results), page by page.
+  { name: 'read-page-oldest', args: { action: 'read', session_id: 'sess_b', offset: 26, limit: 10 } },
+  { name: 'read-page-middle', args: { action: 'read', session_id: 'sess_b', offset: 20, limit: 6 } },
+  { name: 'read-page-at-end', args: { action: 'read', session_id: 'sess_b', offset: 35, limit: 5 } },
 ].map((scenario) => ({ ...base, ...scenario }));
 
 // ---- the session service's two reads over a scenario
@@ -173,7 +298,15 @@ function serviceOf(scenario) {
 async function record(scenario) {
   const unregister = registerSessionSidebarHost(async () => {}, { state: async () => ({ archived: clone(scenario.archived) }) });
   try {
-    const live = { own: new Map(scenario.live.own), agents: new Set(scenario.live.agents) };
+    // `storedLiveWork` (daemon-session-control.mjs:45) over the scenario's sources, line for line:
+    // its own reads are process state and the store's worker indexes.
+    const { working, agentWorking, pool, now } = scenario.live;
+    const own = new Map(working.map((id) => [id, now]));
+    for (const entry of pool) {
+      const id = String(entry?.sessionId || '');
+      if (id && !own.has(id) && hasPendingAgentWork(entry)) own.set(id, Date.parse(entry.updatedAt) || 0);
+    }
+    const live = { own, agents: new Set([...agentWorking, ...sessionsWithPendingWork(pool)]) };
     const executeSessionControl = createSessionControl({
       getSessionService: () => serviceOf(scenario),
       listBots: async () => clone(BOTS),
@@ -211,6 +344,7 @@ if (only) {
       provenance: { recorder: RECORDER, ...recordingProvenance(RECORDER, ['benchmarks/rust-core/recorders/lib/common.mjs']) },
       exclusions: [
         'The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.',
+        "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
         'Room sends, members and asks are not recorded (out of scope).',
       ],
       scenarios: scenarios.length,
