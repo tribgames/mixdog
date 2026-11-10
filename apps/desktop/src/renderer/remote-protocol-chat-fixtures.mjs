@@ -16,10 +16,10 @@ export const FIXTURES = {
     node: true,
   },
   roster: { dir: 'remote-protocol-chat-roster.node/', recorder: ['remote-protocol-chat-roster.record.mjs'], node: true },
-  live: { dir: 'remote-protocol-chat-live.core/', recorder: ['remote-protocol-chat-live.record.mjs', '../../../../packages/protocol-client/src/client.ts'], node: false },
+  live: { dir: 'remote-protocol-chat-live.core/', recorder: ['remote-protocol-chat-live.record.mjs', '../../../../packages/protocol-client/src/client.ts', 'remote-protocol-chat-abort-procs.mjs'], node: false },
   refusals: {
     dir: 'remote-protocol-chat-refusals.core/',
-    recorder: ['remote-protocol-chat-refusals.record.mjs', '../../../../packages/protocol-client/src/client.ts', '../main/protocol/service-route.ts'],
+    recorder: ['remote-protocol-chat-refusals.record.mjs', '../../../../packages/protocol-client/src/client.ts', '../main/protocol/service-route.ts', 'remote-protocol-chat-abort-procs.mjs'],
     node: false,
   },
 };

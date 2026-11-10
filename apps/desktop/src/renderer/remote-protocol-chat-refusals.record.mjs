@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 import { routeService } from '../main/protocol/service-route.ts';
+import { endLeftovers } from './remote-protocol-chat-abort-procs.mjs';
 
 const [bin, harness, outFile] = process.argv.slice(2);
 if (!outFile) throw new Error('usage: <mixdogd.exe> <real-turn-harness dir> <out file>');
@@ -22,7 +23,7 @@ const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest(
 process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-refusals');
 const load = (name) => import(pathToFileURL(lib(name)).href);
 const { daemonEnv, isolatedPaths } = await load('env.mjs');
-const { seedPgRuntime, killStrayPostgres } = await load('stage.mjs');
+const { seedPgRuntime } = await load('stage.mjs');
 const { startFakeProvider } = await load('fake-provider.mjs');
 const { launch } = await load('proc.mjs');
 const { createDeadline, latch } = await load('deadline.mjs');
@@ -146,7 +147,8 @@ try {
     await ended.race(core.exited, `the core (pid ${core.pid}) to exit`);
   } finally {
     ended.clear();
-    killStrayPostgres(paths.dataDir);
+    // The core's tree and anything naming its folder (its postgres, whose command line writes the folder with `/`), ended with proof.
+    endLeftovers(core.pid, paths.envRoot);
   }
 }
 process.exit(0);
