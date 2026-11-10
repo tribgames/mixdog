@@ -178,6 +178,8 @@ mod tests {
             let o = &case["options"];
             let options = RequestOptions {
                 session_id: text(&o["sessionId"]),
+                // Node's `codexSessionId` is the thread identity here; it outranks `sessionId`.
+                thread: text(&o["codexSessionId"]).map(|id| mixdog_core_api::domain::provider::RequestThread { id: id.as_str().into(), window: 0, turn: None, turn_started_at_ms: None }),
                 prompt_cache_key: text(&o["promptCacheKey"]),
                 prompt_cache_scope: text(&o["promptCacheScope"]),
                 effort: text(&o["effort"]),
