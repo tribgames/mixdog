@@ -415,11 +415,11 @@ struct Extras {
     queued: std::sync::Mutex<Vec<futures::future::BoxFuture<'static, ()>>>,
 }
 
-/// `extraWithResend` (`node-wire-capture.mjs`): when the scenario's `at`-th POST has its connection (a refused request's
-/// plain resend), `count` GETs of `/parity/extra` to its origin go out beside it through the same client. Node dispatches
-/// them in the same turn of the event loop (`gap: "none"`) or one `setImmediate` later (`"immediate"`); here a turn is
-/// one poll of the replay's task ([`beside`]), so they are polled in the poll the resend took its connection in, or after
-/// the task yielded once. Each reads its whole answer.
+/// `extraWithResend` (`node-wire-capture.mjs`): when the scenario's `at`-th POST is dispatched (its connection chosen; a
+/// refused request's plain resend), `count` GETs of `/parity/extra` to its origin go out beside it through the same
+/// client. Node dispatches them in the same turn of the event loop (`gap: "none"`) or one `setImmediate` later
+/// (`"immediate"`); here a turn is one poll of the replay's task ([`beside`]), so they are polled in the poll the resend
+/// was dispatched in, or after the task yielded once. Each reads its whole answer.
 fn extras_with_resend(id: &str, scenario: &Value, link: &Arc<ReqwestLink>) -> Arc<Extras> {
     let extras = Arc::new(Extras::default());
     let plan = &scenario["extraWithResend"];
@@ -547,10 +547,30 @@ fn with_nodes_gzip_bytes(node: &[Value], rust: &mut [Value]) {
     }
 }
 
+/// Each http event's `started` and `completed` moment as its place among the scenario's starts and among its
+/// completions: the order requests start in (the client's choice) and the order their bodies complete in are compared
+/// exactly, how the server's reads of different connections interleave the two is not (it is the server's).
+fn with_order_ranks(scenarios: &mut [Value]) {
+    for scenario in scenarios {
+        let Some(traffic) = scenario["traffic"].as_array_mut() else { continue };
+        for field in ["started", "completed"] {
+            let mut moments: Vec<u64> = traffic.iter().filter_map(|e| e[field].as_u64()).collect();
+            moments.sort_unstable();
+            for event in traffic.iter_mut() {
+                if let Some(moment) = event[field].as_u64() {
+                    event[field] = json!(moments.iter().position(|m| *m == moment).unwrap() + 1);
+                }
+            }
+        }
+    }
+}
+
 /// The scenarios of `provider` in both recordings, compared whole: the same scenarios in the same order, then everything in each.
 fn compare(node: &[Value], rust: &[Value], provider: &str) -> Vec<String> {
     let of = |list: &[Value]| list.iter().filter(|s| s["provider"] == provider).cloned().collect::<Vec<_>>();
-    let (node, mut rust) = (of(node), of(rust));
+    let (mut node, mut rust) = (of(node), of(rust));
+    with_order_ranks(&mut node);
+    with_order_ranks(&mut rust);
     with_nodes_gzip_bytes(&node, &mut rust);
     let mut out = Vec::new();
     diff("scenarios", &Value::Array(node), &Value::Array(rust), &mut out);
@@ -643,16 +663,24 @@ fn the_comparator_reports_what_a_looser_one_hides() {
     assert!(!extra.is_empty(), "an extra scenario goes unreported");
     let provider = mutate(&|list| list[0]["provider"] = json!("gemini"));
     assert!(!provider.is_empty(), "a changed provider goes unreported");
-    // Of a gzip body only the compressor's bytes are Node's to give: its text, its encoding and its other headers are
-    // compared.
-    fn gzip_body(list: &mut [Value]) -> &mut Value {
-        list.iter_mut().flat_map(|s| s["traffic"].as_array_mut().unwrap().iter_mut()).find(|e| e["body"]["encoding"] == "gzip").unwrap()
-    }
+    // Two requests that start in the other order.
     let anthropic = |change: &dyn Fn(&mut Vec<Value>)| {
         let mut other = scenarios.clone();
         change(&mut other);
         compare(&scenarios, &other, "anthropic-oauth")
     };
+    let swapped = anthropic(&|list| {
+        let traffic = list.iter_mut().find(|s| s["provider"] == "anthropic-oauth").unwrap()["traffic"].as_array_mut().unwrap();
+        let (first, second) = (traffic[0]["started"].clone(), traffic[1]["started"].clone());
+        traffic[0]["started"] = second;
+        traffic[1]["started"] = first;
+    });
+    assert!(!swapped.is_empty(), "a changed start order goes unreported");
+    // Of a gzip body only the compressor's bytes are Node's to give: its text, its encoding and its other headers are
+    // compared.
+    fn gzip_body(list: &mut [Value]) -> &mut Value {
+        list.iter_mut().flat_map(|s| s["traffic"].as_array_mut().unwrap().iter_mut()).find(|e| e["body"]["encoding"] == "gzip").unwrap()
+    }
     assert!(anthropic(&|list| gzip_body(list)["body"]["sha256"] = json!("0")).is_empty(), "the compressor's bytes are compared");
     assert!(!anthropic(&|list| gzip_body(list)["body"]["text"] = json!("{}")).is_empty(), "a changed gzip text goes unreported");
     assert!(!anthropic(&|list| gzip_body(list)["body"]["encoding"] = json!(null)).is_empty(), "a body sent plain goes unreported");

@@ -37,9 +37,9 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/compat/wire_route.rs", "COMPILED", NotState("compiled patterns by pattern text")),
     ("providers/custom/mod.rs", "IDS", NotState("interned id strings")),
     ("transport/deadlines.rs", "LABELS", NotState("interned deadline labels")),
-    ("admission/settings.rs", "SETTINGS", NotState("the lane rule from the process environment, read once as Node builds its scheduler once")),
+    ("admission/settings.rs", "SETTINGS", Reset("settings::reset_process_lane_settings()")),
+    ("oauth/single_flight.rs", "FLIGHTS", Reset("single_flight::reset()")),
     ("accounts/binding.rs", "SCOPED", NotState("task-local: the account a task runs under, gone with the task")),
-    ("oauth/single_flight.rs", "FLIGHTS", NotState("only refreshes in flight; each leaves the map when it ends")),
     ("work.rs", "CREDENTIAL_READS", NotState("a `count-work` measurement counter no send reads")),
     ("work.rs", "PROVIDERS_BUILT", NotState("a `count-work` measurement counter no send reads")),
     ("work.rs", "PROVIDER_LOADS", NotState("a `count-work` measurement counter no send reads")),
@@ -92,44 +92,179 @@ fn a_replay_starts_with_fast_mode_available_after_a_send_disabled_it() {
     assert_eq!(fast_mode::process().disabled_reason(), None);
 }
 
+/// `text` with its comments and the contents of its string and character literals blanked (newlines kept, so a line
+/// number is the source's): what is left is code. A lifetime (`'static`) is code.
+fn code(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let blank = |out: &mut String, c: char| out.push(if c == '\n' { '\n' } else { ' ' });
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        if c == '/' && next == Some('/') {
+            while i < chars.len() && chars[i] != '\n' {
+                blank(&mut out, chars[i]);
+                i += 1;
+            }
+        } else if c == '/' && next == Some('*') {
+            let mut depth = 0;
+            loop {
+                if chars[i] == '/' && chars.get(i + 1) == Some(&'*') {
+                    depth += 1;
+                    out.push_str("  ");
+                    i += 2;
+                } else if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    depth -= 1;
+                    out.push_str("  ");
+                    i += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    blank(&mut out, chars[i]);
+                    i += 1;
+                }
+            }
+        } else if c == 'r' && (i == 0 || !ident(chars[i - 1]) || (chars[i - 1] == 'b' && (i < 2 || !ident(chars[i - 2])))) && matches!(next, Some('"' | '#')) {
+            // A raw string `r#"…"#`, or the identifier `r#name` / a plain `r`.
+            let hashes = chars[i + 1..].iter().take_while(|c| **c == '#').count();
+            if chars.get(i + 1 + hashes) != Some(&'"') {
+                out.push(c);
+                i += 1;
+                continue;
+            }
+            let close: Vec<char> = std::iter::once('"').chain(std::iter::repeat_n('#', hashes)).collect();
+            out.push('r');
+            for _ in 0..=hashes {
+                out.push(' ');
+            }
+            i += 2 + hashes;
+            while i < chars.len() && !chars[i..].starts_with(&close) {
+                blank(&mut out, chars[i]);
+                i += 1;
+            }
+            for _ in 0..close.len() {
+                out.push(' ');
+            }
+            i += close.len();
+        } else if c == '"' {
+            out.push(' ');
+            i += 1;
+            while i < chars.len() && chars[i] != '"' {
+                let skip = if chars[i] == '\\' { 2 } else { 1 };
+                for _ in 0..skip.min(chars.len() - i) {
+                    blank(&mut out, chars[i]);
+                    i += 1;
+                }
+            }
+            out.push(' ');
+            i += 1;
+        } else if c == '\'' && (next == Some('\\') || chars.get(i + 2) == Some(&'\'')) {
+            // A character literal (`'x'`, `'\''`, `'\u{7f}'`); anything else after `'` is a lifetime or a label.
+            out.push(' ');
+            i += 1;
+            while i < chars.len() && chars[i] != '\'' {
+                let skip = if chars[i] == '\\' { 2 } else { 1 };
+                for _ in 0..skip.min(chars.len() - i) {
+                    blank(&mut out, chars[i]);
+                    i += 1;
+                }
+            }
+            out.push(' ');
+            i += 1;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Every `static` keyword of `code` ([`code`]): read as a declaration (`static [mut] name: type`, the name and the
+/// type on any lines), or listed with its line as one this scan cannot read; a `'static` lifetime is neither. A
+/// refused macro (`thread_local!`, `lazy_static!`, a `once_cell::` path), with any spacing, is listed too.
+fn statics(code: &str) -> (Vec<(usize, String, String)>, Vec<(usize, String)>) {
+    let line_of = |at: usize| code[..at].matches('\n').count() + 1;
+    let keyword = regex::Regex::new(r"\bstatic\b").unwrap();
+    let declaration = regex::Regex::new(r"^static\s+(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:([^=;]*)").unwrap();
+    let refused = regex::Regex::new(r"\b(?:thread_local\s*!|lazy_static\s*!|once_cell\s*::)").unwrap();
+    let mut read = Vec::new();
+    let mut unreadable = Vec::new();
+    for found in keyword.find_iter(code) {
+        if code[..found.start()].ends_with('\'') {
+            continue;
+        }
+        match declaration.captures(&code[found.start()..]) {
+            Some(captures) => read.push((line_of(found.start()), captures[1].to_owned(), captures[2].trim().to_owned())),
+            None => unreadable.push((line_of(found.start()), code[found.start()..].chars().take(40).collect::<String>().replace('\n', " "))),
+        }
+    }
+    for found in refused.find_iter(code) {
+        unreadable.push((line_of(found.start()), found.as_str().to_owned()));
+    }
+    (read, unreadable)
+}
+
+// The lanes' queue bound is read from the environment once per process (Node builds its scheduler once); a replay
+// after the environment changed reads it again, as a new process would.
+#[test]
+fn a_replay_reads_the_lane_queue_bound_from_the_environment_again() {
+    use mixdog_ai::admission::{LaneKey, process_lane_settings};
+    const NAME: &str = "MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE";
+    let key = LaneKey::new("gemini".into(), "default");
+    // SAFETY: this test's process (nextest runs each test in its own) has no other thread reading the environment.
+    unsafe { std::env::set_var(NAME, "7") };
+    mixdog_ai::reset_process_state();
+    assert_eq!(process_lane_settings()(&key).max_queue, 7);
+    unsafe { std::env::set_var(NAME, "9") };
+    assert_eq!(process_lane_settings()(&key).max_queue, 7, "read once per process");
+    mixdog_ai::reset_process_state();
+    assert_eq!(process_lane_settings()(&key).max_queue, 9, "a replay's process reads the environment it starts with");
+    unsafe { std::env::remove_var(NAME) };
+}
+
+// The scan reads a declaration however it is laid out, and refuses what it cannot read instead of skipping it.
+#[test]
+fn the_scan_reads_every_static_or_names_it_unreadable() {
+    let source = "// static IN_COMMENT: u8 = 0;\nconst S: &str = \"static IN_STRING: u8\";\nfn f(x: &'static str) {}\n\
+                  static lower: Mutex<u8> = Mutex::new(0);\nstatic\n    NEXT_LINE\n    : AtomicU64 = AtomicU64::new(0);\n\
+                  static A: u8 = 0; static B: u8 = 0;\nmacro_rules! m { ($name:ident) => { static $name: u8 = 0; }; }\n\
+                  thread_local !{ static T: u8 = 0; }\nconst C: char = '\"'; static AFTER_CHAR: u8 = 0;\n\
+                  const R: &str = r#\"static IN_RAW: u8\"#;\nstatic mut M: u8 = 0;\n/* static IN_BLOCK: u8 /* nested */ */\n";
+    let (read, unreadable) = statics(&code(source));
+    let names: Vec<(usize, &str)> = read.iter().map(|(line, name, _)| (*line, name.as_str())).collect();
+    assert_eq!(names, [(4, "lower"), (5, "NEXT_LINE"), (8, "A"), (8, "B"), (10, "T"), (11, "AFTER_CHAR"), (13, "M")]);
+    assert_eq!(read[1].2, "AtomicU64", "the type is read across lines");
+    let lines: Vec<usize> = unreadable.iter().map(|(line, _)| *line).collect();
+    assert_eq!(lines, [9, 10], "{unreadable:?}: the macro's `static $name` and the spaced `thread_local !`");
+}
+
 #[test]
 fn every_process_wide_value_is_reset_for_a_replay_or_named_with_its_reason() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
-    let declaration = regex::Regex::new(r"\bstatic\s+(?:mut\s+)?([A-Z_][A-Z0-9_]*)\s*:\s*(.*)").unwrap();
     let mut files = Vec::new();
     sources(&root, &mut files);
     let mut found = Vec::new();
     let mut unscannable = Vec::new();
     for file in files {
         let relative = file.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
-        let text = std::fs::read_to_string(&file).unwrap();
-        for (index, line) in text.lines().enumerate() {
-            if line.trim_start().starts_with("//") {
-                continue;
-            }
-            for word in ["thread_local!", "lazy_static!", "once_cell::"] {
-                if line.contains(word) {
-                    unscannable.push(format!("{relative}:{}: {word}", index + 1));
-                }
-            }
-            let Some(captures) = declaration.captures(line) else { continue };
-            let kind = &captures[2];
+        let (read, unreadable) = statics(&code(&std::fs::read_to_string(&file).unwrap()));
+        unscannable.extend(unreadable.into_iter().map(|(line, what)| format!("{relative}:{line}: {what}")));
+        for (_, name, kind) in read {
             let pattern = kind.contains("Regex") && !["Mutex", "RwLock", "Atomic", "Cell"].iter().any(|m| kind.contains(m));
             if !pattern {
-                found.push((relative.clone(), captures[1].to_owned()));
+                found.push((relative.clone(), name));
             }
         }
     }
-    assert!(unscannable.is_empty(), "process-wide values this scan does not read: {unscannable:?}");
+    assert!(unscannable.is_empty(), "process-wide values this scan does not read: {unscannable:#?}");
 
-    let lib = std::fs::read_to_string(root.join("lib.rs")).unwrap();
-    let anthropic = std::fs::read_to_string(root.join("providers/anthropic/mod.rs")).unwrap();
+    let lib = code(&std::fs::read_to_string(root.join("lib.rs")).unwrap());
+    let anthropic = code(&std::fs::read_to_string(root.join("providers/anthropic/mod.rs")).unwrap());
     // The calls the two bodies make; a commented-out call is none.
-    let reset = format!("{}\n{}", body(&lib, "reset_process_state"), body(&anthropic, "reset_process_state"))
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let reset = format!("{}\n{}", body(&lib, "reset_process_state"), body(&anthropic, "reset_process_state"));
     let mut problems = Vec::new();
     for (file, name) in &found {
         match VALUES.iter().find(|(f, n, _)| f == file && n == name) {

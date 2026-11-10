@@ -520,18 +520,29 @@ impl NodeClient {
         let key = self.key(&url, &proxy);
         let mut replayed = false;
         loop {
-            let reused = self.pool.take(&key).await;
+            // Dispatched: the connection is chosen now (or none, and one is dialled).
+            let chosen = self.pool.checkout(&key);
             #[cfg(any(test, feature = "test-support"))]
             if let Some(tap) = self.tap.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
                 tap(request);
             }
-            // This request has its connection (or dials one). A connection held for it is busy for the rest of this
-            // turn, which ends when this task yields: a request polled beside this one before then finds it busy,
-            // one after it finds it free ([`Pool::hold_h1`]).
-            if self.pool.holds(&key) {
+            // undici resumes the client of a request whose body is an iterable of unknown length (a `fetch` body is
+            // its stream) one microtask after `dispatch` (`client.js:414` `queueMicrotask(() => resume(this))`), so
+            // its socket's validation turn and its write come after those of a request dispatched after it in the
+            // same turn; a body-less or raw `undici.request` client resumes inside `dispatch`. A turn is this task's
+            // poll: such a request yields once here.
+            let streamed = writer == Writer::Fetch && !request.body.is_empty();
+            // A connection held for this request is busy for the rest of this turn: a request polled beside this one
+            // before this task yields finds it busy, one after it finds it free ([`Pool::hold_h1`]). Only the request
+            // that claims the hold waits for it ([`Pool::claim_hold`]).
+            let held = self.pool.claim_hold(&key);
+            if streamed || held {
                 tokio::task::yield_now().await;
+            }
+            if held {
                 self.pool.free_held(&key);
             }
+            let reused = self.pool.validated(&key, chosen).await;
             let was_reused = reused.is_some();
             let outcome = match reused {
                 Some(Taken::H1(conn)) => self.exchange_h1(conn, &key, request, &url, writer, surface).await,
