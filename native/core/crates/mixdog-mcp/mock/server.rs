@@ -134,12 +134,25 @@ fn main() {
         fixture_calls: AtomicUsize::new(0),
         fixture_args: Mutex::new(Vec::new()),
     });
+    // `MOCK_SCENARIO`: `{tools, results}` — lists `tools` and answers `tools/call {name, {i}}`
+    // with `results[name][i]` (a recorded case of `record-mcp-output-schema.mjs`).
+    let scenario: Option<Value> = std::env::var("MOCK_SCENARIO").ok().map(|raw| serde_json::from_str(&raw).unwrap());
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let method = message["method"].as_str().map(str::to_owned);
         let id = message.get("id").cloned();
         match (method.as_deref(), id) {
+            (Some("tools/list"), Some(id)) if scenario.is_some() => {
+                let tools = scenario.as_ref().map(|s| s["tools"].clone()).unwrap_or_default();
+                send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {"tools": tools}}));
+            }
+            (Some("tools/call"), Some(id)) if scenario.is_some() => {
+                let params = &message["params"];
+                let index = params["arguments"]["i"].as_u64().unwrap_or_default() as usize;
+                let result = scenario.as_ref().map(|s| s["results"][params["name"].as_str().unwrap_or_default()][index].clone());
+                send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": result}));
+            }
             (Some("initialize"), Some(id)) => send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {"tools": {"listChanged": true}},

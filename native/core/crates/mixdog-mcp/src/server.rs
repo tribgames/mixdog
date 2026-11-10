@@ -31,6 +31,7 @@ use crate::config::scrub;
 use crate::http::HttpTransport;
 use crate::naming::PROVIDER_TOOL_NAME_MAX;
 use crate::naming::qualified_tool_name;
+use crate::output_schema::OutputValidators;
 use crate::result::OutputPolicy;
 use crate::result::ReportedError;
 use crate::result::Spiller;
@@ -81,6 +82,8 @@ pub struct ToolCatalog {
 pub struct Ready {
     pub client: Arc<RpcClient>,
     pub catalog: Arc<ToolCatalog>,
+    /// The listed tools' `outputSchema` validators, which every `tools/call` result passes.
+    pub outputs: Arc<OutputValidators>,
     pub capabilities: Value,
     pub instructions: Option<String>,
 }
@@ -403,8 +406,10 @@ impl McpServer {
         } else {
             Vec::new()
         };
+        let outputs = OutputValidators::of(&tools).map_err(ConnectError::Failed)?;
         Ok(Ready {
             catalog: Arc::new(build_catalog(&self.config.name, &tools)),
+            outputs: Arc::new(outputs),
             client,
             capabilities,
             instructions: init.get("instructions").and_then(Value::as_str).map(str::to_owned),
@@ -443,11 +448,17 @@ impl McpServer {
         if ready.catalog.digest == catalog.digest {
             return;
         }
+        // The SDK's `listTools` throws on schemas that do not resolve: the previous listing stays.
+        let outputs = match OutputValidators::of(&tools) {
+            Ok(outputs) => outputs,
+            Err(error) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
+        };
         self.publish(
             generation,
             ServerState::Ready(Arc::new(Ready {
                 client: Arc::clone(&ready.client),
                 catalog: Arc::new(catalog),
+                outputs: Arc::new(outputs),
                 capabilities: ready.capabilities.clone(),
                 instructions: ready.instructions.clone(),
             })),
@@ -545,6 +556,7 @@ impl McpServer {
             .await;
         drop(permit);
         let result = result?;
+        ready.outputs.check(tool, &result)?;
         map_call_result(&result, self.policy, &self.spiller)
             .await
             .map_err(|mut reported| {
