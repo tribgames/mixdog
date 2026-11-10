@@ -171,7 +171,7 @@ struct Inner {
     streams: OnceLock<Arc<BrowserStreams>>,
     timer_seq: AtomicU64,
     /// Each push of the view to a phone holds this from its `view_allowed` check through its `notify` (synchronous, nothing awaited),
-    /// and an unpair's cleanup passes through it after the revocation is in force (`LiveViewService::unpaired`): once the cleanup has
+    /// and an unpair's cleanup passes through it after the revocation and the drop (`LiveViewService::unpaired`): once the cleanup has
     /// returned, a push that passed its check has been enqueued and every later one is refused. Taken by nothing a push's check or
     /// enqueue holds a lock for.
     view_gate: Mutex<()>,
@@ -183,8 +183,8 @@ struct Inner {
 #[cfg(test)]
 #[derive(Default)]
 pub(crate) struct Seams {
-    /// A push on its way, before the view gate (where Node's delivery encrypts it).
-    pub(crate) on_its_way: Option<Arc<dyn Fn(u64) + Send + Sync>>,
+    /// A push on its way, before the view gate, with its method.
+    pub(crate) on_its_way: Option<Arc<dyn Fn(u64, &str) + Send + Sync>>,
     /// A push that passed its check, before its `notify`, the view gate held.
     pub(crate) checked: Option<Arc<dyn Fn(u64) + Send + Sync>>,
     /// An unpair's cleanup that found the view gate held by a push and waits for it.
@@ -243,7 +243,12 @@ impl Inner {
     /// frame (`open_only`), its connection is open: the check and the enqueue are one step under the view gate.
     fn push_view(&self, connection: ConnectionId, method: &'static str, params: Value, open_only: bool) -> Result<bool, CoreError> {
         #[cfg(test)]
-        self.seam(|seams| seams.on_its_way.clone(), connection.0);
+        {
+            let hook = lock(&self.seams).on_its_way.clone();
+            if let Some(hook) = hook {
+                hook(connection.0, method);
+            }
+        }
         let _gate = lock(&self.view_gate);
         if (open_only && lock(&self.state).closed.contains(&connection.0)) || !self.access.view_allowed(connection) {
             return Ok(false);
@@ -853,11 +858,12 @@ impl DomainService for LiveViewService {
 impl LiveViewService {
     /// The device behind `connection` was unpaired: the connection's browser streams end now, their frames in flight and resends
     /// with them, and so its WebRTC views (`on_drop`). Node's unpair asks this of its streams (`remote-relay.ts:619`, `dropClient`).
-    /// Called once the connection is revoked: it passes the view gate first, so a push that passed its check before the revocation is
-    /// enqueued before this returns and every later one is refused.
+    /// Called once the connection is revoked: its streams end first, so the desktop is told at the unpair as Node tells it, then it
+    /// passes the view gate, so a push that passed its check before the revocation is enqueued before this returns and every later
+    /// one is refused. (Where the bytes enter the phone's stream they are asked again, `DeviceRegistry::write_view`.)
     pub fn unpaired(&self, connection: ConnectionId) {
-        self.inner.pass_view_gate();
         self.inner.streams().drop_client(&connection.0.to_string());
+        self.inner.pass_view_gate();
     }
 
     /// The relay closed: every phone's browser stream ends (`remote-relay.ts:658`, `browserStreams.dispose()`).
