@@ -218,6 +218,33 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     hub.close_all().await;
 }
 
+/// A server whose start failed is connected again when its unchanged configuration is applied
+/// (Node's reconcile retries a recorded failure, `server-connection.mjs` `reconcileServers`); a
+/// connected one keeps its connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn applying_the_unchanged_configuration_of_a_failed_server_connects_it_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let down = dir.path().join("down");
+    std::fs::write(&down, "").unwrap();
+    let hub = McpHub::new(io(), dir.path().join("artifacts"), OutputPolicy::default());
+    let files = config("files", json!({"env": {"MOCK_DOWN_WHILE": down}}));
+    hub.apply(vec![files.clone()]);
+    let first = hub.server("files").unwrap();
+    until(&first, |s| !matches!(s, ServerState::Starting)).await;
+    assert!(matches!(&*first.state(), ServerState::Failed { .. }));
+
+    std::fs::remove_file(&down).unwrap();
+    hub.apply(vec![files.clone()]);
+    let again = hub.server("files").unwrap();
+    assert!(!matches!(&*again.state(), ServerState::Failed { .. }), "the failed server is connecting again");
+    // The connect ends by itself, bounded by the server's startup timeout.
+    until(&again, |s| !matches!(s, ServerState::Starting)).await;
+    assert!(matches!(&*again.state(), ServerState::Ready(_)), "the server reconnected");
+    hub.apply(vec![files]);
+    assert!(Arc::ptr_eq(&again, &hub.server("files").unwrap()), "a connected server is kept");
+    hub.close_all().await;
+}
+
 /// A scope is a key into the one hub (Node's registry key `scope\0name`, `mcp/client.mjs:110-118`): the
 /// servers connected under it are its tools and its lookups only, an empty id is the default scope, a
 /// scope never connected has nothing, and releasing a scope (`disconnectAll({ scopeId })`) closes its

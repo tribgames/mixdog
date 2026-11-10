@@ -257,6 +257,12 @@ impl McpHub {
     /// [`apply`](Self::apply) for the servers of `scope` (`connectMcpServers(config, { scopeId })`):
     /// the other scopes' servers are untouched.
     pub fn apply_in(self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>) {
+        self.apply_retrying(scope, configs, &|_| true);
+    }
+
+    /// [`apply_in`](Self::apply_in) that connects again only the failed servers `retry` names; the
+    /// other failed ones stay as they are (a one-server toggle touches only its own server).
+    fn apply_retrying(self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool) {
         let scope = normalize_scope(Some(scope));
         let current = self.in_scope(&scope);
         let mut kept: Vec<String> = Vec::new();
@@ -266,7 +272,14 @@ impl McpHub {
         let mut next_oauth: HashMap<String, Arc<McpOAuth>> = HashMap::new();
         for config in configs.into_iter().filter(|c| c.enabled) {
             match current.iter().find(|s| s.name() == config.name) {
-                Some(existing) if *existing.config() == config => {
+                // A server whose last connect failed (or whose connection died) is connected again
+                // although its configuration is unchanged, as Node's reconcile retries its recorded
+                // failures (`server-connection.mjs` `reconcileServers`): a fixed command or a sign-in
+                // made elsewhere needs no configuration change.
+                Some(existing)
+                    if *existing.config() == config
+                        && !(matches!(&*existing.state(), ServerState::Failed { .. }) && retry(&config.name)) =>
+                {
                     kept.push(config.name.clone());
                     if let Some(kept) = previous_oauth.get(&(scope.clone(), config.name.clone())) {
                         next_oauth.insert(config.name.clone(), Arc::clone(kept));
@@ -437,15 +450,22 @@ impl McpHub {
     /// [`apply_in`](Self::apply_in) for an operation requested at `generation`: applied only while
     /// the scope is unreleased and no newer generation was requested, checked and applied under one
     /// lock, so a release or a newer full connect can neither be overtaken nor resurrected by a late
-    /// operation (`connectServer`'s `genAtStart`, `mcp/client.mjs:199,405,447`). Whether it applied.
-    pub fn apply_at(self: &Arc<Self>, scope: &str, generation: u64, configs: Vec<McpServerConfig>) -> bool {
+    /// operation (`connectServer`'s `genAtStart`, `mcp/client.mjs:199,405,447`). Of the failed
+    /// servers, those `retry` names connect again. Whether it applied.
+    pub fn apply_at(
+        self: &Arc<Self>,
+        scope: &str,
+        generation: u64,
+        configs: Vec<McpServerConfig>,
+        retry: &dyn Fn(&str) -> bool,
+    ) -> bool {
         let key = normalize_scope(Some(scope));
         let lives = self.lives.lock().unwrap_or_else(|e| e.into_inner());
         let (released, current) = lives.get(&key).map_or((false, 0), |life| (life.released, life.generation));
         if released || current != generation {
             return false;
         }
-        self.apply_in(&key, configs);
+        self.apply_retrying(&key, configs, retry);
         drop(lives);
         true
     }

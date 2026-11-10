@@ -322,6 +322,44 @@ async fn a_panic_in_the_first_connect_is_recorded_and_a_later_reconcile_recovers
     assert_eq!(runtime.failure_of("s1"), None, "an operation that applied clears the failure");
 }
 
+/// Node's reconcile (`server-connection.mjs` `reconcileServers`, `server-connection.test.mjs:33`): a
+/// server whose connect failed is connected again by the next reconcile with its configuration
+/// unchanged, one attempt per reconcile, and a connected one is left alone. A one-server toggle
+/// (`Op::Only`, `reconnectSingleMcpServer`) connects its own failed server once and no other.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_server_is_connected_again_by_the_next_operation_once_per_operation() {
+    let Rig { runtime, hub, configs, .. } = rig();
+    let dir = tempfile::tempdir().unwrap();
+    let down = dir.path().join("down");
+    std::fs::write(&down, "").unwrap();
+    let server = |name: &str| {
+        let entry = json!({"command": MOCK, "env": {"MOCK_STARTS": dir.path().join(name), "MOCK_DOWN_WHILE": down}});
+        McpServerConfig::from_entry(name, &entry, &std::env::vars().collect()).unwrap()
+    };
+    let starts = |name: &str| std::fs::read_to_string(dir.path().join(name)).unwrap_or_default().lines().count();
+    let failed = |name: &str| matches!(&*hub.server_in("s1", name).unwrap().state(), ServerState::Failed { .. });
+    configs.set(&[]);
+    runtime.open("s1", "t1", "/w").await.unwrap();
+
+    *lock(&configs.configs) = vec![server("files"), server("docs")];
+    runtime.run("s1", Op::Reconcile).await;
+    assert!(failed("files") && failed("docs"));
+    assert_eq!((starts("files"), starts("docs")), (1, 1), "a reconcile connects a new server once");
+
+    std::fs::remove_file(&down).unwrap();
+    runtime.run("s1", Op::Only("docs".to_owned(), true)).await;
+    assert!(ready(&hub.server_in("s1", "docs").unwrap().state()), "the toggle connected the failed server");
+    assert!(failed("files"), "the toggle leaves the other failed server alone");
+    assert_eq!((starts("files"), starts("docs")), (1, 2), "the toggle connects only its own server, once");
+
+    runtime.run("s1", Op::Reconcile).await;
+    assert!(ready(&hub.server_in("s1", "files").unwrap().state()), "the reconcile connected the failed server");
+    assert_eq!((starts("files"), starts("docs")), (2, 2), "retried once failed, left alone once connected");
+    runtime.run("s1", Op::Reconcile).await;
+    assert_eq!((starts("files"), starts("docs")), (2, 2), "a connected server is not retried again");
+    runtime.release("t1");
+}
+
 /// A request carries the scope it was resolved to through the work it runs (a thread's own scope is
 /// resolved from its header by `McpRuntime::scope_of_request`, a child's from its parent's).
 #[tokio::test(flavor = "multi_thread")]
