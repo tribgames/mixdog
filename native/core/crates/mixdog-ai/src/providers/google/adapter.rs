@@ -37,6 +37,7 @@ use super::auth::RequestAuth;
 use crate::providers::key_source::ApiKeySource;
 use super::cache::layer::Ask;
 use super::cache::layer::ExplicitCache;
+use super::cache::layer::HeldConnection;
 use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
@@ -47,6 +48,7 @@ use crate::catalog::ListingLookup;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
+use crate::transport::preconnect::Preconnect;
 
 pub struct GoogleAdapter {
     id: ProviderId,
@@ -65,6 +67,8 @@ pub struct GoogleAdapter {
     roster: Mutex<Vec<ModelRecord>>,
     /// The metadata enrichment and picker sanitizer Gemini's listing ends with.
     lookup: ListingLookup,
+    /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
+    preconnect: Option<Preconnect>,
 }
 
 impl GoogleAdapter {
@@ -89,7 +93,16 @@ impl GoogleAdapter {
             reload: None,
             roster: Mutex::default(),
             lookup: ListingLookup::new(),
+            preconnect: None,
         }
+    }
+
+    /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
+    /// (`send`, `gemini.mjs:651`).
+    pub fn with_preconnect(mut self, preconnect: Preconnect) -> Self {
+        preconnect.warm(super::codec::GEMINI_ORIGIN);
+        self.preconnect = Some(preconnect);
+        self
     }
 
     /// Shares the catalog's listing tables (`CatalogService::listing_lookup`).
@@ -217,7 +230,7 @@ impl GoogleAdapter {
             .or(request.options.provider_state.as_ref())
             .and_then(|s| s.gemini.clone())
             .filter(|s| s.cache_name == name)?;
-        Some(Cached { name, state, changed: answer.state })
+        Some(Cached { name, state, changed: answer.state, held: answer.held })
     }
 
     /// One authorized send, with the single credential-recovery resend of a 401.
@@ -322,6 +335,8 @@ struct Cached {
     state: GeminiCacheState,
     /// `Some` when attaching changed the session's provider state.
     changed: Option<ProviderState>,
+    /// The connection of the create this request made, held until the request is sent.
+    held: HeldConnection,
 }
 
 #[async_trait]
@@ -347,6 +362,9 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if let Some(preconnect) = &self.preconnect {
+            preconnect.warm(super::codec::GEMINI_ORIGIN);
+        }
         let (request, redirect) = self.served(self.routed(request));
         // `_servedModel` announces, and claims the once-per-process notice, before the request is built or sent:
         // a send that fails still showed it, and a later one does not show it again.
@@ -370,6 +388,18 @@ impl ProviderAdapter for GoogleAdapter {
             }
         }
     }
+}
+
+/// `isGeminiCachedContentError` (gemini.mjs:222-231) over the error `geminiRestError` makes of `body`: its message
+/// (`<label> <status>: ` and the first 300 characters of the body) and its parsed payload, lower-cased, name the cached
+/// content or the attached cache.
+fn names_cached_content(body: &[u8], cache_name: &str) -> bool {
+    let text = String::from_utf8_lossy(body);
+    let head = String::from_utf16_lossy(&text.encode_utf16().take(300).collect::<Vec<u16>>());
+    let payload = serde_json::from_slice::<Value>(body).ok().filter(|p| !p.get("error").unwrap_or(p).is_null());
+    let data = payload.map_or_else(|| "\"\"".to_owned(), |p| p.to_string());
+    let text = format!("{head} {data}").to_lowercase();
+    text.contains("cachedcontent") || text.contains("cached content") || (!cache_name.is_empty() && text.contains(&cache_name.to_lowercase()))
 }
 
 /// One request's exchange: the answer, the session-state changes it made, and whether it ran on the global location.
@@ -401,21 +431,30 @@ impl GoogleAdapter {
         if let Some(state) = cached.as_ref().and_then(|c| c.changed.clone()) {
             queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
+        let created = cached.as_mut().map(|c| std::mem::take(&mut c.held));
         let mut response = {
             let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
             self.dispatch(&self.codec.wire(request, &inner, attach)?).await?
         };
+        drop(created);
         // A cache the server refuses (gone, evicted, mismatched) is forgotten
-        // here and in the session, and the request runs once without it. The
-        // only cache-specific thing a 400/404 can be about is the attachment.
-        if let Some(rejected) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
+        // here and in the session, and the request runs once without it: a 400/404
+        // whose error names the cached content (`isGeminiCachedContentError`,
+        // gemini.mjs:222-231). Any other refusal is the request's error.
+        if let Some(attached) = cached.take().filter(|_| matches!(response.status, 400 | 404)) {
+            // Read and replayed on the same turn of Node's event loop: the replay finds the refusal's socket busy.
+            let (refused, held) = response.read_all_held().await?;
+            if !names_cached_content(&refused.body, &attached.name) {
+                return Err(self.codec.classify_for(&refused, request, false));
+            }
             if let Some(cache) = &cache {
-                cache.forget(&rejected.name);
+                cache.forget(&attached.name);
             }
             // Node drops only the `gemini` key; the other provider keys stay.
             let rest = request.options.provider_state.as_ref().map(|s| s.rest.clone()).unwrap_or_default();
             queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
             response = self.dispatch(&self.codec.wire(request, &inner, None)?).await?;
+            drop(held);
         }
         // A region from the environment that lacks the model (404) is retried
         // once on global (`vertex-ai.mjs:325-327`).

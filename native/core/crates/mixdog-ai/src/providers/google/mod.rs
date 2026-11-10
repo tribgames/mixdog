@@ -32,8 +32,6 @@ mod conformance;
 #[cfg(test)]
 mod wire_tests;
 #[cfg(test)]
-mod socket_tests;
-#[cfg(test)]
 mod tool_accept_tests;
 
 use adapter::GoogleAdapter;

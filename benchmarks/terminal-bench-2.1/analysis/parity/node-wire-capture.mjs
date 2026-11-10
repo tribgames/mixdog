@@ -35,14 +35,17 @@ const session = read(arg('--session'));
 const doc = read(arg('--scenarios'));
 const keepRandom = process.argv.includes('--keep-random');
 const only = process.argv.includes('--only') ? arg('--only') : null;
-/** The scenarios a run records: all, or the one `--only` names with the ones of its conversation before it. */
+/**
+ * The scenarios a run records: all, or the one `--only` names with the ones of its conversation before it: the run of
+ * scenarios of its provider back to the last `fresh` one (a provider's process-wide state, its sockets, caches and
+ * latches, carries from one scenario to the next).
+ */
 function selected(scenarios) {
   if (!only) return scenarios;
   const at = scenarios.findIndex((s) => s.id === only);
   if (at < 0) throw new Error(`no scenario ${only}`);
-  if (scenarios[at].provider !== 'openai-oauth') return [scenarios[at]];
   let start = at;
-  while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === 'openai-oauth') start -= 1;
+  while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === scenarios[at].provider) start -= 1;
   return scenarios.slice(start, at + 1);
 }
 
@@ -117,6 +120,10 @@ writeFileSync(join(dataDir, 'openai-oauth-models.json'), JSON.stringify({ versio
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const load = (path) => within(`loading ${path}`, import(pathToFileURL(join(root, path)).href));
 const P = 'src/runtime/agent/orchestrator/providers/';
+// The Anthropic catalog Node would hold after it listed the models: the scenarios' model by id only (no capability
+// fields, so the request builder decides as with no catalog). A reply naming a model the catalog lacks makes Node
+// refresh the catalog in the background (`anthropic-oauth.mjs:994`), a request no scenario scripts.
+(await load(P + 'anthropic-model-resolve.mjs'))._setInMemoryCatalog([{ id: ROUTES.find((r) => r.provider === 'anthropic-oauth').model }]);
 const providerOf = {
   gemini: async () => new (await load(P + 'gemini.mjs')).GeminiProvider({ apiKey: FAKE }),
   'grok-oauth': async () => new (await load(P + 'grok-oauth.mjs')).GrokOAuthProvider({ preconnect: false }),

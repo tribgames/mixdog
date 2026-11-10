@@ -595,7 +595,7 @@ async fn a_rejected_cache_is_dropped_and_the_request_resent_once_uncached() {
     let create = r#"{"name":"cachedContents/c1","usageMetadata":{"totalTokenCount":3000}}"#;
     let http = Scripted::new(vec![
         respond(200, create),
-        respond(400, r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"rejected"}}"#),
+        respond(400, REJECTED),
         respond(200, &text.content().served),
     ]);
     let registry = Arc::new(Registry::default());
@@ -672,7 +672,9 @@ fn held_state() -> mixdog_core_api::domain::provider::ProviderState {
 }
 
 const CREATE_C1: &str = r#"{"name":"cachedContents/c1","usageMetadata":{"totalTokenCount":3000}}"#;
-const REJECTED: &str = r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"rejected"}}"#;
+/// A refusal of the attached cache: only one that names the cached content is replayed uncached
+/// (`isGeminiCachedContentError`).
+const REJECTED: &str = r#"{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"CachedContent not found"}}"#;
 
 /// After a cached rejection the uncached resend runs once; if it fails, the
 /// error carries no state (Node persists state from a delivered result only).

@@ -259,7 +259,7 @@ fn encoding_matches_the_recorded_request_for_every_case() {
         let wire = encoded.unwrap_or_else(|e| panic!("{id}: {}", e.message));
         let body: Value = serde_json::from_slice(&wire.body).expect("json");
         assert_eq!(body, expected["body"], "{id}: body");
-        let header = |name: &str| wire.headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+        let header = |name: &str| wire.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str());
         // `betaHeader` is the header Node sends; null means none is sent.
         assert_eq!(header("anthropic-beta"), expected["betaHeader"].as_str(), "{id}: anthropic-beta");
         assert_eq!(header("anthropic-version"), Some("2023-06-01"), "{id}");

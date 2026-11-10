@@ -67,32 +67,48 @@ impl HttpResponse {
     /// The whole body. A fault mid-body is a transport error with `Accepted`
     /// delivery: the caller holds a status and no content.
     pub async fn read_all(mut self) -> Result<ErrorResponse, ProviderError> {
-        let mut body = Vec::new();
-        // A whole-body read is never a stream of content: a `Unary` body already
-        // ends at its own total, and the error body of a `Stream` response ends at
-        // the dispatcher ceiling (Node `http-agent.mjs:414` `bodyTimeout`).
-        let drained = NODE_DISPATCHER
-            .liveness
-            .bound_head(async {
-                while let Some(chunk) = self.body.next().await {
-                    match chunk {
-                        Ok(bytes) => body.extend_from_slice(&bytes),
-                        Err(fault) => {
-                            return Err(ProviderError::transport(fault, DeliveryState::Accepted));
-                        }
-                    }
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|expired| deadline_error(expired, DeliveryState::Accepted, NODE_DISPATCHER.surface))?;
-        drained?;
+        let body = drain(&mut self.body).await?;
         Ok(ErrorResponse {
             status: Some(self.status),
             headers: self.headers,
             body,
         })
     }
+
+    /// [`Self::read_all`] with the connection kept out of the pool until the returned body is dropped
+    /// ([`BodyStream::hold_connection`]): a Node caller that reads an answer and sends its next request on the same
+    /// turn of the event loop finds the answer's socket still busy.
+    pub async fn read_all_held(mut self) -> Result<(ErrorResponse, Box<dyn BodyStream>), ProviderError> {
+        self.body.hold_connection();
+        let body = drain(&mut self.body).await?;
+        Ok((ErrorResponse { status: Some(self.status), headers: self.headers, body }, self.body))
+    }
+}
+
+/// The whole of `body`. A fault mid-body is a transport error with `Accepted` delivery: the caller holds a status and no
+/// content.
+async fn drain(stream: &mut Box<dyn BodyStream>) -> Result<Vec<u8>, ProviderError> {
+    let mut body = Vec::new();
+    // A whole-body read is never a stream of content: a `Unary` body already
+    // ends at its own total, and the error body of a `Stream` response ends at
+    // the dispatcher ceiling (Node `http-agent.mjs:414` `bodyTimeout`).
+    let drained = NODE_DISPATCHER
+        .liveness
+        .bound_head(async {
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(bytes) => body.extend_from_slice(&bytes),
+                    Err(fault) => {
+                        return Err(ProviderError::transport(fault, DeliveryState::Accepted));
+                    }
+                }
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|expired| deadline_error(expired, DeliveryState::Accepted, NODE_DISPATCHER.surface))?;
+    drained?;
+    Ok(body)
 }
 
 /// What the link does with a 3xx answer, chosen per request to match the Node call site

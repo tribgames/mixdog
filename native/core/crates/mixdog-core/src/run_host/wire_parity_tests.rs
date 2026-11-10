@@ -179,16 +179,13 @@ impl AttemptSink for Folded {
     }
 }
 
-/// The scenarios a run records: all, or the one `only` names with the ones of its conversation before it (from the last
-/// `fresh` one), as `node-wire-capture.mjs --only` selects them.
+/// The scenarios a run records: all, or the one `only` names with the ones of its conversation before it (the run of its
+/// provider's scenarios back to the last `fresh` one), as `node-wire-capture.mjs --only` selects them.
 fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
     let Some(only) = only else { return scenarios };
     let at = scenarios.iter().position(|s| s["id"] == only).unwrap_or_else(|| panic!("no scenario {only}"));
-    if scenarios[at]["provider"] != "openai-oauth" {
-        return &scenarios[at..=at];
-    }
     let mut start = at;
-    while start > 0 && scenarios[start]["fresh"] != true && scenarios[start - 1]["provider"] == "openai-oauth" {
+    while start > 0 && scenarios[start]["fresh"] != true && scenarios[start - 1]["provider"] == scenarios[at]["provider"] {
         start -= 1;
     }
     &scenarios[start..=at]
@@ -412,10 +409,35 @@ fn diff(path: &str, node: &Value, rust: &Value, out: &mut Vec<String>) {
     }
 }
 
+/// The gzip bytes of a request body, where the content they carry is Node's: Node's zlib is Chromium's, whose deflate
+/// hashes with ANZAC++ instead of zlib's rolling hash, so the same text compresses to other bytes than any other zlib
+/// does (`content-length` follows them). The review of this branch decided that compressed bytes need not be equal, the
+/// decoded text, the `Content-Encoding` and the fact of compression must; the user's decision on the compressor is
+/// open. Each such event of Rust's takes Node's three compressor-made values once its own are shown consistent (its
+/// `content-length` is its byte count) and its decoded text is Node's; everything else is compared as recorded.
+fn with_nodes_gzip_bytes(node: &[Value], rust: &mut [Value]) {
+    for (node, rust) in node.iter().zip(rust.iter_mut()) {
+        let (Some(node), Some(rust)) = (node["traffic"].as_array(), rust["traffic"].as_array_mut()) else { continue };
+        for (n, r) in node.iter().zip(rust.iter_mut()) {
+            let gzip = |e: &Value| e["kind"] == "http" && e["body"]["encoding"] == "gzip";
+            if !gzip(n) || !gzip(r) || n["body"]["text"] != r["body"]["text"] {
+                continue;
+            }
+            let length_at = |e: &Value| e["headers"].as_array().unwrap().iter().position(|h| h[0] == "content-length");
+            let (Some(at_n), Some(at_r)) = (length_at(n), length_at(r)) else { continue };
+            assert_eq!(r["headers"][at_r][1], r["body"]["bytes"].to_string(), "Rust's content-length is not its gzip byte count");
+            r["headers"][at_r][1] = n["headers"][at_n][1].clone();
+            r["body"]["bytes"] = n["body"]["bytes"].clone();
+            r["body"]["sha256"] = n["body"]["sha256"].clone();
+        }
+    }
+}
+
 /// The scenarios of `provider` in both recordings, compared whole: the same scenarios in the same order, then everything in each.
 fn compare(node: &[Value], rust: &[Value], provider: &str) -> Vec<String> {
     let of = |list: &[Value]| list.iter().filter(|s| s["provider"] == provider).cloned().collect::<Vec<_>>();
-    let (node, rust) = (of(node), of(rust));
+    let (node, mut rust) = (of(node), of(rust));
+    with_nodes_gzip_bytes(&node, &mut rust);
     let mut out = Vec::new();
     diff("scenarios", &Value::Array(node), &Value::Array(rust), &mut out);
     out
@@ -463,6 +485,18 @@ async fn every_openai_request_equals_nodes_recording() {
     assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
 }
 
+#[tokio::test]
+async fn every_anthropic_request_equals_nodes_recording() {
+    let differences = differences("anthropic-oauth").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
+#[tokio::test]
+async fn every_gemini_request_equals_nodes_recording() {
+    let differences = differences("gemini").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
 fn upgrade_headers(list: &mut [Value]) -> &mut Vec<Value> {
     let event = list.iter_mut().flat_map(|s| s["traffic"].as_array_mut().unwrap().iter_mut()).find(|e| e["kind"] == "ws-upgrade").unwrap();
     event["headers"].as_array_mut().unwrap()
@@ -495,4 +529,17 @@ fn the_comparator_reports_what_a_looser_one_hides() {
     assert!(!extra.is_empty(), "an extra scenario goes unreported");
     let provider = mutate(&|list| list[0]["provider"] = json!("gemini"));
     assert!(!provider.is_empty(), "a changed provider goes unreported");
+    // Of a gzip body only the compressor's bytes are Node's to give: its text, its encoding and its other headers are
+    // compared.
+    fn gzip_body(list: &mut [Value]) -> &mut Value {
+        list.iter_mut().flat_map(|s| s["traffic"].as_array_mut().unwrap().iter_mut()).find(|e| e["body"]["encoding"] == "gzip").unwrap()
+    }
+    let anthropic = |change: &dyn Fn(&mut Vec<Value>)| {
+        let mut other = scenarios.clone();
+        change(&mut other);
+        compare(&scenarios, &other, "anthropic-oauth")
+    };
+    assert!(anthropic(&|list| gzip_body(list)["body"]["sha256"] = json!("0")).is_empty(), "the compressor's bytes are compared");
+    assert!(!anthropic(&|list| gzip_body(list)["body"]["text"] = json!("{}")).is_empty(), "a changed gzip text goes unreported");
+    assert!(!anthropic(&|list| gzip_body(list)["body"]["encoding"] = json!(null)).is_empty(), "a body sent plain goes unreported");
 }
