@@ -179,7 +179,14 @@ pub struct ThreadListService {
     observer: OnceLock<Arc<dyn CatalogObserver>>,
     /// The index writes still queued behind the barriers already acknowledged (see [`ListFence`]).
     fence: OnceLock<Arc<dyn ListFence>>,
+    /// Node's `sessionCatalogLoaded` (`session-host.ts:146,807`): set once a listing has been answered.
+    loaded: std::sync::atomic::AtomicBool,
 }
+
+/// The longest a list waits for the projections queued before it: the interactive lane's job lease (`mixdog-rt` `lane_lease`,
+/// `exec.rs:130`), after which the runtime itself counts a read of the list as wedged. Past it the list answers what the index
+/// holds, as a list issued just before the write would have.
+pub const FENCE_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What makes a list no older than the writes whose reply or notification has been sent: Node's list is built from live state
 /// synchronously with its writes, and the index here is written behind the acknowledged barrier.
@@ -191,7 +198,12 @@ pub trait ListFence: Send + Sync {
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new() }
+        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into() }
+    }
+
+    /// Whether a listing has been answered (Node's `sessionCatalogLoaded`), which decides how a room call publishes the catalog.
+    pub fn catalog_loaded(&self) -> bool {
+        self.loaded.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Connects the observer of the published catalog. Set once.
@@ -204,9 +216,11 @@ impl ThreadListService {
         let _ = self.fence.set(fence);
     }
 
+    /// Waits, at most [`FENCE_BOUND`], for the projections queued before this call; it holds no lock while it waits.
     async fn caught_up(&self) {
-        if let Some(wait) = self.fence.get().and_then(|fence| fence.pending()) {
-            wait.await;
+        let Some(wait) = self.fence.get().and_then(|fence| fence.pending()) else { return };
+        if tokio::time::timeout(FENCE_BOUND, wait).await.is_err() {
+            tracing::warn!("thread/list: the index has not taken the writes acknowledged before this list within {FENCE_BOUND:?}; answering what it holds");
         }
     }
 
@@ -296,6 +310,7 @@ impl ThreadListService {
             }
         }
         self.published(&data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
+        self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(ThreadListResponse { data, next_cursor, backwards_cursor: None })
     }
 }
@@ -310,8 +325,6 @@ pub struct RoomSummaries {
     directory: Arc<super::SessionDirectory>,
     /// One pass at a time, in the order they were asked for.
     pass: Arc<mixdog_rt::SerialChain>,
-    /// The row write announcements (`thread/started`, ...), which a room call waits for.
-    edges: Arc<super::thread_edges::ThreadEdges>,
 }
 
 impl RoomSummaries {
@@ -319,22 +332,21 @@ impl RoomSummaries {
         list: Arc<ThreadListService>,
         app: Arc<mixdog_core_base::state::SectionFeedState>,
         directory: Arc<super::SessionDirectory>,
-        edges: Arc<super::thread_edges::ThreadEdges>,
     ) -> Arc<Self> {
-        Arc::new(Self { list, app, directory, pass: mixdog_rt::SerialChain::new(), edges })
+        Arc::new(Self { list, app, directory, pass: mixdog_rt::SerialChain::new() })
     }
 
-    /// `deps.republishCatalog` (`session-host.ts:357-360`) as a room call waits for it: the writes acked so far are in the
-    /// index, the announcements they caused are published, then every room's row is.
-    ///
-    /// Node's publish throws into the room call (`agent-rooms.ts:289`), which then rejects with the room already saved; so does
-    /// this: the error is the rooms that could not be read, a room log whose projection failed, a row announcement that could
-    /// not be built, or a row that could not be published.
-    pub async fn republish_settled(&self) -> Result<(), CoreError> {
-        let rooms = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
-        self.directory.indexed(&rooms).await?;
-        self.edges.settled().await.map_err(|error| failed(DOMAIN, error))?;
-        self.publish_rooms().await
+    /// `deps.republishCatalog` as a room call makes it (`session-host.ts:353-356`). Once a listing has been answered (Node's
+    /// `sessionCatalogLoaded`) the pass runs inside the call, and its error is the call's (`agent-rooms.ts:289` lets the
+    /// synchronous publish throw, the room already saved). Before that the pass is started and not awaited, and its failure is
+    /// dropped as Node's `publishCatalogs` drops a failed listing (`session-host-catalog.ts:231-238`, `() => undefined`).
+    pub async fn republish_catalog(self: &Arc<Self>) -> Result<(), CoreError> {
+        if self.list.catalog_loaded() {
+            return self.publish_rooms().await;
+        }
+        let this = self.clone();
+        tokio::spawn(async move { drop(this.publish_rooms().await) });
+        Ok(())
     }
 
     /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
@@ -385,7 +397,8 @@ impl RoomSummaries {
         }
     }
 
-    /// The pass; the rooms that could not be read, or else the first row that could not be, is the error (after the other rows went out).
+    /// The pass; the rooms that could not be read, or else the first row that could not be, is the error (after the other rows
+    /// went out). It holds the pass chain while it reads; each row's read waits at most [`FENCE_BOUND`] for the index.
     async fn publish_rooms(&self) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
         let threads = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
@@ -396,7 +409,6 @@ impl RoomSummaries {
                 // A log thread with no listed row (not stored yet, or deleted) has nothing to show.
                 Ok(None) => {}
                 Err(error) => {
-                    tracing::warn!(?error, thread = id.as_str(), "room summaries: the row could not be read");
                     first.get_or_insert(error);
                 }
             }
@@ -491,16 +503,46 @@ mod tests {
         fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
             let (reached, held) = self.0.lock().unwrap().take()?;
             Some(Box::pin(async move {
-                drop(reached.send(()));
+                let _ = reached.send(());
                 drop(held.await);
             }))
         }
     }
 
+    /// A projection that never reaches the index (a stuck writer) does not hold a list: the list waits for it up to [`FENCE_BOUND`],
+    /// one tick before the bound it is still waiting, and at the bound it answers what the index holds, the same page an
+    /// unfenced list answers.
+    #[tokio::test(start_paused = true)]
+    async fn a_list_behind_a_stuck_projection_answers_what_the_index_holds_at_the_bound() {
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let service = service(data.path(), &golden).await;
+        let (_never_opened, held) = tokio::sync::oneshot::channel();
+        let (reached, waiting) = tokio::sync::oneshot::channel();
+        service.fence(Arc::new(Gate(std::sync::Mutex::new(Some((reached, held))))));
+        let listing = value(&service, request(LIST, json!({ "limit": 100 }), None));
+        tokio::pin!(listing);
+        assert!(polled(&mut listing).await.is_pending(), "the list did not wait for the queued projection");
+        waiting.await.expect("the list is at the fence");
+        tokio::time::advance(FENCE_BOUND - std::time::Duration::from_millis(1)).await;
+        assert!(polled(&mut listing).await.is_pending(), "the list stopped waiting before the bound");
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        let std::task::Poll::Ready(listed) = polled(&mut listing).await else { panic!("the list still waits at the bound") };
+        let unfenced = value(&service, request(LIST, json!({ "limit": 100 }), None)).await.expect("thread/list");
+        assert_eq!(listed.expect("thread/list at the bound"), unfenced);
+    }
+
+    /// One poll of `future`, whatever it answers; the index reads here run inline, so one poll runs a list to the fence or to its
+    /// answer.
+    async fn polled<F: std::future::Future>(future: &mut std::pin::Pin<&mut F>) -> std::task::Poll<F::Output> {
+        std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx))).await
+    }
+
     /// A list issued while a committed write is still behind the projector answers with that write once the projector has applied
     /// it, never with the row from before (Node builds its list from live state, so a list after a reply cannot be older than it).
+    /// A write acknowledged after the list read the projector's count is concurrent with the list, as it is in Node.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_list_waits_for_the_projection_pending_behind_a_committed_write() {
+    async fn a_list_waits_for_the_projection_queued_before_it_was_issued() {
         let golden = golden();
         let data = tempfile::tempdir().expect("data dir");
         let service = Arc::new(service(data.path(), &golden).await);
@@ -617,13 +659,7 @@ mod tests {
         mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
-        let app_state = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
-        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(
-            list.clone(),
-            app_state.clone(),
-            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
-        ));
-        let summaries = RoomSummaries::new(list, app_state, directory, edges);
+        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory);
 
         summaries.publish().await;
         let sent: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).collect();
@@ -652,13 +688,7 @@ mod tests {
         header.insert("createdAt".into(), json!(1));
         header.insert("updatedAt".into(), json!(1));
         directory.create_with_id(thread.clone(), header, json!({})).await.expect("room log");
-        let app_state = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
-        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(
-            list.clone(),
-            app_state.clone(),
-            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
-        ));
-        let summaries = RoomSummaries::new(list, app_state, directory.clone(), edges);
+        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), directory.clone());
 
         let view = ThreadRoomView {
             busy: true,

@@ -175,13 +175,11 @@ pub struct ThreadEdgePublisher {
     /// The writes of refreshes whose task workspace lookup failed, one per session (the first `before`, the last `after`): the
     /// next refresh that can look the workspace up publishes what changed since the last roster it published.
     held: std::sync::Mutex<Vec<RowEdge>>,
-    /// The first row since the last [`Self::unannounced`] whose announcement could not be built.
-    failed: std::sync::Mutex<Option<String>>,
 }
 
 impl ThreadEdgePublisher {
     pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { list, app, task_workspace, held: std::sync::Mutex::new(Vec::new()), failed: std::sync::Mutex::new(None) }
+        Self { list, app, task_workspace, held: std::sync::Mutex::new(Vec::new()) }
     }
 
     /// One catalog refresh (`publishCatalogs`, `session-host-catalog.ts:217-244`): it asks the host for the task workspace first
@@ -249,36 +247,14 @@ impl ThreadEdgePublisher {
                 self.app.notify(method, &params);
             }
             Ok(None) => {}
-            Err(error) => {
-                tracing::warn!(?error, thread = id.as_str(), "the row of a written session could not be read");
-                self.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_or_insert_with(|| format!("{}: {error}", id.as_str()));
-            }
-        }
-    }
-
-    /// Whether every row written so far has been announced: the first row that could not be read since the last answer, else
-    /// rows still held back for a task workspace lookup that failed.
-    pub fn unannounced(&self) -> Result<(), String> {
-        if let Some(error) = self.failed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
-            return Err(error);
-        }
-        if self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_empty() {
-            Ok(())
-        } else {
-            Err("the task workspace could not be looked up; the written rows are held back".to_owned())
+            Err(error) => tracing::warn!(?error, thread = id.as_str(), "the row of a written session could not be read"),
         }
     }
 }
 
 /// The sink the index writer calls: the edges go to one task, in write order, so the notifications keep it.
 pub struct ThreadEdges {
-    queue: tokio::sync::mpsc::UnboundedSender<Queued>,
-}
-
-enum Queued {
-    Edge(RowEdge),
-    /// Answered once every edge queued before it is published.
-    Fence(tokio::sync::oneshot::Sender<Result<(), String>>),
+    queue: tokio::sync::mpsc::UnboundedSender<RowEdge>,
 }
 
 impl ThreadEdges {
@@ -286,28 +262,16 @@ impl ThreadEdges {
     pub fn start(publisher: ThreadEdgePublisher) -> Arc<Self> {
         let (queue, mut edges) = tokio::sync::mpsc::unbounded_channel();
         drop(mixdog_rt::spawn("thread-edges", mixdog_rt::TaskClass::Work, async move {
-            while let Some(queued) = edges.recv().await {
-                match queued {
-                    Queued::Edge(edge) => publisher.publish(edge).await,
-                    Queued::Fence(done) => drop(done.send(publisher.unannounced())),
-                }
+            while let Some(edge) = edges.recv().await {
+                publisher.publish(edge).await;
             }
         }));
         Arc::new(Self { queue })
-    }
-
-    /// Waits until every edge written so far is published (Node publishes the catalog before a room call answers), and says
-    /// whether they were: the error is a row that could not be read for its announcement, a task workspace lookup that held
-    /// the rows back, or the publishing task being gone.
-    pub async fn settled(&self) -> Result<(), String> {
-        let (done, wait) = tokio::sync::oneshot::channel();
-        self.queue.send(Queued::Fence(done)).map_err(|_| "the edge publisher has stopped".to_owned())?;
-        wait.await.map_err(|_| "the edge publisher stopped before it answered".to_owned())?
     }
 }
 
 impl RowSink for ThreadEdges {
     fn written(&self, edge: RowEdge) {
-        let _ = self.queue.send(Queued::Edge(edge));
+        let _ = self.queue.send(edge);
     }
 }
