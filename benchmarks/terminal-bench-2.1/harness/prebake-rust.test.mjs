@@ -8,13 +8,18 @@ import { fileURLToPath } from 'node:url';
 import { runTree } from '../../../scripts/rust-core/lib/process-tree.mjs';
 
 const script = fileURLToPath(new URL('./prebake-rust.ps1', import.meta.url));
-// Each child runs under a deadline and is ended with its tree; a shell that cannot start is absent, not an error.
+// Each child runs under a deadline and is ended with its tree. Only an executable that is not there skips the tests; a probe
+// that times out, fails to clean up or exits non-zero is a failure.
 const DEADLINE_MS = 120_000;
 let powershell;
 for (const name of ['pwsh', 'powershell']) {
-  if (await runTree(name, ['-NoProfile', '-Command', '1'], { label: ` probe`, deadlineMs: DEADLINE_MS }).then((r) => r.status === 0, () => false)) {
+  try {
+    const probe = await runTree(name, ['-NoProfile', '-Command', '1'], { label: `${name} probe`, deadlineMs: DEADLINE_MS });
+    if (probe.status !== 0) throw new Error(`${name} probe exited ${probe.status}: ${probe.stderr.slice(0, 300)}`);
     powershell = name;
     break;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
   }
 }
 

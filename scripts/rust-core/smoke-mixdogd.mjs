@@ -131,6 +131,7 @@ export function judgeToolFailureRows(rows, run) {
   if (rows.length !== 1) throw new Error(`expected exactly the one provoked tool-failure row, found ${rows.length}:\n${rows.join('\n').slice(0, 800)}`);
   const row = JSON.parse(rows[0]);
   const differs = [];
+  // Key order is compared on purpose: the spool's lines must be the bytes Node writes, so the order is part of the contract.
   if (JSON.stringify(Object.keys(row)) !== JSON.stringify(Object.keys(NODE_ROW))) differs.push(`keys ${JSON.stringify(Object.keys(row))} (Node: ${JSON.stringify(Object.keys(NODE_ROW))})`);
   for (const key of Object.keys(NODE_ROW)) {
     if (!PER_RUN.includes(key) && JSON.stringify(row[key]) !== JSON.stringify(NODE_ROW[key])) differs.push(`${key} ${JSON.stringify(row[key])} (Node: ${JSON.stringify(NODE_ROW[key])})`);

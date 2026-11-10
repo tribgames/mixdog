@@ -229,7 +229,9 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
       paths,
       discovery: doc,
       client,
+      // On Windows the launcher's pid (see spawnTree); the core's own pids are those running `exe`.
       pid: child.pid,
+      exe,
       spawnedAt,
       tail: () => tail.join('\n') || '(no output)',
       call: (method, params) => client.call(method, params),
