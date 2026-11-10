@@ -28,6 +28,12 @@ import { coreRequests } from './file-download-requests.mjs';
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const RELAY_CAPABILITIES = { textFrames: 1, maxFrameBytes: 1048576 };
 const SWEEP_INTERVAL = 15_000;
+/** Scenarios whose world a spawned core cannot be given here, and why. Their replies are replayed on the workspace service
+ *  (`transfer::replay`), over a stand-in for the attachment domain. */
+const WORLD_GAPS = {
+  attachments:
+    'a conversation that names an attachment needs a stored user turn carrying it, which a core without a signed-in model cannot make (owner: phone-download-grant)',
+};
 /** The point of the core's download call each of Node's test gates is held at. */
 const POINTS = { read: 'read.read', stat: 'begin.verify', afterResolve: 'authorize.resolved' };
 
@@ -289,6 +295,13 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       const label = scenario.name;
       const steps = scenario.steps;
       const callsOf = steps.filter((step) => step.op === 'call' || step.op === 'send').length;
+      if (WORLD_GAPS[label]) {
+        // A world this replay cannot build on a real core: named, with why, in the list the caller asserts.
+        notRun.push(label);
+        if (expectedId !== null) expectedId += callsOf;
+        console.log(`file-downloads ${label}: not run: ${WORLD_GAPS[label]}`);
+        continue;
+      }
       if (scenario.platform && scenario.platform !== process.platform) {
         // A recording of this host's own path rules is not a statement about another host's: named as not run (the caller asserts the list).
         notRun.push(label);
@@ -322,6 +335,8 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
         return id;
       };
       const conversations = { s1: await started('project', { projectPath: join(world, 'project') }), s2: await started('task', {}) };
+      // The recorder's task conversation works in the world's `task` folder (a path relative to it names a file there).
+      await ask('thread/setCwd', { opId: opId(), threadId: conversations.s2, path: join(world, 'task') });
       const alive = new Set(['s1', 's2']);
       const sessionOf = (node) => {
         if (Array.isArray(node)) return node.map(sessionOf);
@@ -524,6 +539,9 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
               await talk.waitFor(`a call to reach ${point} in the core`, () => (talk.read(`reached-${point}`) !== null ? true : undefined));
               settleRequests(from, sent, at + 1);
               if (event.op === 'revokeDevice') await unpair(event.device);
+              else if (event.op === 'revokeAll') {
+                for (const device of Object.keys(devices)) if (!device.startsWith('connection')) await unpair(device);
+              }
               else if (event.op === 'sessions') await publish(event.ids);
               else if (!fileOp(event)) throw new Error(`${label} #${index}: a held call's event ${event.op}`);
               talk.remove(`hold-${point}`);

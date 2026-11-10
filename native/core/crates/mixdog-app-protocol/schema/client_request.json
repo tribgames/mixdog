@@ -2923,6 +2923,48 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "A link the conversation shows, by its `href` as written (decoded by the core as the desktop decodes it); `itemId` names the row.",
+          "properties": {
+            "href": {
+              "type": "string"
+            },
+            "itemId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "link"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "href",
+            "itemId",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An attachment the conversation's transcript names, by its content hash.",
+          "properties": {
+            "attachmentId": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "attachment"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "attachmentId",
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },

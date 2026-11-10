@@ -17,7 +17,8 @@ test('the files adapter replays every call of the downloads recording over a rea
   // The ids Node's table refuses (`a b`, empty, 129 characters) also reach the core straight, which must refuse them as Node did.
   assert.equal(Number(match[1]), 3, 'every refused asset id of the recording was sent past the adapter');
   // Where a scenario was recorded for this system none is left out; elsewhere exactly the scenarios recorded on Windows alone are.
-  assert.deepEqual(JSON.parse(match[2]), process.platform === 'win32' ? [] : ['windows path names']);
+  // The attachment world needs a stored turn the spawned core cannot make (see WORLD_GAPS of the replay).
+  assert.deepEqual(JSON.parse(match[2]), process.platform === 'win32' ? ['attachments'] : ['attachments', 'windows path names']);
 });
 
 test('a replay whose setup fails before the core starts leaves no work folder', async () => {
