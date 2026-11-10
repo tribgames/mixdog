@@ -294,7 +294,17 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
             let lane = broker.admission().lane(&LaneKey { provider: ProviderId::from(provider), account: "default".into() }, LaneSettings::default());
             let send = SendRequest { request: Arc::new(request(&session, scenario, model, &stored)), lane, admission: AdmissionRequest::default() };
             let mut sink = Folded(ResponseBuilder::new(model, ToolCallIds::new(&[])), model.to_owned());
-            match within(format_args!("the reply of {id}"), broker.send(adapter.as_ref(), send, &mut sink, &CancellationToken::new())).await {
+            // `disposeWhenHeld`: the send's transport scope is disposed once the server has written a held reply, while
+            // the response is still running.
+            let scope = send.request.options.transport_scope.clone().or_else(|| send.request.options.session_id.clone());
+            let dispose = async {
+                if scenario["disposeWhenHeld"] == true {
+                    server.held().await;
+                    adapter.release_transport_scope(scope.as_deref().expect("a disposed send has a scope"));
+                }
+            };
+            let sent = async { broker.send(adapter.as_ref(), send, &mut sink, &CancellationToken::new()).await };
+            match within(format_args!("the reply of {id}"), async { tokio::join!(sent, dispose).0 }).await {
                 Ok(_) => "ok",
                 Err(_) => "error",
             }
@@ -341,7 +351,11 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
         }
         assert!(scenario["expectError"] == true || entry["outcome"] == "ok", "{id}: the send ended {}", entry["outcome"]);
         assert_eq!(server.script_left(), 0, "{id}: the script was not consumed");
-        if scenario["awaitClose"] == true {
+        if scenario["awaitClose"] == "first" {
+            // The scenario's first socket, muted, records its own end: the scenario lasts until it ended.
+            let first = server.events().iter().find(|e| e["kind"] == "ws-upgrade").map(|e| e["conn"].as_u64().unwrap() as usize).expect("a scenario that awaits its first socket upgraded one");
+            within(format_args!("{id}: the close of connection {first}"), server.closed(first, false)).await;
+        } else if scenario["awaitClose"] == true {
             let conn = *server.upgraded().last().expect("a scenario that awaits a close upgraded a socket");
             within(format_args!("{id}: the close of connection {conn}"), server.closed(conn, true)).await;
         }
@@ -413,6 +427,9 @@ fn verify_manifest(node: &Value, only: Option<&str>) {
     assert_eq!(manifest["only"].as_str(), only, "a recording of one scenario is compared only on a run of that scenario");
     assert_eq!(manifest["exact"], true, "the recording is Node's, exact");
     assert_eq!(manifest["nodeCommit"], NODE_COMMIT, "the recording was made from another Node commit");
+    // Recorded under the desktop's runtime (Electron in node mode), with the tree's clients.
+    assert_eq!(manifest["runtime"], json!({ "electron": "43.8.4", "node": "v24.22.1", "bundledUndici": "7.30.1" }), "the runtime the recording ran under");
+    assert_eq!(manifest["clients"], json!({ "undici": "8.12.3", "ws": "8.22.0" }), "the clients the recording loaded");
     assert_eq!(manifest["sessionSha256"], sha256(SESSION.as_bytes()), "session.json changed since the recording");
     assert_eq!(manifest["scenariosSha256"], sha256(SCENARIOS.as_bytes()), "scenarios.json changed since the recording");
     assert_eq!(manifest["harness"]["node-wire-capture.mjs"], sha256(CAPTURE.as_bytes()), "node-wire-capture.mjs changed since the recording");

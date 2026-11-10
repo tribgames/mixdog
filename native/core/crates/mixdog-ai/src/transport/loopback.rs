@@ -194,6 +194,8 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
     let mut conn = 0usize;
     let mut buffer: Vec<u8> = Vec::new();
     let mut mode = Mode::Head;
+    // `then: 'mute'`: the client's close frames are recorded, never answered (a close that ends slowly).
+    let mut muted = false;
     // A connection is numbered by its first recorded event, as in `wire-server.mjs`.
     let record = |conn: &mut usize, event: Value| {
         if *conn == 0 {
@@ -343,7 +345,7 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                         event["hex"] = json!(hex(&payload));
                     }
                     record(&mut conn, event);
-                    if opcode == 8 {
+                    if opcode == 8 && !muted {
                         io.write_all(&server_frame(8, &payload)).await.ok();
                     }
                     if opcode == 9 {
@@ -371,11 +373,18 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                             io.flush().await.ok();
                             inner.held.notify_one();
                         }
+                        if plan["then"] == "mute" {
+                            muted = true;
+                        }
                     }
                 }
             }
         }
     }
     drop(io);
+    // A muted connection's end is part of the recording: when the client gave up on the close it asked for.
+    if muted {
+        record(&mut conn, json!({ "kind": "closed" }));
+    }
     gone.send(true).ok();
 }

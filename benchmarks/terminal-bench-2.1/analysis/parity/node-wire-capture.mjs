@@ -9,6 +9,8 @@
 // own, `openai-ws-send-attempts/policy.mjs` `_defaultSleep`) does not wait: it is recorded as a `sleep` event with its
 // delay, and the clock advances by exactly that delay before the retry goes out. Every other timer is the real one.
 //
+// Run it under the runtime the product runs its core under: the desktop's Electron in node mode
+// (`ELECTRON_RUN_AS_NODE=1 electron node-wire-capture.mjs ...`); the manifest names the runtime and the client versions.
 // Usage: node node-wire-capture.mjs <node-tree> --node-commit <sha> --session <session.json> --scenarios <scenarios.json> --out <recording.json> [--keep-random] [--only <scenario id>]
 // `--only` records one scenario with the ones of its conversation before it (from the last `fresh` one), which it
 // continues; the manifest names it, and only a whole recording is the committed fixture.
@@ -127,6 +129,7 @@ const { buildSessionRecord, sessionOriginFields } = await load('src/runtime/agen
 const { _clearWebSocketPoolForTest } = await load(P + 'openai-ws-pool.mjs');
 const { captureSideQuestionRequest } = await load('src/runtime/agent/orchestrator/session/side-question-store.mjs');
 const { summarizeOnSharedPrefix } = await load('src/runtime/agent/orchestrator/session/compact/forked-summary.mjs');
+const { disposeTransportScope } = await load(P + 'transport-scope.mjs');
 
 const tools = session.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 if (session.system.length !== 4) throw new Error(`the session document holds ${session.system.length} system texts; Node's session seeds four (base rules, stable context, session marker, environment)`);
@@ -210,6 +213,12 @@ for (const scenario of selected(doc.scenarios)) {
     record = JSON.parse(JSON.stringify(record));
     opts = buildRequestSendOptions({ sessionId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
   }
+  if (scenario.disposeWhenHeld) {
+    // `disposeWhenHeld`: the send's transport scope is disposed (`disposeTransportScope`, transport-scope.mjs) once the
+    // server has written a held reply, while the response is still running.
+    const scope = opts.transportScope || opts.sessionId;
+    traffic.held = () => disposeTransportScope(scope, provider);
+  }
   try {
     if (scenario.compaction) {
       // The compaction summary as Node's compaction sends it (`summarizeOnSharedPrefix`, forked-summary.mjs): a fork of the
@@ -229,11 +238,14 @@ for (const scenario of selected(doc.scenarios)) {
     // A deadline is the recorder failing, never a recorded outcome.
     if (error instanceof Deadline) throw error;
     if (!scenario.expectError) throw error;
-    entry.outcome = entry.unanswered ? 'unanswered' : 'error';
-  }
+    entry.outcome = entry.unanswered ? 'unanswered' : 'error';  }
   if (!scenario.expectError && entry.unanswered) throw new Error(`${scenario.id}: a ${entry.unanswered} request had no scripted answer`);
   if (traffic.script.dials.length || traffic.script.replies.length || traffic.script.http.length) throw new Error(`${scenario.id}: the script was not consumed (${JSON.stringify(traffic.script).slice(0, 200)})`);
-  if (scenario.awaitClose) {
+  if (scenario.awaitClose === 'first') {
+    // The scenario's first socket, muted, records its own end: the scenario lasts until it ended.
+    const first = traffic.sink.find((event) => event.kind === 'ws-upgrade');
+    await within(`${scenario.id}: the close of connection ${first.conn}`, server.closed(first.conn, false));
+  } else if (scenario.awaitClose) {
     const upgrades = traffic.sink.filter((event) => event.kind === 'ws-upgrade');
     await within(`${scenario.id}: the close of connection ${upgrades.at(-1).conn}`, server.closed(upgrades.at(-1).conn, true));
   }
@@ -248,6 +260,9 @@ const fileHash = (file) => sha256(readFileSync(resolve(file)));
 const manifest = {
   exact: true,
   nodeCommit: arg('--node-commit'),
+  // The runtime the recording ran under (the desktop's Electron in node mode) and the clients it loaded from the tree.
+  runtime: { electron: process.versions.electron ?? null, node: process.version, bundledUndici: process.versions.undici },
+  clients: Object.fromEntries(['undici', 'ws'].map((name) => [name, read(join(root, 'node_modules', name, 'package.json')).version])),
   sessionSha256: fileHash(arg('--session')),
   scenariosSha256: fileHash(arg('--scenarios')),
   harness: Object.fromEntries(['node-wire-capture.mjs', 'wire-server.mjs'].map((name) => [name, fileHash(join(here, name))])),

@@ -524,7 +524,7 @@ impl OpenAiAdapter {
             Some(scope) => (scope.to_owned(), false),
             None => (format!("\0shared:{}:{}", compat.auth, compat.cache_key), true),
         };
-        let mut checkout = self.pool.checkout(&key, &compat, shared, false);
+        let mut checkout = self.pool.checkout(&key, &compat, shared, false).await;
         if checkout.socket.is_none() {
             let handshake = ws_request(&wire)?;
             let (socket, upgrade) = match self.dial.dial(handshake).await {
@@ -555,8 +555,7 @@ impl OpenAiAdapter {
             // The upgrade answer's headers are not read for a turn state: Node takes it from the response's events
             // alone (`openai-ws-stream/socket-handlers.mjs:93`, `_captureTurnStateFromEvent`).
             drop(upgrade);
-            checkout.socket = Some(socket);
-            checkout.owner = self.pool.number();
+            checkout.attach(socket);
         }
         let chain = if self.mode.delta() { checkout.chain.clone() } else { Chain::default() };
         let framed = delta::compute(&chain, &body);
@@ -1108,8 +1107,8 @@ mod tests {
     // token, another socket under the same pool key gets none until the owner closes, a frame of another turn starts
     // the scope afresh, the HTTP route keys the turn as given while a socket keys its v7 form, and the session's end
     // clears the scope. Sockets are opened and closed through the pool, whose closing retires the owner.
-    #[test]
-    fn a_turn_state_lives_as_long_as_nodes() {
+    #[tokio::test]
+    async fn a_turn_state_lives_as_long_as_nodes() {
         const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/turn-state-lifetime.json"));
         const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/turn-state-lifetime-capture.mjs"));
         let node: Value = serde_json::from_str(RECORDING).unwrap();
@@ -1130,12 +1129,14 @@ mod tests {
             match step["do"].as_str().unwrap() {
                 "frame" => {
                     let n = step["socket"].as_u64().unwrap();
-                    let (checkout, last) = sockets.entry(n).or_insert_with(|| {
-                        let mut checkout = pool.checkout(pool_key, &compat, false, true);
-                        checkout.socket = Some(Box::new(Held));
-                        checkout.owner = pool.number();
-                        (checkout, String::new())
-                    });
+                    if !sockets.contains_key(&n) {
+                        // Two sockets live under one key at once here, as Node's recording has them: the checkouts do
+                        // not take the session's ownership (that would hold the second back until the first closed).
+                        let mut checkout = pool.checkout(pool_key, &compat, true, true).await;
+                        checkout.attach(Box::new(Held));
+                        sockets.insert(n, (checkout, String::new()));
+                    }
+                    let (checkout, last) = sockets.get_mut(&n).unwrap();
                     *last = super::super::client_meta::codex_uuid_v7(turn);
                     out["sent"] = json_of(context.activate(pool_key, last, Some(checkout.owner)));
                 }

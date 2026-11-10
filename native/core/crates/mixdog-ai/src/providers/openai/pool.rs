@@ -19,6 +19,7 @@ use sha2::Sha256;
 
 use super::delta::Chain;
 use crate::transport::WsSocket;
+use crate::transport::ws::WsCloser;
 
 /// `MAX_POOLED_SOCKETS_PER_KEY`: a session's sockets, in use or parked; a
 /// further one is opened for its response only.
@@ -56,10 +57,24 @@ pub trait SocketEvents: Send + Sync {
     fn session_closed(&self, key: &str);
 }
 
+/// A checkout's socket as the pool sees it while it is in use.
+struct Lease {
+    key: String,
+    closer: Option<WsCloser>,
+    /// Its scope was disposed while it was in use: it is closed, and never parked.
+    revoked: bool,
+}
+
 #[derive(Default)]
 struct State {
     idle: HashMap<String, Vec<Parked>>,
     leased: HashMap<String, usize>,
+    /// The checkouts holding a socket, by checkout number.
+    leases: HashMap<u64, Lease>,
+    /// The checkout that owns each session's sockets (`_poolOwnerByKey`): one at a time; the next waits for it. A kept
+    /// socket hands ownership back when it is parked, any other when it has actually closed.
+    owners: HashMap<String, u64>,
+    checkouts: u64,
     released: u64,
     /// Sessions whose next attempt must open a new socket.
     fresh: HashSet<String>,
@@ -76,11 +91,17 @@ pub struct WsPool {
     /// Numbers the sockets, so a turn's state knows the connection that owns it.
     sockets: std::sync::atomic::AtomicU64,
     events: Option<Arc<dyn SocketEvents>>,
+    /// An owner let go of its session.
+    owner_released: tokio::sync::Notify,
 }
 
 /// A socket checked out for one response.
 pub struct Checkout {
     pool: Arc<WsPool>,
+    /// This checkout's number: its lease, and its ownership of a session's sockets.
+    id: u64,
+    /// It owns its session's sockets and has not handed that on.
+    owns: bool,
     key: String,
     compat: Compat,
     /// Whether the socket returns to the pool.
@@ -108,18 +129,70 @@ impl WsPool {
         self.sockets.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
     }
 
-    /// The socket `owner` of `key` is closed (dropped).
-    fn closed(&self, key: &str, owner: u64) {
+    /// The socket `owner` of `key` has closed (`_onEntryClosed`): its turn state's ownership is retired, and the
+    /// checkout `claim` that still owned the session, if any, lets go of it.
+    fn closed(&self, key: &str, owner: u64, claim: Option<u64>) {
+        if let Some(claim) = claim {
+            self.release_owner(key, claim);
+        }
         if let Some(events) = &self.events {
             events.closed(key, owner);
         }
     }
 
+    /// `_releasePoolOwner`: `claim` lets go of `key`, unless another owns it by now.
+    fn release_owner(&self, key: &str, claim: u64) {
+        let mut state = self.state();
+        if state.owners.get(key) == Some(&claim) {
+            state.owners.remove(key);
+            drop(state);
+            self.owner_released.notify_waiters();
+        }
+    }
+
+    /// Closes `socket` (with `close`, else by dropping it) and reports it closed once it has actually closed, as Node's
+    /// `close` handler runs (`_onEntryClosed`), not when it was let go of.
+    fn retire(self: &Arc<Self>, key: &str, owner: u64, claim: Option<u64>, socket: Box<dyn WsSocket>, close: Option<(u16, &str)>) {
+        let closed = socket.closed();
+        match close {
+            Some((code, reason)) => socket.close(code, reason),
+            None => drop(socket),
+        }
+        match closed {
+            Some(mut closed) => {
+                let (pool, key) = (self.clone(), key.to_owned());
+                mixdog_rt::spawn("ai.openai.ws_closed", mixdog_rt::TaskClass::Work, async move {
+                    let _ = closed.wait_for(|gone| *gone).await;
+                    pool.closed(&key, owner, claim);
+                });
+            }
+            None => self.closed(key, owner, claim),
+        }
+    }
+
     /// Checks out a socket for `key` when a compatible parked one is alive,
     /// else an empty checkout the caller dials into. A retry after a failure
-    /// (or `force_fresh`) never reuses a parked socket and is not parked.
-    pub fn checkout(self: &Arc<Self>, key: &str, compat: &Compat, shared: bool, force_fresh: bool) -> Checkout {
-        let mut state = self.state();
+    /// (or `force_fresh`) never reuses a parked socket and is not parked. A
+    /// session's checkout waits until the one before it let go of the session
+    /// (`_claimPoolOwner`); a sessionless one never waits.
+    pub async fn checkout(self: &Arc<Self>, key: &str, compat: &Compat, shared: bool, force_fresh: bool) -> Checkout {
+        let mut state = loop {
+            let released = self.owner_released.notified();
+            tokio::pin!(released);
+            released.as_mut().enable();
+            {
+                let state = self.state();
+                if shared || !state.owners.contains_key(key) {
+                    break state;
+                }
+            }
+            released.await;
+        };
+        state.checkouts += 1;
+        let id = state.checkouts;
+        if !shared {
+            state.owners.insert(key.to_owned(), id);
+        }
         let fresh = state.fresh.remove(key) || force_fresh;
         let mut closed = Vec::new();
         if let Some(parked) = state.idle.get_mut(key) {
@@ -143,16 +216,18 @@ impl WsPool {
         let leased = state.leased.get(key).copied().unwrap_or(0);
         let pooled = !fresh && parked_count + leased < MAX_SOCKETS_PER_KEY;
         *state.leased.entry(key.to_owned()).or_default() += 1;
+        if let Some(p) = &reused {
+            state.leases.insert(id, Lease { key: key.to_owned(), closer: p.socket.closer(), revoked: false });
+        }
         drop(state);
         for gone in closed {
-            drop(gone.socket);
-            self.closed(key, gone.owner);
+            self.retire(key, gone.owner, None, gone.socket, None);
         }
         let (socket, owner, chain) = match reused {
             Some(p) => (Some(p.socket), p.owner, if shared { Chain::default() } else { p.chain }),
             None => (None, 0, Chain::default()),
         };
-        Checkout { pool: self.clone(), key: key.to_owned(), compat: compat.clone(), pooled, shared, socket, owner, chain }
+        Checkout { pool: self.clone(), id, owns: !shared, key: key.to_owned(), compat: compat.clone(), pooled, shared, socket, owner, chain }
     }
 
     pub fn http_active(&self, keys: &[&str]) -> bool {
@@ -184,18 +259,30 @@ impl WsPool {
         self.state().failures.get(key).is_some_and(|(n, switchable)| *switchable && *n + 1 >= attempts)
     }
 
-    /// Closes a scope's sockets for good with `reason` and drops its transport state (`closeOpenaiWsPoolForSession`:
-    /// `_shutdownEntry(entry, reason)`, `socket.close(1000, reason)`).
-    pub fn release_scope(&self, key: &str, reason: &str) {
-        let gone = {
+    /// Closes a scope's sockets for good with `reason`, the ones in use too, and drops its transport state
+    /// (`closeOpenaiWsPoolForSession`: `_clearPoolOwnerScope`, then `_shutdownEntry(entry, reason)`,
+    /// `socket.close(1000, reason)`, for every pooled entry, busy or not, and every unpooled one). A socket in use goes
+    /// on delivering what arrives until the server's close; its checkout never parks it.
+    pub fn release_scope(self: &Arc<Self>, key: &str, reason: &str) {
+        let (gone, in_use, owner) = {
             let mut state = self.state();
             state.fresh.remove(key);
             state.http.remove(key);
             state.failures.remove(key);
-            state.idle.remove(key)
+            let in_use: Vec<WsCloser> = state.leases.values_mut().filter(|lease| lease.key == key).filter_map(|lease| {
+                lease.revoked = true;
+                lease.closer.clone()
+            }).collect();
+            (state.idle.remove(key), in_use, state.owners.get(key).copied())
         };
+        if let Some(owner) = owner {
+            self.release_owner(key, owner);
+        }
         for parked in gone.into_iter().flatten() {
-            parked.socket.close(1000, reason);
+            self.retire(key, parked.owner, None, parked.socket, Some((1000, reason)));
+        }
+        for closer in in_use {
+            closer.close(1000, reason);
         }
         if let Some(events) = &self.events {
             events.session_closed(key);
@@ -228,32 +315,63 @@ impl Checkout {
         &self.key
     }
 
+    /// The socket a dial opened for this checkout, numbered as the owner of its turn state.
+    pub fn attach(&mut self, socket: Box<dyn WsSocket>) {
+        self.owner = self.pool.number();
+        self.pool.state().leases.insert(self.id, Lease { key: self.key.clone(), closer: socket.closer(), revoked: false });
+        self.socket = Some(socket);
+    }
+
+    /// The session's ownership this checkout holds, if it still holds it; it is handed on once.
+    fn claim(&mut self) -> Option<u64> {
+        std::mem::take(&mut self.owns).then_some(self.id)
+    }
+
+    /// Lets go of the socket for good: closed with `close` (or dropped), reported closed once it has, and the session's
+    /// ownership handed on only then (`releaseWebSocket` with `keep: false` keeps the claim until the `close` event).
+    fn retire_socket(&mut self, close: Option<(u16, &str)>) {
+        let Some(socket) = self.socket.take() else { return };
+        let revoked = self.pool.state().leases.remove(&self.id).is_some_and(|lease| lease.revoked);
+        // A socket its scope's disposal closed already is not closed again (`ws` sends one close frame).
+        let close = if revoked { None } else { close };
+        let claim = self.claim();
+        self.pool.retire(&self.key, self.owner, claim, socket, close);
+    }
+
     /// The response was given up mid-stream: its socket is closed with `code` and `reason` (`socket-handlers.mjs`
     /// `onAbort`: `socket.close(4002, 'aborted')`) and never parked; the session's next attempt opens a fresh one.
     pub fn abandon(&mut self, code: u16, reason: &str) {
-        let Some(socket) = self.socket.take() else { return };
-        self.pool.state().fresh.insert(self.key.clone());
-        socket.close(code, reason);
-        self.pool.closed(&self.key, self.owner);
-    }
-
-    /// The response completed: the socket keeps `chain` for the next request
-    /// and goes back to the pool when it is poolable.
-    pub fn finish(mut self, chain: Chain) {
-        self.pool.state().failures.remove(&self.key);
-        let Some(socket) = self.socket.take() else {
-            return;
-        };
-        if !self.pooled {
-            drop(socket);
-            self.pool.closed(&self.key, self.owner);
+        if self.socket.is_none() {
             return;
         }
+        self.pool.state().fresh.insert(self.key.clone());
+        self.retire_socket(Some((code, reason)));
+    }
+
+    /// The response completed: the socket keeps `chain` for the next request and goes back to the pool when it is
+    /// poolable, handing the session on; one that is not is let go of, and one whose scope was disposed meanwhile is
+    /// already closing: it is never parked.
+    pub fn finish(mut self, chain: Chain) {
+        self.pool.state().failures.remove(&self.key);
+        if self.socket.is_none() {
+            return;
+        }
+        let revoked = self.pool.state().leases.get(&self.id).is_some_and(|lease| lease.revoked);
+        if !self.pooled || revoked {
+            self.retire_socket(None);
+            return;
+        }
+        let socket = self.socket.take().expect("checked above");
         let chain = if self.shared { Chain::default() } else { chain };
         let mut state = self.pool.state();
+        state.leases.remove(&self.id);
         state.released += 1;
         let released = state.released;
         state.idle.entry(self.key.clone()).or_default().push(Parked { socket, owner: self.owner, chain, compat: self.compat.clone(), released });
+        drop(state);
+        if let Some(claim) = self.claim() {
+            self.pool.release_owner(&self.key, claim);
+        }
     }
 }
 
@@ -273,9 +391,50 @@ impl Drop for Checkout {
                 state.fresh.insert(self.key.clone());
             }
         }
-        if let Some(socket) = self.socket.take() {
-            drop(socket);
-            self.pool.closed(&self.key, self.owner);
+        if self.socket.is_some() {
+            // `releaseWebSocket({ keep: false })` after a failed exchange.
+            self.retire_socket(Some((1000, "release_no_keep")));
+        } else if let Some(claim) = self.claim() {
+            // Nothing was held (the dial failed, or the socket went elsewhere): the session is free now.
+            self.pool.release_owner(&self.key, claim);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::io::AsyncReadExt;
+
+    use super::*;
+    use crate::transport::ws::WsConnection;
+
+    const WITHIN: Duration = Duration::from_secs(20);
+
+    // P2 (recheck): a scope disposed while one of its sockets is checked out closes that socket at once with Node's
+    // code and reason (`closeOpenaiWsPoolForSession` shuts busy entries down too), the session is free for the next
+    // checkout at once (`_clearPoolOwnerScope`), and the response finishing afterwards never parks the socket.
+    #[tokio::test]
+    async fn a_disposal_closes_a_socket_in_use_and_its_finish_never_parks_it() {
+        mixdog_rt::testing::tokens();
+        let (near, mut far) = tokio::io::duplex(1 << 12);
+        let pool = Arc::new(WsPool::default());
+        let compat = Compat::new("route", "identity", "cache");
+        let mut held = pool.checkout("scope-a", &compat, false, false).await;
+        held.attach(Box::new(WsConnection::client_over(near).await));
+        pool.release_scope("scope-a", "transport_scope_disposed");
+        let mut head = [0u8; 6];
+        tokio::time::timeout(WITHIN, far.read_exact(&mut head)).await.expect("a close frame within 20 s").unwrap();
+        let reason = b"transport_scope_disposed";
+        assert_eq!(head[..2], [0x88, 0x80 | (2 + reason.len() as u8)], "a masked close frame: {head:02x?}");
+        let mut payload = vec![0u8; 2 + reason.len()];
+        tokio::time::timeout(WITHIN, far.read_exact(&mut payload)).await.expect("the close payload within 20 s").unwrap();
+        payload.iter_mut().enumerate().for_each(|(i, b)| *b ^= head[2 + i % 4]);
+        assert_eq!(payload, [&[0x03, 0xe8][..], reason].concat(), "1000 transport_scope_disposed");
+        let next = tokio::time::timeout(WITHIN, pool.checkout("scope-a", &compat, false, false)).await.expect("the session free at the disposal");
+        drop(next);
+        held.finish(Chain::default());
+        assert_eq!(pool.parked("scope-a"), 0, "a socket its scope's disposal closed is never parked");
     }
 }

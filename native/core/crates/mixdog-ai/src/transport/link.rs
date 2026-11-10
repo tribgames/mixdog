@@ -646,6 +646,14 @@ pub trait WsSocket: Send {
     }
     /// Closes the socket for good with `code` and `reason`; by default it is dropped.
     fn close(self: Box<Self>, _code: u16, _reason: &str) {}
+    /// What closes the socket while it is held elsewhere; `None` when it cannot be closed but by dropping it.
+    fn closer(&self) -> Option<super::ws::WsCloser> {
+        None
+    }
+    /// Becomes `true` once the socket is actually closed (`ws`'s `close` event); `None`: it is closed when dropped.
+    fn closed(&self) -> Option<tokio::sync::watch::Receiver<bool>> {
+        None
+    }
 }
 
 #[async_trait]
@@ -668,6 +676,14 @@ impl WsSocket for WsConnection {
 
     fn close(self: Box<Self>, code: u16, reason: &str) {
         WsConnection::close(*self, code, reason);
+    }
+
+    fn closer(&self) -> Option<super::ws::WsCloser> {
+        Some(WsConnection::closer(self))
+    }
+
+    fn closed(&self) -> Option<tokio::sync::watch::Receiver<bool>> {
+        Some(WsConnection::link(self).closed())
     }
 }
 
