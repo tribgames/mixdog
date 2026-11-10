@@ -235,8 +235,13 @@ impl ProviderCatalog {
 
     /// Replaces the wall clock that stamps `retry_at` (tests).
     pub fn with_clock(mut self, now_ms: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
-        self.now_ms = now_ms;
+        self.set_clock(now_ms);
         self
+    }
+
+    /// [`with_clock`](Self::with_clock) in place.
+    pub fn set_clock(&mut self, now_ms: Arc<dyn Fn() -> u64 + Send + Sync>) {
+        self.now_ms = now_ms;
     }
 
     /// An auth/account change (`invalidateSharedProviderCatalog`): the rows

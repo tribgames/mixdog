@@ -42,19 +42,45 @@ struct Gate {
     providers: Map<String, Value>,
 }
 
-/// What a ready call leaves to its caller.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Ready {
-    /// Some registered provider's catalog has not been fetched for its
-    /// current config: run [`ProviderReadiness::refresh_catalogs`] in the
-    /// background (`refreshProviderCatalogsOnStartup`).
-    pub catalogs_due: bool,
+type Done = Shared<BoxFuture<'static, ()>>;
+
+/// The 24 h catalog timer (`CATALOG_REFRESH_INTERVAL_MS`, registry.mjs:92).
+pub const CATALOG_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// One startup catalog refresh (`_startupCatalogRefreshPromise`): it belongs to the registry's catalog epoch it began in.
+#[derive(Clone)]
+struct Startup {
+    epoch: u64,
+    id: u64,
+    done: Done,
+}
+
+#[derive(Default)]
+struct Refreshes {
+    startup: Option<Startup>,
+    next_id: u64,
+    /// `rt.startupProviderCatalogRefreshObserved`: the startup refresh this runtime attached its completion to.
+    observed: Option<u64>,
+    /// The completion handling of each observed refresh still running, by refresh id.
+    completions: Vec<(u64, Done)>,
+    /// `_catalogRefreshTimer`.
+    timer: Option<tokio::task::JoinHandle<()>>,
+    /// `_catalogRefreshPromise`: the full catalog refresh running now.
+    full: Option<Done>,
+    /// How many times the 24 h timer has fired.
+    timer_fires: u64,
 }
 
 /// What else invalidateProviderCaches drops: the caches built over what the providers list (the cached
 /// provider setup, the usage dashboard), which live above this crate.
 pub trait CacheDrop: Send + Sync {
     fn drop_caches(&self);
+
+    /// The drop a settled startup catalog refresh makes. Node tells its clients nothing then (no `provider-models-changed`
+    /// hint): a client keeps the list it holds until its next read. By default the same drop.
+    fn drop_caches_after_refresh(&self) {
+        self.drop_caches();
+    }
 }
 
 impl<F: Fn() + Send + Sync> CacheDrop for F {
@@ -69,6 +95,9 @@ pub struct ProviderReadiness {
     gate: Mutex<Gate>,
     /// A late cell: bound once at compose, verified bound at startup (invalidation_bound).
     invalidation: OnceLock<Arc<dyn CacheDrop>>,
+    /// `warmProviderModelCache({ loadSecrets: true })`, bound by the provider-models cache above this crate.
+    rewarm: OnceLock<Arc<dyn Fn() + Send + Sync>>,
+    refreshes: Mutex<Refreshes>,
 }
 
 fn closing() -> RegistryError {
@@ -87,7 +116,156 @@ impl ProviderReadiness {
         catalog.bind_revision(move || revision.catalog_revision());
         let providers = registry.clone();
         catalog.bind_providers(Arc::new(move |name| providers.route_provider(name)));
-        Arc::new(Self { registry, catalog, gate: Mutex::new(Gate::default()), invalidation: OnceLock::new() })
+        Arc::new(Self {
+            registry,
+            catalog,
+            gate: Mutex::new(Gate::default()),
+            invalidation: OnceLock::new(),
+            rewarm: OnceLock::new(),
+            refreshes: Mutex::default(),
+        })
+    }
+
+    fn refreshes(&self) -> MutexGuard<'_, Refreshes> {
+        self.refreshes.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Binds the secrets-carrying re-warm a settled startup refresh starts; a second bind is refused.
+    pub fn bind_rewarm(&self, rewarm: Arc<dyn Fn() + Send + Sync>) -> Result<(), Arc<dyn Fn() + Send + Sync>> {
+        self.rewarm.set(rewarm)
+    }
+
+    /// `refreshProviderCatalogsOnStartup()` (registry.mjs:704-721): the refresh of the current catalog epoch, or a new
+    /// one when the provider set changed since the last began (or none has). A new one arms the 24 h timer, asks every
+    /// registered provider (each bounded by the listing deadline; a failure is logged and the rest go on) and moves the
+    /// catalog revision when all have settled.
+    fn startup_refresh(self: &Arc<Self>) -> Startup {
+        let epoch = self.registry.catalog_refresh_epoch();
+        let mut refreshes = self.refreshes();
+        if let Some(startup) = refreshes.startup.as_ref().filter(|s| s.epoch == epoch) {
+            return startup.clone();
+        }
+        self.arm_next_refresh(&mut refreshes);
+        refreshes.next_id += 1;
+        let (catalog, registry) = (self.catalog.clone(), self.registry.clone());
+        let task = mixdog_rt::spawn("catalog.startup-refresh", mixdog_rt::TaskClass::Work, async move {
+            for (provider, error) in catalog.refresh_providers().await.failed {
+                mixdog_rt::node_stderr!("[provider:{}] startup catalog refresh failed: {}", provider.as_str(), error.message);
+            }
+            registry.bump_catalog_revision();
+        });
+        let done: Done = task.map(drop).boxed().shared();
+        let startup = Startup { epoch, id: refreshes.next_id, done };
+        refreshes.startup = Some(startup.clone());
+        startup
+    }
+
+    /// `armNextCatalogRefresh()`: the full catalog refresh 24 h from now, replacing the one armed before.
+    fn arm_next_refresh(self: &Arc<Self>, refreshes: &mut Refreshes) {
+        if let Some(timer) = refreshes.timer.take() {
+            timer.abort();
+        }
+        let this = Arc::downgrade(self);
+        let deadline = tokio::time::Instant::now() + CATALOG_REFRESH_INTERVAL;
+        refreshes.timer = Some(mixdog_rt::spawn("catalog.refresh-timer", mixdog_rt::TaskClass::Work, async move {
+            tokio::time::sleep_until(deadline).await;
+            if let Some(this) = this.upgrade() {
+                // The timer that fired is no longer armed (`_catalogRefreshTimer = null`); the refresh arms the next.
+                {
+                    let mut refreshes = this.refreshes();
+                    refreshes.timer = None;
+                    refreshes.timer_fires += 1;
+                }
+                drop(this.full_refresh());
+            }
+        }));
+    }
+
+    /// `refreshCatalogs()` as the timer and a forced refresh run it (registry.mjs:738-774): one at a time; it arms the next
+    /// timer, refreshes the metadata tables and asks every registered provider, then moves the catalog revision.
+    fn full_refresh(self: &Arc<Self>) -> Done {
+        let mut refreshes = self.refreshes();
+        if let Some(full) = &refreshes.full {
+            return full.clone();
+        }
+        self.arm_next_refresh(&mut refreshes);
+        let this = self.clone();
+        let task = mixdog_rt::spawn("catalog.full-refresh", mixdog_rt::TaskClass::Work, async move {
+            for (provider, error) in this.catalog.refresh().await.failed {
+                mixdog_rt::node_stderr!("[provider:{}] catalog refresh failed: {}", provider.as_str(), error.message);
+            }
+            this.registry.bump_catalog_revision();
+            this.refreshes().full = None;
+        });
+        let done: Done = task.map(drop).boxed().shared();
+        refreshes.full = Some(done.clone());
+        done
+    }
+
+    /// How many times the 24 h catalog timer has fired.
+    pub fn catalog_timer_fires(&self) -> u64 {
+        self.refreshes().timer_fires
+    }
+
+    /// What a non-forced catalog load waits for after its readiness call (`await reg().refreshProviderCatalogsOnStartup()`,
+    /// catalog-load.mjs:70-72): the startup refresh of the current epoch, then the completion this runtime attached to it,
+    /// which Node runs first because it was attached first.
+    pub async fn join_startup_refresh(self: &Arc<Self>) {
+        let startup = self.startup_refresh();
+        startup.done.await;
+        let completion = self.refreshes().completions.iter().find(|(id, _)| *id == startup.id).map(|(_, done)| done.clone());
+        if let Some(completion) = completion {
+            completion.await;
+        }
+    }
+
+    /// Waits for every catalog refresh running now and the completion of each observed one (for callers that must see
+    /// their end).
+    pub async fn settle_refreshes(&self) {
+        loop {
+            let running: Vec<Done> = {
+                let refreshes = self.refreshes();
+                let mut running: Vec<Done> = refreshes.completions.iter().map(|(_, done)| done.clone()).collect();
+                running.extend(refreshes.startup.iter().map(|s| s.done.clone()));
+                running.extend(refreshes.full.clone());
+                running.retain(|done| done.peek().is_none());
+                running
+            };
+            if running.is_empty() {
+                return;
+            }
+            futures::future::join_all(running).await;
+        }
+    }
+
+    /// The readiness half of `ensureProvidersReady` after its initialization (provider-readiness.mjs:146-182): the startup
+    /// refresh of the current epoch; one this runtime has not observed yet gets its completion handling. The pending
+    /// flag is set until it settles; then, for the latest one only, the flag clears and the parked warm-ups are woken
+    /// (`settle`); then, unless the runtime is closing, the model caches drop with the providers kept and the
+    /// secrets-carrying re-warm starts.
+    fn observe_startup_refresh(self: &Arc<Self>) {
+        let startup = self.startup_refresh();
+        let mut refreshes = self.refreshes();
+        if refreshes.observed == Some(startup.id) {
+            return;
+        }
+        refreshes.observed = Some(startup.id);
+        self.catalog.mark_startup_refresh_pending();
+        let (this, id) = (self.clone(), startup.id);
+        let task = mixdog_rt::spawn("catalog.startup-refresh-completion", mixdog_rt::TaskClass::Work, async move {
+            startup.done.await;
+            if this.refreshes().observed == Some(id) {
+                this.catalog.settle_startup_refresh();
+            }
+            if !this.gate().closed {
+                this.invalidate(true, true);
+                if let Some(rewarm) = this.rewarm.get() {
+                    rewarm();
+                }
+            }
+            this.refreshes().completions.retain(|(held, _)| *held != id);
+        });
+        refreshes.completions.push((id, task.map(drop).boxed().shared()));
     }
 
     fn gate(&self) -> MutexGuard<'_, Gate> {
@@ -105,17 +283,15 @@ impl ProviderReadiness {
         self.gate().closed = true;
     }
 
-    /// `ensureProvidersReady(providerConfig)`; `None` is the runtime's config.
-    pub async fn ensure_providers_ready(
-        self: &Arc<Self>,
-        providers: Option<Map<String, Value>>,
-    ) -> Result<Ready, RegistryError> {
+    /// `ensureProvidersReady(providerConfig)`; `None` is the runtime's config. After the initialization, unless the
+    /// runtime is closing, the startup catalog refresh of the current epoch is started or joined, and observed.
+    pub async fn ensure_providers_ready(self: &Arc<Self>, providers: Option<Map<String, Value>>) -> Result<(), RegistryError> {
         let providers = providers.unwrap_or_else(|| self.gate().providers.clone());
         self.clone().init(providers).await?;
-        let closed = self.gate().closed;
-        // Every registered name claims its refresh; none is skipped.
-        let due = if closed { Vec::new() } else { self.registry.names().iter().map(|n| self.registry.claim_catalog_refresh(n)).collect() };
-        Ok(Ready { catalogs_due: due.contains(&true) })
+        if !self.gate().closed {
+            self.observe_startup_refresh();
+        }
+        Ok(())
     }
 
     /// One keyed initialization: the settled flight of an equal config, or a new one.
@@ -189,6 +365,10 @@ impl ProviderReadiness {
     /// revision, and unless `preserve_init` the init flights are dropped and
     /// any running initialization is superseded.
     pub fn invalidate_provider_caches(&self, preserve_init: bool) {
+        self.invalidate(preserve_init, false);
+    }
+
+    fn invalidate(&self, preserve_init: bool, after_refresh: bool) {
         self.registry.bump_catalog_revision();
         if !preserve_init {
             let mut gate = self.gate();
@@ -197,7 +377,11 @@ impl ProviderReadiness {
         }
         // Every caller drops the caches above the catalog too, so none can miss them.
         if let Some(hook) = self.invalidation.get() {
-            hook.drop_caches();
+            if after_refresh {
+                hook.drop_caches_after_refresh();
+            } else {
+                hook.drop_caches();
+            }
         }
     }
 
@@ -232,14 +416,13 @@ impl ProviderReadiness {
         if !started || closed {
             return Ok(());
         }
-        self.ensure_providers_ready(None).await.map(|_| ())
+        self.ensure_providers_ready(None).await
     }
 
-    /// The background half of a ready call whose `catalogs_due` was set: the
-    /// catalog refreshes, then the model-derived caches drop while the
-    /// initialized registry stays.
-    pub async fn refresh_catalogs(&self) {
-        self.catalog.refresh().await;
+    /// A forced full catalog refresh (`refreshCatalogs({ force: true })`, which also arms the next 24 h one), then the
+    /// model-derived caches drop while the initialized registry stays.
+    pub async fn refresh_catalogs(self: &Arc<Self>) {
+        self.full_refresh().await;
         if !self.gate().closed {
             self.invalidate_provider_caches(true);
         }
@@ -366,11 +549,9 @@ mod tests {
         let (ready, builder) = readiness().await;
         let a = config(json!({"anthropic": {"enabled": true, "k": 1, "j": 2}}));
         let b = config(json!({"anthropic": {"j": 2, "k": 1, "enabled": true}}));
-        let first = ready.ensure_providers_ready(Some(a)).await.unwrap();
-        assert!(first.catalogs_due);
-        // The settled flight is kept; the catalog claim is spent.
-        let second = ready.ensure_providers_ready(Some(b)).await.unwrap();
-        assert!(!second.catalogs_due);
+        ready.ensure_providers_ready(Some(a)).await.unwrap();
+        // The settled flight is kept.
+        ready.ensure_providers_ready(Some(b)).await.unwrap();
         assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
     }
 

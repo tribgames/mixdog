@@ -724,16 +724,29 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         },
     ));
     // The ONE readiness invalidation (Node `invalidateProviderCaches()`, wp-ai-svc-24): every cache Node drops there, in one closure.
-    readiness.bind_invalidation(Arc::new({
-        let (setup, dashboards, web_search_models, model_list, model_catalog) = (provider_setup.clone(), dashboards.clone(), web_search_models.clone(), model_list.clone(), model_catalog.clone());
-        move || {
-            model_list.invalidate();
-            model_catalog.invalidated();
-            setup.invalidate();
-            dashboards.invalidate();
-            web_search_models.invalidate(None);
-        }
+    // The feed is told last, of every invalidation but a settled startup catalog refresh's (Node sends no hint then).
+    readiness.bind_invalidation(Arc::new(mixdog_core_domains::domains::ai_admin::model_catalog_feed::FeedToldDrop {
+        drop: Arc::new({
+            let (setup, dashboards, web_search_models, model_list) = (provider_setup.clone(), dashboards.clone(), web_search_models.clone(), model_list.clone());
+            move || {
+                model_list.invalidate();
+                setup.invalidate();
+                dashboards.invalidate();
+                web_search_models.invalidate(None);
+            }
+        }),
+        feed: model_catalog.clone(),
     })).map_err(|_| ComposeError::AlreadyBound("readiness invalidation"))?;
+    // The re-warm a settled startup catalog refresh starts (`warmProviderModelCache({ loadSecrets: true })`,
+    // provider-readiness.mjs:166).
+    readiness.bind_rewarm(Arc::new({
+        let model_list = Arc::downgrade(&model_list);
+        move || {
+            if let Some(model_list) = model_list.upgrade() {
+                model_list.warm_cache(true);
+            }
+        }
+    })).map_err(|_| ComposeError::AlreadyBound("readiness re-warm"))?;
     // `model/list` and `account/listWebSearchModels` are registered with the domains at the flip (`model_list` / `web_search_models` are the services).    // `resolveRoute(config, {})` for the agent definitions: the same Main route the chain resolves (`CatalogRouteContext`).
     let route_context = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogRouteContext { config: config.clone(), facts: facts.clone() });
     // flip-gaps-agent: `AgentEffects`. Two cycles are cut by late cells: effects -> `ServiceChannels` -> `DefinitionAgents(definitions)` (the channel stack is bound once it exists)
