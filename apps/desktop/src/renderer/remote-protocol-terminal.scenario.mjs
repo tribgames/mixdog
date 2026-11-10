@@ -35,12 +35,15 @@ async function startCore() {
   const record = await untilFile(join(CORE_ROOT, 'runtime'), child, (dir) => {
     const found = JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'));
     return found.core?.state === 'serving' && found.core.rpc?.port ? found : null;
-  }, 'the core to publish its serving discovery record (daemon.json)');
+  }, 'the core to publish its serving discovery record (daemon.json)', CORE_START_DEADLINE_MS);
   return { child, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
 }
 
+// A cold debug core measured about 50 s from spawn to its serving record (store migration), and twice passed 60 s in three runs.
+const CORE_START_DEADLINE_MS = 180_000;
+
 /** Resolves with `read(dir)` once it returns a value, trying again on each change in `dir` (a file system notification, no timer). */
-function untilFile(dir, child, read, what) {
+function untilFile(dir, child, read, what, deadlineMs = DEADLINE_MS) {
   return new Promise((resolve, reject) => {
     const attempt = () => {
       try {
@@ -56,8 +59,8 @@ function untilFile(dir, child, read, what) {
     };
     const timer = realSetTimeout(() => {
       done();
-      reject(new Error(`timed out after ${DEADLINE_MS} ms waiting for ${what} in ${dir}`));
-    }, DEADLINE_MS);
+      reject(new Error(`timed out after ${deadlineMs} ms waiting for ${what} in ${dir}`));
+    }, deadlineMs);
     const watcher = watch(dir, attempt);
     child.once('exit', (status) => {
       done();
