@@ -7,16 +7,16 @@
 // Each run drives the real runtime-liveness state of one session (ask, request, stream, tool) and arms its watchdog; the clock moves
 // a second at a time until the watchdog has aborted. Recorded per run: the progress snapshot each sweep read (its input), when it
 // aborted and with what sentence; and, once, the two files the stops wrote: `history/tool-failures.jsonl` (the `stall_abort` rows)
-// and `history/agent-trace.jsonl` (`MIXDOG_DIAGNOSTICS=1`), written by Node's own exit flush. The registry's `registration_id`
-// is random (`randomUUID().slice(0, 8)`): each is checked to be 8 hex digits and replaced by `<registration:N>` in order of
-// appearance, so two recordings are byte-identical.
+// and `history/agent-trace.jsonl` (`MIXDOG_DIAGNOSTICS=1`), written by Node's own exit flush. Recorded three times: twice as is
+// (the registry's `registration_id`, `randomUUID().slice(0, 8)`, is shown to be the only difference, and is named
+// `<registration:N>` in order of appearance, as the manifest declares) and once with `MIXDOG_AGENT_TRACE_DISABLE=1`.
 //
 //   node benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs --tree <exact export of b6f10295a> [--only <run>]
 //
 // Output: native/core/fixtures/watchdog-stall-rows/golden.json (+ MANIFEST.json). With --only, the runs are printed, not written.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { mock } from 'node:test';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -138,49 +138,70 @@ const recorder = 'benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs'
 const scratch = process.env.MIXDOG_RECORDER_SCRATCH;
 if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name this run\'s scratch parent (under D:\\mixdog-build\\tmp\\<slot>)');
 mkdirSync(scratch, { recursive: true });
-const sandbox = mkdtempSync(join(scratch, 'rec-stall-rows-'));
-const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, MIXDOG_DIAGNOSTICS: '1', MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', ...(only ? { RECORDER_ONLY: only } : {}) };
-for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'MIXDOG_CONFIG_DIR', 'MIXDOG_RUNTIME_ROOT', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
-  env[name] = join(sandbox, name.toLowerCase());
-  mkdirSync(env[name], { recursive: true });
+const run = mkdtempSync(join(scratch, 'rec-stall-rows-'));
+// The environment every recording child is given besides its own profile folders (the trace-disabled one adds
+// MIXDOG_AGENT_TRACE_DISABLE=1): `MIXDOG_DIAGNOSTICS=1` turns the local trace file on.
+const ENV = { MIXDOG_DIAGNOSTICS: '1', MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0' };
+const PROFILE_DIRS = ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'MIXDOG_CONFIG_DIR', 'MIXDOG_RUNTIME_ROOT', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP'];
+
+/** One recording child in its own profile under the run's folder; ended only through the handle held here. Its two files, or null. */
+async function recordOnce(label, extra) {
+  const sandbox = join(run, label);
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, ...ENV, ...extra, ...(only ? { RECORDER_ONLY: only } : {}) };
+  for (const name of PROFILE_DIRS) {
+    env[name] = join(sandbox, name.toLowerCase());
+    mkdirSync(env[name], { recursive: true });
+  }
+  const child = spawn(process.execPath, [SELF, '--child'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (d) => { stdout += d; });
+  child.stderr.on('data', (d) => { stderr += d; });
+  const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
+  let result;
+  try {
+    result = await deadline(exited, 120_000, `the recording child ${label}`);
+  } catch (error) {
+    child.kill();
+    await deadline(exited, 30_000, `the recording child ${label} ending after its kill`);
+    throw new Error(`${error.message}; the folder ${run} is kept\n${stderr}`);
+  }
+  if (result.code !== 0) throw new Error(`the recording child ${label} failed (${result.code ?? result.signal}); the folder ${run} is kept:\n${stderr}`);
+  const history = join(env.MIXDOG_DATA_DIR, 'history');
+  const read = (name) => (existsSync(join(history, name)) ? readFileSync(join(history, name), 'utf8') : null);
+  return { runs: JSON.parse(stdout), failures: read('tool-failures.jsonl'), trace: read('agent-trace.jsonl') };
 }
-// The child is ended through the handle held here; on any failure the sandbox is kept and named.
-const child = spawn(process.execPath, [SELF, '--child'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-let stdout = '';
-let stderr = '';
-child.stdout.on('data', (d) => { stdout += d; });
-child.stderr.on('data', (d) => { stderr += d; });
-const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
-let result;
-try {
-  result = await deadline(exited, 120_000, 'the recording child');
-} catch (error) {
-  child.kill();
-  await deadline(exited, 30_000, 'the recording child ending after its kill');
-  throw new Error(`${error.message}; the sandbox ${sandbox} is kept\n${stderr}`);
-}
-if (result.code !== 0) throw new Error(`the recording child failed (${result.code ?? result.signal}); the sandbox ${sandbox} is kept:\n${stderr}`);
-const runs = JSON.parse(stdout);
-const history = join(env.MIXDOG_DATA_DIR, 'history');
-const registrations = new Map();
-const masked = (text) =>
-  text.replace(/"registration_id":("[^"]*"|null)/g, (whole, value) => {
+
+/** The registry's `registration_id`s (`randomUUID().slice(0, 8)`, agent-watchdog-registry.mjs:161), each 8 hex digits, named by order of appearance. */
+function maskRegistrations(text) {
+  const registrations = new Map();
+  return text.replace(/"registration_id":("[^"]*"|null)/g, (whole, value) => {
     if (value === 'null') return whole;
     const id = JSON.parse(value);
     if (!/^[0-9a-f]{8}$/.test(id)) throw new Error(`registration id ${id} is not 8 hex digits`);
     if (!registrations.has(id)) registrations.set(id, `<registration:${registrations.size + 1}>`);
     return `"registration_id":"${registrations.get(id)}"`;
   });
-const failures = masked(readFileSync(join(history, 'tool-failures.jsonl'), 'utf8'));
-const trace = readFileSync(join(history, 'agent-trace.jsonl'), 'utf8');
-rmSync(sandbox, { recursive: true, force: true });
+}
+
+const a = await recordOnce('a', {});
+const b = await recordOnce('b', {});
+const off = await recordOnce('trace-disabled', { MIXDOG_AGENT_TRACE_DISABLE: '1' });
+// The registration id is the run's own: two recordings of the same input write different ids and nothing else differs.
+if (a.failures === null || a.trace === null) throw new Error(`recording a wrote no ${a.failures === null ? 'tool-failures.jsonl' : 'agent-trace.jsonl'}`);
+if (JSON.stringify(a.runs) !== JSON.stringify(b.runs) || a.trace !== b.trace) throw new Error('two recordings differ in their runs or their trace');
+if (b.failures === null || maskRegistrations(a.failures) !== maskRegistrations(b.failures)) throw new Error('two recordings differ in their failure rows beyond the registration ids');
+if (a.failures === b.failures && /"registration_id":"/.test(a.failures)) throw new Error('two recordings wrote the same registration ids: the id is not shown to be the run\'s own');
+if (JSON.stringify(off.runs) !== JSON.stringify(a.runs)) throw new Error('the trace-disabled recording stopped its runs otherwise');
+rmSync(run, { recursive: true, force: true });
 const golden = {
-  note: 'the stall_abort rows of Node\'s progress watchdog (dispatch and registry), recorded at b6f10295a on mocked interval timers and clock',
+  note: 'the stall_abort rows of Node\'s progress watchdog (dispatch and registry), recorded at b6f10295a on mocked interval timers and clock; traceDisabled: the same runs with MIXDOG_AGENT_TRACE_DISABLE=1 (null: the file was not written)',
   t0: T0,
   policy: POLICY,
-  runs,
-  failures,
-  trace,
+  runs: a.runs,
+  failures: maskRegistrations(a.failures),
+  trace: a.trace,
+  traceDisabled: { failures: off.failures, trace: off.trace },
 };
 if (only) {
   console.log(JSON.stringify(golden, null, 1));
@@ -197,9 +218,25 @@ writeSetManifest(stage, {
   extra: {
     node: process.version,
     recorderSha256: createHash('sha256').update(readFileSync(SELF)).digest('hex'),
-    syntheticInputs: { policy: POLICY, agent: AGENT, scenarios: SCENARIOS, runtime: 'an in-process agent runtime object (getTurnLiveness = the manager snapshot copy, abort recorded)' },
+    syntheticInputs: {
+      clockEpoch: T0,
+      mockedTimers: { api: 'node:test mock.timers.enable', apis: ['setInterval', 'Date'], now: T0, order: 'due time, then registration order, one callback at a time', step: 'one second per sweep; a step tick at its own instant first', maxSweeps: MAX_SWEEPS },
+      environment: { ...ENV, profileFolders: PROFILE_DIRS.map((name) => `${name}=<the recording's own folder>`), traceDisabledRun: { MIXDOG_AGENT_TRACE_DISABLE: '1' } },
+      sessionIds: [...RUNS.map((r) => r.sessionId), 'sess_stall_parent (the registry runs\' parentSessionId)'],
+      policy: POLICY,
+      agent: AGENT,
+      scenarios: SCENARIOS,
+      runtime: 'an in-process agent runtime object (getTurnLiveness = the manager snapshot copy, abort recorded)',
+    },
+    runOwnValues: {
+      registration_id: {
+        source: 'src/session-runtime/services/agent-watchdog-registry.mjs:161 randomUUID().slice(0, 8)',
+        placeholder: '<registration:N>, N by order of appearance in history/tool-failures.jsonl; each id checked to be 8 lowercase hex digits',
+        proof: 'two recordings of the same input (a, b): their failure rows differ, and are identical once the ids are named so; their runs and traces are identical',
+      },
+    },
   },
 });
 commitStage(stage, finalDir);
-console.log(`runs=${runs.length} failures=${failures.split('\n').length - 1} trace=${trace.split('\n').length - 1}`);
+console.log(`runs=${golden.runs.length} failures=${golden.failures.split('\n').length - 1} trace=${golden.trace.split('\n').length - 1}`);
 process.exit(0);
