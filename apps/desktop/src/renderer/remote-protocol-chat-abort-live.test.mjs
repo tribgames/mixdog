@@ -77,7 +77,8 @@ for (const nodeCase of node.cases) {
     assert.deepEqual(sent[0].params, core.stop);
     // A turn end names its answer by an id each side mints (`it_…` in Node, `itm_…` in the core): it must be the id of a row of the same transcript.
     for (const [side, rows] of [['core', plain(foldRows(core.core.items))], ['node', nodeCase.node.items]]) {
-      for (const end of rows.filter((r) => r.finalAssistantId !== undefined)) {
+      for (const end of rows) {
+        if (end.finalAssistantId === undefined) continue;
         assert.ok(rows.some((r) => r.kind === 'assistant' && r.id === end.finalAssistantId), `${side}: the turn end names a row of its transcript`);
       }
     }

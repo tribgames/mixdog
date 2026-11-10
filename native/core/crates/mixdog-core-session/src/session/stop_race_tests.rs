@@ -35,7 +35,7 @@ async fn running(rig: &Rig, emit: &Arc<Notify>) -> (SessionDirectory, Arc<Sessio
         let emit = emit.clone();
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            emit.notified().await;
+            awaiting(|| "the test to let the output through".to_owned(), emit.notified()).await;
             let _ = run.port.delta(ItemId::from("a1".to_owned()), "partial answer".into()).await;
             run.cancel.cancelled().await;
             RunOutcome::Interrupted
@@ -73,7 +73,7 @@ fn node_says(reply: &Value, node: &Value) {
 
 /// The output commits while the Stop stands between its reads and its decision: the decision sees it (Node's "output already
 /// produced"), the prompt stays in the transcript.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn an_output_that_commits_while_the_stop_is_reading_hands_nothing_back() {
     let rig = Rig::new();
     let emit = Arc::new(Notify::new());
@@ -94,7 +94,7 @@ async fn an_output_that_commits_while_the_stop_is_reading_hands_nothing_back() {
 }
 
 /// The Stop decides first and the output commits after: the hand-back stands (Node's "prompt handed back"), and the prompt leaves.
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn an_output_that_commits_after_the_stop_decided_does_not_take_the_hand_back_away() {
     let rig = Rig::new();
     let emit = Arc::new(Notify::new());
