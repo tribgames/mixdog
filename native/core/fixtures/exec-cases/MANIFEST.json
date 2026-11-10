@@ -1,0 +1,98 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-exec-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --work <temp dir>",
+  "compared": {
+    "bash-byte-identity": "the exit and stdout of each body, run through Rust's bash transport on the recorded Git Bash. Node's case runs below the tool (execShellCommand), so the tool's `cat` read-tool note line is removed from the Rust result before comparing",
+    "benign-live": "whether the recorded live exit (with its stderr) is a benign search miss",
+    "deadline-plan": "autoBackgroundMs against the hold, and the run limit (backgroundDeadlineMs with background tasks on, timeout without) against the time limit. Rust has one run limit the process manager enforces and no separate foreground timeout: promotedTimeoutMs and promoteAtTimeout are not compared; a run limit at or below the hold being enforced instead of promoted is the real-process test a_real_command_over_its_time_limit_is_killed_with_nodes_text",
+    "filter-plan-groups": "whether a plan is made; the plan text carries a random token",
+    "launcher-path": "the launcher directory and files are compared for the recorded runtime and data dir; the shell PATH for the daemon env PATH=A;B",
+    "output-silence": "the warning at each read. Not recorded: the test's unreadable-capture case (a capture file that cannot be stat'd): Rust reads silence from the output it received, held in memory, and has no capture file to fail",
+    "powershell-live": "the whole result text of each live run on pwsh",
+    "wmic-note": "the result text and the hard limit; the executed text ends with the rewritten command (Rust puts its UTF-8 preamble before it in the same script, Node in execShellCommand)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 65946,
+      "path": "golden.json",
+      "sha256": "c51ebed456849775633f3b9f2c21e30282405233289736e897d98409abd31e8f"
+    }
+  ],
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-exec-cases.mjs",
+  "scenarios": [
+    {
+      "name": "deadline-plan",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/deadline-plan.test.mjs"
+    },
+    {
+      "name": "launcher-path",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool-cwd-env.test.mjs"
+    },
+    {
+      "name": "filter-plan-groups",
+      "test": "scripts/shellhardening/script-transport.slow.test.mjs"
+    },
+    {
+      "name": "powershell-live",
+      "test": "scripts/shellhardening/script-transport.slow.test.mjs"
+    },
+    {
+      "name": "bash-byte-identity",
+      "test": "scripts/shellhardening/script-transport.slow.test.mjs"
+    },
+    {
+      "name": "benign-live",
+      "test": "scripts/shellhardening/integration.live.test.mjs"
+    },
+    {
+      "name": "output-silence",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/shell-output-silence.test.mjs"
+    },
+    {
+      "name": "display-command",
+      "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/display-command.test.mjs"
+    },
+    {
+      "name": "wmic-note",
+      "test": "scripts/shellhardening/failure-taxonomy.test.mjs"
+    }
+  ],
+  "scripts": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+      "sha256": "fa3050809ac5062841f34949b691f887f45c4099962d9f1c47197d0450b411bf"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recording-scripts.mjs",
+      "sha256": "93cdc7eb433a476fd68a231b37ed9b138d9c87923cacb125bd6161fba6fa682d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-exec-cases.mjs",
+      "sha256": "5d8516bf0c141a01c2543d222b7dd4bc4bd312b4b84e32cbb556c5ec32888dcb"
+    }
+  ],
+  "set": "exec-cases",
+  "totalBytes": 65946
+}

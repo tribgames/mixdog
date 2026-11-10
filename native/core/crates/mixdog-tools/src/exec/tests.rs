@@ -1567,3 +1567,5 @@ async fn a_stalled_turns_reap_stops_and_splits_the_shells_as_node_did() {
         assert!(control.take_reaped(&owner).0.is_empty(), "{name}: the list is handed out once");
     }
 }
+
+mod node_cases;
