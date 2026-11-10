@@ -37,6 +37,15 @@ test('a live card completes at its result\'s time (aggregate-result.mjs complete
   assert.deepEqual([restored?.startedAt, restored?.completedAt], [1000, 1000]);
 });
 
+test('a live card the Stop ended is finalized as cancelled (aggregate-result.mjs:80-91); one that finished is not', () => {
+  const call = (status: string): Obj => ({ type: 'toolCall', id: 'q', name: 'ask_user', input: { questions: [] }, output: 'Error: closed', run: { live: true, callId: 'c1', isError: true }, meta: { status, at: 1 } });
+  // Node's recorded card (remote-protocol-chat-abort running-approval-pending): a failed call, its detail behind the cancelled marker.
+  const [stopped] = project([call('interrupted')]);
+  assert.deepEqual([stopped?.result, stopped?.text, stopped?.isError, stopped?.errorCount], ['[status: cancelled]\n1 Failed', '[status: cancelled]\n1 Failed', true, 1]);
+  const [failed] = project([call('failed')]);
+  assert.deepEqual([failed?.result, failed?.text, failed?.isError], ['1 Failed', '1 Failed', true]);
+});
+
 test('a turn end is the turndone row, with the live end\'s counters from ext and the typed message id on prompt, reply and end', () => {
   const rows = project([
     { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'go' }], meta: { at: 1, messageId: 'msg_u' } },

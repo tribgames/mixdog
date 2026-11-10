@@ -498,10 +498,23 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
     assert_eq!(entry["mode"], json!("prompt"));
     assert_eq!(shard["mode"], entry["mode"], "the mirror holds the entry's mode");
     let mut options = json!({ "clientSubmissionId": entry["id"] });
-    for key in ["pastedImages", "pastedTexts"] {
-        if !entry[key].is_null() {
-            options[key] = entry[key].clone();
-        }
+    if !entry["pastedImages"].is_null() {
+        options["pastedImages"] = entry["pastedImages"].clone();
+    }
+    // The case was recorded at Node's runtime, below the intake; the phone's `turn/start` is `submitAdmitted`, whose
+    // `materializePromptSubmission` (`attachments/store.mjs:466-499`) stores each inline text and queues its reference instead.
+    if let Some(texts) = entry["pastedTexts"].as_object() {
+        let materialized = texts.iter().map(|(key, raw)| {
+            let mut out = raw.clone();
+            if let Some(text) = out.as_object_mut().and_then(|meta| meta.shift_remove("text")).and_then(|text| text.as_str().map(str::to_owned)) {
+                use sha2::Digest;
+                out["attachmentRef"] = json!(format!("{:x}", sha2::Sha256::digest(text.as_bytes())));
+                out["sizeBytes"] = json!(text.len());
+                out["chars"] = super::restore_hydrate::chars_of(raw.get("chars"), &text);
+            }
+            (key.clone(), out)
+        });
+        options["pastedTexts"] = Value::Object(materialized.collect());
     }
     json!({
         "k": "queue", "qid": "<qid>", "action": "enqueue",

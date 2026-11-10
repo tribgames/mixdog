@@ -62,8 +62,9 @@ fn hydrate_map(
 }
 
 /// `materializePastedTexts` (`attachments/store.mjs:466-499`): an inline pasted text is kept as a content-addressed blob and its entry
-/// states `attachmentRef`, `sizeBytes` and `chars` (the text itself stays for the composer). Node does this when the prompt is taken in;
-/// the core's intake keeps the entry as sent, so a Stop writes the blob when it hands the prompt back.
+/// states `attachmentRef`, `sizeBytes` and `chars` in place of the text (a Stop's reply reads it back, [`hydrate`]). Done when the
+/// prompt is taken in (`turn/start`), as Node does; a Stop handing back an entry that still has none (one queued without the intake)
+/// writes it then.
 pub(super) fn materialize_texts(store: &AttachmentStore, lane: &InLane<InteractiveIo>, map: &mut Value) -> Result<(), CoreError> {
     let Value::Object(entries) = map else { return Ok(()) };
     for raw in entries.values_mut() {
@@ -73,6 +74,7 @@ pub(super) fn materialize_texts(store: &AttachmentStore, lane: &InLane<Interacti
         let Some(text) = raw.get("text").and_then(Value::as_str).map(str::to_owned) else { continue };
         let reference = store.write_blob(lane, text.as_bytes()).map_err(|error| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(format!("{error:?}").into()), detail: None })?;
         let chars = chars_of(raw.get("chars"), &text);
+        raw.as_object_mut().expect("an object entry").shift_remove("text");
         raw["attachmentRef"] = Value::String(reference);
         raw["sizeBytes"] = Value::from(text.len());
         raw["chars"] = chars;

@@ -683,7 +683,8 @@ pub(crate) struct SessionActor {
     quota_answered: Option<u64>,
     /// `state.commandBusy` / `flags.autoClearRunning`: compactions running.
     compactions: u32,
-    /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
+    /// The next run's input row shows no bubble: it is already on screen (a retained retry's `suppressDisplay`), or it is
+    /// for the model alone (a kickoff).
     retry_hidden: bool,
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
     /// was named: the next turn names a new one (`mintTranscriptEpoch`, `turn-checkpoint.mjs`).
@@ -2594,11 +2595,8 @@ impl SessionActor {
                 op: None,
                 detail,
             });
-            let mut effects = Vec::new();
-            if completed {
-                effects.push(Effect::ItemAck(self.ingest_when_durable()));
-            }
-            self.accept_record(record, Class::Control, Display::None, Vec::new(), effects);
+            // The settle's stamps are accepted before the record that ends the turn: Node writes the session record before it
+            // reports the turn finished, so a list read after `turn/completed` already shows the stamped activity.
             if completed {
                 // `ask-turn-settle.mjs:132-139`: the completed turn stamps the record's activity,
                 // and from this turn on an owner close of the session is recorded on it
@@ -2628,6 +2626,11 @@ impl SessionActor {
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             }
+            let mut effects = Vec::new();
+            if completed {
+                effects.push(Effect::ItemAck(self.ingest_when_durable()));
+            }
+            self.accept_record(record, Class::Control, Display::None, Vec::new(), effects);
         }
         if self.deleting {
             self.delete_turn_ended();
@@ -3452,17 +3455,20 @@ impl SessionActor {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
-                // The thread's own rewind (`rewind`), at the prompt's row: it, and every row after it, leave.
+                // The thread's own rewind (`rewind`), at the prompt's row: it, and every row after it, leave. A prompt that shows no
+                // row (a kickoff) is the acked hidden one; the row before it is the newest shown row older than it.
                 let window = &self.acked.window;
-                let Some(index) = window.iter().position(|row| row.item.id() == &item) else {
+                let found = match window.iter().position(|row| row.item.id() == &item) {
+                    Some(index) => window[index].ordinal.map(|ordinal| (ordinal, index.checked_sub(1))),
+                    None => self.acked.hidden_prompt.as_ref().filter(|(iid, _)| iid.as_str() == item.as_str()).map(|&(_, ordinal)| {
+                        (ordinal, window.iter().rposition(|row| row.ordinal.is_some_and(|o| o < ordinal)))
+                    }),
+                };
+                let Some((ordinal, before)) = found else {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 };
-                let Some(ordinal) = window[index].ordinal else {
-                    let _ = ack.send(Err(RunError::NotApplied));
-                    return;
-                };
-                let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
+                let previous = before.map(|i| window[i].item.id().clone());
                 let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: None });
                 self.transcript_rewritten = true;
                 self.deps.side.forget(&self.id, false);
@@ -4885,6 +4891,10 @@ impl SessionActor {
         reply: Option<Effect>,
         prompt: Option<String>,
     ) {
+        // A kickoff (a runtime's own turn) reaches the model only: no user bubble (`submission.mjs:17-20`, `suppressDisplay`).
+        if input.options.as_ref().and_then(|options| options.kickoff) == Some(true) {
+            self.retry_hidden = true;
+        }
         let body = self.deps.transcript.user_message(&input);
         self.start_run_with(input, body, op_ref, reply, prompt, false);
     }

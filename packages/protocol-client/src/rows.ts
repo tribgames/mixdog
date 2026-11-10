@@ -17,6 +17,9 @@ const FINISHED = new Set(['completed', 'failed', 'declined', 'interrupted']);
 
 /** The tool rows a live turn built (`ToolRun.live`): `mergeToolRows` reads this, and no row carries it. */
 const liveRows = new WeakSet<Obj>();
+/** The live tool rows whose card the turn's Stop ended (`meta.status` `interrupted`): their aggregate is finalized as cancelled
+ * (`finalizeOpenCards(…, { cancelled })`, tool-card-results.mjs:88-97). No row carries it. */
+const stoppedRows = new WeakSet<Obj>();
 
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -127,7 +130,10 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
     ...(finite(m.at) ? { at: m.at, startedAt: live && finite(run.startedAt) ? run.startedAt : m.at, ...(finished ? { completedAt } : {}) } : {}),
     ...present('callId', asObj(item.run).callId ?? ext.callId),
   };
-  if (asObj(item.run).live === true) liveRows.add(row);
+  // The core ends a live card as `interrupted` only with the abort's error result: a failed call whose card the Stop ended.
+  const stopped = live && m.status === 'interrupted';
+  if (live) liveRows.add(row);
+  if (stopped) stoppedRows.add(row);
   if (!finished) return row;
   const result = output ?? '';
   row.result = result;
@@ -137,7 +143,7 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   const cancelled = node.toolResultTerminalStatus(result) === 'cancelled';
   const { isCallError, isExitError } = cancelled
     ? { isCallError: false, isExitError: false }
-    : node.toolCallOutcome({ isError: failed || ext.isError === true, toolName: name }, result);
+    : node.toolCallOutcome({ isError: failed || stopped || ext.isError === true, toolName: name }, result);
   row.isError = isCallError;
   row.errorCount = isCallError ? 1 : 0;
   row.callErrorCount = isCallError ? 1 : 0;
@@ -326,6 +332,11 @@ function* aggregateRowSteps(members: readonly { item: Obj; category: string }[],
   }
   const doneCategories = yield* node.aggregateDoneCategoriesSteps(calls);
   const rawResult = yield* node.aggregateRawResultSteps(calls);
+  // `finalizeAggregateCard(…, { cancelled })` (aggregate-result.mjs:80-91): a card the Stop ended keeps the cancelled marker.
+  if (live && members.some((member) => stoppedRows.has(member.item))) {
+    const detail = node.withCancelledResultMarker((outcomePatch as Obj).result, outcomePatch as Obj);
+    Object.assign(outcomePatch as Obj, { result: detail, text: detail });
+  }
   return {
     kind: 'tool',
     id: first.id as Json,
