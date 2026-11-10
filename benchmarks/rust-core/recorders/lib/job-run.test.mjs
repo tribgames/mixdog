@@ -38,6 +38,25 @@ test('a process the program leaves running is left behind even when it ends by i
   assert.deepEqual(job.left.map((m) => m.pid), [bPid]);
 });
 
+test('a child the program ends through a job of its own, before it exits, is not left behind', async () => {
+  // As the core ends an extension worker (containment.rs: a job per worker, TerminateJobObject): the outer job is told of the
+  // child's join but not of its exit. PowerShell makes the nested job, puts a child in it, ends the job and waits for the child.
+  const nested = `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class N {
+    [DllImport("kernel32.dll")] public static extern IntPtr CreateJobObject(IntPtr a, string n);
+    [DllImport("kernel32.dll")] public static extern bool AssignProcessToJobObject(IntPtr j, IntPtr p);
+    [DllImport("kernel32.dll")] public static extern bool TerminateJobObject(IntPtr j, uint c); }';
+    $j = [N]::CreateJobObject([IntPtr]::Zero, $null);
+    $c = Start-Process -PassThru -WindowStyle Hidden -FilePath '${process.execPath}' -ArgumentList '-e','setTimeout(()=>{},60000)';
+    if (-not [N]::AssignProcessToJobObject($j, $c.Handle)) { exit 5 }
+    if (-not [N]::TerminateJobObject($j, 1)) { exit 6 }
+    $c.WaitForExit(); exit 0`;
+  const p = `const r = require('child_process').spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ${JSON.stringify(nested)}], { stdio: 'inherit' });
+    process.exit(r.status === 0 ? 0 : 10 + (r.status ?? 9));`;
+  const { job } = await run(p);
+  assert.equal(job.exitCode, 0);
+  assert.deepEqual(job.left, []);
+});
+
 test('a program whose children ended before it leaves nothing behind, and its exit code is reported', async () => {
   const child = PIPED('process.exit(0)');
   const p = `const c = require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: ['pipe', 'ignore', 'ignore'] });
