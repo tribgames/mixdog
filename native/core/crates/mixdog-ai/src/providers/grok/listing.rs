@@ -80,6 +80,21 @@ impl XaiEffortRule for SeedEffortRule {
     }
 }
 
+/// `_grokModelSupportsEffort(id, model)`: whether a model takes a reasoning effort; `declared` is whether its own
+/// roster row publishes effort values.
+pub(super) fn id_takes_effort(rule: &dyn XaiEffortRule, id: &str, declared: bool) -> bool {
+    let text = id.to_lowercase();
+    if text.is_empty() || NON_CHAT.is_match(&text) {
+        return false;
+    }
+    if declared {
+        return true;
+    }
+    if NON_REASONING.is_match(&text) || BUILD_FAMILY.is_match(&text) {
+        return false;
+    }
+    rule.takes_effort(&text)
+}
 pub struct GrokListing {
     http: Arc<dyn HttpSend>,
     credential: Arc<dyn Credential>,
@@ -134,17 +149,7 @@ impl GrokListing {
     /// Whether the model takes a reasoning effort; `declared` is whether its
     /// own roster row publishes effort values.
     fn takes_effort(&self, id: &str, declared: bool) -> bool {
-        let text = id.to_lowercase();
-        if text.is_empty() || NON_CHAT.is_match(&text) {
-            return false;
-        }
-        if declared {
-            return true;
-        }
-        if NON_REASONING.is_match(&text) || BUILD_FAMILY.is_match(&text) {
-            return false;
-        }
-        self.effort_rule.takes_effort(&text)
+        id_takes_effort(&*self.effort_rule, id, declared)
     }
 
     /// The efforts the picker offers (`_grokReasoningLevels`): none for a
