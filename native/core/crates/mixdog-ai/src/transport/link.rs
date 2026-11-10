@@ -411,6 +411,10 @@ struct DeadlineBody {
 
 #[async_trait]
 impl BodyStream for DeadlineBody {
+    fn hold_connection(&mut self) {
+        self.inner.hold_connection();
+    }
+
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         match tokio::time::timeout_at(self.until, self.inner.next()).await {
             Ok(item) => item,
