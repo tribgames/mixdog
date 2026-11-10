@@ -186,13 +186,18 @@ impl ProviderReadiness {
     fn startup_refresh(self: &Arc<Self>) -> Startup {
         #[cfg(any(test, feature = "test-support"))]
         self.reach(Point::StartupBeforeLock);
-        let mut refreshes = self.refreshes();
+        self.startup_refresh_in(&mut self.refreshes())
+    }
+
+    /// [`Self::startup_refresh`] with the refresh state locked by the caller, which may act on the refresh it gets in
+    /// the same critical section.
+    fn startup_refresh_in(self: &Arc<Self>, refreshes: &mut Refreshes) -> Startup {
         // Read under the lock that installs, so no caller installs an epoch older than one installed before it.
         let epoch = self.registry.catalog_refresh_epoch();
         if let Some(startup) = refreshes.startup.as_ref().filter(|s| s.epoch == epoch) {
             return startup.clone();
         }
-        self.arm_next_refresh(&mut refreshes);
+        self.arm_next_refresh(refreshes);
         refreshes.next_id += 1;
         let (catalog, registry) = (self.catalog.clone(), self.registry.clone());
         let task = mixdog_rt::spawn("catalog.startup-refresh", mixdog_rt::TaskClass::Work, async move {
@@ -300,8 +305,12 @@ impl ProviderReadiness {
     /// (`settle`); then, unless the runtime is closing, the model caches drop with the providers kept and the
     /// secrets-carrying re-warm starts.
     fn observe_startup_refresh(self: &Arc<Self>) {
-        let startup = self.startup_refresh();
+        #[cfg(any(test, feature = "test-support"))]
+        self.reach(Point::StartupBeforeLock);
         let mut refreshes = self.refreshes();
+        // Chosen and observed in one critical section (Node's one synchronous step): a caller overtaken between the
+        // two would observe a superseded refresh and hand it the pending flag of the newer one.
+        let startup = self.startup_refresh_in(&mut refreshes);
         if refreshes.observed == Some(startup.id) {
             return;
         }
