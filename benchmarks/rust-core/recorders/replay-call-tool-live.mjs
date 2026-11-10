@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // A built mixdogd driven for real against Node's recording (`native/core/fixtures/call-tool/golden.json`): a scripted OpenAI-chat
 // endpoint is the model (so the session is a bridge session) and plays a recorded scenario's script. It FAILS (exit 1) unless what a
-// client of the core can observe equals the recording, exactly: what the model was sent (every message whole, the system prompt
-// included, less NOT_ON_THE_WIRE) and the tools it was offered, the turn's answer, the approval cards, and the turn's completion. Every wait is on an event (the discovery file appearing,
+// client of the core can observe equals the recording, exactly: what the model was sent (every non-system message whole, less
+// NOT_ON_THE_WIRE) and the tools both sessions offer, the turn's answer, the approval cards, and the turn's completion. What the two
+// sessions do not share (the system prompt, the core thread's extra tools) is listed in NOT_SHARED with the tests that compare it. Every wait is on an event (the discovery file appearing,
 // a thread notification, the core's exit, an answer) under one deadline that names what did not happen.
 //   node benchmarks/rust-core/recorders/replay-call-tool-live.mjs <mixdogd.exe> [--only <scenario name fragment>]
 // It runs the recording's `live` scenarios: the ones that call a tool a built core has (the product's `goal`); the other scenarios
@@ -39,6 +40,31 @@ const NOT_ON_THE_WIRE = ['createdAt', 'toolKind', 'toolTiming', 'cacheTier', 'me
 // The tools each request carried, as Node's `onUsageDelta` `sendTools` lists them, less what a request's definition has no place for
 // (a registry document's `title`, `annotations`, `trigger`).
 const NOT_IN_A_DEFINITION = ['title', 'annotations', 'trigger'];
+
+// What the two sessions do not share, and so is not compared here. The recording's session is the recorder's `createSession` (with
+// `skipSkills`, the recorder's probe tools, model `fake-model`, a work folder holding x.txt, no workflow, orchestration or feature
+// denials), not a desktop task thread; the built core runs a desktop task thread. Where each is compared against Node instead:
+const NOT_SHARED = [
+  {
+    what: 'the system messages of every request',
+    why: "the session's own prompt: skills, workflow, orchestration, deferred tools, environment and the feature-gated rule blocks follow the session's inputs, and the two sessions' inputs differ",
+    comparedIn: [
+      'composition from the same inputs, lead sessions included (`sess_lead_a2`, `sess_home_lead`): mixdog-core run_host/prompt_session_tests.rs `creation_composes_the_blocks_and_fields_nodes_session_starts_with`, `every_step_of_a_session_leaves_the_system_messages_nodes_leave` (fixtures/prompt, record-prompt.mjs)',
+      'the feature gates that drop rule blocks and tools (visualize without a desktop bridge among them): mixdog-core run_host/workflow_surface/denials_tests.rs `the_feature_gates_equal_nodes`, `the_live_denials_equal_nodes` (fixtures/workflow-surface)',
+      "a desktop task thread's prompt composed end to end from its live inputs: no test",
+    ].join('; '),
+  },
+  {
+    what: "the tools only the core's thread offers: agent, web_search, Skill, ask_user",
+    why: "the recorder's session has no agent catalog, search, skills or ask_user; a desktop lead thread offers them",
+    comparedIn: [
+      'each definition: mixdog-tools fs/tests.rs `the_builtin_tools_are_nodes_definitions` and the other users of fixtures/tool-definitions (record-tool-definitions.mjs)',
+      "the request surface built from a session's tools: mixdog-agent boundary.rs `the_request_tools_adopt_changes_as_node_does`, mixdog-core run_host/context_world.rs `the_request_snapshot_follows_node` (fixtures/request-tools)",
+      'which tools a desktop lead thread is offered, end to end: no test',
+    ].join('; '),
+  },
+];
+const CORE_ONLY_TOOLS = ['agent', 'web_search', 'Skill', 'ask_user'];
 
 // The record less the listed paths (`a.b` reaches into a field); an object the removal empties goes with it.
 const without = (record, paths) => {
@@ -303,14 +329,25 @@ try {
       return threadNotes.find((n) => n.method === 'turn/completed' && n.params?.threadId === threadId) ?? null;
     }
   );
-  // ---- what the model was sent, request by request: every message whole (the system prompt included) less NOT_ON_THE_WIRE ----
-  const sent = requests.map((request) => request.messages.map(asRecorded).map((m) => without(m, NOT_ON_THE_WIRE)));
-  const want = recorded.requests.map((messages) => messages.map((m) => without(m, NOT_ON_THE_WIRE)));
+  // ---- what the model was sent, request by request: every non-system message whole less NOT_ON_THE_WIRE (system: NOT_SHARED) ----
+  const conversation = (messages) => messages.filter((m) => m.role !== 'system').map((m) => without(m, NOT_ON_THE_WIRE));
+  const sent = requests.map((request) => conversation(request.messages.map(asRecorded)));
+  const want = recorded.requests.map(conversation);
   if (!isDeepStrictEqual(sent, want)) failures.push(`what the model was sent differs from the recording: ${firstDifference(want, sent, 'requests')}`);
-  // ---- the tools each request carried: Node's `sendTools` of the request's `onUsageDelta`, less NOT_IN_A_DEFINITION ----
+  // Each request still carries the system prompt, ahead of the conversation, as Node's did.
+  for (const [n, request] of requests.entries()) {
+    const roles = request.messages.map((m) => m.role);
+    const leading = roles.findIndex((role) => role !== 'system');
+    if (leading < 1 || roles.slice(leading).includes('system')) failures.push(`request ${n}: the system messages are not the request's leading messages: ${roles.join(', ')}`);
+  }
+  // ---- the tools each request carried: every tool Node's request carried (`sendTools` of its `onUsageDelta`, less
+  // NOT_IN_A_DEFINITION), definition for definition and in Node's order; the core's thread may add only CORE_ONLY_TOOLS (NOT_SHARED) ----
   const sentTools = requests.map((request) => (request.tools ?? []).map(asSendTool));
   const wantTools = recorded.callbacks.filter((c) => c.ev === 'onUsageDelta').map((c) => c.args[0].sendTools.map((tool) => without(tool, NOT_IN_A_DEFINITION)));
-  if (!isDeepStrictEqual(sentTools, wantTools)) failures.push(`the tools the model was offered differ from the recording: ${firstDifference(wantTools, sentTools, 'tools')}`);
+  const shared = sentTools.map((tools) => tools.filter((tool) => !CORE_ONLY_TOOLS.includes(tool.name)));
+  if (!isDeepStrictEqual(shared, wantTools)) failures.push(`the tools both sessions offer differ from the recording: ${firstDifference(wantTools, shared, 'tools')}`);
+  const extra = [...new Set(sentTools.flat().map((tool) => tool.name).filter((name) => CORE_ONLY_TOOLS.includes(name)))];
+  if (!isDeepStrictEqual(extra, CORE_ONLY_TOOLS)) failures.push(`the core's thread was to offer exactly ${CORE_ONLY_TOOLS.join(', ')} beyond Node's, and offered ${extra.join(', ')}`);
   // ---- the answer: the turn's last assistant message, as the client's feed completes it ----
   const messages = threadNotes.filter((n) => n.method === 'item/completed' && n.params?.item?.type === 'agentMessage').map((n) => n.params.item);
   const answer = messages.at(-1)?.text ?? null;
