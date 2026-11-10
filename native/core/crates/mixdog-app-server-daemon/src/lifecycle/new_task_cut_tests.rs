@@ -1,6 +1,7 @@
 //! A stop request ends the new-task attempts first, as Node's quit does (the app's `/stop {force:true}` runs the daemon's `shutdown`
-//! without `drainDeferral`, `daemon.mjs:272`, `:533-536`), then drains the rest: a new task held in its draft step neither holds the
-//! release nor runs on, and it ends refused as Node's recording of a quit inside `setRoute` ends (`quit-in-set-route`).
+//! without `drainDeferral`, `daemon.mjs:272`, `:533-536`), then drains the rest: a new task held in its draft step has its call
+//! let go after the stop request (as the recording lets Node's go once the daemon answered it), stops before its next call and
+//! ends refused, as Node's recording of a quit inside `setRoute` ends (new-task-quit `quit-in-set-route`).
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -29,9 +30,10 @@ use super::testing::fixture;
 /// The bound of the test's whole body, in real time.
 const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// The draft's route adoption (Node's `setRoute`) is held on its first call and says when it is entered.
+/// The draft's route adoption (Node's `setRoute`) is held on its first call, says when it is entered and goes on when let go.
 struct HeldRoute {
     entered: Arc<tokio::sync::Notify>,
+    released: Arc<tokio::sync::Notify>,
     held: AtomicBool,
 }
 
@@ -40,7 +42,7 @@ impl NewThreadRoute for HeldRoute {
     async fn adopt(&self, _: &ThreadId, _: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
         if !self.held.swap(true, Ordering::SeqCst) {
             self.entered.notify_one();
-            std::future::pending::<()>().await;
+            self.released.notified().await;
         }
         Ok(Map::new())
     }
@@ -78,13 +80,18 @@ fn body(step: &Step) {
     let rig = Rig::new();
     rig.store.listed.store(true, Ordering::SeqCst);
     let entered = Arc::new(tokio::sync::Notify::new());
+    let released = Arc::new(tokio::sync::Notify::new());
     let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), held: AtomicBool::new(false) });
+    deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), released: released.clone(), held: AtomicBool::new(false) });
     let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
     let f = fixture();
+    // The stop request's cut; the held call is let go after it.
     *f.recorder.on_cut.lock().unwrap() = Some(Box::new({
         let directory = directory.clone();
-        move || directory.cut_new_tasks()
+        move || {
+            directory.cut_new_tasks();
+            released.notify_one();
+        }
     }));
     f.lifecycle.set_serving().expect("serving");
     let params = json!({
@@ -116,10 +123,10 @@ fn body(step: &Step) {
     at("the directory's shutdown");
     runtime.block_on(directory.shutdown());
     assert!(!caller.is_finished(), "the caller in flight got an answer at the stop");
-    // The receipt as Node's quit inside `setRoute` left it (golden.json `quit-in-set-route`), less its signature (the content's hash;
-    // the content here is the test's own).
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/golden.json")).expect("golden");
-    let recorded = golden["scenarios"]["quit-in-set-route"]["recorded"][0]["receipts"].as_object().expect("receipts").clone();
+    // The receipt as Node's quit inside `setRoute` left it (new-task-quit golden.json `quit-in-set-route`), less its signature (the
+    // content's hash; the content here is the test's own).
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-quit/golden.json")).expect("golden");
+    let recorded = golden["cases"]["quit-in-set-route"]["recorded"][0]["receipts"].as_object().expect("receipts").clone();
     let unsigned = |text: &str| {
         let mut receipt: Value = serde_json::from_str(text).expect("a receipt");
         receipt.as_object_mut().expect("object").remove("signature");

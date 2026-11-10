@@ -1077,6 +1077,20 @@ impl super::NewThreadRoute for NoRoute {
     }
 }
 
+/// The draft's settings, every call answered and none applied (no settings service behind it).
+pub struct NoDraftSettings;
+
+#[async_trait::async_trait]
+impl super::DraftSettings for NoDraftSettings {
+    async fn set_workflow(&self, _: &ThreadId, _: &str) -> Result<(), mixdog_core_api::CoreError> {
+        Ok(())
+    }
+
+    async fn set_orchestration_mode(&self, _: &ThreadId, _: &str) -> Result<(), mixdog_core_api::CoreError> {
+        Ok(())
+    }
+}
+
 /// A task workspace that is a fixed path (no folder is made).
 pub struct FixedTaskWorkspace(pub &'static str);
 
@@ -1709,6 +1723,7 @@ impl Rig {
             new_tools: Arc::new(KeepHeader),
             surface: mixdog_core_base::surface::SurfaceGeneration::default(),
             new_route: Arc::new(NoRoute),
+            draft_settings: Arc::new(NoDraftSettings),
             empty_surface: Arc::new(NoEmptySurface),
             task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
             new_place: Arc::new(RecordingPlace::default()),

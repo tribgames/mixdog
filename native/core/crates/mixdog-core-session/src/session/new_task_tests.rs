@@ -525,20 +525,25 @@ impl super::NewThreadPlace for HeldPlace {
     }
 }
 
-/// What Node recorded for a quit scenario (golden.json, `quit-*`): after the quit, the receipt and the sessions; after the retry,
-/// its address, the receipt and the sessions. A receipt is its file's JSON less `signature`, the hash of the content, which here is
-/// the test's own (the replay compares the content Node sent, signature included).
-fn recorded_quit(scenario: &str) -> Value {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/golden.json")).expect("golden");
-    let recorded = &golden["scenarios"][scenario]["recorded"];
+/// Node's recording of the app's quit (new-task-quit golden.json, with Node's real daemon): a case's steps.
+fn recorded_case(case: &str) -> Value {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-quit/golden.json")).expect("golden");
+    golden["cases"][case]["recorded"].clone()
+}
+
+/// What Node recorded for a quit case: after the quit, the receipt and the stored sessions; after the retry, its address, the receipt
+/// and the stored sessions. A receipt is its file's JSON less `signature`, the hash of the content, which here is the test's own (the
+/// replay compares the content Node sent, signature included).
+fn recorded_quit(case: &str) -> Value {
+    let recorded = recorded_case(case);
     let receipt = |step: &Value| {
         let files = step["receipts"].as_object().expect("the receipts");
         assert_eq!(files.len(), 1, "one receipt");
         unsigned(files.values().next().and_then(Value::as_str).expect("a receipt's text"))
     };
     json!({
-        "quit": { "receipt": receipt(&recorded[0]), "sessions": recorded[0]["sessions"] },
-        "retry": { "address": recorded[1]["reply"]["sessionId"], "receipt": receipt(&recorded[1]), "sessions": recorded[1]["sessions"] },
+        "quit": { "receipt": receipt(&recorded[0]), "stored": recorded[0]["stored"] },
+        "retry": { "address": recorded[1]["reply"]["sessionId"], "receipt": receipt(&recorded[1]), "stored": recorded[1]["stored"] },
     })
 }
 
@@ -564,16 +569,19 @@ impl Names {
     }
 }
 
-/// The core's state in the recording's terms: the receipt of `id` (less its signature, its address named) and every session among
-/// `addresses` as the replay reads one (`thread/items/list`, `threadNotFound` for one that is not there), with its user prompts and
-/// whether it is still only reserved (scenarios.mjs COMPARISON `recorded[].sessions`).
+/// The core's state in the recording's terms: the receipt of `id` (less its signature, its address named) and the stored sessions
+/// among `addresses` (Node's `<data>/sessions/<id>.log.jsonl`, listed by id), each read as the replay reads one (`thread/items/list`,
+/// `threadNotFound` for one that is not there).
 async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &mut Names, addresses: &[String]) -> (Value, Value) {
     let mut receipt = unsigned(&String::from_utf8(std::fs::read(receipt_path(rig, id)).expect("the receipt")).expect("text"));
     let address = receipt["sessionId"].as_str().expect("an address").to_owned();
     receipt["sessionId"] = Value::String(names.of(id, &address));
-    let mut sessions = serde_json::Map::new();
+    let mut stored = Vec::new();
     let deleted = rig.deletes.0.lock().unwrap().clone();
-    for address in addresses {
+    let mut addresses = addresses.to_vec();
+    addresses.sort();
+    addresses.dedup();
+    for address in &addresses {
         // A deleted session's files are purged with its delete (`delete.rs` `remove`); the test store keeps its rows, so the delete is read.
         if deleted.contains(&format!("thread/deleted:{address}")) {
             continue;
@@ -586,23 +594,21 @@ async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &m
                 ctx: CallContext::internal("test"),
             })
             .await;
-        let items = match listed {
-            Ok(Reply::Value(items)) => items,
+        match listed {
+            Ok(Reply::Value(_)) => stored.push(Value::String(names.of(id, address))),
             Err(CoreError::ThreadNotFound { .. }) => continue,
             other => panic!("thread/items/list of {address}: {:?}", other.map(|_| ())),
-        };
-        let prompts = items["data"].as_array().expect("items").iter().filter(|item| item["type"] == "userMessage").count();
-        sessions.insert(names.of(id, address), json!({ "prompts": prompts, "reserved": prompts == 0 }));
+        }
     }
-    (receipt, Value::Object(sessions))
+    (receipt, Value::Array(stored))
 }
 
-/// A quit while the attempt awaits a call of its draft step (`quit-in-set-route`: the draft's route, which the core adopts inside its
-/// creation call; `quit-in-request-worktree`: the draft's worktree): the call is held, the directory shuts down, and the receipt, the
-/// sessions and the retry after the restart are what Node recorded: refused on a fresh address (session-host-lifecycle.ts:955, the
-/// call failing inside the `try` while unsent), no session left, and the retry's task on that address with its one prompt. The caller in
-/// flight gets no answer.
-async fn quit_inside(step: Steps, scenario: &str, id: &str, draft: fn() -> Value, held: impl FnOnce(&mut super::SessionDeps, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>)) {
+/// The app's quit while the attempt awaits a call of its draft step (`quit-in-set-route`: the draft's route, which the core adopts
+/// inside its creation call; `quit-in-request-worktree`: the draft's worktree): the call is held, the stop request cuts the attempts,
+/// the held call is let go (as the recording lets Node's go once the daemon answered the stop request), and the directory shuts down.
+/// The attempt is refused on a fresh address (session-host-lifecycle.ts:955: the next call fails inside the `try` while unsent), and
+/// the sessions stored are Node's. The caller in flight gets no answer. Returns the directory over the same store after a restart.
+async fn quit_inside(step: &Steps, case: &str, id: &str, draft: fn() -> Value, held: impl FnOnce(&mut super::SessionDeps, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>)) -> (Rig, Arc<AtomicUsize>, Names, Vec<String>) {
     let rig = Rig::new();
     // The index lists a written record (its summary), which the discard of an unclaimed one reads as the store does.
     rig.store.listed.store(true, Ordering::SeqCst);
@@ -618,44 +624,103 @@ async fn quit_inside(step: Steps, scenario: &str, id: &str, draft: fn() -> Value
         () = entered.notified() => {}
         answered = &mut caller => panic!("answered while held: {answered:?}"),
     }
-    step.at("the directory's shutdown");
-    directory.shutdown().await;
+    step.at("the stop request's cut, the held call let go and the directory's shutdown");
+    directory.cut_new_tasks();
     release.add_permits(1);
+    directory.shutdown().await;
     let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
     assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
-    let node = recorded_quit(scenario);
+    let node = recorded_quit(case);
     let mut names = Names::default();
     let fresh = stored(&rig, id).expect("receipt").session_id().to_owned();
-    let addresses = [derived(id), fresh];
+    let addresses = vec![derived(id), fresh];
     let (receipt, sessions) = core_state(&rig, &directory, id, &mut names, &addresses).await;
-    assert_eq!(json!({ "receipt": receipt, "sessions": sessions }), node["quit"], "after the quit");
-    let (restarted, _) = directory_over(&rig);
-    step.at("the retry's answer after the restart");
-    let retry = submit(&restarted, "op-2", id, "write the report", draft()).await.expect("retry");
-    let address = names.of(id, &retry);
-    let (receipt, sessions) = core_state(&rig, &restarted, id, &mut names, &addresses).await;
-    assert_eq!(json!({ "address": address, "receipt": receipt, "sessions": sessions }), node["retry"], "after the retry");
-    assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+    assert_eq!(json!({ "receipt": receipt, "stored": sessions }), node["quit"], "after the quit");
+    (rig, runs, names, addresses)
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded() {
     whole("a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded", |step| async move {
-        quit_inside(step, "quit-in-set-route", "s-quit-route", REFUSED_ROUTE, |deps, entered, release| {
+        let id = "s-quit-route";
+        let (rig, runs, mut names, addresses) = quit_inside(&step, "quit-in-set-route", id, REFUSED_ROUTE, |deps, entered, release| {
             deps.new_route = Arc::new(HeldRoute { entered, release, held: false.into() });
+        })
+        .await;
+        let (restarted, _) = directory_over(&rig);
+        step.at("the retry's answer after the restart");
+        let retry = submit(&restarted, "op-2", id, "write the report", REFUSED_ROUTE()).await.expect("retry");
+        let address = names.of(id, &retry);
+        let (receipt, sessions) = core_state(&rig, &restarted, id, &mut names, &addresses).await;
+        assert_eq!(json!({ "address": address, "receipt": receipt, "stored": sessions }), recorded_quit("quit-in-set-route")["retry"], "after the retry");
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+    })
+    .await;
+}
+
+/// The worktree's call runs to its end (Node's `requestWorktree` binds and stores the session, recorded: the derived address is stored
+/// after the quit). The retry's refusal (`WORKTREE_REVISION_CONFLICT` for the transaction the stored session's worktree holds) is the
+/// worktree manager's (mixdog-scm `a_transaction_of_another_session_is_refused`) and the replay's.
+#[tokio::test(start_paused = true)]
+async fn a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded() {
+    whole("a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded", |step| async move {
+        quit_inside(&step, "quit-in-request-worktree", "s-quit-worktree", || json!({ "route": { "provider": "p", "model": "m" }, "worktree": {} }), |deps, entered, release| {
+            deps.new_place = Arc::new(HeldPlace { entered, release, held: false.into() });
         })
         .await;
     })
     .await;
 }
 
+/// The draft settings as the attempt applies them: what it asked of the workflow and mode service, in order.
+#[derive(Default)]
+struct RecordingSettings(std::sync::Mutex<Vec<(String, String)>>);
+
+#[async_trait::async_trait]
+impl super::DraftSettings for RecordingSettings {
+    async fn set_workflow(&self, _: &mixdog_core_api::ids::ThreadId, workflow_id: &str) -> Result<(), CoreError> {
+        self.0.lock().unwrap().push(("workflow".into(), workflow_id.into()));
+        // The built-in packs (src/workflows: default, headless); any other id is Node's `workflow "<id>" not found`.
+        if ["default", "headless"].contains(&workflow_id) {
+            Ok(())
+        } else {
+            Err(mixdog_core_base::support::failed("workflow", format!("workflow \"{workflow_id}\" not found")))
+        }
+    }
+
+    async fn set_orchestration_mode(&self, _: &mixdog_core_api::ids::ThreadId, mode: &str) -> Result<(), CoreError> {
+        self.0.lock().unwrap().push(("mode".into(), mode.into()));
+        Ok(())
+    }
+}
+
+/// The draft's workflow and orchestration mode are applied before its route (`configureDraft`, :765-779); a workflow that is not
+/// there falls back to `default` (:770-772). The workflow and mode the task ends with are Node's (new-task-quit `draft-settings`,
+/// `draft-missing-workflow`: `settings`, the snapshot of the accepted answer).
 #[tokio::test(start_paused = true)]
-async fn a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded() {
-    whole("a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded", |step| async move {
-        quit_inside(step, "quit-in-request-worktree", "s-quit-worktree", || json!({ "worktree": { "fromDefault": true } }), |deps, entered, release| {
-            deps.new_place = Arc::new(HeldPlace { entered, release, held: false.into() });
-        })
-        .await;
+async fn the_drafts_workflow_and_mode_are_applied_as_node_applies_them() {
+    whole("the_drafts_workflow_and_mode_are_applied_as_node_applies_them", |step| async move {
+        for (case, id, draft) in [
+            ("draft-settings", "s-settings", json!({ "workflowId": "headless", "orchestrationMode": "focused", "route": { "provider": "p", "model": "m" } })),
+            ("draft-missing-workflow", "s-missing-workflow", json!({ "workflowId": "gone", "orchestrationMode": "balanced", "route": { "provider": "p", "model": "m" } })),
+        ] {
+            let rig = Rig::new();
+            let _runs = counting(&rig);
+            let settings = Arc::new(RecordingSettings::default());
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.draft_settings = settings.clone();
+            let directory = SessionDirectory::new(Arc::new(deps));
+            step.at("the task's answer");
+            submit(&directory, "op-1", id, "write the report", draft).await.expect("accepted");
+            let asked = settings.0.lock().unwrap().clone();
+            let last = |kind: &str| asked.iter().rev().find(|(of, _)| of == kind).map(|(_, value)| value.clone());
+            let node = &recorded_case(case)[0]["settings"];
+            assert_eq!(
+                json!({ "workflow": last("workflow"), "orchestrationMode": last("mode") }),
+                json!({ "workflow": node["workflow"]["id"], "orchestrationMode": node["orchestrationMode"] }),
+                "{case}"
+            );
+        }
     })
     .await;
 }

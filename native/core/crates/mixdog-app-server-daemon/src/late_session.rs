@@ -648,6 +648,52 @@ impl Bound for LateNewPlace {
     }
 }
 
+/// `SessionDeps.draft_settings`: the new task's draft workflow and orchestration mode, applied through the `thread/setWorkflow` and
+/// `thread/setOrchestrationMode` service registered after the directory. Bound with it; `verify_bound` makes an unbound start unreachable.
+#[derive(Default)]
+pub struct LateDraftSettings(OnceLock<Arc<dyn mixdog_core_api::DomainService>>);
+
+impl LateDraftSettings {
+    pub fn bind(&self, service: Arc<dyn mixdog_core_api::DomainService>) -> Result<(), &'static str> {
+        self.0.set(service).map_err(|_| "draft settings")
+    }
+
+    /// The method as the host's `invokeSession` calls it: the thread and the one argument, no options.
+    async fn call(&self, method: &'static str, params: Value) -> Result<(), mixdog_core_api::CoreError> {
+        let service = self.0.get().expect("draft settings bound (compose::verify_bound)");
+        service
+            .call(mixdog_core_api::call::CoreRequest {
+                method: mixdog_core_api::ids::Method(method),
+                params,
+                op: None,
+                ctx: mixdog_core_api::call::CallContext::internal("draft"),
+            })
+            .await
+            .map(|_| ())
+    }
+}
+
+#[async_trait]
+impl mixdog_core_session::session::DraftSettings for LateDraftSettings {
+    async fn set_workflow(&self, thread: &ThreadId, workflow_id: &str) -> Result<(), mixdog_core_api::CoreError> {
+        self.call("thread/setWorkflow", serde_json::json!({ "threadId": thread, "workflowId": workflow_id })).await
+    }
+
+    async fn set_orchestration_mode(&self, thread: &ThreadId, mode: &str) -> Result<(), mixdog_core_api::CoreError> {
+        self.call("thread/setOrchestrationMode", serde_json::json!({ "threadId": thread, "mode": mode })).await
+    }
+}
+
+impl Bound for LateDraftSettings {
+    fn cell(&self) -> &'static str {
+        "draft settings"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 /// `SessionDeps.agent_status`: the agent tool's status rows (`AgentToolStatus`), which need the session directory the deps build. Bound once the directory, the agent registry and the
 /// shell jobs exist; `verify_bound` makes an unbound read unreachable.
 #[derive(Default)]
