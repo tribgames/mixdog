@@ -141,7 +141,7 @@ impl World {
                 notified.await;
             }
         };
-        awaiting("the thread/promptRestore frame", wait).await
+        awaiting(|| format!("the thread/promptRestore frame (frames seen: {:?})", self.prompt_restores()), wait).await
     }
 
     /// The `thread/promptRestore` state frames the thread published, oldest first.
