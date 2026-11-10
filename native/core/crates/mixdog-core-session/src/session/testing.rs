@@ -1661,6 +1661,52 @@ impl mixdog_agent::compact::pressure::ImageIdentities for TextOnly {
     }
 }
 
+/// How long a wait for a signal may last before the wait is the test's failure. It is measured on the machine's clock, never the
+/// runtime's: a paused runtime clock moves only when the test advances it (or by itself when the runtime is idle, which is not
+/// time passing for the awaited work), so a deadline on it would say nothing about the signal. A wait ends on its signal; this is
+/// only the failure path of a signal that never comes, so it is never what makes a test pass.
+const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A running deadline: a thread that reports `DEADLINE` of the machine's time after it started, and ends at once when the
+/// wait that started it is over.
+struct Deadline {
+    fired: tokio::sync::oneshot::Receiver<()>,
+    _over: std::sync::mpsc::Sender<()>,
+}
+
+impl Deadline {
+    fn start() -> Self {
+        let (over, ended) = std::sync::mpsc::channel::<()>();
+        let (fire, fired) = tokio::sync::oneshot::channel();
+        // A blocking task, not a bare thread: while one runs, a paused runtime does not advance its clock by itself, so the wait
+        // cannot be made true by a timer nobody advanced to.
+        #[allow(clippy::disallowed_methods, reason = "test setup")]
+        tokio::task::spawn_blocking(move || {
+            if ended.recv_timeout(DEADLINE) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                let _ = fire.send(());
+            }
+        });
+        Self { fired, _over: over }
+    }
+
+    async fn expired(&mut self) {
+        match (&mut self.fired).await {
+            Ok(()) => {}
+            Err(_) => std::future::pending().await,
+        }
+    }
+}
+
+/// Awaits `wait`, failing by assertion naming `what` if it has not ended by the deadline.
+pub async fn awaiting<T>(what: &str, wait: impl Future<Output = T>) -> T {
+    let mut deadline = Deadline::start();
+    tokio::select! {
+        biased;
+        value = wait => value,
+        () = deadline.expired() => panic!("timed out after {DEADLINE:?} waiting for {what}"),
+    }
+}
+
 /// The pricing of a rig: no catalog, so every request is unpriced.
 struct NoPricing;
 

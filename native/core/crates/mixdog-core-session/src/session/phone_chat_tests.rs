@@ -23,6 +23,7 @@ use super::SessionDirectory;
 use super::handle::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
+use super::testing::awaiting;
 use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::rows;
@@ -83,14 +84,24 @@ async fn running_on_records(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>)
     (directory, handle)
 }
 
-/// A wait on an event (`eventually_on`: the signal of the state its probe reads) under one deadline, with a message naming what was
-/// awaited. The deadline is a failure path only: on the paused clock it is reached when no task can make progress any more, never
-/// while the producer still runs, so a slow producer is not a failure and no round, yield or advance of the clock is needed.
-async fn awaited<T>(what: impl FnOnce() -> String, wait: impl std::future::Future<Output = T>) -> T {
-    match tokio::time::timeout(std::time::Duration::from_secs(60), wait).await {
-        Ok(found) => found,
-        Err(_) => panic!("{}: never happened", what()),
-    }
+
+/// A wait whose condition is withheld fails at the real deadline with its message, and the paused clock has not moved: a pending
+/// 16 ms timer (the actor's status settling) is not fired by the wait.
+#[tokio::test(start_paused = true)]
+async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouched() {
+    let timer_fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = timer_fired.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    let wake = tokio::sync::Notify::new();
+    let started = tokio::time::Instant::now();
+    let failed = tokio::spawn(async move { awaiting("the withheld thing", eventually_on(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
+    let message = failed.into_panic().downcast::<String>().map(|text| *text).unwrap_or_default();
+    assert!(message.contains("waiting for the withheld thing"), "{message}");
+    assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
+    assert!(!timer_fired.load(std::sync::atomic::Ordering::SeqCst), "the 16 ms timer was not fired by the wait");
 }
 
 fn prompt_restores(rig: &Rig, handle: &SessionHandle) -> Vec<Value> {
@@ -126,8 +137,8 @@ async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_r
     let reply = stop(&handle, 2, None).await;
     assert_eq!((reply["aborted"].clone(), reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
     eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
-    let restores = awaited(
-        || "the prompt restore frame".to_owned(),
+    let restores = awaiting(
+        "the prompt restore frame",
         eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
     )
     .await;
@@ -607,7 +618,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         }
         if notification {
             // The call returned once the notice was in the thread's inbox; the actor puts it on the queue in a step, which signals `stepped`.
-            awaited(|| format!("{name}: the channel notification on the thread's queue (held entries: {})", handle.cell.queue.load().len()), eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(()))).await;
+            awaiting(&format!("{name}: the channel notification on the thread's queue"), eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(()))).await;
         }
         let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
         let node = &case["after"];
@@ -615,8 +626,8 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
         let (mut rust_labels, mut node_labels) = (Labels::default(), Labels::default());
         let want_frames: Vec<(String, Value)> = node_frames(node["publications"].as_array().unwrap(), at, clock).into_iter().map(|(method, params)| (method, renumber(&params, &mut node_labels))).collect();
-        awaited(
-            || format!("{name}: the {} frames Node published (Rust's so far: {:?})", want_frames.len(), since()),
+        awaiting(
+            &format!("{name}: the {} frames Node published", want_frames.len()),
             eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())),
         )
         .await;
