@@ -29,10 +29,16 @@ use super::RefreshOutcome;
 use super::store::Ask;
 use super::store::CatalogSnapshot;
 
+/// `reg().getAllProviders()`: the registered providers by name, as they are when it is called.
+type RegisteredProviders = Box<dyn Fn() -> Vec<(ProviderId, Arc<dyn ProviderAdapter>)> + Send + Sync>;
+
 pub struct CatalogService {
     catalog: Arc<ProviderCatalog>,
-    /// The listings a refresh asks: the registered providers' (`set_sources`).
+    /// The listings a refresh asks when no registry is bound: the construction's (or `set_sources`).
     sources: ArcSwap<Vec<ModelSource>>,
+    /// `reg().getAllProviders()`, bound by the readiness that owns the registry: the live registered providers, read
+    /// when a refresh starts, in place of `sources`.
+    registered: arc_swap::ArcSwapOption<RegisteredProviders>,
     metadata: Arc<ModelsDevSource>,
     /// The live-roster files, read from the data directory on every lookup.
     pub(super) rosters: ArcSwap<Rosters>,
@@ -78,6 +84,7 @@ impl CatalogService {
         let service = Self {
             catalog,
             sources: ArcSwap::from_pointee(sources),
+            registered: arc_swap::ArcSwapOption::empty(),
             metadata,
             rosters: ArcSwap::from_pointee(Rosters::default()),
             litellm: None,
@@ -112,6 +119,25 @@ impl CatalogService {
     /// Binds `reg().getProvider(name)`: the registered providers as the route-meta memo asks about them.
     pub fn bind_providers(&self, providers: RouteProviders) {
         self.providers.store(Some(Arc::new(providers)));
+    }
+
+    /// Binds `reg().getAllProviders()`: the providers registered at the moment it is called. Every refresh asks these from
+    /// then on, read when it starts, as Node's refreshes walk the live registry (registry.mjs:617, 708, 729, 762) and its
+    /// catalog load lists it (`sharedProviderCatalog(reg())`): a provider removed since is not asked, one added is.
+    pub fn bind_registered(&self, registered: impl Fn() -> Vec<(ProviderId, Arc<dyn ProviderAdapter>)> + Send + Sync + 'static) {
+        let registered: RegisteredProviders = Box::new(registered);
+        self.registered.store(Some(Arc::new(registered)));
+    }
+
+    /// The listings a refresh starting now asks: the registered providers when a registry is bound, else the
+    /// construction's list.
+    pub fn sources(&self) -> Arc<Vec<ModelSource>> {
+        match self.registered.load().as_ref() {
+            Some(registered) => Arc::new(
+                registered().into_iter().filter_map(|(provider, adapter)| self.model_source(provider, adapter)).collect(),
+            ),
+            None => self.sources.load_full(),
+        }
     }
 
     /// Binds `scheduleProviderModelWarmup`: what a non-fetching route-meta miss asks the provider-models cache to do (load
@@ -302,9 +328,7 @@ impl CatalogService {
         self.catalog.snapshot()
     }
 
-    /// Replaces the listings a refresh asks. Node's catalog load walks the providers the registry
-    /// holds (`sharedProviderCatalog(reg())`), so the readiness hands over the registered ones
-    /// after each initialization.
+    /// Replaces the listings a refresh asks while no registry is bound ([`Self::bind_registered`]).
     pub fn set_sources(&self, sources: Vec<ModelSource>) {
         self.sources.store(Arc::new(sources));
     }
@@ -312,14 +336,20 @@ impl CatalogService {
     /// One refresh: model listings and models.dev (fetched only when its
     /// cache is stale or a retry is due), published as one snapshot.
     pub async fn refresh(&self) -> RefreshOutcome {
-        self.refresh_asking(Ask::All).await
+        self.refresh_asking(Ask::All, None).await
+    }
+
+    /// [`Self::refresh`] asking `sources`, the providers read when the refresh began (`refreshCatalogs` walks the
+    /// registry once, before its listings wait for the metadata, registry.mjs:762-766).
+    pub async fn refresh_of(&self, sources: Arc<Vec<ModelSource>>) -> RefreshOutcome {
+        self.refresh_asking(Ask::All, Some(sources)).await
     }
 
     /// A non-forced refresh: asks only the providers that are due (never
     /// listed, or failed with their backoff passed), or every provider once the registry's catalog revision moved
     /// since the last full listing began (`sharedProviderCatalog` keys its answer by `catalogRevision(reg())`).
     pub async fn refresh_due(&self) -> RefreshOutcome {
-        self.refresh_asking(Ask::Due).await
+        self.refresh_asking(Ask::Due, None).await
     }
 
     /// A provider-scoped forced refresh (`catalog-load.mjs` `prepare`, `forceRefresh && provider`):
@@ -328,7 +358,7 @@ impl CatalogService {
     /// provider keeps what it loaded.
     pub async fn refresh_matching(&self, wanted: &str) -> RefreshOutcome {
         let only: Vec<ModelSource> = {
-            let sources = self.sources.load_full();
+            let sources = self.sources();
             let ids: Vec<&str> = sources.iter().map(|s| s.provider().as_str()).collect();
             let names = matching_providers(&ids, wanted);
             sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().collect()
@@ -338,10 +368,10 @@ impl CatalogService {
         outcome
     }
 
-    /// `refreshProviderCatalogsOnStartup`'s listing: every registered provider asked again, no metadata table.
-    pub async fn refresh_providers(&self) -> RefreshOutcome {
-        let sources = self.sources.load_full();
-        self.catalog.refresh_asking(&sources, Ask::All).await
+    /// `refreshProviderCatalogsOnStartup`'s listing: `sources`, the providers registered when the refresh began
+    /// (registry.mjs:708), asked again, no metadata table.
+    pub async fn refresh_providers(&self, sources: &[ModelSource]) -> RefreshOutcome {
+        self.catalog.refresh_whole(sources, Ask::All).await
     }
 
     /// `warmCatalogsInBackground`'s loads: the LiteLLM and models.dev tables (fetched only when stale or a retry is due),
@@ -362,7 +392,9 @@ impl CatalogService {
         self.catalog.invalidate_accounts();
     }
 
-    async fn refresh_asking(&self, ask: Ask) -> RefreshOutcome {
+    /// `sources`: the providers the caller read when its refresh began; `None` reads them now.
+    async fn refresh_asking(&self, ask: Ask, sources: Option<Arc<Vec<ModelSource>>>) -> RefreshOutcome {
+        let sources = sources.unwrap_or_else(|| self.sources());
         let revision = self.catalog_revision();
         let ask = {
             let mut listed = self.listed_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -375,9 +407,8 @@ impl CatalogService {
                 source.load(false).await;
             }
         };
-        let sources = self.sources.load_full();
         let (outcome, _, ()) = futures::future::join3(
-            self.catalog.refresh_asking(&sources, ask),
+            self.catalog.refresh_whole(&sources, ask),
             self.metadata.load(false),
             litellm,
         )

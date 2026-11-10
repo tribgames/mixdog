@@ -192,6 +192,9 @@ struct Listed {
     /// Each listing with the instant it ended (`now_ms`): a failure's backoff
     /// runs from there, not from when the whole refresh publishes.
     entries: Vec<(ProviderId, Listing, u64)>,
+    /// For a listing of the whole catalog, its providers: the published snapshot holds only these, as Node's catalog
+    /// is one entry per provider registered when its load began (`sharedProviderCatalog`).
+    whole: Option<Vec<ProviderId>>,
 }
 
 pub struct ProviderCatalog {
@@ -340,6 +343,14 @@ impl ProviderCatalog {
         self.publish(listed)
     }
 
+    /// [`refresh_asking`](Self::refresh_asking) of the whole catalog: `sources` are every provider it has, so the
+    /// models and status of any other (one removed from the registry since) leave the published snapshot.
+    pub async fn refresh_whole(&self, sources: &[ModelSource], ask: Ask) -> RefreshOutcome {
+        let mut listed = self.list_all(sources, ask).await;
+        listed.whole = Some(sources.iter().map(|s| s.provider().clone()).collect());
+        self.publish(listed)
+    }
+
     /// Lists the providers `ask` selects, concurrently. A provider not asked
     /// is absent from the result and keeps its models and status.
     async fn list_all(&self, sources: &[ModelSource], ask: Ask) -> Listed {
@@ -368,7 +379,7 @@ impl ProviderCatalog {
             (s.provider().clone(), listing, (self.now_ms)())
         }))
         .await;
-        Listed { epoch, entries }
+        Listed { epoch, entries, whole: None }
     }
 
     fn publish(&self, listed: Listed) -> RefreshOutcome {
@@ -413,6 +424,10 @@ impl ProviderCatalog {
                     models.insert(provider.clone(), list.clone());
                 }
                 status.insert(provider.clone(), state.clone());
+            }
+            if let Some(whole) = &listed.whole {
+                models.retain(|provider, _| whole.contains(provider));
+                status.retain(|provider, _| whole.contains(provider));
             }
             Arc::new(CatalogSnapshot {
                 generation: current.generation + 1,
