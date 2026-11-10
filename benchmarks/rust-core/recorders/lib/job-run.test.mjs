@@ -50,7 +50,7 @@ test('a child the program ends through a job of its own, before it exits, is not
     if (-not [N]::AssignProcessToJobObject($j, $c.Handle)) { exit 5 }
     if (-not [N]::TerminateJobObject($j, 1)) { exit 6 }
     $c.WaitForExit(); exit 0`;
-  const p = `const r = require('child_process').spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ${JSON.stringify(nested)}], { stdio: 'inherit' });
+  const p = `const r = require('child_process').spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ${JSON.stringify(nested)}], { stdio: 'inherit', timeout: 60000 });
     process.exit(r.status === 0 ? 0 : 10 + (r.status ?? 9));`;
   const { job } = await run(p);
   assert.equal(job.exitCode, 0);
