@@ -555,7 +555,12 @@ impl OpenAiAdapter {
             // The upgrade answer's headers are not read for a turn state: Node takes it from the response's events
             // alone (`openai-ws-stream/socket-handlers.mjs:93`, `_captureTurnStateFromEvent`).
             drop(upgrade);
-            checkout.attach(socket);
+            if !checkout.attach(socket) {
+                // `_bindPoolOwner` throws this from the acquire; no request was sent.
+                let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+                error.message = "OpenAI OAuth WS ownership changed during acquire".into();
+                return Err(error);
+            }
         }
         let chain = if self.mode.delta() { checkout.chain.clone() } else { Chain::default() };
         let framed = delta::compute(&chain, &body);
@@ -1133,7 +1138,7 @@ mod tests {
                         // Two sockets live under one key at once here, as Node's recording has them: the checkouts do
                         // not take the session's ownership (that would hold the second back until the first closed).
                         let mut checkout = pool.checkout(pool_key, &compat, true, true).await;
-                        checkout.attach(Box::new(Held));
+                        assert!(checkout.attach(Box::new(Held)));
                         sockets.insert(n, (checkout, String::new()));
                     }
                     let (checkout, last) = sockets.get_mut(&n).unwrap();

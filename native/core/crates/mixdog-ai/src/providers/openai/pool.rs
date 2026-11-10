@@ -315,11 +315,23 @@ impl Checkout {
         &self.key
     }
 
-    /// The socket a dial opened for this checkout, numbered as the owner of its turn state.
-    pub fn attach(&mut self, socket: Box<dyn WsSocket>) {
+    /// The socket a dial opened for this checkout, numbered as the owner of its turn state. `false` when the session's
+    /// ownership left this checkout while it dialed (its scope was disposed): the socket is closed with Node's code and
+    /// reason and the checkout holds none (`_bindPoolOwner`: `socket.close(1000, 'pool_owner_changed')`, then throws).
+    #[must_use]
+    pub fn attach(&mut self, socket: Box<dyn WsSocket>) -> bool {
         self.owner = self.pool.number();
-        self.pool.state().leases.insert(self.id, Lease { key: self.key.clone(), closer: socket.closer(), revoked: false });
+        let mut state = self.pool.state();
+        if self.owns && state.owners.get(&self.key) != Some(&self.id) {
+            drop(state);
+            self.owns = false;
+            self.pool.retire(&self.key, self.owner, None, socket, Some((1000, "pool_owner_changed")));
+            return false;
+        }
+        state.leases.insert(self.id, Lease { key: self.key.clone(), closer: socket.closer(), revoked: false });
+        drop(state);
         self.socket = Some(socket);
+        true
     }
 
     /// The session's ownership this checkout holds, if it still holds it; it is handed on once.
@@ -352,18 +364,21 @@ impl Checkout {
     /// poolable, handing the session on; one that is not is let go of, and one whose scope was disposed meanwhile is
     /// already closing: it is never parked.
     pub fn finish(mut self, chain: Chain) {
-        self.pool.state().failures.remove(&self.key);
+        // One hold of the pool from the disposal check to the parking: a disposal lands before it (the socket is not
+        // parked) or after it (the socket is parked, and the disposal closes it with the idle ones).
+        let mut state = self.pool.state();
+        state.failures.remove(&self.key);
         if self.socket.is_none() {
             return;
         }
-        let revoked = self.pool.state().leases.get(&self.id).is_some_and(|lease| lease.revoked);
+        let revoked = state.leases.get(&self.id).is_some_and(|lease| lease.revoked);
         if !self.pooled || revoked {
+            drop(state);
             self.retire_socket(None);
             return;
         }
         let socket = self.socket.take().expect("checked above");
         let chain = if self.shared { Chain::default() } else { chain };
-        let mut state = self.pool.state();
         state.leases.remove(&self.id);
         state.released += 1;
         let released = state.released;
@@ -422,7 +437,7 @@ mod tests {
         let pool = Arc::new(WsPool::default());
         let compat = Compat::new("route", "identity", "cache");
         let mut held = pool.checkout("scope-a", &compat, false, false).await;
-        held.attach(Box::new(WsConnection::client_over(near).await));
+        assert!(held.attach(Box::new(WsConnection::client_over(near).await)));
         pool.release_scope("scope-a", "transport_scope_disposed");
         let mut head = [0u8; 6];
         tokio::time::timeout(WITHIN, far.read_exact(&mut head)).await.expect("a close frame within 20 s").unwrap();
@@ -436,5 +451,30 @@ mod tests {
         drop(next);
         held.finish(Chain::default());
         assert_eq!(pool.parked("scope-a"), 0, "a socket its scope's disposal closed is never parked");
+    }
+
+    // A scope disposed while its checkout was still dialing: the socket the dial then brings is closed with Node's
+    // code and reason and never held or parked (`_bindPoolOwner`), whether or not another checkout took the session.
+    #[tokio::test]
+    async fn a_socket_dialed_across_its_scopes_disposal_is_closed_and_not_held() {
+        mixdog_rt::testing::tokens();
+        let (near, mut far) = tokio::io::duplex(1 << 12);
+        let pool = Arc::new(WsPool::default());
+        let compat = Compat::new("route", "identity", "cache");
+        let mut dialing = pool.checkout("scope-a", &compat, false, false).await;
+        pool.release_scope("scope-a", "transport_scope_disposed");
+        assert!(!dialing.attach(Box::new(WsConnection::client_over(near).await)), "the session's ownership left this checkout");
+        assert!(dialing.socket.is_none());
+        let mut head = [0u8; 6];
+        tokio::time::timeout(WITHIN, far.read_exact(&mut head)).await.expect("a close frame within 20 s").unwrap();
+        let reason = b"pool_owner_changed";
+        assert_eq!(head[..2], [0x88, 0x80 | (2 + reason.len() as u8)], "a masked close frame: {head:02x?}");
+        let mut payload = vec![0u8; 2 + reason.len()];
+        tokio::time::timeout(WITHIN, far.read_exact(&mut payload)).await.expect("the close payload within 20 s").unwrap();
+        payload.iter_mut().enumerate().for_each(|(i, b)| *b ^= head[2 + i % 4]);
+        assert_eq!(payload, [&[0x03, 0xe8][..], reason].concat(), "1000 pool_owner_changed");
+        dialing.finish(Chain::default());
+        assert_eq!(pool.parked("scope-a"), 0);
+        assert!(pool.state().leases.is_empty(), "no lease was taken for it");
     }
 }
