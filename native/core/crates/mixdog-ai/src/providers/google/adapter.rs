@@ -60,7 +60,6 @@ pub struct GoogleAdapter {
     cache: Option<ExplicitCache>,
     /// The Gemini API's key as Node re-reads it after a typed 401 (`GeminiProvider.reloadApiKey`).
     reload: Option<Arc<dyn ApiKeySource>>,
-    clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
     /// Antigravity's records that carry a `wire`: the one source of the route
     /// table, from the last listing or the catalog's restored snapshot.
     roster: Mutex<Vec<ModelRecord>>,
@@ -86,7 +85,6 @@ impl GoogleAdapter {
             identity,
             cache: None,
             reload: None,
-            clock: None,
             roster: Mutex::default(),
             lookup: ListingLookup::new(),
         }
@@ -136,20 +134,14 @@ impl GoogleAdapter {
         Arc::new(routed)
     }
 
-    /// The Gemini API's clock, for the dated model redirects (`this._now`).
-    pub fn with_clock(mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
-        self.clock = Some(clock);
-        self
-    }
-
     /// `_servedModel`: the direct Gemini API serves some ids as another model from a date on; the served id is the
     /// request's model for the whole request (wire id, settings, cache, cost: the ledger books the send under it
     /// and the response reports it, by `StreamEvent::ServedModel`), announced once per process.
     fn served(&self, request: Arc<ModelRequest>) -> (Arc<ModelRequest>, Option<Redirect>) {
-        let (Target::Gemini { .. }, Some(clock)) = (self.codec.target(), self.clock.as_ref()) else {
+        let (Target::Gemini { .. }, Some(cache)) = (self.codec.target(), self.cache.as_ref()) else {
             return (request, None);
         };
-        let Some(target) = redirect::served_as(&request.model, clock()) else {
+        let Some(target) = redirect::served_as(&request.model, cache.now_ms()) else {
             return (request, None);
         };
         // `geminiBareModelId`: the id as given, without a `models/` prefix (any case).

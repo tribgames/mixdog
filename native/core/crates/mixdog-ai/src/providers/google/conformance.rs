@@ -524,7 +524,8 @@ impl TokenStore for MemoryStore {
     }
 }
 
-const NOW_MS: u64 = 1_800_000_000_000;
+// Before the Gemini API's dated model redirects (2026-12-01), so these fixed-clock requests keep their ids.
+const NOW_MS: u64 = 1_790_000_000_000;
 
 fn doc(expires_at_ms: u64, project: &str) -> TokenDoc {
     TokenDoc {
@@ -616,7 +617,7 @@ async fn a_rejected_cache_is_dropped_and_the_request_resent_once_uncached() {
         say(Role::User, "third".into()),
     ];
     let (events, err) = collect(&adapter, request).await;
-    assert!(err.is_none());
+    assert!(err.is_none(), "{err:?}");
     assert_eq!(fold(&events).0, "The result is 42.");
     let sent = http.seen.lock().unwrap();
     assert_eq!(sent.len(), 3, "one create, the cached send, one uncached resend");

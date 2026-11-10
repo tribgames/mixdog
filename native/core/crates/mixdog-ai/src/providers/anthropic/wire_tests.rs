@@ -9,7 +9,6 @@
 //! models by id (`capabilities` in the recording), which the product's `CatalogCaps` reproduces
 //! (`mixdog-core` `the_anthropic_wire_models_get_nodes_catalog_answers`); no body field is read for them.
 
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::io::Read;
 use std::path::PathBuf;
@@ -125,34 +124,60 @@ fn caps_of_catalog(capabilities: &Value, model: &str) -> Option<ModelCaps> {
     })
 }
 
-/// Everything of a request the recording holds: method, url, headers by lowercase name, the body's text.
+/// Everything of a request the recording holds: method, url, every header as a (lowercase name, value) pair with
+/// duplicates kept, the `content-encoding` value, whether the body was gzip bytes, and the body's decompressed text.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Seen {
     pub method: String,
     pub url: String,
-    pub headers: BTreeMap<String, String>,
+    pub headers: Vec<(String, String)>,
+    pub content_encoding: Option<String>,
+    pub compressed: bool,
     pub body: String,
 }
 
+fn content_encoding(headers: &[(String, String)]) -> Option<String> {
+    headers.iter().find(|(name, _)| name == "content-encoding").map(|(_, value)| value.clone())
+}
+
 pub(crate) fn seen_of_recorded(request: &Value) -> Seen {
+    let headers: Vec<(String, String)> = request["headers"]
+        .as_array()
+        .expect("headers")
+        .iter()
+        .map(|pair| (pair[0].as_str().expect("header name").to_lowercase(), pair[1].as_str().expect("header value").to_owned()))
+        .collect();
+    assert_eq!(request["contentEncoding"].as_str().map(str::to_owned), content_encoding(&headers), "the recorded content-encoding is the recorded header");
     Seen {
         method: request["method"].as_str().expect("method").to_owned(),
         url: request["url"].as_str().expect("url").to_owned(),
-        headers: request["headers"].as_object().expect("headers").iter().map(|(k, v)| (k.to_lowercase(), v.as_str().expect("header").to_owned())).collect(),
+        content_encoding: content_encoding(&headers),
+        compressed: request["compressed"].as_bool().expect("compressed"),
+        headers,
         body: request["body"].as_str().expect("body").to_owned(),
     }
 }
 
 pub(crate) fn seen_of_sent(request: &WireRequest) -> Seen {
-    let headers: BTreeMap<String, String> = request.headers.iter().map(|(k, v)| (k.to_lowercase(), v.clone())).collect();
-    let body = if headers.get("content-encoding").map(String::as_str) == Some("gzip") {
+    let headers: Vec<(String, String)> = request.headers.iter().map(|(k, v)| (k.to_lowercase(), v.clone())).collect();
+    // The gzip magic, as the recorder reads it: the compressed bytes themselves may differ (another compressor), their content may not.
+    let compressed = request.body.starts_with(&[0x1f, 0x8b]);
+    let body = if compressed {
         let mut text = String::new();
         GzDecoder::new(request.body.as_slice()).read_to_string(&mut text).expect("a gzip body");
         text
     } else {
         String::from_utf8(request.body.clone()).expect("utf8")
     };
-    Seen { method: request.method.clone(), url: request.url.clone(), headers, body }
+    Seen { method: request.method.clone(), url: request.url.clone(), content_encoding: content_encoding(&headers), compressed, headers, body }
+}
+
+/// The headers as a list of pairs with duplicates kept. Their order is not compared yet (a pending user decision shared
+/// with the OpenAI wire work), so both sides are put in one order first.
+pub(crate) fn header_pairs(headers: &[(String, String)]) -> Vec<(String, String)> {
+    let mut pairs = headers.to_vec();
+    pairs.sort();
+    pairs
 }
 
 /// The first path at which two parsed bodies differ.
@@ -181,17 +206,19 @@ fn short(value: &Value) -> String {
 
 /// Why `got` is not `want`, or nothing when they are equal.
 pub(crate) fn mismatch(want: &Seen, got: &Seen) -> Option<String> {
-    if want == got {
-        return None;
-    }
     let mut what = Vec::new();
     if want.method != got.method || want.url != got.url {
         what.push(format!("request line: Node {} {} / Rust {} {}", want.method, want.url, got.method, got.url));
     }
-    for name in want.headers.keys().chain(got.headers.keys()).collect::<std::collections::BTreeSet<_>>() {
-        if want.headers.get(name) != got.headers.get(name) {
-            what.push(format!("header {name}: Node {:?} / Rust {:?}", want.headers.get(name), got.headers.get(name)));
-        }
+    let (node_headers, rust_headers) = (header_pairs(&want.headers), header_pairs(&got.headers));
+    if node_headers != rust_headers {
+        what.push(format!("headers: Node {node_headers:?} / Rust {rust_headers:?}"));
+    }
+    if want.content_encoding != got.content_encoding || want.compressed != got.compressed {
+        what.push(format!(
+            "encoding: Node {:?} compressed {} / Rust {:?} compressed {}",
+            want.content_encoding, want.compressed, got.content_encoding, got.compressed
+        ));
     }
     if want.body != got.body {
         let parsed = |text: &str| serde_json::from_str::<Value>(text).expect("json body");
@@ -200,7 +227,7 @@ pub(crate) fn mismatch(want: &Seen, got: &Seen) -> Option<String> {
             None => what.push("body: the same JSON in another key order or spelling".to_owned()),
         }
     }
-    Some(what.join("; "))
+    (!what.is_empty()).then(|| what.join("; "))
 }
 
 /// A reply body that arrives in pieces: the first at once, the rest when its gate opens (at once when it has none).

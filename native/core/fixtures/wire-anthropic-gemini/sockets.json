@@ -1,0 +1,201 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs",
+  "scenarios": [
+    {
+      "provider": "anthropic",
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages",
+        "headers": [
+          [
+            "authorization",
+            "Bearer fixture-access-token"
+          ],
+          [
+            "anthropic-version",
+            "2023-06-01"
+          ],
+          [
+            "anthropic-beta",
+            "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18,message-threads-2026-08-12"
+          ],
+          [
+            "anthropic-dangerous-direct-browser-access",
+            "true"
+          ],
+          [
+            "user-agent",
+            "claude-cli/2.1.317 (external, sdk-cli)"
+          ],
+          [
+            "x-app",
+            "cli"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "content-encoding",
+            "gzip"
+          ]
+        ],
+        "bodyBase64": "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"
+      },
+      "received": {
+        "requestLine": "POST /v1/messages HTTP/1.1",
+        "headers": [
+          [
+            "host",
+            "127.0.0.1:56344"
+          ],
+          [
+            "connection",
+            "keep-alive"
+          ],
+          [
+            "authorization",
+            "Bearer fixture-access-token"
+          ],
+          [
+            "anthropic-version",
+            "2023-06-01"
+          ],
+          [
+            "anthropic-beta",
+            "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24,server-side-fallback-2026-07-01,thinking-display-updates-2026-08-18,message-threads-2026-08-12"
+          ],
+          [
+            "anthropic-dangerous-direct-browser-access",
+            "true"
+          ],
+          [
+            "user-agent",
+            "claude-cli/2.1.317 (external, sdk-cli)"
+          ],
+          [
+            "x-app",
+            "cli"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "content-encoding",
+            "gzip"
+          ],
+          [
+            "accept",
+            "*/*"
+          ],
+          [
+            "accept-language",
+            "*"
+          ],
+          [
+            "sec-fetch-mode",
+            "cors"
+          ],
+          [
+            "accept-encoding",
+            "gzip, deflate"
+          ],
+          [
+            "content-length",
+            "2090"
+          ]
+        ],
+        "chunked": false,
+        "bodySha256": "5b27191233a1c755690e8eefef3f5f5c08d37c1a6f88177ffb80aadd110687d2"
+      },
+      "hello": {
+        "alpn": [
+          "http/1.1",
+          "h2"
+        ],
+        "serverName": null,
+        "supportedVersions": [
+          "304",
+          "303"
+        ]
+      }
+    },
+    {
+      "provider": "gemini",
+      "request": {
+        "method": "POST",
+        "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "x-goog-api-key",
+            "fake-credential-not-a-secret"
+          ]
+        ],
+        "bodyBase64": "eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIGFuc3dlci4ifV19XSwiY2FjaGVkQ29udGVudCI6ImNhY2hlZENvbnRlbnRzL3BybzI1LmZpcnN0LXR1cm4tMSIsImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlfX19"
+      },
+      "received": {
+        "requestLine": "POST /v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse HTTP/1.1",
+        "headers": [
+          [
+            "host",
+            "127.0.0.1:56348"
+          ],
+          [
+            "connection",
+            "keep-alive"
+          ],
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "x-goog-api-key",
+            "fake-credential-not-a-secret"
+          ],
+          [
+            "accept",
+            "*/*"
+          ],
+          [
+            "accept-language",
+            "*"
+          ],
+          [
+            "sec-fetch-mode",
+            "cors"
+          ],
+          [
+            "user-agent",
+            "node"
+          ],
+          [
+            "accept-encoding",
+            "gzip, deflate"
+          ],
+          [
+            "content-length",
+            "186"
+          ]
+        ],
+        "chunked": false,
+        "bodySha256": "8e12aaa5785bae7fe6c7653d57cdc81b51a68f035182274168ff23f1dbe50f35"
+      },
+      "hello": {
+        "alpn": [
+          "http/1.1",
+          "h2"
+        ],
+        "serverName": null,
+        "supportedVersions": [
+          "304",
+          "303"
+        ]
+      }
+    }
+  ]
+}
