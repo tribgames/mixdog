@@ -78,7 +78,12 @@ async function runScenario(scenario) {
   mkdirSync(ws, { recursive: true });
   for (const [name, text] of Object.entries(golden.files)) writeFileSync(join(ws, name), text);
   const prov = await provider(scenario.replies);
-  writeFileSync(join(p.data, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { [CUSTOM]: { type: 'custom', name: 'tf', protocol: 'openai-chat', baseURL: prov.baseURL, auth: 'none', models: [{ id: golden.model }] } } } }));
+  // A `full` scenario sees the MCP server `fx` (the recording connected the same stdio server under the session's scope).
+  const mcpServers = scenario.full ? { fx: { command: process.execPath, args: ['fx-mcp.mjs'], cwd: ws } } : undefined;
+  writeFileSync(join(p.data, 'mixdog-config.json'), JSON.stringify({ agent: { ...(mcpServers ? { mcpServers } : {}), providers: { [CUSTOM]: { type: 'custom', name: 'tf', protocol: 'openai-chat', baseURL: prov.baseURL, auth: 'none', models: [{ id: golden.model }] } } } }));
+  // Node's recording injects the decision its hook bus returns for a legacy `toolBefore` rule ({ action, reason }); the core is
+  // given that same rule in the profile's hooks.json.
+  if (scenario.hook) writeFileSync(join(p.data, 'hooks.json'), JSON.stringify({ toolBefore: [{ tool: '*', action: scenario.hook.action, reason: scenario.hook.reason }] }));
   const exe = join(p.bin, 'mixdogd.exe');
   copyFileSync(bin, exe);
   writeFileSync(join(p.bin, 'js-runtime.json'), JSON.stringify({ program: process.execPath, packageRoot: repo }));
@@ -113,8 +118,17 @@ async function runScenario(scenario) {
       clock: { sleep: (ms) => new Promise((r) => setTimeout(r, ms)) },
       random: Math.random,
     });
-    const session = { toolProfile: 'headless', toolMode: 'full', approvalMode: 'implicit', disallowDelegation: true, autoWakeCompletions: false, webSearch: false, memory: false };
-    const started = await deadline(client.call('thread/start', { kind: 'task', session, projectPath: ws, draft: { projectPath: ws, route: { provider: CUSTOM, model: golden.model }, workflowId: 'headless', orchestrationMode: 'none' } }), 60_000, 'thread/start');
+    // The approval answer the scenario scripts, given to every approval request the core holds.
+    client.on((event) => {
+      if (event.type !== 'serverRequest' || event.request.method !== 'item/tool/requestApproval') return;
+      const a = scenario.approval;
+      client.respond(event.request.id, { result: { approved: a.approved, response: a.approved ? 'approve' : 'deny', reason: a.reason } });
+    });
+    // `approvalMode: "implicit"` is a session with no approval surface; the approval scenario needs the client to be one.
+    const session = scenario.full
+      ? { toolMode: 'full', approvalMode: 'implicit', autoWakeCompletions: false, webSearch: false, memory: false }
+      : { toolProfile: 'headless', toolMode: 'full', ...(scenario.approval ? {} : { approvalMode: 'implicit' }), disallowDelegation: true, autoWakeCompletions: false, webSearch: false, memory: false };
+    const started = await deadline(client.call('thread/start', { kind: 'task', session, projectPath: ws, draft: { projectPath: ws, route: { provider: CUSTOM, model: golden.model }, ...(scenario.full ? {} : { workflowId: 'headless' }), orchestrationMode: 'none' } }), 60_000, 'thread/start');
     const threadId = started.thread.id;
     const turn = await deadline(client.call('turn/start', { threadId, input: { prompt: 'go', options: {} } }), 60_000, 'turn/start');
     if (scenario.abortWhenFile) {
@@ -163,10 +177,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   let bad = 0;
   for (const [i, scenario] of golden.scenarios.entries()) {
     if (only && !only.includes(i)) continue;
-    if (scenario.hook || scenario.approval) {
-      console.log(`SKIP ${i} ${scenario.name}: needs a hook or approval answer the driver does not give yet`);
-      continue;
-    }
     const got = normalize(await runScenario(scenario));
     const want = normalize(expectedOf(i).join('\n'));
     const same = got.length === want.length && got.every((l, k) => l === want[k]);

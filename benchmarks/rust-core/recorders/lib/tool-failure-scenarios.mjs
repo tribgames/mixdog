@@ -6,8 +6,34 @@
 // session is made to refuse a call, `abortWhenFile` ends the turn once the tool has created that file in the
 // workspace.
 export const MODEL = 'fake-model';
+// `fx-mcp.mjs` is the stdio MCP server the `full` scenarios connect: no SDK, three tools (`fail` answers an `isError` result, `boom` a
+// JSON-RPC error, `ok` a success), so Node's client and the core's speak to the same bytes.
+const MCP_SERVER = `
+let buffered = '';
+const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
+const TOOLS = ['fail', 'boom', 'ok'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));
+process.stdin.on('data', (chunk) => {
+  buffered += chunk;
+  let at;
+  while ((at = buffered.indexOf('\\n')) >= 0) {
+    const line = buffered.slice(0, at);
+    buffered = buffered.slice(at + 1);
+    if (!line.trim()) continue;
+    const message = JSON.parse(line);
+    if (message.id === undefined) continue;
+    const reply = (result) => send({ jsonrpc: '2.0', id: message.id, result });
+    if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fx', version: '1' } });
+    else if (message.method === 'tools/list') reply({ tools: TOOLS });
+    else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });
+    else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'server exploded' } });
+    else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });
+    else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });
+  }
+});
+`;
 export const FILES = {
   'a.txt': 'hello\nsecond line\n',
+  'fx-mcp.mjs': MCP_SERVER,
 };
 
 const DONE = { text: 'done', calls: [] };
@@ -64,6 +90,26 @@ export function scenarios(workspace) {
       hook: { action: 'ask', reason: 'needs approval' },
       approval: { approved: false, reason: 'no thanks' },
       replies: [{ text: 'go', calls: [{ id: 'p1', name: 'read', args: { path: 'a.txt' } }] }, DONE],
+    },
+    {
+      // `full`: the whole model tool surface (skills, the delegated-agent tool, the MCP server `fx`), not the headless allowlist.
+      name: 'skill, delegated-agent and MCP tool failures',
+      full: true,
+      replies: [
+        {
+          text: 'go',
+          calls: [
+            { id: 'k1', name: 'Skill', args: { name: 'no-such-skill' } },
+            { id: 'g1', name: 'agent', args: { type: 'bogus' } },
+            { id: 'g2', name: 'agent', args: { type: 'read', task_id: 'task_does_not_exist' } },
+            { id: 'g3', name: 'agent', args: { type: 'send' } },
+            { id: 'x1', name: 'mcp__fx__fail', args: {} },
+            { id: 'x2', name: 'mcp__fx__boom', args: {} },
+            { id: 'x3', name: 'mcp__fx__ok', args: {} },
+          ],
+        },
+        DONE,
+      ],
     },
     {
       name: 'a turn ended while its shell command runs',
