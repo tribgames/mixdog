@@ -1978,9 +1978,8 @@ impl SessionActor {
                                 turn,
                             },
                         ));
-                        if run.phase != RunPhase::Started {
-                            notes.push(self.runtime_note());
-                        }
+                        // The runtime changes at both ends: busy with its spinner as the turn begins, idle as it ends.
+                        notes.push(self.runtime_note());
                     }
                 }
                 // An entry edited where it stands changes no row of the queue, and a queued completion or notification is no row of it:
