@@ -45,6 +45,11 @@ pub trait BodyStream: Send {
     /// The next body chunk; `None` at a clean end of body. A fault is the
     /// transport fact that ended the body.
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>>;
+
+    /// Keeps the connection of a body read to its end out of the pool until this body is dropped: Node's response
+    /// returns its socket only after the code that drained it has run on (`resendIfEncodingRejected` resends before
+    /// the socket is free, so the resend dials a new one). The default does nothing.
+    fn hold_connection(&mut self) {}
 }
 
 pub struct HttpResponse {

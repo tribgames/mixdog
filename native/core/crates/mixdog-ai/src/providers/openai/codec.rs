@@ -61,11 +61,18 @@ impl OpenAiCodec {
                 push("x-client-request-id", ctx.request_id());
             }
             Target::Codex(identity) => {
+                // The handshake lists `originator` first (`openai-ws-pool.mjs:490`), the HTTP request the beta first
+                // (`openai-oauth-http-sse.mjs:76`).
+                if ws {
+                    push("originator", CODEX_ORIGINATOR.into());
+                }
                 push(
                     "OpenAI-Beta",
                     if ws { CODEX_WS_BETA } else { CODEX_HTTP_BETA }.into(),
                 );
-                push("originator", CODEX_ORIGINATOR.into());
+                if !ws {
+                    push("originator", CODEX_ORIGINATOR.into());
+                }
                 if !ws {
                     push("x-client-request-id", ctx.request_id());
                 }

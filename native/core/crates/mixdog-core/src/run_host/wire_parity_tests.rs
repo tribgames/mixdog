@@ -286,8 +286,6 @@ async fn differences(provider: &str) -> Vec<String> {
     compare(node["scenarios"].as_array().unwrap(), &rust, provider)
 }
 
-// Ignored, not passing: the socket-level comparison shows differences that are not closed yet (the report of this commit lists them).
-#[ignore = "360 socket-level differences from Node are open: the HEAD preconnect arrives after the upgrade and carries accept/accept-encoding where Node's has host and connection only; the upgrade lacks the permessage-deflate offer and writes Host first, with lowercase caller headers in another order; http/1.1 header case, order, extra undici headers and accept-encoding value"]
 #[tokio::test]
 async fn every_openai_request_equals_nodes_recording() {
     let differences = differences("openai-oauth").await;
