@@ -3,11 +3,12 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 54446,
+      "bytes": 54023,
       "path": "golden.json",
-      "sha256": "bfa107a5a939e0becbf7dc35249f338e050564719bb31acb4d35a4db09aaec90"
+      "sha256": "a608cf9cf184820de1a7cb8d47078aa6d970b8e3d48c847e96ebd270d2cdc072"
     }
   ],
+  "node": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -26,9 +27,113 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
+  "recorderSha256": "4482e7a530450ad0ad393a0f4c6b1694d578b56065175f373e4a80ab08b36420",
   "rows": 18,
+  "scenariosSha256": "4b313d7527e7114cfbe82e2c26d120f9b232f6db3c1cd97bdb8859a83650e333",
   "set": "tool-failures",
-  "totalBytes": 54446,
+  "syntheticInputs": {
+    "approvalAnswers": [
+      {
+        "approved": false,
+        "reason": "no thanks",
+        "scenario": "a call whose approval is denied"
+      }
+    ],
+    "hookDecisions": [
+      {
+        "action": "deny",
+        "reason": "blocked by test hook",
+        "scenario": "a call refused by a hook"
+      },
+      {
+        "action": "ask",
+        "reason": "needs approval",
+        "scenario": "a call whose approval is denied"
+      }
+    ],
+    "mcpServer": {
+      "file": "fx-mcp.mjs",
+      "sha256": "63a15c04cf12e70eed5397ada5117177f10236233db9f1c0c63612e98f63edaa",
+      "tools": [
+        "fail",
+        "boom",
+        "ok"
+      ]
+    },
+    "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/tool-failure-scenarios.mjs",
+    "scenarios": [
+      {
+        "approval": null,
+        "full": false,
+        "hook": null,
+        "name": "tool errors, refusals and redaction in one batch",
+        "replies": 3
+      },
+      {
+        "approval": null,
+        "full": false,
+        "hook": null,
+        "name": "a call whose arguments are not JSON",
+        "replies": 2
+      },
+      {
+        "approval": null,
+        "full": false,
+        "hook": null,
+        "name": "a shell command that outlives its timeout",
+        "replies": 2
+      },
+      {
+        "approval": null,
+        "full": false,
+        "hook": {
+          "action": "deny",
+          "reason": "blocked by test hook"
+        },
+        "name": "a call refused by a hook",
+        "replies": 2
+      },
+      {
+        "approval": {
+          "approved": false,
+          "reason": "no thanks"
+        },
+        "full": false,
+        "hook": {
+          "action": "ask",
+          "reason": "needs approval"
+        },
+        "name": "a call whose approval is denied",
+        "replies": 2
+      },
+      {
+        "approval": null,
+        "full": true,
+        "hook": null,
+        "name": "skill, delegated-agent and MCP tool failures",
+        "replies": 2
+      },
+      {
+        "approval": null,
+        "full": true,
+        "hook": null,
+        "name": "MCP tool failures",
+        "replies": 2
+      },
+      {
+        "approval": null,
+        "full": false,
+        "hook": null,
+        "name": "a turn ended while its shell command runs",
+        "replies": 2
+      }
+    ],
+    "workspaceFiles": {
+      "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
+      "fx-mcp.mjs": "63a15c04cf12e70eed5397ada5117177f10236233db9f1c0c63612e98f63edaa"
+    }
+  },
+  "totalBytes": 54023,
   "varying": [
     "session_id",
     "tool_ms",
