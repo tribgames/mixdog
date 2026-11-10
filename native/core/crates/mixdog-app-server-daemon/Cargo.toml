@@ -9,7 +9,7 @@ workspace = true
 
 [features]
 # Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
-replay-controls = ["mixdog-workspace/replay-controls"]
+replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls"]
 crash-gates = ["mixdog-core-session/crash-gates"]
 
 [dependencies]
@@ -118,6 +118,7 @@ mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-core-config = { workspace = true, features = ["count-work"] }
 mixdog-protocol = { workspace = true, features = ["codegen"] }
+mixdog-core-run = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).

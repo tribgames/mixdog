@@ -372,7 +372,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let surface_generation = mixdog_core::run_host::surface_host::SurfaceGeneration::default();
 
     // ---- 2. policy, hub, hook bus; the late views and the one secret input ---------------------
-    let PolicyParts { policy, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
+    let PolicyParts { policy: _, connectors, grants, connector_policy } = build_policy(&b.tokens, &b.data_dir);
     // The hook event log (`createHookEventLog`, the hook bus's observer) and the one `HookStatus` over it that the doctor and the `hooks` status read; the first
     // config lookup starts at the process's directory. The bus emits into this log (run-host-34).
     let startup_cwd = std::env::current_dir().map_err(ComposeError::StateDir)?; // the folder the daemon started in: a session with no folder of its own runs hooks here
@@ -384,6 +384,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     hub.set_sign_in_notices(Arc::new(mixdog_core::run_host::desktop_notices::ConnectorDesktopNotices(desktop_notices.clone())));
     let late = Arc::new(LateDirectory::default());
     hook_bus.bind_scopes(compose_parts::hook_scope(late.clone())).map_err(|_| ComposeError::AlreadyBound("hook scopes"))?;
+    // The PreToolUse bridge (`attachSessionHooks` `beforeToolHook`): the tool gate asks the hook bus before every call, so a hook's deny or ask reaches the model and the failure log.
+    let policy = {
+        let common = compose_parts::hook_common(late.clone());
+        let source: mixdog_mcp::pre_tool::CommonSource = Arc::new(move |thread: &mixdog_protocol::ThreadId| common(thread.as_str()));
+        Arc::new(mixdog_tools::policy::ToolPolicy::new(grants.clone(), connectors.clone()).with_hook(Arc::new(mixdog_mcp::pre_tool::BusPreToolHook::new(hook_bus.clone(), source))))
+    };
     // The heartbeat state file: the user-activity probe and the `session` tool's suggestions share the one store.
     let heartbeat_store = mixdog_services::bots::beat::HeartbeatStore::new(mixdog_services::bots::state_json::StateJson::new(b.data_dir.join("heartbeat.json"), b.tokens.durability_io));
     // The one UserActivity: the setup/user-activity domain and Mixy's heartbeat both read it (heartbeat-1).
@@ -1895,6 +1901,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             data_dir: b.data_dir.clone(),
             blobs: store_blobs.clone(),
         }));
+    let snapshot_source = side_wiring.next();
     let inheritance_fit: Arc<dyn mixdog_core_session::session::inheritance::InheritanceFit> = Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::process(b.catalog.clone(), config_seams.clone(), side_wiring.next(), compaction_world.clone()));
     let turn_starts = Arc::new(mixdog_core_session::session::LateTurnStarts::default()); // bound to the `AgentRegistry` once wp-agent's constructor exists    // `writeStatuslineRoute` / `clearGatewaySessionRoute`: ONE value, cloned (a clone shares the write queue): the route hop and the session deletion.
     let gateway_routes = mixdog_core_session::session::gateway_routes::GatewaySessionRoutes::new(&b.data_dir, b.tokens.maintenance_io);
@@ -2239,14 +2246,25 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("turn settings"))?;
     // The tool status the `tools/*` service and the MCP surface read (flip-ce-2): `preview` is async/fallible and `mode` takes the thread's header, no wiring change.
     tool_surface
-        .bind(Arc::new(mixdog_core_ports::ports::tools_status::SessionToolStatus::new(Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone())), surface_host.clone())))
+        .bind(Arc::new(
+            mixdog_core_ports::ports::tools_status::SessionToolStatus::new(Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone())), surface_host.clone())
+                // `tools/toolsStatus` with `snapshot`: the provider request the thread's next send would carry.
+                .with_snapshots(snapshot_source),
+        ))
         .map_err(|_| ComposeError::AlreadyBound("tool surface"))?;
     // flip-gaps-agent, after the directory: the session-close seams, the `cycle1-agent` dispatch (and with it the memory cycles' late LLM), the route positions.
     let runtime_release = Arc::new(mixdog_core_session::session::runtime_release::ThreadRuntimeRelease::new(read_state.clone(), liveness.clone(), worktrees.clone(), worktree_stop.clone()));
     let session_turns = Arc::new(mixdog_core_session::session::agent_registry::flow::SessionTurns::new(directory.clone(), runtime_release).with_shells(b.shell_control.clone()).with_admission(agent_registry.clone())); // flip-agent-worlds-8: without it a turn is not admission-checked (agent-turns.mjs:96,108,116)
     let session_close = Arc::new(mixdog_core_session::session::close::SessionClose::new(directory.clone(), registry.clone(), owned_shells.clone(), read_state.clone()));
     let agent_host = Arc::new(mixdog_core::run_host::agent_world::AgentHost::new(config.clone(), registry.clone())); // kept concrete: `close()` at shutdown
-    let agent_world = Arc::new(mixdog_core::run_host::agent_world::AgentWorld::new(config.clone(), Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())), b.env.clone(), clock_agent.clone()));
+    // The `stall_abort` rows of a stopped dispatch join the tool-failure log, the one buffer and file of this data directory.
+    let stall_failures = mixdog_core_run::run_host::failure_log::FailureWriter::for_data_dir(
+        &b.data_dir,
+        mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io },
+        clock_agent.clone(),
+    );
+    let stall_log: mixdog_core::run_host::agent_world::StallLog = Arc::new(move |ctx| stall_failures.record_watchdog_abort(&ctx));
+    let agent_world = Arc::new(mixdog_core::run_host::agent_world::AgentWorld::new(config.clone(), Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())), b.env.clone(), clock_agent.clone(), stall_log));
     // ONE admission, also `AgentParts.admission`.
     let agent_admission = Arc::new(mixdog_core::run_host::admission::ResourceAdmission::new(
         mixdog_core::run_host::admission::Limits::from_env(std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get), &*b.env),

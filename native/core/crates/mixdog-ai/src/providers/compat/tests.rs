@@ -679,6 +679,8 @@ fn malformed_tool_arguments_ride_as_data_after_a_finish() {
     let calls = tool_calls_of(&events);
     assert_eq!(calls[0].arguments["__invalidToolArgs"], true);
     assert_eq!(calls[0].arguments["__rawArguments"], "{\"k");
+    // The text the model reads is V8's (`JSON.parse('{"k')` on Node v22.20.0), not the Rust parser's.
+    assert_eq!(calls[0].arguments["__parseError"], "Unterminated string in JSON at position 3 (line 1 column 4)");
 }
 
 // ---------------------------------------------------------------------------

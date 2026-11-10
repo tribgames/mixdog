@@ -2548,23 +2548,249 @@
     {
       "id": "anthropic-oauth-first-turn",
       "provider": "anthropic-oauth",
-      "expectError": true,
       "messages": [
         {
           "role": "user",
           "content": "parity probe"
         }
+      ],
+      "http": [
+        [
+          { "type": "message_start", "message": { "id": "msg_parity_a1", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": [], "usage": { "input_tokens": 20, "output_tokens": 1 } } },
+          { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+          { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "parity answer" } },
+          { "type": "content_block_stop", "index": 0 },
+          { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 3 } },
+          { "type": "message_stop" }
+        ]
+      ]
+    },
+    {
+      "id": "anthropic-oauth-tool-result-turn",
+      "provider": "anthropic-oauth",
+      "messages": [
+        { "role": "user", "content": "parity probe" },
+        { "role": "assistant", "content": "", "toolCalls": [{ "id": "toolu_parity_1", "name": "read", "arguments": { "file_path": "parity.txt" } }] },
+        { "role": "tool", "toolCallId": "toolu_parity_1", "content": "parity file text" }
+      ],
+      "http": [
+        [
+          { "type": "message_start", "message": { "id": "msg_parity_a2", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": [], "usage": { "input_tokens": 40, "output_tokens": 1 } } },
+          { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+          { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "the file says parity" } },
+          { "type": "content_block_stop", "index": 0 },
+          { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 5 } },
+          { "type": "message_stop" }
+        ]
+      ]
+    },
+    {
+      "id": "anthropic-oauth-refused",
+      "provider": "anthropic-oauth",
+      "expectError": true,
+      "messages": [
+        { "role": "user", "content": "parity refusal" }
+      ],
+      "http": [
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-gzip-refused-held",
+      "provider": "anthropic-oauth",
+      "expectError": true,
+      "sendWhenHeld": true,
+      "messages": [
+        { "role": "user", "content": "parity gzip held" }
+      ],
+      "http": [
+        { "status": 415, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unsupported content encoding\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}", "then": "withhold" },
+        [
+          { "type": "message_start", "message": { "id": "msg_parity_a5", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": [], "usage": { "input_tokens": 20, "output_tokens": 1 } } },
+          { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+          { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "third answer" } },
+          { "type": "content_block_stop", "index": 0 },
+          { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 2 } },
+          { "type": "message_stop" }
+        ]
+      ]
+    },
+    {
+      "id": "anthropic-oauth-gzip-refused-same-tick",
+      "provider": "anthropic-oauth",
+      "expectError": true,
+      "extraWithResend": { "at": 2, "gap": "none" },
+      "messages": [
+        { "role": "user", "content": "parity gzip same tick" }
+      ],
+      "http": [
+        { "status": 415, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unsupported content encoding\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-gzip-refused-next-turn",
+      "provider": "anthropic-oauth",
+      "expectError": true,
+      "extraWithResend": { "at": 2, "gap": "immediate" },
+      "messages": [
+        { "role": "user", "content": "parity gzip next turn" }
+      ],
+      "http": [
+        { "status": 415, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unsupported content encoding\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"parity refusal\"}}" }
+      ]
+    },
+    {
+      "id": "anthropic-oauth-gzip-refused",
+      "provider": "anthropic-oauth",
+      "messages": [
+        { "role": "user", "content": "parity gzip" }
+      ],
+      "http": [
+        { "status": 415, "headers": { "content-type": "application/json" }, "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"unsupported content encoding\"}}" },
+        [
+          { "type": "message_start", "message": { "id": "msg_parity_a3", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": [], "usage": { "input_tokens": 20, "output_tokens": 1 } } },
+          { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+          { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "plain answer" } },
+          { "type": "content_block_stop", "index": 0 },
+          { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 2 } },
+          { "type": "message_stop" }
+        ]
+      ]
+    },
+    {
+      "id": "anthropic-oauth-after-gzip-latch",
+      "provider": "anthropic-oauth",
+      "messages": [
+        { "role": "user", "content": "parity plain" }
+      ],
+      "http": [
+        [
+          { "type": "message_start", "message": { "id": "msg_parity_a4", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": [], "usage": { "input_tokens": 20, "output_tokens": 1 } } },
+          { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+          { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "still plain" } },
+          { "type": "content_block_stop", "index": 0 },
+          { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "output_tokens": 2 } },
+          { "type": "message_stop" }
+        ]
       ]
     },
     {
       "id": "gemini-first-turn",
       "provider": "gemini",
-      "expectError": true,
       "messages": [
         {
           "role": "user",
           "content": "parity probe"
         }
+      ],
+      "http": [
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-1\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9000}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"parity answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9000,\"candidatesTokenCount\":3,\"totalTokenCount\":9003,\"cachedContentTokenCount\":8900},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
+      ]
+    },
+    {
+      "id": "gemini-tool-result-turn",
+      "provider": "gemini",
+      "messages": [
+        { "role": "user", "content": "parity probe" },
+        { "role": "assistant", "content": "", "toolCalls": [{ "id": "call_parity_g1", "name": "read", "arguments": { "file_path": "parity.txt" } }] },
+        { "role": "tool", "toolCallId": "call_parity_g1", "content": "parity file text" }
+      ],
+      "http": [
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-2\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9040}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"the file says \"}]},\"index\":0}],\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"parity\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9040,\"candidatesTokenCount\":4,\"totalTokenCount\":9044,\"cachedContentTokenCount\":8900},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
+      ]
+    },
+    {
+      "id": "gemini-cache-refused",
+      "provider": "gemini",
+      "messages": [
+        { "role": "user", "content": "parity cache gone" }
+      ],
+      "http": [
+        { "status": 404, "headers": { "content-type": "application/json" }, "body": "{\"error\":{\"code\":404,\"message\":\"CachedContent not found (or permission denied)\",\"status\":\"NOT_FOUND\"}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9000,\"candidatesTokenCount\":2,\"totalTokenCount\":9002},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
+      ]
+    },
+    {
+      "id": "gemini-refused",
+      "provider": "gemini",
+      "expectError": true,
+      "messages": [
+        { "role": "user", "content": "parity refusal" }
+      ],
+      "http": [
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-5\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9000}}" },
+        { "status": 400, "headers": { "content-type": "application/json" }, "body": "{\"error\":{\"code\":400,\"message\":\"parity refusal\",\"status\":\"INVALID_ARGUMENT\"}}" }
+      ]
+    },
+    {
+      "id": "gemini-create-held",
+      "provider": "gemini",
+      "sendWhenHeld": true,
+      "messages": [
+        { "role": "user", "content": "parity held probe" },
+        { "role": "assistant", "content": "parity held reply" },
+        { "role": "user", "content": "parity held next" }
+      ],
+      "http": [
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-6\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9020}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"held answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022,\"cachedContentTokenCount\":8900},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n", "then": "withhold" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"third answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022,\"cachedContentTokenCount\":8900},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
+      ]
+    },
+    {
+      "id": "gemini-cache-refused-held",
+      "provider": "gemini",
+      "sendWhenHeld": true,
+      "messages": [
+        { "role": "user", "content": "parity held probe" },
+        { "role": "assistant", "content": "parity held reply" },
+        { "role": "user", "content": "parity held next" }
+      ],
+      "http": [
+        { "status": 404, "headers": { "content-type": "application/json" }, "body": "{\"error\":{\"code\":404,\"message\":\"CachedContent not found (or permission denied)\",\"status\":\"NOT_FOUND\"}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached held answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":3,\"totalTokenCount\":9023},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n", "then": "withhold" },
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-7\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9020}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"third answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022,\"cachedContentTokenCount\":8900},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
+      ]
+    },
+    {
+      "id": "gemini-cache-refused-same-tick",
+      "provider": "gemini",
+      "extraWithResend": { "at": 3, "gap": "none" },
+      "messages": [
+        { "role": "user", "content": "parity tick probe" },
+        { "role": "assistant", "content": "parity tick reply" },
+        { "role": "user", "content": "parity tick next" }
+      ],
+      "http": [
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-9\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9020}}" },
+        { "status": 404, "headers": { "content-type": "application/json" }, "body": "{\"error\":{\"code\":404,\"message\":\"CachedContent not found (or permission denied)\",\"status\":\"NOT_FOUND\"}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
+      ]
+    },
+    {
+      "id": "gemini-cache-refused-next-turn",
+      "provider": "gemini",
+      "extraWithResend": { "at": 3, "gap": "immediate" },
+      "messages": [
+        { "role": "user", "content": "parity turn probe" },
+        { "role": "assistant", "content": "parity turn reply" },
+        { "role": "user", "content": "parity turn next" }
+      ],
+      "http": [
+        { "headers": { "content-type": "application/json" }, "body": "{\"name\":\"cachedContents/parity-8\",\"model\":\"models/gemini-3.8-flash\",\"usageMetadata\":{\"totalTokenCount\":9020}}" },
+        { "status": 404, "headers": { "content-type": "application/json" }, "body": "{\"error\":{\"code\":404,\"message\":\"CachedContent not found (or permission denied)\",\"status\":\"NOT_FOUND\"}}" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" },
+        { "headers": { "content-type": "text/event-stream" }, "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"uncached answer\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":9020,\"candidatesTokenCount\":2,\"totalTokenCount\":9022},\"modelVersion\":\"gemini-3.8-flash\"}\r\n\r\n" }
       ]
     },
     {

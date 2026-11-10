@@ -119,12 +119,12 @@ impl Tool for SkillTool {
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let name = clean(args.get("name"));
         if name.is_empty() {
-            return Err(invalid("name", "skill name is required"));
+            return Err(invalid("name", "Error: skill name is required"));
         }
         let skill = match self.skills.load(&ctx.thread_id, &name, &ctx.cwd).await? {
             SkillLookup::Refused(text) => return Err(super::util::refused("skill", text)),
             SkillLookup::NotFound => {
-                return Err(super::util::not_found(&name, format!("skill \"{name}\" not found")));
+                return Err(super::util::not_found(&name, format!("Error: skill \"{name}\" not found")));
             }
             SkillLookup::Loaded(skill) => skill,
         };
@@ -206,6 +206,29 @@ mod tests {
             assert_eq!(output.parts, vec![ToolPart::Text(case["result"].as_str().expect("result").to_owned())], "{}", case["name"]);
             assert_eq!(output.follow_up_messages.is_empty(), already, "{}", case["name"]);
         }
+    }
+
+    struct NoSkill;
+
+    #[async_trait]
+    impl SkillPort for NoSkill {
+        async fn load(&self, _: &ThreadId, _: &str, _: &AbsPath) -> Result<SkillLookup, PortError> {
+            Ok(SkillLookup::NotFound)
+        }
+        async fn body_present(&self, _: &ThreadId, _: &str) -> Result<bool, PortError> {
+            Ok(false)
+        }
+    }
+
+    /// Node's `viewSkill` answers a missing name and an unknown skill as `Error: …` text
+    /// (`fixtures/tool-failures/golden.json`: the model saw `Error: skill "no-such-skill" not found`).
+    #[tokio::test]
+    async fn a_missing_name_and_an_unknown_skill_are_answered_as_error_lines() {
+        let tool = SkillTool::new(Arc::new(NoSkill));
+        let unknown = tool.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "no-such-skill"})).await.expect_err("fails");
+        assert_eq!(unknown.message_for_model, "Error: skill \"no-such-skill\" not found");
+        let missing = tool.call(&crate::orch::tests::ctx(), serde_json::json!({})).await.expect_err("fails");
+        assert_eq!(missing.message_for_model, "Error: skill name is required");
     }
 
     /// A load or transcript read that failed fails the call with the port error's tool error, the

@@ -32,6 +32,8 @@ use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 use serde_json::{json, Value};
 
 use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
+use mixdog_core_run::run_host::failure_log::FailureWriter;
+use mixdog_core_run::run_host::failure_log::RunFailureLog;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
@@ -343,11 +345,38 @@ impl HostRunParts {
         surface: &mixdog_tools::policy::SessionSurface,
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
+        self.rebuild_request(thread, header, surface, prior, true).await
+    }
+
+    /// [`Self::next_request`] for a thread that has no conversation yet: the request its first send would
+    /// carry (the system prompt and the tools), which `tools/toolsStatus` with `snapshot` reads.
+    pub async fn first_request(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        surface: &mixdog_tools::policy::SessionSurface,
+        prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
+        let (provider, mut request) = self.rebuild_request(thread, header, surface, prior, false).await?;
+        // `snapshotProviderRequestTools` at the request boundary: the tools the provider is sent, with no native tool searches yet.
+        let owner = mixdog_js::js_trim(text(header, "provider")).to_lowercase();
+        request.tools = super::context_world::snapshot_tools(header, std::mem::take(&mut request.tools), Vec::new(), &owner);
+        Some((provider, request))
+    }
+
+    async fn rebuild_request(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        surface: &mixdog_tools::policy::SessionSurface,
+        prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+        conversation_required: bool,
+    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
         if super::compaction_world::is_agent_owner(header) {
             return None;
         }
         let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
-        if !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
+        if conversation_required && !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
             return None;
         }
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
@@ -624,6 +653,13 @@ impl RunParts for HostRunParts {
             step_judge,
             artifacts: Some(artifacts),
             images: seams.image_compactor(),
+            failures: Some(Arc::new(RunFailureLog::new(
+                FailureWriter::for_data_dir(&seams.data_dir(), s.io, s.clock.clone()),
+                session_id,
+                // `agent: batch.sessionRef?.agent || null` (finalize.mjs:236): the session's own agent, the Lead's "lead" included.
+                agent,
+                &cwd.to_string_lossy(),
+            ))),
             blobs: s.blobs.clone(),
             carry: RunCarry::from_saved(header),
         })

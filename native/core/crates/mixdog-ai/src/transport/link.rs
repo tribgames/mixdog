@@ -47,9 +47,10 @@ pub trait BodyStream: Send {
     /// transport fact that ended the body.
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>>;
 
-    /// Keeps the connection of a body read to its end out of the pool until this body is dropped: Node's response
-    /// returns its socket only after the code that drained it has run on (`resendIfEncodingRejected` resends before
-    /// the socket is free, so the resend dials a new one). The default does nothing.
+    /// Keeps the connection of a body read to its end out of the pool until the next request to its origin has its
+    /// connection, or this body is dropped: Node's response returns its socket a turn of the event loop after the
+    /// code that drained it ran on (`resendIfEncodingRejected` resends before the socket is free, so the resend takes
+    /// another; a request after the resend finds it free). The default does nothing.
     fn hold_connection(&mut self) {}
 }
 
@@ -67,32 +68,48 @@ impl HttpResponse {
     /// The whole body. A fault mid-body is a transport error with `Accepted`
     /// delivery: the caller holds a status and no content.
     pub async fn read_all(mut self) -> Result<ErrorResponse, ProviderError> {
-        let mut body = Vec::new();
-        // A whole-body read is never a stream of content: a `Unary` body already
-        // ends at its own total, and the error body of a `Stream` response ends at
-        // the dispatcher ceiling (Node `http-agent.mjs:414` `bodyTimeout`).
-        let drained = NODE_DISPATCHER
-            .liveness
-            .bound_head(async {
-                while let Some(chunk) = self.body.next().await {
-                    match chunk {
-                        Ok(bytes) => body.extend_from_slice(&bytes),
-                        Err(fault) => {
-                            return Err(ProviderError::transport(fault, DeliveryState::Accepted));
-                        }
-                    }
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|expired| deadline_error(expired, DeliveryState::Accepted, NODE_DISPATCHER.surface))?;
-        drained?;
+        let body = drain(&mut self.body).await?;
         Ok(ErrorResponse {
             status: Some(self.status),
             headers: self.headers,
             body,
         })
     }
+
+    /// [`Self::read_all`] with the connection kept out of the pool until the next request to the origin has its
+    /// connection, or the returned body is dropped ([`BodyStream::hold_connection`]): a Node caller that reads an
+    /// answer and sends its next request on the same turn of the event loop finds the answer's socket still busy.
+    pub async fn read_all_held(mut self) -> Result<(ErrorResponse, Box<dyn BodyStream>), ProviderError> {
+        self.body.hold_connection();
+        let body = drain(&mut self.body).await?;
+        Ok((ErrorResponse { status: Some(self.status), headers: self.headers, body }, self.body))
+    }
+}
+
+/// The whole of `body`. A fault mid-body is a transport error with `Accepted` delivery: the caller holds a status and no
+/// content.
+async fn drain(stream: &mut Box<dyn BodyStream>) -> Result<Vec<u8>, ProviderError> {
+    let mut body = Vec::new();
+    // A whole-body read is never a stream of content: a `Unary` body already
+    // ends at its own total, and the error body of a `Stream` response ends at
+    // the dispatcher ceiling (Node `http-agent.mjs:414` `bodyTimeout`).
+    let drained = NODE_DISPATCHER
+        .liveness
+        .bound_head(async {
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(bytes) => body.extend_from_slice(&bytes),
+                    Err(fault) => {
+                        return Err(ProviderError::transport(fault, DeliveryState::Accepted));
+                    }
+                }
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|expired| deadline_error(expired, DeliveryState::Accepted, NODE_DISPATCHER.surface))?;
+    drained?;
+    Ok(body)
 }
 
 /// What the link does with a 3xx answer, chosen per request to match the Node call site
@@ -297,6 +314,13 @@ impl ReqwestLink {
         let mut config = (*tls).clone();
         config.alpn_protocols = super::node_http::ALPN.iter().map(|p| p.to_vec()).collect();
         Self { clients: Clients::Node(NodeClient::pinned(schedule.tcp, Pinned { addr, tls: Arc::new(config) })) }
+    }
+
+    /// [`NodeClient::tap`] of the Node-equal client; another client has no such tap and refuses it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn tap(&self, tap: Option<super::node_http::Tap>) {
+        let Clients::Node(client) = &self.clients else { panic!("only the Node-equal client is tapped") };
+        client.tap(tap);
     }
 
     #[cfg(any(test, feature = "test-support"))]
