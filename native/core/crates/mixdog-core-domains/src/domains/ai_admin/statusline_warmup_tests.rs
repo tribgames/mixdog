@@ -107,6 +107,21 @@ async fn reads_before_the_warm_up_answer_as_nodes_and_the_reads_after_it_still_d
     assert_node_reads(&built).await;
 }
 
+/// Forgets every permit `semaphore` holds, so the next acquire waits for an arrival from now on.
+fn drain(semaphore: &tokio::sync::Semaphore) {
+    while let Ok(permit) = semaphore.try_acquire() {
+        permit.forget();
+    }
+}
+
+/// The readiness hooks the daemon binds (`compose_flip.rs`): its invalidation drops the model list's cache, and a settled
+/// startup refresh's re-warm is the model list's secrets-carrying warm, counted.
+fn bind_completion_hooks(rig: &Rig, name: &str) {
+    let service = rig.service.clone();
+    assert!(rig.readiness.bind_invalidation(Arc::new(move || service.invalidate())).is_ok(), "{name}: the invalidation is bound once");
+    rig.bind_rewarm();
+}
+
 /// `wait`, or a failure naming `what` once a minute has passed without it.
 async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{what}: not within 60 s"))
@@ -118,10 +133,9 @@ async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T 
 // once the registry applied the config with the route's OAuth provider enabled and moved the catalog revision
 // (registry.mjs:312). The web-search read lands after that move and before the refresh answered, so it drops the caches
 // the full read filled (model-meta.mjs:18, web-search-catalog.mjs:112). Driven here in the same order: the endpoint held,
-// the warm-up run to its end, the read made then. The core starts no catalog refresh after the warm-up's provider
-// preparation (nothing reaches the held endpoint, or the warm-up could not end), so its read lands where Node's did:
-// after the move, before any refresh answered. (The `*-before-statusline-warm-up` scenarios, the warm-up held through
-// every read, are read with no warm-up in model_list_node_tests.)
+// the warm-up run to its end and the refresh its readiness call started held at the endpoint, the read made then: after
+// the move, before the refresh answered. (The `*-before-statusline-warm-up` scenarios, the warm-up held through every
+// read, are read with no warm-up in model_list_node_tests.)
 #[tokio::test]
 async fn a_web_search_read_after_the_warm_up_moved_the_catalog_revision_answers_as_nodes() {
     let recording = super::model_list_node_tests::recording();
@@ -139,15 +153,17 @@ async fn a_web_search_read_after_the_warm_up_moved_the_catalog_revision_answers_
         rig.host.settle_warm().await;
         assert_rows(&format!("{name}: full"), &rig.service.rows(false, false).await.unwrap(), &calls[1]["value"]);
         // From here on the endpoint holds what reaches it.
-        let hits = rig.hits.load(std::sync::atomic::Ordering::SeqCst);
+        drain(&rig.arrived);
         rig.gate.send_replace(false);
         built.warm.start();
         within(&format!("{name}: the warm-up's provider preparation"), built.warm.settle()).await;
         assert!(built.gates.marks.lock().unwrap().iter().any(|mark| mark.starts_with("statusline-usage:warm-ready")), "{name}: the warm-up ran");
+        within(&format!("{name}: the catalog refresh's request held at the endpoint"), rig.arrived.acquire()).await.unwrap().forget();
+        assert!(rig.catalog.refresh_in_flight(), "{name}: the refresh the warm-up's readiness call started is running");
         let found = within(&format!("{name}: the web-search read"), web_search(rig).list(None, false)).await.unwrap();
         assert_rows(&format!("{name}: web search"), found.as_array().unwrap(), &calls[3]["value"]);
-        assert_eq!(rig.hits.load(std::sync::atomic::Ordering::SeqCst), hits, "{name}: nothing reached the endpoint since the full read");
         rig.gate.send_replace(true);
+        within(&format!("{name}: the released refresh"), rig.readiness.settle_refreshes()).await;
         driven += 1;
     }
     assert!(driven > 0, "the recording holds a read after the warm-up moved the catalog revision");
@@ -157,10 +173,9 @@ async fn a_web_search_read_after_the_warm_up_moved_the_catalog_revision_answers_
 // answered the held catalog-refresh request and waited for what Node does on its completion (provider-readiness.mjs:160-171):
 // the model caches dropped with the providers kept (`invalidateProviderCaches({ preserveProviderInit: true })`) and the
 // authoritative re-warm (`warmProviderModelCache({ loadSecrets: true })`) landed (`provider-models:warm-ready` after
-// `provider-catalogs:refresh-ready`). Driven here in the same order with the core's own steps for that completion: the
-// catalog refresh and the invalidation that follows it (`ProviderReadiness::refresh_catalogs`), then the secrets-carrying
-// warm run to its end, then the read. The core does not start that refresh by itself after the warm-up's preparation
-// (`ProviderReadiness::ensure_providers_ready` reports `catalogs_due` and the warm-up drops it), so the test makes the steps.
+// `provider-catalogs:refresh-ready`). Driven here in the same order: the warm-up's readiness call starts the refresh, whose
+// completion drops the caches and starts the re-warm (the hooks bound as the daemon binds them); the read follows the
+// re-warm's landing.
 #[tokio::test]
 async fn a_web_search_read_after_the_refresh_completed_and_the_re_warm_landed_answers_as_nodes() {
     let recording = super::model_list_node_tests::recording();
@@ -174,17 +189,16 @@ async fn a_web_search_read_after_the_refresh_completed_and_the_re_warm_landed_an
         let name = node["name"].as_str().unwrap();
         let built = built_from(node.clone(), &recording["seeds"], NO_DELAY).await;
         let rig = &built.rig;
-        let service = rig.service.clone();
-        assert!(rig.readiness.bind_invalidation(Arc::new(move || service.invalidate())).is_ok(), "{name}: the invalidation is bound once");
+        bind_completion_hooks(rig, name);
         assert_rows(&format!("{name}: quick"), &rig.service.rows(false, true).await.unwrap(), &calls[0]["value"]);
         rig.host.settle_warm().await;
         assert_rows(&format!("{name}: full"), &rig.service.rows(false, false).await.unwrap(), &calls[1]["value"]);
+        let rewarms = rig.rewarms.load(std::sync::atomic::Ordering::SeqCst);
         built.warm.start();
         within(&format!("{name}: the warm-up's provider preparation"), built.warm.settle()).await;
         assert!(built.gates.marks.lock().unwrap().iter().any(|mark| mark.starts_with("statusline-usage:warm-ready")), "{name}: the warm-up ran");
-        within(&format!("{name}: the catalog refresh and its invalidation"), rig.readiness.refresh_catalogs()).await;
-        assert!(!rig.service.cache_loaded(), "{name}: the refresh's completion dropped the cache");
-        rig.service.warm_cache(true);
+        within(&format!("{name}: the catalog refresh and its completion"), rig.readiness.settle_refreshes()).await;
+        assert_eq!(rig.rewarms.load(std::sync::atomic::Ordering::SeqCst), rewarms + 1, "{name}: the completion started the re-warm");
         within(&format!("{name}: the re-warm"), rig.service.settle_warm()).await;
         assert!(rig.service.cache_loaded(), "{name}: the re-warm landed");
         let found = within(&format!("{name}: the web-search read"), web_search(rig).list(None, false)).await.unwrap();
@@ -196,8 +210,9 @@ async fn a_web_search_read_after_the_refresh_completed_and_the_re_warm_landed_an
 
 // The fourth ordering (`*-after-catalog-refresh-completed-while-rewarm-loads`): as the third, but the re-warm's load was held
 // at its start (`loadProviderModelsFresh`) and the web-search read made while it was in flight, the caches dropped, then the
-// load released. Driven here in the same order: the refresh and its invalidation, the secrets-carrying warm started and
-// held at its first step (its keychain read, the vault gate closed), the read, then the release and the load's end.
+// load released. Driven here in the same order: the refresh the warm-up's readiness call started held at the endpoint, the
+// keychain closed, the refresh released; its completion drops the caches and starts the secrets-carrying re-warm, which
+// holds at its first step (its keychain read); the read, then the release and the load's end.
 #[tokio::test]
 async fn a_web_search_read_while_the_re_warm_loads_answers_as_nodes() {
     let recording = super::model_list_node_tests::recording();
@@ -211,16 +226,19 @@ async fn a_web_search_read_while_the_re_warm_loads_answers_as_nodes() {
         let name = node["name"].as_str().unwrap();
         let built = built_from(node.clone(), &recording["seeds"], NO_DELAY).await;
         let rig = &built.rig;
-        let service = rig.service.clone();
-        assert!(rig.readiness.bind_invalidation(Arc::new(move || service.invalidate())).is_ok(), "{name}: the invalidation is bound once");
+        bind_completion_hooks(rig, name);
         assert_rows(&format!("{name}: quick"), &rig.service.rows(false, true).await.unwrap(), &calls[0]["value"]);
         rig.host.settle_warm().await;
         assert_rows(&format!("{name}: full"), &rig.service.rows(false, false).await.unwrap(), &calls[1]["value"]);
+        drain(&rig.arrived);
+        rig.gate.send_replace(false);
         built.warm.start();
         within(&format!("{name}: the warm-up's provider preparation"), built.warm.settle()).await;
-        within(&format!("{name}: the catalog refresh and its invalidation"), rig.readiness.refresh_catalogs()).await;
+        within(&format!("{name}: the catalog refresh's request held at the endpoint"), rig.arrived.acquire()).await.unwrap().forget();
         rig.vault_gate.send_replace(false);
-        rig.service.warm_cache(true);
+        drain(&rig.vault_arrived);
+        rig.gate.send_replace(true);
+        within(&format!("{name}: the catalog refresh and its completion"), rig.readiness.settle_refreshes()).await;
         within(&format!("{name}: the re-warm reaching its keychain read"), rig.vault_arrived.acquire()).await.unwrap().forget();
         assert!(rig.host.load_in_flight() && !rig.service.cache_loaded(), "{name}: the re-warm is in flight over dropped caches");
         let found = within(&format!("{name}: the web-search read while the re-warm loads"), web_search(rig).list(None, false)).await.unwrap();

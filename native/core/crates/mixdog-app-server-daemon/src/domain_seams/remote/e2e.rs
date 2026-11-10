@@ -199,8 +199,8 @@ impl CoreHandle for Core {
         self.mock.connection_opened(connection, origin, device, kind);
     }
 
-    fn request_started(&self) -> RequestGuard {
-        self.mock.request_started()
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> RequestGuard {
+        self.mock.request_started(method, params)
     }
 }
 
@@ -1153,7 +1153,7 @@ const NOT_REPLAYED: &[NotReplayed] = &[
     NotReplayed {
         path: "before.settings",
         owners: &["phone-ph2-settings-notify"],
-        why: "Node's settings blob (`readSettings`, remote-methods.ts:1092): served to a revoked phone unchanged. The core has no counterpart of the frame.",
+        why: "Node's settings blob (`readSettings`, remote-methods.ts:1092): served to a revoked phone unchanged. The frame is built on the phone by the settings adapter (apps/desktop/src/renderer/remote-protocol-settings.ts) from `config/read`, which this harness does not run; it is compared with Node's exactly in the phone-settings replay (apps/desktop/src/renderer/remote-protocol-settings.slow.test.mjs).",
     },
     NotReplayed { path: "after.settings", owners: &["phone-ph2-settings-notify"], why: "as before.settings" },
     NotReplayed {
@@ -1164,7 +1164,7 @@ const NOT_REPLAYED: &[NotReplayed] = &[
     NotReplayed {
         path: "before.notifications",
         owners: &["phone-ph2-settings-notify"],
-        why: "Node's roster (`getNotificationPreferences`, remote-methods.ts:1115). The device's preferences in it are compared as what `Config` stores; the roster call itself has no core counterpart.",
+        why: "Node's roster (`getNotificationPreferences`, remote-methods.ts:1115). The device's preferences in it are compared as what `Config` stores; the roster is built on the phone by the settings adapter from `notify/state` and `remoteAccess/state`, compared with Node's in the phone-settings replay, not here.",
     },
     NotReplayed {
         path: "after.notifications",
