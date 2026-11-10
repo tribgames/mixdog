@@ -855,6 +855,416 @@
         "elapsedMs": 0,
         "pendingTimers": 0
       }
+    },
+    {
+      "name": "disposed while the helper’s handshake runs, which then succeeds: the connection is ended at once and nothing more reaches the helper",
+      "world": {
+        "installState": "installed",
+        "holdHandshake": true
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "stop",
+          "as": "stop"
+        },
+        {
+          "op": "await",
+          "call": "stop"
+        },
+        {
+          "op": "dispose"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "handshake",
+          "outcome": "succeeds"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "peerClose"
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "installer",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "controlling": true
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1920,
+              "cssHeight": 1080,
+              "deviceScaleFactor": 1,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "starting",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "hold",
+          "run": 1
+        },
+        {
+          "ev": "pipe",
+          "call": "open"
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "user"
+          }
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "done",
+          "call": "stop",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "pipe",
+          "call": "end"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
+    },
+    {
+      "name": "disposed while the helper’s handshake runs, which then fails: the connection is ended at once and nothing more reaches the helper",
+      "world": {
+        "installState": "installed",
+        "holdHandshake": true
+      },
+      "steps": [
+        {
+          "op": "start",
+          "as": "start"
+        },
+        {
+          "op": "await",
+          "call": "start"
+        },
+        {
+          "op": "hostDesktop",
+          "local": {
+            "inputDesktop": null,
+            "consent": true,
+            "logonUi": false
+          }
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "stop",
+          "as": "stop"
+        },
+        {
+          "op": "await",
+          "call": "stop"
+        },
+        {
+          "op": "dispose"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "handshake",
+          "outcome": "fails"
+        },
+        {
+          "op": "settle"
+        },
+        {
+          "op": "peerClose"
+        },
+        {
+          "op": "settle"
+        }
+      ],
+      "trace": [
+        {
+          "ev": "installer",
+          "call": "state",
+          "key": null
+        },
+        {
+          "ev": "host",
+          "call": "start"
+        },
+        {
+          "ev": "installer",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "indicator",
+          "call": "show",
+          "controlling": true
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "start",
+            "clientId": "phone-1",
+            "screenId": "7"
+          }
+        },
+        {
+          "ev": "done",
+          "call": "start",
+          "ok": true,
+          "value": {
+            "plan": {
+              "sourceId": "screen:0:0",
+              "width": 1920,
+              "height": 1080,
+              "maxFrameRate": 30
+            },
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 1920,
+              "cssHeight": 1080,
+              "deviceScaleFactor": 1,
+              "pixelWidth": 1920,
+              "pixelHeight": 1080
+            },
+            "status": {
+              "state": "live",
+              "helper": "starting",
+              "control": true,
+              "helperInfo": {
+                "offer": "none",
+                "outcome": null,
+                "detail": null,
+                "issue": null,
+                "secure": null
+              }
+            }
+          }
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "secure-desktop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "state": "secure-desktop"
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "update",
+          "controlling": false
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "secure-desktop",
+            "reason": "uac",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "installer",
+          "call": "ensureRunning"
+        },
+        {
+          "ev": "hold",
+          "run": 1
+        },
+        {
+          "ev": "pipe",
+          "call": "open"
+        },
+        {
+          "ev": "status",
+          "status": {
+            "state": "stopped",
+            "reason": "user",
+            "helper": "starting",
+            "control": false,
+            "helperInfo": {
+              "offer": "none",
+              "outcome": null,
+              "detail": null,
+              "issue": null,
+              "secure": "uac"
+            }
+          }
+        },
+        {
+          "ev": "indicator",
+          "call": "hide"
+        },
+        {
+          "ev": "log",
+          "event": {
+            "type": "stop",
+            "clientId": "phone-1",
+            "screenId": "7",
+            "reason": "user"
+          }
+        },
+        {
+          "ev": "host",
+          "call": "stop"
+        },
+        {
+          "ev": "done",
+          "call": "stop",
+          "ok": true,
+          "value": null
+        },
+        {
+          "ev": "pipe",
+          "call": "end"
+        }
+      ],
+      "final": {
+        "elapsedMs": 0,
+        "pendingTimers": 0
+      }
     }
   ]
 }

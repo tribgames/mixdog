@@ -13,7 +13,13 @@ use mixdog_secure_desktop::protocol::Message;
 use serde_json::Value;
 use serde_json::json;
 
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+
+use tokio::sync::oneshot;
+
 use super::helper_client::ClientSession;
+use super::helper_client::Dialing;
 use super::helper_client::HelperConnector;
 use super::helper_client::HelperPipe;
 use super::helper_client::PipeEvents;
@@ -90,18 +96,57 @@ struct Connector {
     replay: Replay,
     installed: bool,
     events: Mutex<Option<Arc<dyn PipeEvents>>>,
+    /// `holdHandshake`: the connect is made only when the script says.
+    hold: bool,
+    handshake: Mutex<Option<oneshot::Sender<Result<(Arc<dyn HelperPipe>, ClientSession), String>>>>,
+    given_up: Arc<AtomicBool>,
+}
+
+impl Connector {
+    fn made(&self) -> (Arc<dyn HelperPipe>, ClientSession) {
+        let pipe: Arc<dyn HelperPipe> = Arc::new(Pipe { log: self.log.clone(), replay: self.replay.clone() });
+        (pipe, ClientSession { protocol: 4, version: "1.4.5".to_string(), session: 1, desktop: "Winlogon".to_string(), locked: Some(false) })
+    }
+
+    /// The helper answers the held handshake. Given up before, the answer counts for nothing: the client wrote
+    /// nothing after its hello, and the connection only waits for the helper to close it.
+    fn handshake(&self, outcome: &str) {
+        if self.given_up.load(Ordering::SeqCst) {
+            return;
+        }
+        let answer = if outcome == "succeeds" { Ok(self.made()) } else { Err("unauthorized: the client is not allowed".to_string()) };
+        if let Some(handshake) = lock(&self.handshake).take() {
+            drop(handshake.send(answer));
+        }
+    }
+
+    /// The helper closes the connection: a connect still under way fails.
+    fn peer_close(&self) {
+        if let Some(handshake) = lock(&self.handshake).take() {
+            drop(handshake.send(Err("connection closed".to_string())));
+        }
+    }
 }
 
 impl HelperConnector for Connector {
     fn available(&self) -> bool {
         self.installed
     }
-    fn connect(&self, events: Arc<dyn PipeEvents>) -> BoxFuture<Result<(Arc<dyn HelperPipe>, ClientSession), String>> {
+    fn connect(&self, events: Arc<dyn PipeEvents>) -> Dialing {
         note(&self.log, "pipe", "open", json!({}));
         *lock(&self.events) = Some(events);
-        let pipe: Arc<dyn HelperPipe> = Arc::new(Pipe { log: self.log.clone(), replay: self.replay.clone() });
-        let hello = ClientSession { protocol: 4, version: "1.4.5".to_string(), session: 1, desktop: "Winlogon".to_string(), locked: Some(false) };
-        answer(Ok((pipe, hello)))
+        let (log, given_up) = (self.log.clone(), self.given_up.clone());
+        // Given up during the handshake: the connection is ended (Node's `connection.end()`).
+        let abort: Box<dyn FnOnce() + Send> = Box::new(move || {
+            given_up.store(true, Ordering::SeqCst);
+            note(&log, "pipe", "end", json!({}));
+        });
+        if !self.hold {
+            return Dialing { done: answer(Ok(self.made())), abort };
+        }
+        let (sender, receiver) = oneshot::channel();
+        *lock(&self.handshake) = Some(sender);
+        Dialing { done: Box::pin(async move { receiver.await.expect("the script ends the handshake") }), abort }
     }
 }
 
@@ -227,7 +272,11 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
         replay: replay.clone(),
         installed: world.get("notInstalled").is_none(),
         events: Mutex::new(None),
+        hold: world["holdHandshake"] == true,
+        handshake: Mutex::new(None),
+        given_up: Arc::new(AtomicBool::new(false)),
     });
+    let mut disposed = false;
     let install_state: InstallState = serde_json::from_value(world["installState"].clone()).expect("an install state");
     let control = ScreenControl::new(connector.clone(), Arc::new(Installer { log: log.clone(), state: install_state }), Arc::new(timers.clone()));
     let lease = control.lease();
@@ -351,6 +400,13 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
                     }),
                 );
             }
+            "dispose" => {
+                lease.dispose();
+                control.dispose();
+                disposed = true;
+            }
+            "handshake" => connector.handshake(step["outcome"].as_str().expect("an outcome")),
+            "peerClose" => connector.peer_close(),
             "settle" => replay.settle().await,
             "await" => {
                 replay.settle().await;
@@ -361,8 +417,10 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
         }
     }
     replay.settle().await;
-    lease.dispose();
-    control.dispose();
+    if !disposed {
+        lease.dispose();
+        control.dispose();
+    }
     replay.settle().await;
     let final_state = json!({"elapsedMs": timers.elapsed(), "pendingTimers": timers.pending()});
     (log_take(&log), final_state)

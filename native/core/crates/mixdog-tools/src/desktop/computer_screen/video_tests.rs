@@ -12,7 +12,6 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::installer::Credential;
-use super::installer::TimerHandle;
 use super::installer::Timers;
 use super::lease::Challenge;
 use super::lease::Grant;
@@ -26,7 +25,8 @@ use super::testing::log_new;
 use super::testing::log_push;
 use super::testing::log_take;
 use super::testing::manifest_names;
-use super::testing::ms_value;
+use super::testing::DEADLINE;
+use super::testing::ThreadedTimers;
 use super::testing::next_turn;
 use super::turn::Turn;
 use super::video::ScreenVideoSource;
@@ -460,115 +460,6 @@ fn every_recorded_video_scenario_replays_to_nodes_whole_trace() {
 // it is held. The gate is let go as soon as a racing step has to wait for its turn, or once all of them ended
 // (which only happens when nothing serialises them). The trace must be the one Node recorded for the same steps run
 // one after the other.
-
-/// How long one awaited event may take before the test fails, naming it.
-const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
-
-type Armed = (u64, u64, Arc<std::sync::atomic::AtomicBool>, Box<dyn FnOnce() + Send>);
-
-#[derive(Default)]
-struct ThreadedClock {
-    /// Nanoseconds since the start.
-    now: u64,
-    seq: u64,
-    timers: Vec<Armed>,
-}
-
-/// Timers on a multi-threaded tokio runtime with a virtual clock: a task runs on the runtime's workers, and a due
-/// timer's callback is started on a worker when the script advances the clock (as `TokioTimers` starts it when
-/// its sleep ends), so it runs beside whatever else is running.
-#[derive(Clone)]
-struct ThreadedTimers {
-    runtime: tokio::runtime::Handle,
-    clock: Arc<Mutex<ThreadedClock>>,
-    tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
-    turn: Arc<Turn>,
-}
-
-impl Timers for ThreadedTimers {
-    fn now_ms(&self) -> f64 {
-        lock(&self.clock).now as f64 / 1e6
-    }
-
-    fn sleep(&self, _after: std::time::Duration) -> BoxFuture<()> {
-        panic!("the video source never sleeps")
-    }
-
-    fn run(&self, task: BoxFuture<()>) {
-        let handle = self.runtime.spawn(task);
-        lock(&self.tasks).push(handle);
-    }
-
-    fn arm(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
-        let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        {
-            let mut clock = lock(&self.clock);
-            clock.seq += 1;
-            let (due, seq) = (clock.now + after.as_nanos() as u64, clock.seq);
-            clock.timers.push((due, seq, cleared.clone(), callback));
-        }
-        TimerHandle::new(move || cleared.store(true, std::sync::atomic::Ordering::SeqCst))
-    }
-
-    fn turn(&self) -> &Arc<Turn> {
-        &self.turn
-    }
-}
-
-impl ThreadedTimers {
-    fn new(runtime: tokio::runtime::Handle) -> Self {
-        Self { runtime, clock: Arc::default(), tasks: Arc::default(), turn: Turn::new() }
-    }
-
-    /// Moves the clock by `ms`, starting each timer that falls due and is not cleared on a worker, in due order.
-    fn advance(&self, ms: u64) -> Vec<tokio::task::JoinHandle<()>> {
-        let mut clock = lock(&self.clock);
-        let until = clock.now + ms * 1_000_000;
-        let mut started = Vec::new();
-        loop {
-            clock.timers.retain(|timer| !timer.2.load(std::sync::atomic::Ordering::SeqCst));
-            let next = clock.timers.iter().enumerate().min_by_key(|(_, timer)| (timer.0, timer.1)).map(|(index, _)| index);
-            match next {
-                Some(index) if clock.timers[index].0 <= until => {
-                    let (due, _, _, callback) = clock.timers.remove(index);
-                    clock.now = clock.now.max(due);
-                    started.push(self.runtime.spawn(async move { callback() }));
-                }
-                _ => break,
-            }
-        }
-        clock.now = until;
-        started
-    }
-
-    fn elapsed(&self) -> Value {
-        ms_value(lock(&self.clock).now)
-    }
-
-    fn pending(&self) -> usize {
-        lock(&self.clock).timers.iter().filter(|timer| !timer.2.load(std::sync::atomic::Ordering::SeqCst)).count()
-    }
-
-    fn finish(&self, task: tokio::task::JoinHandle<()>, what: &str) {
-        self.runtime
-            .block_on(async { tokio::time::timeout(DEADLINE, task).await })
-            .unwrap_or_else(|_| panic!("{what} did not end within {DEADLINE:?}"))
-            .unwrap_or_else(|error| panic!("{what} failed: {error}"));
-    }
-
-    /// Waits for every task started so far, and those they start, to end.
-    fn settle(&self) {
-        loop {
-            let tasks = std::mem::take(&mut *lock(&self.tasks));
-            if tasks.is_empty() {
-                return;
-            }
-            for task in tasks {
-                self.finish(task, "a task of the script");
-            }
-        }
-    }
-}
 
 #[derive(Debug, PartialEq)]
 enum Told {
