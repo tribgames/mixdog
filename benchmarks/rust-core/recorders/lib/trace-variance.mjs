@@ -19,6 +19,15 @@ export function slotsOf(list) {
   return slots;
 }
 
+/** The bytes `tab` streamed before the answer to its own `termDispose` (what the shell wrote while it ran; after it, the kill's timing). */
+export function bytesBeforeDispose(list, tab) {
+  const end = list.findIndex((entry) => entry.call === 'termDispose' && entry.params?.[0] === tab);
+  return (end < 0 ? list : list.slice(0, end))
+    .filter((entry) => entry.push === 'termData' && entry.event.id === tab)
+    .map((entry) => entry.event.data)
+    .join('');
+}
+
 export function varianceReport(traces) {
   const report = {};
   for (const part of ['order', 'claims.order']) {
@@ -36,6 +45,7 @@ export function varianceReport(traces) {
         slotsWhereDataPresenceDiffers: all.filter((at) => new Set(slots.map((s) => present(s, at))).size > 1),
         slotsWhereBytesDiffer: all.filter((at) => new Set(slots.map((s) => s[tab]?.[at] ?? null)).size > 1).length,
         concatenatedBytesDistinct: new Set(slots.map((s) => Object.values(s[tab] ?? {}).join(''))).size,
+        bytesBeforeDisposeDistinct: new Set(lists.map((list) => bytesBeforeDispose(list, tab))).size,
       };
     }
     report[part] = {

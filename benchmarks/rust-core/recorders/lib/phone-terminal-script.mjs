@@ -18,6 +18,10 @@ import { join } from 'node:path';import { linesOf, screenOf } from './phone-scre
 
 export const TAB = 'term_ph2a';
 const CLAMP = 'term_ph2b';
+/** A tab of the `cmd` profile (Command Prompt), which a phone names in `termEnsure` as the desktop's own picker does (Node: remote-methods.ts
+ *  termEnsure -> desktop-operations.ts termEnsure -> shell-profiles.ts resolveShellProfileSpawn, the detected `cmd` profile). cmd has no
+ *  line editor redrawing what is typed, so its output is the same bytes run after run: compared byte for byte. */
+export const CMD = 'term_ph2c';
 export const MARK ='MIXDOG_PH2_DONE';
 /** The marker command a `settle` runs: its result line, the marker alone, is what the wait looks for. */
 const SETTLE = (n) => `MIXDOG_PH2_SETTLE_${n}`;
@@ -155,6 +159,17 @@ export function terminalScript(root) {
       { op: 'call', name: 'termDispose', params: [TAB] },
       { op: 'call', name: 'termAttach', params: [TAB] },
       { op: 'call', name: 'termActivity', params: [] },
+      // The Command Prompt, by its profile id: its banner and prompt, a command run (cmd reports only its prompt, so a submitted line is
+      // what starts it), the command's line and the next prompt after a blank line, then its end.
+      { op: 'call', name: 'termEnsure', params: [CMD, cwd, 'cmd'] },
+      { op: 'until', kind: 'activity', event: { id: CMD, state: 'idle' } },
+      { op: 'fire', name: 'termWrite', params: [CMD, `echo ${MARK}\r`] },
+      { op: 'until', kind: 'activity', event: { id: CMD, state: 'finished' } },
+      { op: 'until', kind: 'screen', tab: CMD, after: MARK, prompt: `${cwd}>`, gap: 1 },
+      { op: 'snap', name: 'cmd result', tabs: [CMD] },
+      { op: 'call', name: 'termDispose', params: [CMD] },
+      { op: 'until', kind: 'activity', event: { id: CMD, state: null } },
+      { op: 'until', kind: 'exitLine', tab: CMD },
       // Off the lanes, nothing is pushed any more; a reveal of the agent's terminal is not a lane push and still arrives, without the
       // ack id and the paths. The core delivers an app-feed event again after a reconnect (`redeliver`): the page hears it once.
       { op: 'lane', lane: 'terminal', on: false },
@@ -280,6 +295,11 @@ export function sizeClaimScript(root) {
       owner(L2, 0, 0, false),
       ...attachAll(tabs),
       { op: 'snap', name: 'end', tabs },
+      // A claim and then the dispose of its tab: Node runs the claim wholly (its owner pushed) before the dispose (the tab's end, the
+      // answer), never between them (terminal-manager.ts:455, :536). The dispose of an id with no tab leaving a later claim standing is
+      // the `term_ph2_none` case above.
+      { op: 'fire', name: 'termResize', params: [L5, 99, 29, true] },
+      owner(L5, 99, 29, true),
       ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
       ...tabs.map((tab) => ({ op: 'until', kind: 'exitLine', tab })),
       { op: 'lane', lane: 'terminal', on: false },
@@ -291,11 +311,12 @@ export function sizeClaimScript(root) {
 export const callEntry = (name, params, { value, error }) =>
   error !== undefined ? { call: name, params, error } : { call: name, params, value: typeof value?.replay === 'string' ? { ...value, replay: screenOf(value.replay) } : value };
 
-/** The marker's own line is on the screen with the prompt right after it: what the shell wrote for the command is complete. */
-const onScreen = (text, { after, prompt }) => {
+/** The marker's own line is on the screen with the prompt right after it (after `gap` blank lines: cmd leaves one after a command's
+ *  output): what the shell wrote for the command is complete. */
+const onScreen = (text, { after, prompt, gap = 0 }) => {
   const lines = linesOf(text).map((line) => line.trimEnd());
   const at = lines.lastIndexOf(after);
-  return at >= 0 && lines[at + 1] === prompt;
+  return at >= 0 && lines.slice(at + 1, at + 1 + gap).every((line) => line === '') && lines[at + 1 + gap] === prompt;
 };
 
 /**

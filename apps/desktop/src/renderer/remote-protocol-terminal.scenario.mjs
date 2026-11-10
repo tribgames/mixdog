@@ -4,6 +4,8 @@
 // core on a loopback WebSocket. The relay end only carries frames both ways: the core answers for itself.
 // Prints the trace on a marker line; remote-protocol-terminal.slow.test.mjs compares it with the recording.
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { assertNoPowerShellProfile, isolatedProfile } from '../../../../benchmarks/rust-core/recorders/lib/shell-isolation.mjs';
 import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -21,14 +23,25 @@ const ROOT = golden.root;
 let touches = 0;
 const CORE_ROOT = `${ROOT}-core`;
 const CLOCK_DIR = join(CORE_ROOT, 'clock');
-const BIN =process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
+// The run's secret for the lease clock: only this run's connection moves it.
+const CLOCK_SECRET = randomBytes(16).toString('hex');
+const BIN = process.env.MIXDOGD_BIN;
 
 async function startCore() {
   rmSync(CORE_ROOT, { recursive: true, force: true });
   for (const dir of ['runtime', 'data', 'home', 'clock']) mkdirSync(join(CORE_ROOT, dir), { recursive: true });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
-  Object.assign(env, { MIXDOG_RUNTIME_ROOT: join(CORE_ROOT, 'runtime'), MIXDOG_DATA_DIR: join(CORE_ROOT, 'data'), MIXDOG_HOME: join(CORE_ROOT, 'home'), MIXDOG_TERMINAL_LEASE_CLOCK: CLOCK_DIR });
+  // The shells get a profile folder this run owns, as the recording's did (lib/shell-isolation.mjs).
+  Object.assign(env, isolatedProfile(join(CORE_ROOT, 'profile')));
+  assertNoPowerShellProfile(env);
+  Object.assign(env, {
+    MIXDOG_RUNTIME_ROOT: join(CORE_ROOT, 'runtime'),
+    MIXDOG_DATA_DIR: join(CORE_ROOT, 'data'),
+    MIXDOG_HOME: join(CORE_ROOT, 'home'),
+    MIXDOG_TERMINAL_LEASE_CLOCK: CLOCK_DIR,
+    MIXDOG_TERMINAL_LEASE_CLOCK_SECRET: CLOCK_SECRET,
+  });
   // The working directory is the recording's root: a path without a drive resolves onto its drive, as it did for Node's recorder.
   const child = spawn(BIN, ['serve'], { cwd: ROOT, env, stdio: 'ignore', windowsHide: true });
   // The core publishes its discovery record when it serves (a debug core first migrates its stores): the wait is on that file's change.
@@ -80,7 +93,12 @@ function untilFile(dir, child, read, what, deadlineMs = DEADLINE_MS) {
 /** The manual lease clock's socket: the core writes its port into the clock directory, and answers each command with one line. */
 async function openClock(core) {
   const port = await untilFile(CLOCK_DIR, core.child, (dir) => Number(readFileSync(join(dir, 'port'), 'utf8')) || null, "the core to publish the lease clock's port");
-  return openClockSocket(port);
+  const clock = await openClockSocket(port);
+  const admitted = new Promise((resolve) => clock.lines.once('line', resolve));
+  clock.socket.write(`secret ${CLOCK_SECRET}\n`);
+  const line = await bounded(admitted, 'the core did not answer the lease clock secret');
+  if (line !== 'admitted') throw new Error(`the core refused the lease clock secret: ${line}`);
+  return clock;
 }
 
 async function run(core) {
@@ -265,6 +283,7 @@ async function main() {
   const script = terminalScript(ROOT);
   rmSync(ROOT, { recursive: true, force: true });
   for (const dir of [script.cwd, script.watched]) mkdirSync(dir, { recursive: true });
+  if (!process.env.MIXDOGD_BIN) throw new Error('MIXDOGD_BIN must name a mixdogd built with `--features terminal-lease-clock` (the replay steps its lease clock)');
   const core = await startCore();
   let failed = false;
   try {
