@@ -23,11 +23,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, posix, resolve, win32 } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
-import { installScriptedProcesses, scriptedPty, serveShims } from './lib/phone-scm-world.mjs';
+import { envDelta, installScriptedProcesses, scriptedPty, serveShims } from './lib/phone-scm-world.mjs';
 
 const REAL_HOME = process.env.USERPROFILE;
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -205,9 +205,10 @@ const { runChild } = await importFrom(tree, 'src/runtime/shared/run-child.mjs');
 // The git children of a call that are still running when it answers (a read that failed early leaves its siblings behind) are
 // tracked, so the recorder waits for each one's own settling, not for a fixed time, before it takes the call's attempts.
 const gitInFlight = new Set();
+const pairsToEnv = (pairs) => (pairs ? Object.fromEntries(pairs.map((pair) => [pair.slice(0, pair.indexOf('=', 1)), pair.slice(pair.indexOf('=', 1) + 1)])) : undefined);
 let inRunner = false;
 setGitProcessRunner((command, runArgs, options) => {
-  const attempt = { tool: 'git', argv: clone(runArgs), cwd: options.cwd ?? null };
+  const attempt = { tool: 'git', argv: clone(runArgs), cwd: options.cwd ?? null, env: envDelta(options.env, process.env) };
   processes.push(attempt);
   // A virtual run limit armed while this child is started belongs to it.
   clock.tag = { tool: 'git', argv: clone(runArgs) };
@@ -231,7 +232,7 @@ setGitProcessRunner((command, runArgs, options) => {
   ChildProcess.prototype.spawn = function spawn(options) {
     const result = start.call(this, options);
     if (!inRunner && /(^|[\\/])git(\.exe)?$/i.test(String(options.file))) {
-      const attempt = { tool: 'git', argv: (options.args ?? []).slice(1).map(String), cwd: options.cwd ?? null };
+      const attempt = { tool: 'git', argv: (options.args ?? []).slice(1).map(String), cwd: options.cwd ?? null, env: envDelta(pairsToEnv(options.envPairs), process.env) };
       processes.push(attempt);
       if (this.pid === undefined) attempt.reply = { code: -1, stderr: 'ENOENT' };
       else {
@@ -561,7 +562,7 @@ if (REPLAY) {
   // As the router gives it: the client scoped to the call, so every request frame carries the call's `sent` claim.
   const host = { ctx: {}, client: () => scopeClient(traced, () => {}) };
   const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
-  replay = { core, client, host, adapter, runQueued, callQueueFor, routes: SCM_OPERATION_ROUTES, golden, byName, shims, wire, wires, holder, compared: [], differences: [], ptySeen: 0, jsSeen: 0 };
+  replay = { core, client, host, adapter, runQueued, callQueueFor, routes: SCM_OPERATION_ROUTES, golden, byName, shims, wire, wires, holder, compared: [], differences: [], ptySeen: 0, jsSeen: 0, baseEnv: coreEnv };
 }
 
 /** The phone's adapter against the core: the frame the relay would carry. */
@@ -574,6 +575,13 @@ function replayCall(call, params) {
 }
 
 async function finishReplay() {
+  // Every sign-in terminal child, in the order started: its program, directory, environment and how it ended.
+  const begun = new Map();
+  for (const event of replay.wire.events) {
+    if (event.event === 'begin' && event.pty) begun.set(event.seq, { argv: event.args, cwd: event.cwd, env: coreEnvDelta(event), ended: null });
+    else if (event.event === 'done' && begun.has(event.seq)) begun.get(event.seq).ended = event.result;
+  }
+  if (!isDeepStrictEqual([...begun.values()], replay.golden.ptyEnds)) replay.differences.push({ name: 'sign-in terminal children (program, directory, environment, end)', node: replay.golden.ptyEnds, core: [...begun.values()] });
   replay.client.close?.();
   const exited = new Promise((resolve) => replay.core.once('exit', resolve));
   endTree(replay.core.pid);
@@ -621,15 +629,29 @@ function settled(flowId, ready) {
 // ── what the core did, as the replay sees it ──
 /** An attempt as it is compared: the program's own name, its arguments, whether it started, and (a program that started, not the
  *  sign-in's terminal) how it ended: its exit code, or the error the runner reports (ETIMEDOUT, EMAXBUFFER). */
-const attemptOf = ({ tool, argv, started, ended }) => ({ tool, argv, started, ...(started && ended ? ended : {}) });
+// A child started without a cwd runs where its parent runs: for the core, where the replay started it. The scratch index of a commit is
+// named for its process and a random suffix (git-commit-transaction.ts mkdtemp); only that name differs between two runs.
+const scratchIndex = (env) => ({ ...env, set: Object.fromEntries(Object.entries(env.set).map(([name, value]) => [name, name === 'GIT_INDEX_FILE' ? value.replace(/mixdog-commit-\d+-[A-Za-z0-9]+/, 'mixdog-commit-*') : value])) });
+const attemptOf = ({ tool, argv, cwd, env, started, ended }) => ({ tool, argv, cwd: cwd ?? process.cwd(), env: scratchIndex(env), started, ...(started && ended ? ended : {}) });
+/** The environment the core gave a child: what its request sets or removes on top of the one the core inherited, as a delta. */
+function coreEnvDelta({ envSet, envRemove }) {
+  const key = (name) => (process.platform === 'win32' ? name.toUpperCase() : name);
+  const drop = new Set((envRemove ?? []).map(key));
+  const set = new Set((envSet ?? []).map(([name]) => key(name)));
+  const full = Object.fromEntries(Object.entries(replay.baseEnv).filter(([name]) => !drop.has(key(name)) && !set.has(key(name))));
+  for (const [name, value] of envSet ?? []) full[name] = value;
+  return envDelta(full, replay.baseEnv);
+}
 /** The attempts Node recorded for a call, in the order Node made them. */
 const nodeAttempts = (list) =>
-  (list ?? []).map(({ tool, argv, reply }) =>
+  (list ?? []).map(({ tool, argv, cwd, env, reply, ended }) =>
     attemptOf({
       tool,
       argv,
+      cwd,
+      env,
       started: reply?.code !== -1,
-      ended: tool === 'pty' ? null : reply?.error !== undefined ? { error: reply.error } : reply?.code !== undefined ? { code: reply.code } : null,
+      ended: tool === 'pty' ? ended : reply?.error !== undefined ? { error: reply.error } : reply?.code !== undefined ? { code: reply.code } : null,
     }),
   );
 /** The attempts of the core's own spawns since `mark`, in the order it issued them (the seam tells each at the moment it is made). */
@@ -638,11 +660,12 @@ function coreAttempts(mark) {
   const order = [];
   for (const event of replay.wire.events.slice(mark)) {
     if (event.event === 'begin') {
-      const attempt = { tool: event.pty ? 'pty' : toolName(event.program), argv: event.args };
+      const attempt = { tool: event.pty ? 'pty' : toolName(event.program), argv: event.args, cwd: event.cwd, env: coreEnvDelta(event) };
       attempts.set(event.seq, attempt);
       order.push(attempt);
     } else if (event.event === 'spawned' && attempts.has(event.seq)) attempts.get(event.seq).started = event.started;
-    else if (event.event === 'done' && attempts.has(event.seq)) attempts.get(event.seq).ended = event.result;
+    // A sign-in terminal child ends on the scenario's own time: its end is compared once, in the list of all of them.
+    else if (event.event === 'done' && attempts.has(event.seq) && attempts.get(event.seq).tool !== 'pty') attempts.get(event.seq).ended = event.result;
   }
   return order.map(attemptOf);
 }
@@ -656,7 +679,7 @@ function jsAttempts() {
   const order = [];
   for (const line of fresh) {
     if (line.program !== undefined) {
-      const attempt = { tool: toolName(line.program), argv: line.args, started: line.started };
+      const attempt = { tool: toolName(line.program), argv: line.args, cwd: line.cwd, env: envDelta(line.env, replay.baseEnv), started: line.started };
       attempts.set(line.id, attempt);
       order.push(attempt);
     } else if (attempts.has(line.id)) attempts.get(line.id).ended = { code: line.exit };
@@ -785,10 +808,8 @@ async function replayOrdering(scenario, heldWrite) {
   replay.holder.hold = null;
   replay.holder.ended = null;
   replay.callQueueFor(ctx).close();
-  // Both recorded runs of Node saw the same order, so the core's order is compared with each as recorded.
-  for (const [run, nodeOrder] of ordering.orders.entries()) {
-    if (!isDeepStrictEqual(order, nodeOrder)) replay.differences.push({ name: `ordering (order of starts and ends, Node run ${run + 1})`, node: nodeOrder, core: order });
-  }
+  // Both recorded runs of Node showed this one order (the recorder fails otherwise), so it is the order Node has.
+  if (!isDeepStrictEqual(order, ordering.order)) replay.differences.push({ name: 'ordering (order of starts and ends)', node: ordering.order, core: order });
   if (!isDeepStrictEqual(answers, ordering.answers)) replay.differences.push({ name: 'ordering (frames)', node: ordering.answers, core: answers });
   const operations = opsDifference(ordering.ops, replay.wires);
   if (operations) replay.differences.push({ name: 'ordering (operations)', node: operations.node, core: operations.core });
@@ -832,8 +853,15 @@ async function rec(name, call, params, note, during) {
         `the core never published the ${wantEvents} settings change(s) of ${name}`,
       );
     }
-    // Everything the core told about the call is in by now.
+    // Everything the core told about the call is in by now; a read it left running when another failed first (Promise.all
+    // does not cancel it) has ended, as Node's recorder waits for the git children of a call.
     await replay.wire.sync();
+    await replay.wire.until(() => {
+      const since = replay.wire.events.slice(mark);
+      const done = new Set(since.filter((event) => event.event === 'done').map((event) => event.seq));
+      const started = since.filter((event) => event.event === 'spawned' && event.started).map((event) => event.seq);
+      return started.every((seq) => done.has(seq) || since.some((event) => event.event === 'begin' && event.seq === seq && event.pty));
+    }, `the core left a child of ${name} running`);
     const differ = (what, node, coreSide) => replay.differences.push({ name: `${name} (${what})`, node, core: coreSide });
     const events = settingsChanges.slice(settingsBefore);
     if (!isDeepStrictEqual(events, recorded.events ?? [])) differ('events', recorded.events ?? [], events);
@@ -1405,23 +1433,27 @@ async function recordOrderingRun() {
 }
 const firstRun = await recordOrderingRun();
 const secondRun = await recordOrderingRun();
-for (const key of ['heldStarts', 'answers', 'ops']) {
+// The order of every start and end is part of what is recorded: the two runs must show the same one, or the comparison is not ordered.
+for (const key of ['heldStarts', 'order', 'answers', 'ops']) {
   if (JSON.stringify(firstRun[key]) !== JSON.stringify(secondRun[key])) throw new Error(`the two runs of the ordering scenario differ in ${key}`);
 }
 const ordering = {
   name: 'read-behind-a-slow-write',
   calls: scenario.map(([call, params]) => ({ call, params: clone(params) })),
   heldStarts: firstRun.heldStarts,
-  orders: [firstRun.order, secondRun.order],
+  order: firstRun.order,
   answers: firstRun.answers,
   ops: firstRun.ops,
 };
+const PATH_SPELLINGS = ['C:\\repo', '\\repo', '/repo', 'C:/repo', '\\\\host\\share', '//host/share', 'repo', './repo', 'C:repo', ' /repo ', '../x', 'C:\\x'];
 // ── every one of the 62 calls was recorded ──
 const PH2_SCM_CALLS = readFileSync(join(FIXTURES, 'calls.txt'), 'utf8').split(/\s+/).filter(Boolean);
 const missing = PH2_SCM_CALLS.filter((call) => !covered.has(call));
 if (missing.length || PH2_SCM_CALLS.length !== 62) throw new Error(`calls not recorded: ${missing.join(', ')} (${PH2_SCM_CALLS.length} listed)`);
 
 if (scripted.unscripted.length) throw new Error(`processes no rule of gh-script.json answers:\n${JSON.stringify(scripted.unscripted, null, 1)}`);
+// How each sign-in terminal child ended, taken before the host is disposed (which ends any left running).
+const ptyEnds = pty.spawned.map((entry) => ({ argv: entry.record.argv, cwd: entry.record.cwd, env: entry.record.env, ended: entry.record.record.ended }));
 await operations.dispose();
 scripted.restore();
 rmSync(WORK, { recursive: true, force: true });
@@ -1431,7 +1463,12 @@ writeJson(join(stage, 'golden.json'), {
   note: 'The relay frame Node (b6f10295a) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).',
   platform: process.platform,
   git: gitVersion,
+  // What Node's host (`path.isAbsolute`, main/git-contract.mjs:1-6 and every git path check) says of each spelling, on each platform's rule.
+  pathRules: Object.fromEntries(
+    [['windows', win32], ['unix', posix]].map(([family, rules]) => [family, PATH_SPELLINGS.map((spelling) => ({ spelling, absolute: rules.isAbsolute(spelling), trimmedAbsolute: rules.isAbsolute(spelling.trim()) }))]),
+  ),
   cases,
+  ptyEnds,
   ordering,
 });
 writeSetManifest(stage, {

@@ -15,7 +15,7 @@ ChildProcess.prototype.spawn = function spawn(options) {
   if (file) {
     const id = `${process.pid}:${(count += 1)}`;
     const started = this.pid !== undefined;
-    appendFileSync(file, `${JSON.stringify({ id, program: String(options.file), args: (options.args ?? []).slice(1).map(String), started })}\n`);
+    appendFileSync(file, `${JSON.stringify({ id, program: String(options.file), args: (options.args ?? []).slice(1).map(String), started, cwd: options.cwd ?? process.cwd(), env: Object.fromEntries((options.envPairs ?? []).map((pair) => [pair.slice(0, pair.indexOf('=', 1)), pair.slice(pair.indexOf('=', 1) + 1)])) })}\n`);
     if (started) this.once('exit', (code) => appendFileSync(file, `${JSON.stringify({ id, exit: code })}\n`));
   }
   return result;

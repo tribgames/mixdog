@@ -184,7 +184,7 @@ async fn concurrent_status_reads_share_one_inspection_and_evidence_refreshes() {
 }
 
 #[tokio::test]
-async fn a_credential_request_is_told_by_the_askpass_helper_not_by_text() {
+async fn a_credential_request_reads_as_node_words_it() {
     use std::io::Read;
     use std::io::Write;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

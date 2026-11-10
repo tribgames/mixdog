@@ -9,7 +9,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use crate::desktop::home_dir;
+use crate::desktop::process_dir;
 use crate::engine::Scm;
 use crate::error::ScmFailure;
 use crate::exec::ExecSpec;
@@ -53,7 +53,7 @@ impl Scm {
             self.github.runner.forget_program();
             self.cli_probes.lock().expect("cli probes").gh = None;
         }
-        let home = home_dir();
+        let home = process_dir();
         let Some(version) = self.gh_version(cancel).await? else {
             return Ok(json!({ "installed": false, "authenticated": false }));
         };
@@ -84,7 +84,7 @@ impl Scm {
             self.cli_probes.lock().expect("cli probes").gh = Some(None);
             return Ok(None);
         }
-        let probe = match self.github.output(&home_dir(), cancel, &["--version"]).await {
+        let probe = match self.github.output(&process_dir(), cancel, &["--version"]).await {
             Ok(output) if output.success() => output,
             Ok(_) | Err(ScmFailure::Unavailable { .. }) => {
                 self.cli_probes.lock().expect("cli probes").gh = Some(None);
@@ -102,7 +102,7 @@ impl Scm {
         if self.gh_version(cancel).await?.is_none() {
             return Err(ScmFailure::git("GitHub CLI is not installed."));
         }
-        let output = match self.github.output(&home_dir(), cancel, &["api", "user"]).await {
+        let output = match self.github.output(&process_dir(), cancel, &["api", "user"]).await {
             Err(ScmFailure::Unavailable { .. }) => return Err(ScmFailure::git("GitHub CLI is not installed.")),
             other => other?,
         };
@@ -137,7 +137,7 @@ impl Scm {
     }
 
     pub async fn gh_logout(&self, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let home = home_dir();
+        let home = process_dir();
         let status = self.gh_status(cancel, false).await?;
         if status["installed"] != true {
             return Err(ScmFailure::git("GitHub CLI is not installed."));
@@ -228,7 +228,7 @@ impl Scm {
                 format!("Automatic install is not supported on this platform. Install {label} from {homepage}."),
             ));
         };
-        let mut spec = ExecSpec::new(program, home_dir());
+        let mut spec = ExecSpec::new(program, process_dir());
         let spec_args = args.clone();
         spec.args = args;
         spec.time_limit = Some(INSTALL_LIMIT);
@@ -262,7 +262,7 @@ impl Scm {
     /// Node's `runGh` (`desktop-operations.ts`): the star calls spawn a bare `gh` from `PATH` (no install place is
     /// probed) with an 8 s limit; a missing program reads as stderr `ENOENT`.
     async fn run_bare_gh(&self, cancel: &CancellationToken, args: &[&str]) -> Result<(bool, String), ScmFailure> {
-        let mut spec = ExecSpec::new("gh", home_dir());
+        let mut spec = ExecSpec::new("gh", process_dir());
         spec.args = args.iter().map(|arg| (*arg).to_owned()).collect();
         spec.time_limit = Some(Duration::from_secs(8));
         match self.git.exec().run(spec, cancel).await {

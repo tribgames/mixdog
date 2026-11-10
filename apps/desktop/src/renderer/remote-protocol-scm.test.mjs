@@ -135,7 +135,7 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   const wires = ordering.ops.map((op) => ({ ...op, ...clone(SCM_OPERATION_ROUTES[op.name](op.args)) }));
   const log = [];
   const ended = [];
-  const last = ordering.orders[0].at(-1);
+  const last = ordering.order.at(-1);
   const endOrder = [...last.endedBefore, last.started];
   const waiting = [];
   const wake = () => waiting.splice(0).forEach((resolve) => resolve());
@@ -177,38 +177,48 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   assert.deepEqual(log.map((entry) => entry.started), ordering.heldStarts);
   release();
   assert.deepEqual(await within(Promise.all(answers), `the calls behind the held write ${ordering.heldStarts[0]} never finished`), ordering.answers);
-  // Node's two recorded runs saw the same order of every start and end, so the order is Node's and is compared as recorded.
-  assert.equal(ordering.orders.length, 2);
-  for (const order of ordering.orders) assert.deepEqual(log, order);
+  // Node's two recorded runs showed the same order of every start and end (the recorder fails otherwise): it is compared as recorded.
+  assert.deepEqual(log, ordering.order);
   callQueueFor(ctx).close();
 });
-test('phone-scm checks an absolute path as node:path does on the platform of the PC\'s initialize answer', async () => {
-  // The oracle is node:path itself, which is what Node's host ran on the PC: `win32` on a Windows PC, `posix` on any other.
-  const platforms = { windows: path.win32, unix: path.posix };
-  const inputs = ['C:\\repo', '\\repo', '/repo', 'C:/repo', '\\\\host\\share', '//host/share', 'repo', './repo', 'C:repo', ' /repo '];
-  for (const [family, platform] of Object.entries(platforms)) {
-    for (const cwd of inputs) {
+test('phone-scm checks an absolute path as Node recorded it on the platform of the PC\'s initialize answer', async () => {
+  // Node's own classification of each spelling (path.isAbsolute on each platform) and its two refusals are recorded in the golden file.
+  const refusal = (name) => golden.cases.find((entry) => entry.name === name).frame.error;
+  const noDirectory = refusal('gitStatus-relative-cwd');
+  const badPath = refusal('gitDiff-parent-path');
+  for (const [family, rules] of Object.entries(golden.pathRules)) {
+    for (const { spelling: cwd, trimmedAbsolute } of rules) {
       const asked = [];
       const host = { ctx: {}, client: () => ({ server: { platformFamily: family }, call: async (method) => (asked.push(method), null) }) };
       // The router runs the handler in the call's queue slot, so an argument check that throws is a rejection.
       const run = runQueued({}, 'gitStatus', [cwd], async () => adapter.calls.gitStatus([cwd], host));
-      if (platform.isAbsolute(cwd.trim())) {
+      if (trimmedAbsolute) {
         await run;
         assert.deepEqual(asked, ['git/status'], `${family}: ${cwd}`);
       } else {
-        await assert.rejects(run, { message: 'A project directory is required.' }, `${family}: ${cwd}`);
+        await assert.rejects(run, { message: noDirectory }, `${family}: ${cwd}`);
         assert.deepEqual(asked, [], `${family}: ${cwd}`);
       }
     }
-    for (const file of inputs.filter((input) => input.trim() === input)) {
+    for (const { spelling: file, absolute } of rules.filter((rule) => rule.spelling.trim() === rule.spelling)) {
       const host = { ctx: {}, client: () => ({ server: { platformFamily: family }, call: async () => null }) };
       const run = runQueued({}, 'gitDiff', ['/repo', file], async () => adapter.calls.gitDiff(['/repo', file], host));
-      // A path inside the repository is relative: an absolute one is refused.
-      if (platform.isAbsolute(file)) await assert.rejects(run, { message: 'git path is invalid.' }, `${family}: ${file}`);
+      // A path inside the repository is relative: an absolute one, or one leaving it (`..`, Node's recorded 'gitDiff-parent-path'), is refused.
+      if (absolute || file.includes('..')) await assert.rejects(run, { message: badPath }, `${family}: ${file}`);
       else await run;
     }
   }
-});test('phone-scm forwards the call\'s `sent` claim on every request it writes (the router scopes the client per call)', async () => {
+});
+test('the desktop\'s own repository check keeps the rule of the platform it runs on, as Node recorded it', async () => {
+  const { requiredRepositoryCwd } = await import('../main/git-contract.mjs');
+  const rules = golden.pathRules[process.platform === 'win32' ? 'windows' : 'unix'];
+  const noDirectory = golden.cases.find((entry) => entry.name === 'gitStatus-relative-cwd').frame.error;
+  for (const { spelling, trimmedAbsolute } of rules) {
+    if (trimmedAbsolute) assert.equal(requiredRepositoryCwd(spelling), spelling.trim(), spelling);
+    else assert.throws(() => requiredRepositoryCwd(spelling), { message: noDirectory }, spelling);
+  }
+});
+test('phone-scm forwards the call\'s `sent` claim on every request it writes (the router scopes the client per call)', async () => {
   const claim = () => {};
   const options = [];
   const client = { call: async (_method, _params, option) => (options.push(option?.sent), null) };
@@ -216,4 +226,16 @@ test('phone-scm checks an absolute path as node:path does on the platform of the
   await adapter.calls.gitStage([process.cwd(), ['a.txt']], { ctx: {}, client: () => scoped });
   assert.ok(options.length > 0);
   assert.ok(options.every((sent) => sent === claim));
+});
+
+test('a connection that ends during a call reaches the router as the client\'s own error, for the router to make the interruption error', async () => {
+  for (const kind of ['connectionLost', 'clientClosed']) {
+    const lost = Object.assign(new Error('connection ended'), { detail: { kind } });
+    const host = { ctx: {}, client: () => ({ server: { platformFamily: 'windows' }, call: async () => Promise.reject(lost) }) };
+    await assert.rejects(
+      runQueued({}, 'gitStatus', ['C:\\repo'], async () => adapter.calls.gitStatus(['C:\\repo'], host)),
+      (error) => error === lost,
+      kind,
+    );
+  }
 });

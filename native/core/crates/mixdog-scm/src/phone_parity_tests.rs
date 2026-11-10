@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::engine::Scm;
 /// A machine on which no program starts: git is not installed.
-struct NoPrograms;
+struct NoPrograms(std::sync::Mutex<Option<String>>);
 
 #[async_trait]
 impl mixdog_core_api::domain::process::ProcessManager for NoPrograms {
@@ -19,6 +19,7 @@ impl mixdog_core_api::domain::process::ProcessManager for NoPrograms {
         request: mixdog_core_api::domain::process::SpawnRequest,
     ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
         let mixdog_core_api::domain::process::CommandSpec::Argv { program, .. } = request.command else { panic!("argv") };
+        *self.0.lock().unwrap() = Some(program.clone());
         Err(mixdog_core_api::domain::process::ProcessError::ProgramNotFound { program })
     }
     fn subscribe(
@@ -50,8 +51,9 @@ impl mixdog_core_api::domain::process::ProcessManager for NoPrograms {
 #[tokio::test]
 async fn a_caller_other_than_status_is_told_a_git_that_could_not_start_as_before() {
     let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
+    let programs = Arc::new(NoPrograms(std::sync::Mutex::new(None)));
     let scm = Scm::new(
-        Arc::new(NoPrograms),
+        programs.clone(),
         mixdog_rt::testing::tokens().maintenance_io,
         std::env::temp_dir().join(format!("mixdog-scm-nogit-{}", std::process::id())),
     );
@@ -59,6 +61,7 @@ async fn a_caller_other_than_status_is_told_a_git_that_could_not_start_as_before
     let failure = scm.open(&repo, &cancel).await.unwrap().dirty_paths().await.unwrap_err();
     let CoreError::DomainError { code, message, .. } = CoreError::from(failure) else { panic!("not a domain error") };
     assert_eq!(code.as_deref(), Some("COMMAND_FAILED"));
-    // The diagnostic names the program as it was started (the resolved git of this machine).
-    assert!(message.as_deref().is_some_and(|text| text.ends_with("git is not available") || text.ends_with("git.exe is not available")),"{message:?}");
+    // The diagnostic names the program exactly as the manager was asked to start it.
+    let asked = programs.0.lock().unwrap().clone().expect("a program was asked for");
+    assert_eq!(message.as_deref(), Some(format!("{asked} is not available").as_str()));
 }

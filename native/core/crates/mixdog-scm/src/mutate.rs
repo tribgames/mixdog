@@ -262,9 +262,9 @@ impl Repo {
             .succeeds(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
             .await?;
         if has_upstream {
-            self.remote(&["push"]).await
+            self.run(&["push"]).await
         } else {
-            self.remote(&["push", "-u", "origin", "HEAD"]).await
+            self.run(&["push", "-u", "origin", "HEAD"]).await
         }
     }
 
@@ -283,7 +283,7 @@ impl Repo {
 
     pub async fn sync(&self) -> Result<String, ScmFailure> {
         let pulled = self.pull().await?;
-        let pushed = self.push().await?;
+        let pushed = self.push().await.map_err(crate::git::readable_remote_error)?;
         Ok([pulled, pushed]
             .into_iter()
             .filter(|part| !part.is_empty())

@@ -190,9 +190,9 @@ impl ProcessGh {
             ("NO_COLOR".into(), "1".into()),
             ("GIT_TERMINAL_PROMPT".into(), "0".into()),
         ];
-        if let Some(host) = hostname {
-            spec.env_set.push(("GH_HOST".into(), host.to_owned()));
-        }
+        // `GH_HOST: command.hostname || env.GH_HOST || '` (github/client.mjs:41): always set, empty when nothing names a host.
+        let host = hostname.map(str::to_owned).or_else(|| std::env::var("GH_HOST").ok()).filter(|host| !host.is_empty()).unwrap_or_default();
+        spec.env_set.push(("GH_HOST".into(), host));
         spec.stdin = stdin;
         spec
     }
@@ -216,7 +216,14 @@ impl GhRunner for ProcessGh {
         // The input is data, never a command, a flag or a local file name; stdin is always
         // closed so `gh` never waits on a prompt.
         let stdin = Some(command.input.clone().unwrap_or_default().into_bytes());
-        let mut spec = self.spec(command.args.clone(), command.hostname.as_deref(), cwd, stdin);
+        let mut spec = if command.plain {
+            let mut plain = ExecSpec::new(self.program(), cwd);
+            plain.args = command.args.clone();
+            plain.stdin = stdin;
+            plain
+        } else {
+            self.spec(command.args.clone(), command.hostname.as_deref(), cwd, stdin)
+        };
         spec.time_limit = Some(RUN_LIMIT);
         spec.max_output = MAX_OUTPUT_BYTES;
         let uncertain = if command.mutation { WRITE_UNCERTAIN } else { "" };
@@ -266,6 +273,7 @@ impl GhClient {
     ) -> Result<GhOutput, ScmFailure> {
         let mut command = GhCommand::read(args.iter().map(|arg| (*arg).to_owned()).collect(), None);
         command.json = false;
+        command.plain = true;
         self.runner.raw(&command, cwd, cancel).await
     }
 

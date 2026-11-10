@@ -65,6 +65,10 @@ function spawnFailure(error: unknown): Error | undefined {
 /** What the page's rebuilt Error carried of a failed relay frame: the message, the error's own string `code`, and the public
  *  display params that code declares (remote-shim-dispatch.ts at b6f10295a). */
 export function phoneCallError(error: unknown): unknown {
+  // A lost or closed connection is not a failure of the call: the router turns it into the interruption error
+  // (remote-shim-protocol.ts:122-124; Node's remote-shim-calls.ts:276-282), which needs the client's own error and its detail.
+  const ended = (error as { detail?: { kind?: string } } | null)?.detail?.kind;
+  if (ended === 'connectionLost' || ended === 'clientClosed') return error;
   const failure = spawnFailure(error) ?? coreFailure(error);
   if (!(failure instanceof Error)) return failure;
   const given = (failure as { code?: unknown }).code;

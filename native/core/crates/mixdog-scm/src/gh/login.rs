@@ -250,7 +250,7 @@ impl LoginFlow for GithubLogin {
                     ("BROWSER".into(), no_op_browser().into()),
                     ("GH_BROWSER".into(), no_op_browser().into()),
                 ],
-                remove: Vec::new(),
+                remove: crate::exec::child_env_removed(),
             },
             pty: Some(PtySize { cols: 120, rows: 30 }),
             stdin_piped: false,
@@ -259,7 +259,8 @@ impl LoginFlow for GithubLogin {
             time_limit: None,
         };
         let CommandSpec::Argv { program: attempted, args: attempted_args } = &request.command else { unreachable!("built above") };
-        let attempt = crate::seam::attempt_begin(attempted, attempted_args, true);
+        let attempt =
+            crate::seam::attempt_begin(attempted, attempted_args, true, request.cwd.as_path(), &request.env.set, &request.env.remove);
         let spawned = self.processes.spawn(request).await;
         attempt.spawned(spawned.is_ok());
         match spawned {
@@ -292,13 +293,13 @@ impl LoginFlow for GithubLogin {
         let driven = shared.clone();
         let client = self.client.clone();
         mixdog_rt::spawn("scm-login", TaskClass::Work, async move {
-            drive(driven, events, client).await;
+            drive(driven, events, client, attempt).await;
         });
         Ok(Box::new(Session(shared)))
     }
 }
 
-async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent>>, client: Arc<GhClient>) {
+async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent>>, client: Arc<GhClient>, attempt: crate::seam::Attempt) {
     let mut output = String::new();
     let mut url: Option<String> = None;
     let exit = loop {
@@ -320,7 +321,14 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
                     }
                 }
             }
-            Some(ProcessEvent::Exited { exit, .. }) => break Some(exit),
+            Some(ProcessEvent::Exited { exit, .. }) => {
+                attempt.done(&match (&exit.killed, &exit.status) {
+                    (Some(KillReason::Requested), _) => crate::seam::Ended::Cancelled,
+                    (_, mixdog_core_api::domain::process::ExitStatus::Code(code)) => crate::seam::Ended::Code(Some(*code)),
+                    (_, mixdog_core_api::domain::process::ExitStatus::Signal(_)) => crate::seam::Ended::Code(None),
+                });
+                break Some(exit);
+            }
             None => break None,
         }
     };
@@ -353,7 +361,7 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
         shared.advance(LoginState::Failed(LoginFailure::Failed { code: "gh-exit".into(), message }));
         return;
     }
-    let home = home_dir();
+    let home = crate::desktop::process_dir();
     let cancel = CancellationToken::new();
     let verdict = async {
         let status = client
