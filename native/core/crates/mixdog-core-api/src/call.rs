@@ -61,6 +61,14 @@ impl AfterAnswer {
         let kept = std::mem::take(&mut *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         drop(kept);
     }
+
+    /// A token cancelled when what is kept goes (the answer queued, or the last clone of the request gone): what the call starts that
+    /// must not reach a client before its answer waits on it; its holder may cancel it earlier. Taken while the call runs.
+    pub fn hold(&self) -> CancellationToken {
+        let held = CancellationToken::new();
+        self.keep(held.clone().drop_guard());
+        held
+    }
 }
 
 impl std::fmt::Debug for AfterAnswer {

@@ -42,6 +42,7 @@ use super::coordinator::SendResult;
 use super::coordinator::Sent;
 use super::coordinator::Settle;
 use super::coordinator::StreamChannel;
+use super::coordinator::WriteGate;
 use super::media::MediaLink;
 use super::media::TransportMedia;
 use super::signal::CloseReason;
@@ -429,14 +430,25 @@ impl TransportSession {
     /// Seals and sends one application message to the phone. Resolves once it is in the stream
     /// (`Ok(None)`: dropped before sealing); fails when the session has ended.
     pub fn send(self: &Arc<Self>, text: &str, droppable: bool) -> BoxFuture<'static, SendResult> {
+        self.send_gated(text, droppable, None)
+    }
+
+    /// [`send`](Self::send) of a write `gate` may refuse (`SendOptions::gate`): `Ok(None)` when it did.
+    pub fn send_gated(self: &Arc<Self>, text: &str, droppable: bool, gate: Option<WriteGate>) -> BoxFuture<'static, SendResult> {
         let (waiter, result) = oneshot::channel();
-        self.run(|c| match c.send(text, SendOptions { droppable, stream: None, meter: None }) {
+        self.run(|c| match c.send(text, SendOptions { droppable, stream: None, meter: None, gate }) {
             Sent::Settled(result) => {
                 let _ = waiter.send(result);
             }
             Sent::Queued(ticket) => c.host_mut().wait_for(ticket, waiter),
         });
         Box::pin(async move { result.await.unwrap_or(Err(super::coordinator::SendError::Ended(EndReason::SessionEnded))) })
+    }
+
+    /// The phone's permission to view ended: a live-view message half in the stream ends the session
+    /// ([`Coord::view_revoked`]).
+    pub fn view_revoked(self: &Arc<Self>) {
+        self.run(Coord::view_revoked);
     }
 
     /// Ends the session from outside (client removed, revoked, replaced).
@@ -536,7 +548,7 @@ impl MediaLink for SessionLink {
     async fn send(&self, message: Value, stream: Option<&str>) -> Result<bool, ()> {
         let session = self.session.upgrade().ok_or(())?;
         let (waiter, result) = oneshot::channel();
-        let options = SendOptions { droppable: false, stream: stream.map(str::to_owned), meter: None };
+        let options = SendOptions { droppable: false, stream: stream.map(str::to_owned), meter: None, gate: None };
         session.run(|c| match c.send(&message.to_string(), options) {
             Sent::Settled(result) => {
                 let _ = waiter.send(result);
