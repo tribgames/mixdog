@@ -307,4 +307,6 @@ writeFileSync(join(out, 'answers.json'), `${JSON.stringify(answers, null, 2)}\n`
 const rel = 'benchmarks/rust-core/recorders/record-roster-rows.mjs';
 writeSetManifest(out, { set: 'roster-rows', recorder: rel, command: `(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/${rel} --tree <tree>`, identity, extra: { legacyWriter: { tag: 'v1.4.5', tagCommit: V145_COMMIT, writer: 'benchmarks/rust-core/recorders/lib/write-v145-session.mjs: the tag manager.createSession + askSession, saved by the tag store.mjs saveSession' } } });
 console.error(`recorded ${roster.length} roster rows`);
+// The working tree holds a copy of the tag's source and every session written; a run leaves nothing behind.
+rmSync(root, { recursive: true, force: true, maxRetries: 5 });
 process.exit(0);
