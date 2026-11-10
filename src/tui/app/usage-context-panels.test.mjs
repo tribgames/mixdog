@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../test-support/wait-until.test-support.mjs';
 import { createUsageContextPanels } from './usage-context-panels.mjs';
 import { buildContextPanelModel } from './usage-context-panels/context-model.mjs';
 

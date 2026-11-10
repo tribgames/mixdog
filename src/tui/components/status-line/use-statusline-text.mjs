@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { statuslineFooterIdentityChanged } from '../../statusline-ansi-bridge.mjs';
 import { useSharedTick } from '../../hooks/useSharedTick.mjs';
-import { num, timeMs } from '../../../runtime/shared/statusline/statusline-format.mjs';
+import { num, timeMs } from '../../lib/statusline-format.mjs';
 import {
   STATUSLINE_ACTIVE_REFRESH_MS,
   STATUSLINE_BOOT_FULL_RETRY_MS,
@@ -42,6 +42,7 @@ export function useStatusLineText({
   agentWorkers,
   agentJobs,
   activeTools,
+  shellJobs,
   initialLine,
   themeEpoch,
 }) {
@@ -63,6 +64,7 @@ export function useStatusLineText({
           agentWorkers,
           agentJobs,
           activeTools,
+          shellJobs,
         })
     )
   );
@@ -96,6 +98,7 @@ export function useStatusLineText({
     agentWorkers,
     agentJobs,
     activeTools,
+    shellJobs,
   };
   statuslineArgsRef.current = statuslineArgs;
   lineRef.current = line;
@@ -127,6 +130,12 @@ export function useStatusLineText({
         )
         .join(',')
     : '';
+  const shellJobsSignature = Array.isArray(shellJobs?.jobs)
+    ? [
+        Number(shellJobs.count) || 0,
+        ...shellJobs.jobs.map((j) => `${j?.taskId || ''}|${j?.terminationUnconfirmed === true}|${timeMs(j?.startedAt)}`),
+      ].join(',')
+    : String(Number(shellJobs?.count) || 0);
   const statsForSignature = stats && typeof stats === 'object' ? stats : {};
   const statsSignature = [
     num(statsForSignature.currentContextTokens),
@@ -317,6 +326,7 @@ export function useStatusLineText({
     agentWorkersSignature,
     agentJobsSignature,
     activeToolsSignature,
+    shellJobsSignature,
     refreshTick,
     themeEpoch,
   ]);

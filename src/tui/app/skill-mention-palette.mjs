@@ -8,7 +8,7 @@
  * but still load when their name is typed: the runtime resolves mentions.
  */
 import { useEffect, useState } from 'react';
-import { isInMarkdownCode, isReservedMentionName } from '../../runtime/shared/skill-mentions.mjs';
+import { isInMarkdownCode, isReservedMentionName } from '../../../packages/protocol-client/src/rows/skill-mentions.mjs';
 
 // A mention being typed just before the caret: `$` plus a partial name.
 const MENTION_TAIL = /(^|[\s([{"'`])\$([a-z0-9][a-z0-9-]{0,63})?$/;

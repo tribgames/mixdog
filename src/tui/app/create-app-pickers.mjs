@@ -26,7 +26,7 @@ import { createModelPicker } from './model-picker.mjs';
 import { createRoutePickers, outputStyleNotice } from './route-pickers.mjs';
 import { agentModelParts, agentModelProfile, routeLabel, routeModelLabel } from './model-options.mjs';
 import { createSettingsPicker } from './settings-picker.mjs';
-import { displayModelName } from '../../runtime/shared/model-display.mjs';
+import { displayModelName } from '../../../packages/protocol-client/src/rows/model-display.mjs';
 import { createSlashDispatch } from './slash-dispatch.mjs';
 import { normalizeSlashCommandName } from './slash-commands.mjs';
 export function createAppPickers({

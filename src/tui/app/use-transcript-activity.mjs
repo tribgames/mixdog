@@ -4,7 +4,7 @@
 // primitive statusline stats snapshot.
 import { useMemo } from 'react';
 // eslint-disable-next-line import/no-relative-packages
-import { classifyToolCategory } from '../../runtime/shared/tool-surface.mjs';
+import { classifyToolCategory } from '../../../packages/protocol-client/src/rows/tool-surface.mjs';
 
 // Signature slots, in order: shell, web search, agent.
 const SIGNATURE_CATEGORIES = ['Shell', 'Web Research', 'Agent'];

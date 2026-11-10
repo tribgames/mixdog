@@ -3,7 +3,7 @@ import test from 'node:test';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createProviderSetupPicker } from './provider-setup-picker.mjs';
-import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../test-support/wait-until.test-support.mjs';
 
 // The Provider setup picker cluster against a fake store: what the main list
 // and the per-provider action panels paint, where Enter/Esc navigate, which

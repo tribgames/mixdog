@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
-import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/method-args.generated.mjs';
+import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
+import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
 import { createInheritance } from '../../../../../src/session-runtime/lifecycle/inheritance.mjs';
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
 import { createDesktopConnection } from '../connections/desktop-connection.ts';

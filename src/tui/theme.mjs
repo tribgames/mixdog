@@ -18,10 +18,9 @@
  * `themeVersion` lets modules that cache derived values (chalk colorizers,
  * parsed RGB tuples) invalidate when the active theme changes.
  *
- * The setting persists under `ui.theme` in mixdog-config.json. The config
- * module is imported lazily through a dist-aware dynamic specifier (esbuild
- * leaves dynamic-import strings alone), so this color module stays free of a
- * static keychain/config dependency.
+ * The setting persists under `ui.theme` in mixdog-config.json; the core writes it
+ * (`config/setTheme`), and boot reads the file directly (`readStoredThemeSetting` in theme-config.mjs; not
+ * re-exported here, so the desktop renderer can import this palette without Node's fs).
  */
 
 import { THEME_REGISTRY, THEME_ORDER, THEME_ALIASES, DEFAULT_THEME_ID, basicPalette } from './themes/index.mjs';
@@ -111,54 +110,23 @@ function applyPalette(id) {
 }
 
 /**
- * Apply a theme by id. Unknown ids fall back to the default without throwing.
- * Persists `ui.theme` to mixdog-config.json unless `persist` is false.
- * Returns `{ id, label, description }` for the applied theme.
+ * Apply a theme by id to this process's palette. Unknown ids fall back to the default without
+ * throwing. The stored `ui.theme` belongs to the core: a caller that persists asks the core
+ * (`config/setTheme`) itself. Returns `{ id, label, description }` for the applied theme.
  */
-export function setThemeSetting(id, { persist = true } = {}) {
+export function setThemeSetting(id) {
   const entry = applyPalette(id);
-  if (persist) void persistThemeSetting(entry.id);
   return { id: entry.id, label: entry.label, description: entry.description };
 }
 
-// ── Persistence (lazy, dist-aware) ──────────────────────────────────────────
-const CONFIG_MODULE = import.meta.url.replace(/\\/g, '/').includes('/tui/dist/')
-  ? '../../runtime/shared/config.mjs'
-  : '../runtime/shared/config.mjs';
-let _configModulePromise = null;
-function loadConfigModule() {
-  if (!_configModulePromise) _configModulePromise = import(CONFIG_MODULE);
-  return _configModulePromise;
-}
-
-async function persistThemeSetting(id) {
-  try {
-    const { updateConfig } = await loadConfigModule();
-    updateConfig((cfg) => {
-      const ui = cfg && typeof cfg.ui === 'object' && cfg.ui ? cfg.ui : {};
-      return { ...cfg, ui: { ...ui, theme: id } };
-    });
-  } catch {
-    // Persistence is best-effort; a missing/locked config must never crash the TUI.
-  }
-}
-
 /**
- * Read `ui.theme` from mixdog-config.json and apply it (no re-persist). Safe to
- * call once at boot; returns the resolved active id. Unknown/missing values
- * leave the default in place.
+ * Apply a stored theme id (`readStoredThemeSetting`) at boot. Unknown/missing values leave the
+ * default in place; returns the resolved active id.
  */
-export async function loadThemeSettingFromConfig() {
-  try {
-    const { readConfig } = await loadConfigModule();
-    const cfg = readConfig() || {};
-    const stored = cfg?.ui && typeof cfg.ui === 'object' ? cfg.ui.theme : null;
-    const storedKey = String(stored || '').trim();
-    if (storedKey && (THEME_REGISTRY[storedKey] || THEME_ALIASES[storedKey])) {
-      applyPalette(resolveThemeId(storedKey));
-    }
-  } catch {
-    // Fall back to the already-applied default theme.
+export function applyStoredThemeSetting(stored) {
+  const storedKey = String(stored || '').trim();
+  if (storedKey && (THEME_REGISTRY[storedKey] || THEME_ALIASES[storedKey])) {
+    applyPalette(resolveThemeId(storedKey));
   }
   return _activeThemeId;
 }

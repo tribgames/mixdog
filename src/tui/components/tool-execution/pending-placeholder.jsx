@@ -3,7 +3,7 @@
  * freshly started tool still inside its pending-show delay.
  */
 import { Box, Text } from 'ink';
-import { formatToolSurface } from '../../../runtime/shared/tool-surface.mjs';
+import { formatToolSurface } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
 import { SKILL_SURFACE_NAMES, isAgentTool } from './surface-detail.mjs';
 
 export function renderPendingPlaceholder(card) {

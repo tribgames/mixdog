@@ -3,7 +3,7 @@
 // progress and result panels, the interactive (code prompt) login through
 // store.beginOAuthProviderLogin, and the legacy store.loginOAuthProvider
 // path. `flow` is the per-open picker state built by provider-setup-picker.mjs.
-import { canOpenBrowser } from '../../../runtime/shared/open-url.mjs';
+import { canOpenBrowser } from '../../lib/open-url.mjs';
 import { providerDetailText } from '../app-format.mjs';
 import { forgetProviderAuth, providerStatusFooter } from './provider-items.mjs';
 

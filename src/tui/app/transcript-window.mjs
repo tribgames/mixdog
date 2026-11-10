@@ -6,10 +6,10 @@
  * layout effect) the shared cache + variant-key helper by name.
  */
 import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
-import { normalizeToolName } from '../../runtime/shared/tool-surface.mjs';
+import { normalizeToolName } from '../../../packages/protocol-client/src/rows/tool-surface.mjs';
 import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';
 import { backgroundArgsForRows, estimateTranscriptItemRows } from './transcript-row-estimate.mjs';
-import { envFlag, envPositiveInt as positiveIntEnv } from '../../runtime/shared/env.mjs';
+import { envFlag, envPositiveInt as positiveIntEnv } from '../lib/env.mjs';
 
 // Per-keystroke render cost is proportional to the number of MOUNTED transcript
 // items: ink's renderNodeToOutput still serializes (squashTextNodes/wrapText/
