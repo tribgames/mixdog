@@ -95,10 +95,14 @@ async function operate(host: PhoneProtocolHost, name: string, args: unknown[]): 
   }
 }
 
+/** The page's arguments as Node's relay frame carried them to the PC: JSON wrote an array's undefined element as null
+ *  (remote-shim-api.ts passes every position, `[cwd, source]`), so only an argument past the array's end was undefined there. */
+const relayed = (params: unknown[]): unknown[] => Array.from(params, (value) => (value === undefined ? null : value));
+
 const operation =
   (name: string, args: (params: unknown[], os: string | undefined) => unknown[] = () => []): NodeCall =>
   (params, host) =>
-    operate(host, name, args(params, platformFamily(host)));
+    operate(host, name, args(relayed(params), platformFamily(host)));
 
 const cwdOnly = (name: string): NodeCall => operation(name, ([cwd], os) => [requiredRepositoryCwd(cwd, os)]);
 
