@@ -424,19 +424,24 @@ export async function replaySideBySide({ exe, tree, scenarios, script }) {
   const worker = async () => {
     while (next < scenarios.length) {
       const scenario = scenarios[next++];
-      const ms = deadlineAt - Date.now();
-      if (ms <= 0) {
-        failures.push(`${scenario.name}: not started: the whole replay's ${WHOLE_RUN_MS / 1000} s deadline had passed`);
-        continue;
-      }
+      const passed = `the whole replay's ${WHOLE_RUN_MS / 1000} s deadline`;
       const started = Date.now();
-      const child = await withJob(scenario.name, (job) =>
-        job.run(scenario.name, process.execPath, ['--import', 'tsx', script, '--tree', tree, '--replay', exe, '--only', scenario.name], { cwd: join(REPO_ROOT, 'apps', 'desktop'), env: process.env, ms }),
-      );
-      process.stdout.write(child.stdout.replace(/\n$/, '').concat(` (${Math.round((Date.now() - started) / 1000)} s)\n`));
-      if (child.timedOut) failures.push(`${scenario.name}: still running when the whole replay's ${WHOLE_RUN_MS / 1000} s deadline passed (ended with its job)`);
-      else if (child.code !== 0) failures.push(`${scenario.name}: exited ${child.code}:\n${child.stderr}`);
-      if (child.left) failures.push(`${scenario.name}: left ${child.left} process(es) running (ended with its job)`);
+      // A scenario that fails in any way is one failure in the list: the others run on, and the data folders are
+      // removed only once every worker has ended (a rejection here would end `Promise.all` with peers still running).
+      try {
+        const child = await withJob(scenario.name, (job) => {
+          // What is left of the deadline once this scenario's job exists; `run` counts it from this call.
+          const ms = deadlineAt - Date.now();
+          if (ms <= 0) throw new Error(`not started: ${passed} had passed`);
+          return job.run(scenario.name, process.execPath, ['--import', 'tsx', script, '--tree', tree, '--replay', exe, '--only', scenario.name], { cwd: join(REPO_ROOT, 'apps', 'desktop'), env: process.env, ms });
+        });
+        process.stdout.write(child.stdout.replace(/\n$/, '').concat(` (${Math.round((Date.now() - started) / 1000)} s)\n`));
+        if (child.timedOut) failures.push(`${scenario.name}: still running when ${passed} passed (ended with its job):\n${child.stderr}`);
+        else if (child.code !== 0) failures.push(`${scenario.name}: exited ${child.code}:\n${child.stderr}`);
+        if (child.left) failures.push(`${scenario.name}: left ${child.left} process(es) running (ended with its job)`);
+      } catch (error) {
+        failures.push(`${scenario.name}: ${error?.stack ?? error}`);
+      }
     }
   };
   mkdirSync(WORLDS, { recursive: true });
