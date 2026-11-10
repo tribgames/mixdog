@@ -8,7 +8,7 @@
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-server-trash.mjs --tree <git archive of b6f10295a with node_modules>
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -94,7 +94,8 @@ try {
   const ended = await Promise.race([holderExit.then(() => true), new Promise((resolve) => (timer = setTimeout(() => resolve(false), 30_000)))]);
   clearTimeout(timer);
   if (!ended) {
-    holder.kill();
+    // The holder's whole tree, as the phone-terminal recorder ends its child's.
+    spawnSync('taskkill', ['/PID', String(holder.pid), '/T', '/F'], { windowsHide: true, timeout: 30_000 });
     throw new Error('the holder did not exit within 30000 ms of being told to close its file; it was killed');
   }
 }
