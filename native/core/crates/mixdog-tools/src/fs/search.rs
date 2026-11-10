@@ -39,7 +39,7 @@ const FIND_SPEC: &str = include_str!("specs/find.json");
 const GREP_SPEC: &str = include_str!("specs/grep.json");
 
 const GLOB_DEFAULT_LIMIT: usize = 100;
-const GLOB_ACCUM_CAP: usize = 50_000;
+pub(super) const GLOB_ACCUM_CAP: usize = 50_000;
 const FIND_DEFAULT_LIMIT: usize = 25;
 const FIND_UNLIMITED_CAP: usize = 1_000;
 const GREP_DEFAULT_LIMIT: usize = 250;
@@ -61,15 +61,23 @@ pub(super) fn root_scan_prunes(root: &AbsPath, posix: bool) -> Vec<AbsPath> {
     ["proc", "sys", "dev"].iter().filter_map(|name| AbsPath::new(root.as_path().join(name))).collect()
 }
 
-/// Pulls a recursive walk of `root` into a list; `complete` is false when the
-/// deadline passed first.
+/// What a walk collected: the kept files, `complete` (false when the deadline passed first) and
+/// `capped` (a kept file past the cap existed and was dropped).
+pub(super) struct Walked {
+    pub entries: Vec<DirEntry>,
+    pub complete: bool,
+    pub capped: bool,
+}
+
+/// Pulls a recursive walk of `root` into a list of at most `cap` kept files.
 async fn walk_entries(
     ctx: &ToolContext,
     root: &AbsPath,
     respect_ignore: bool,
     keep: impl Fn(&DirEntry) -> bool,
-) -> Result<(Vec<DirEntry>, bool), ToolError> {
-    walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows)))).await
+    cap: Option<usize>,
+) -> Result<Walked, ToolError> {
+    walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows))), cap).await
 }
 
 pub(super) async fn walk_entries_pruned(
@@ -78,7 +86,8 @@ pub(super) async fn walk_entries_pruned(
     respect_ignore: bool,
     keep: impl Fn(&DirEntry) -> bool,
     prune: Vec<AbsPath>,
-) -> Result<(Vec<DirEntry>, bool), ToolError> {
+    cap: Option<usize>,
+) -> Result<Walked, ToolError> {
     let mut walk = ctx.files.walk(
         ctx.io.maintenance,
         WalkRequest {
@@ -91,20 +100,27 @@ pub(super) async fn walk_entries_pruned(
         },
     );
     let mut out = Vec::new();
+    let mut capped = false;
     let end = pull_all(ctx, walk.as_mut(), |item| {
         if let Ok(entry) = item {
             if entry.kind != EntryKind::Dir && keep(&entry) {
+                // Exactly `cap` files is a complete list; the next one is what was cut.
+                if cap.is_some_and(|cap| out.len() >= cap) {
+                    capped = true;
+                    return false;
+                }
                 out.push(entry);
             }
         }
-        out.len() < GLOB_ACCUM_CAP
+        true
     })
     .await;
-    match end {
-        PullEnd::Cancelled => Err(cancelled()),
-        PullEnd::Deadline => Ok((out, false)),
-        PullEnd::Exhausted => Ok((out, true)),
-    }
+    let complete = match end {
+        PullEnd::Cancelled => return Err(cancelled()),
+        PullEnd::Deadline => false,
+        PullEnd::Exhausted => true,
+    };
+    Ok(Walked { entries: out, complete, capped })
 }
 
 /// Include/exclude sets for gitignore-style globs (`!` excludes).
@@ -149,33 +165,35 @@ async fn mtime_millis(ctx: &ToolContext, path: &AbsPath) -> Option<u128> {
 }
 
 /// Files under `root` matching any pattern, in walk order, with their mtime (ms; `None` when the
-/// stat failed). `complete` is false when the walk hit the deadline.
+/// stat failed), at most `cap` of them. `complete` is false when the walk hit the deadline,
+/// `capped` true when a match past the cap was dropped.
 pub(crate) async fn glob_files(
     ctx: &ToolContext,
     root: &AbsPath,
     patterns: &[String],
     include_noise: bool,
-) -> Result<(Vec<(AbsPath, Option<u128>)>, bool), ToolError> {
+    cap: Option<usize>,
+) -> Result<(Vec<(AbsPath, Option<u128>)>, bool, bool), ToolError> {
     let (inc, exc, any_include) = compile_globs(patterns)?;
     let root_path = root.as_path().to_path_buf();
     let rel = |p: &Path| p.strip_prefix(&root_path).map(fwd).unwrap_or_else(|_| fwd(p));
-    let (entries, complete) = walk_entries(ctx, root, !include_noise, |e| {
+    let walked = walk_entries(ctx, root, !include_noise, |e| {
         if !include_noise && in_noise_dir(e.path.as_path(), &root_path) {
             return false;
         }
         let r = rel(e.path.as_path());
         (!any_include || inc.is_match(&r)) && !exc.is_match(&r)
-    })
+    }, cap)
     .await?;
-    let mut out = Vec::with_capacity(entries.len());
-    for e in entries {
+    let mut out = Vec::with_capacity(walked.entries.len());
+    for e in walked.entries {
         if ctx.cancel.is_cancelled() {
             return Err(cancelled());
         }
         let m = mtime_millis(ctx, &e.path).await;
         out.push((e.path, m));
     }
-    Ok((out, complete))
+    Ok((out, walked.complete, walked.capped))
 }
 
 async fn require_dir(ctx: &ToolContext, raw: &str, abs: &AbsPath) -> Result<Option<String>, ToolError> {
@@ -234,8 +252,11 @@ impl Tool for GlobTool {
         if let Some(missing) = require_dir(ctx, raw, &root).await? {
             return Ok(text_output(missing));
         }
-        let (mut files, complete) =
-            glob_files(ctx, &root, &patterns, arg_bool(&args, "include_noise")).await?;
+        // A bounded page is ranked over every match, as Node's windowed top-K pass counts them all;
+        // an unbounded listing keeps at most GLOB_ACCUM_CAP matches and says so (Node's full rg listing).
+        let cap = (limit == usize::MAX).then_some(GLOB_ACCUM_CAP);
+        let (mut files, complete, capped) =
+            glob_files(ctx, &root, &patterns, arg_bool(&args, "include_noise"), cap).await?;
         if natural {
             files.sort_by(|a, b| a.0.cmp(&b.0));
         } else {
@@ -272,6 +293,12 @@ impl Tool for GlobTool {
         }
         if lines.is_empty() {
             text = if complete { "(no files found)" } else { "(no files found yet)" }.to_owned();
+        }
+        if capped {
+            text.push_str(&format!(
+                "\n{}",
+                cap_marker(&format!("{GLOB_ACCUM_CAP} matches"), "results incomplete", None, "narrow the pattern or path")
+            ));
         }
         if !complete {
             text.push_str("\n[warning] search timed out; partial results shown. Narrow path/pattern for a complete result.");
@@ -374,9 +401,10 @@ impl Tool for FindTool {
             return Ok(text_output(missing));
         }
         let root_path = root.as_path().to_path_buf();
-        let (entries, complete) = walk_entries(ctx, &root, false, |e| {
+        // Every file is scored, as Node's native inventory ranks the whole scope.
+        let Walked { entries, complete, .. } = walk_entries(ctx, &root, false, |e| {
             include_noise || !in_noise_dir(e.path.as_path(), &root_path)
-        })
+        }, None)
         .await?;
         let tokens: Vec<&str> = query.split_whitespace().collect();
         let mut scored: Vec<(i64, String)> = entries

@@ -34,6 +34,7 @@ use super::read_batch::*;
 use super::read_legacy;
 use super::read_paths;
 use super::read_state::*;
+use super::search::GLOB_ACCUM_CAP;
 use super::search::glob_files;
 
 const READ_SPEC: &str = include_str!("specs/read.json");
@@ -933,7 +934,7 @@ impl ReadTool {
     async fn survey(&self, ctx: &ToolContext, be: &BEntry, base: u64, cap: usize, record: bool) -> Result<Option<Survey>, ToolError> {
         let (root, pattern) = split_glob(&be.path);
         let root = resolve_path(&ctx.cwd, &root)?;
-        let (mut files, _) = glob_files(ctx, &root, &[pattern], false).await?;
+        let (mut files, _, _) = glob_files(ctx, &root, &[pattern], false, Some(GLOB_ACCUM_CAP)).await?;
         if files.is_empty() {
             return Ok(None);
         }
