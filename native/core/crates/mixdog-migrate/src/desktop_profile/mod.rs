@@ -135,7 +135,8 @@ fn family_of(item: &ManifestItem) -> Step<Family> {
         | ItemKind::PcAccessRevokes
         | ItemKind::SelectedFileGrants
         | ItemKind::EditorBackups
-        | ItemKind::EditorRecovery => Ok(Family::Preserve),
+        | ItemKind::EditorRecovery
+        | ItemKind::NewTaskReceipts => Ok(Family::Preserve),
         ItemKind::SessionMetadata => Ok(Family::SessionMetadata),
         ItemKind::SetAside => Ok(Family::SetAside),
         _ => Err(unhandled(item)),

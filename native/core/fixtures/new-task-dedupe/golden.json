@@ -1,0 +1,2227 @@
+{
+  "scenarios": {
+    "changed-content-after-accepted": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e",
+              "submission": "s-changed"
+            }
+          ],
+          "receipts": {
+            "6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e.json": "{\"signature\":\"0aab951602ca6643f1b5021875c3aeff68d7fa3826901d9e209f8d4714434ba2\",\"sessionId\":\"sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+          },
+          "sessions": {
+            "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-changed",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e.json": "{\"signature\":\"0aab951602ca6643f1b5021875c3aeff68d7fa3826901d9e209f8d4714434ba2\",\"sessionId\":\"sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "error": "Submission id was reused for different content.",
+            "ok": false
+          },
+          "sessions": {
+            "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c2",
+            "id": "s-changed",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+            }
+          ],
+          "receipts": {
+            "6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e.json": "{\"signature\":\"0aab951602ca6643f1b5021875c3aeff68d7fa3826901d9e209f8d4714434ba2\",\"sessionId\":\"sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e"
+          },
+          "sessions": {
+            "sess_desktop_6c848fb3281687c0903aeb18c93d8c021635a77ee38534df928d83426849d06e": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-changed",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "content": "c1",
+          "id": "s-changed",
+          "op": "submit"
+        },
+        {
+          "content": "c2",
+          "id": "s-changed",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-changed",
+          "op": "submit"
+        }
+      ]
+    },
+    "changed-content-after-configured": {
+      "recorded": [
+        {
+          "daemonCalls": null,
+          "receipts": {
+            "1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851.json": "{\"signature\":\"a6a58da3140f007f8d317a35eaae764a3a1290bafe30c37a2509fbe1d5143fe9\",\"sessionId\":\"sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851\",\"phase\":\"configured\"}"
+          },
+          "reply": {
+            "crashed": "configured"
+          },
+          "sessions": {
+            "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851": {
+              "prompts": 0,
+              "reserved": true
+            }
+          },
+          "step": {
+            "at": "configured",
+            "content": "c1",
+            "id": "s-changed-c",
+            "op": "crash"
+          }
+        },
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851.json": "{\"signature\":\"a6a58da3140f007f8d317a35eaae764a3a1290bafe30c37a2509fbe1d5143fe9\",\"sessionId\":\"sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851\",\"phase\":\"configured\"}"
+          },
+          "reply": {
+            "error": "Submission id was reused for different content.",
+            "ok": false
+          },
+          "sessions": {
+            "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851": {
+              "prompts": 0,
+              "reserved": true
+            }
+          },
+          "step": {
+            "content": "c2",
+            "id": "s-changed-c",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851",
+              "submission": "s-changed-c"
+            }
+          ],
+          "receipts": {
+            "1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851.json": "{\"signature\":\"a6a58da3140f007f8d317a35eaae764a3a1290bafe30c37a2509fbe1d5143fe9\",\"sessionId\":\"sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851"
+          },
+          "sessions": {
+            "sess_desktop_1198c699368581b2bb37a4deaa5f35154407665ceb41ed0d5dfdd9ccf36d0851": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-changed-c",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "at": "configured",
+          "content": "c1",
+          "id": "s-changed-c",
+          "op": "crash"
+        },
+        {
+          "content": "c2",
+          "id": "s-changed-c",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-changed-c",
+          "op": "submit"
+        }
+      ]
+    },
+    "changed-content-after-reserved": {
+      "recorded": [
+        {
+          "daemonCalls": null,
+          "receipts": {
+            "32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c.json": "{\"signature\":\"b79c190505b3f7a3564443b4483d6df47edce1426dcaeee66e249cdf58f5e93f\",\"sessionId\":\"sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c\",\"phase\":\"reserved\"}"
+          },
+          "reply": {
+            "crashed": "reserved"
+          },
+          "sessions": {},
+          "step": {
+            "at": "reserved",
+            "content": "c1",
+            "id": "s-changed-r",
+            "op": "crash"
+          }
+        },
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c.json": "{\"signature\":\"b79c190505b3f7a3564443b4483d6df47edce1426dcaeee66e249cdf58f5e93f\",\"sessionId\":\"sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c\",\"phase\":\"reserved\"}"
+          },
+          "reply": {
+            "error": "Submission id was reused for different content.",
+            "ok": false
+          },
+          "sessions": {},
+          "step": {
+            "content": "c2",
+            "id": "s-changed-r",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c",
+              "submission": "s-changed-r"
+            }
+          ],
+          "receipts": {
+            "32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c.json": "{\"signature\":\"b79c190505b3f7a3564443b4483d6df47edce1426dcaeee66e249cdf58f5e93f\",\"sessionId\":\"sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c"
+          },
+          "sessions": {
+            "sess_desktop_32653cc3989339c3b3f664e40fd60294807de82e24c2853bdd03917f3c9bdf2c": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-changed-r",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "at": "reserved",
+          "content": "c1",
+          "id": "s-changed-r",
+          "op": "crash"
+        },
+        {
+          "content": "c2",
+          "id": "s-changed-r",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-changed-r",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-array": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813.json": "[]"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-array",
+            "op": "seed",
+            "shape": "array"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813",
+              "submission": "s-corrupt-array"
+            }
+          ],
+          "receipts": {
+            "ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813.json": "{\"signature\":\"2d33ffe1887b104bac5f924a8cb5ad7dd853a2ac97127a5eace52496e9166411\",\"sessionId\":\"sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+          },
+          "sessions": {
+            "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-array",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+            }
+          ],
+          "receipts": {
+            "ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813.json": "{\"signature\":\"2d33ffe1887b104bac5f924a8cb5ad7dd853a2ac97127a5eace52496e9166411\",\"sessionId\":\"sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813"
+          },
+          "sessions": {
+            "sess_desktop_ca75112c3b494140e8fd236d3acaf933b24df9245b7e69cdf647b533300ac813": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-array",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-array",
+          "op": "seed",
+          "shape": "array"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-array",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-array",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-empty": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78.json": ""
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-empty",
+            "op": "seed",
+            "shape": "empty"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78",
+              "submission": "s-corrupt-empty"
+            }
+          ],
+          "receipts": {
+            "f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78.json": "{\"signature\":\"c74b8611ef7d955a1d8c3cddf88d7a951dd9a2c0bd8a1b8fec0c39331710739c\",\"sessionId\":\"sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+          },
+          "sessions": {
+            "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-empty",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+            }
+          ],
+          "receipts": {
+            "f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78.json": "{\"signature\":\"c74b8611ef7d955a1d8c3cddf88d7a951dd9a2c0bd8a1b8fec0c39331710739c\",\"sessionId\":\"sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78"
+          },
+          "sessions": {
+            "sess_desktop_f19dd272a172389a0449e27d3a99997489d3feb5fe4b689af1fb31d47eb10b78": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-empty",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-empty",
+          "op": "seed",
+          "shape": "empty"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-empty",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-empty",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-json-null": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a.json": "null"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-json-null",
+            "op": "seed",
+            "shape": "json-null"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a",
+              "submission": "s-corrupt-json-null"
+            }
+          ],
+          "receipts": {
+            "fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a.json": "{\"signature\":\"2b15a47e8f0eaf9f14224704144d18b266053bda4ef1f7a95b57b873e1935164\",\"sessionId\":\"sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+          },
+          "sessions": {
+            "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-json-null",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+            }
+          ],
+          "receipts": {
+            "fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a.json": "{\"signature\":\"2b15a47e8f0eaf9f14224704144d18b266053bda4ef1f7a95b57b873e1935164\",\"sessionId\":\"sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a"
+          },
+          "sessions": {
+            "sess_desktop_fdedf6e46cbc1c2fff2d12e31daa122dcb5702fc646081104c9964a82673929a": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-json-null",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-json-null",
+          "op": "seed",
+          "shape": "json-null"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-json-null",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-json-null",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-nul-filled": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236.json": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-nul-filled",
+            "op": "seed",
+            "shape": "nul-filled"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236",
+              "submission": "s-corrupt-nul-filled"
+            }
+          ],
+          "receipts": {
+            "8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236.json": "{\"signature\":\"3e665f71af31051b8a1e9c66bf34b994189d50ee31f5409924a7fcd24de14001\",\"sessionId\":\"sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+          },
+          "sessions": {
+            "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-nul-filled",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+            }
+          ],
+          "receipts": {
+            "8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236.json": "{\"signature\":\"3e665f71af31051b8a1e9c66bf34b994189d50ee31f5409924a7fcd24de14001\",\"sessionId\":\"sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236"
+          },
+          "sessions": {
+            "sess_desktop_8ef06d66f2b2411aa219ab0a4edfc16eaac3de18a82db72a99ac9a7b0a574236": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-nul-filled",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-nul-filled",
+          "op": "seed",
+          "shape": "nul-filled"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-nul-filled",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-nul-filled",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-oversized": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8.json": "{\"signature\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sessionId\":\"sess_desktop_x\",\"phase\":\"accepted\"}"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-oversized",
+            "op": "seed",
+            "shape": "oversized"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8",
+              "submission": "s-corrupt-oversized"
+            }
+          ],
+          "receipts": {
+            "df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8.json": "{\"signature\":\"e255204e4f65c063e130a51b607a7474333b44c3382f2a3fdc9faa6035125b93\",\"sessionId\":\"sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+          },
+          "sessions": {
+            "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-oversized",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+            }
+          ],
+          "receipts": {
+            "df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8.json": "{\"signature\":\"e255204e4f65c063e130a51b607a7474333b44c3382f2a3fdc9faa6035125b93\",\"sessionId\":\"sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8"
+          },
+          "sessions": {
+            "sess_desktop_df85a7be0839015c3bb93d23c3be074ff49fb7a3f91c905def0f95875ff80cc8": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-oversized",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-oversized",
+          "op": "seed",
+          "shape": "oversized"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-oversized",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-oversized",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-truncated": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0.json": "{\"signature\":\"abc\",\"sessionId\":\"sess_desktop_x\",\"pha"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-truncated",
+            "op": "seed",
+            "shape": "truncated"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0",
+              "submission": "s-corrupt-truncated"
+            }
+          ],
+          "receipts": {
+            "88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0.json": "{\"signature\":\"bee1af7c3c495e5cabfd45a04f6d04868ca71aba489c8bf09f68b1720748960c\",\"sessionId\":\"sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+          },
+          "sessions": {
+            "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-truncated",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+            }
+          ],
+          "receipts": {
+            "88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0.json": "{\"signature\":\"bee1af7c3c495e5cabfd45a04f6d04868ca71aba489c8bf09f68b1720748960c\",\"sessionId\":\"sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0"
+          },
+          "sessions": {
+            "sess_desktop_88ca0dacf54caa4d1562bb56de6e5caa9297a401283ddafa3823a9737b96b2d0": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-truncated",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-truncated",
+          "op": "seed",
+          "shape": "truncated"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-truncated",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-truncated",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-wrong-phase": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba.json": "{\"signature\":\"abc\",\"sessionId\":\"sess_desktop_x\",\"phase\":\"done\"}"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-wrong-phase",
+            "op": "seed",
+            "shape": "wrong-phase"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba",
+              "submission": "s-corrupt-wrong-phase"
+            }
+          ],
+          "receipts": {
+            "41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba.json": "{\"signature\":\"6b1469be4fdcc233ceba7aee9a5c0cbc03b13f80212fc061ca715e2af81d1a86\",\"sessionId\":\"sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+          },
+          "sessions": {
+            "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-wrong-phase",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+            }
+          ],
+          "receipts": {
+            "41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba.json": "{\"signature\":\"6b1469be4fdcc233ceba7aee9a5c0cbc03b13f80212fc061ca715e2af81d1a86\",\"sessionId\":\"sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba"
+          },
+          "sessions": {
+            "sess_desktop_41fd3388b5e94920af09d0abb5e1b996750d595725fc81321c48e6a186073cba": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-wrong-phase",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-wrong-phase",
+          "op": "seed",
+          "shape": "wrong-phase"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-wrong-phase",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-wrong-phase",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-wrong-session-id": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b.json": "{\"signature\":\"abc\",\"sessionId\":\"not a session id\",\"phase\":\"accepted\"}"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-wrong-session-id",
+            "op": "seed",
+            "shape": "wrong-session-id"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b",
+              "submission": "s-corrupt-wrong-session-id"
+            }
+          ],
+          "receipts": {
+            "81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b.json": "{\"signature\":\"849727f927b471d7293d0cfdddf24a0c443eccee839c33c65881790ef18ccd9b\",\"sessionId\":\"sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+          },
+          "sessions": {
+            "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-wrong-session-id",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+            }
+          ],
+          "receipts": {
+            "81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b.json": "{\"signature\":\"849727f927b471d7293d0cfdddf24a0c443eccee839c33c65881790ef18ccd9b\",\"sessionId\":\"sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b"
+          },
+          "sessions": {
+            "sess_desktop_81d8b575d4f155038342760516a6199bd8efcc40f6e8eb1d4f8992a6bf51c85b": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-wrong-session-id",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-wrong-session-id",
+          "op": "seed",
+          "shape": "wrong-session-id"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-wrong-session-id",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-wrong-session-id",
+          "op": "submit"
+        }
+      ]
+    },
+    "corrupt-wrong-signature": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223.json": "{\"signature\":7,\"sessionId\":\"sess_desktop_x\",\"phase\":\"accepted\"}"
+          },
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-corrupt-wrong-signature",
+            "op": "seed",
+            "shape": "wrong-signature"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223",
+              "submission": "s-corrupt-wrong-signature"
+            }
+          ],
+          "receipts": {
+            "2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223.json": "{\"signature\":\"503e8afb88600b37c86bbacb2cfa426499fe6f7d3cbbbb341060899e5dd0bb92\",\"sessionId\":\"sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+          },
+          "sessions": {
+            "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-wrong-signature",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+            }
+          ],
+          "receipts": {
+            "2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223.json": "{\"signature\":\"503e8afb88600b37c86bbacb2cfa426499fe6f7d3cbbbb341060899e5dd0bb92\",\"sessionId\":\"sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223"
+          },
+          "sessions": {
+            "sess_desktop_2991ca835ec13a9671fcfc8857c0add9594efccac75b5196c9f3da4ffd7f3223": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-corrupt-wrong-signature",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-corrupt-wrong-signature",
+          "op": "seed",
+          "shape": "wrong-signature"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-wrong-signature",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-corrupt-wrong-signature",
+          "op": "submit"
+        }
+      ]
+    },
+    "crash-then-identical-at-once": {
+      "recorded": [
+        {
+          "daemonCalls": null,
+          "receipts": {
+            "e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3.json": "{\"signature\":\"a230a8468c27064140d4b1e88f861d11f9742cc2a387c0d43c067422f58b6705\",\"sessionId\":\"sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3\",\"phase\":\"configured\"}"
+          },
+          "reply": {
+            "crashed": "configured"
+          },
+          "sessions": {
+            "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3": {
+              "prompts": 0,
+              "reserved": true
+            }
+          },
+          "step": {
+            "at": "configured",
+            "content": "c1",
+            "id": "s-crash-once",
+            "op": "crash"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3",
+              "submission": "s-crash-once"
+            }
+          ],
+          "receipts": {
+            "e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3.json": "{\"signature\":\"a230a8468c27064140d4b1e88f861d11f9742cc2a387c0d43c067422f58b6705\",\"sessionId\":\"sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3\",\"phase\":\"accepted\"}"
+          },
+          "reply": [
+            {
+              "accepted": true,
+              "ok": true,
+              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3"
+            },
+            {
+              "accepted": true,
+              "ok": true,
+              "sessionId": "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3"
+            }
+          ],
+          "sessions": {
+            "sess_desktop_e971a855687220c78bcccb5dfc9cc0c4839811acae00516e3963b6ce715a39e3": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "calls": [
+              {
+                "content": "c1",
+                "id": "s-crash-once",
+                "op": "submit"
+              },
+              {
+                "content": "c1",
+                "id": "s-crash-once",
+                "op": "submit"
+              }
+            ],
+            "op": "together"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "at": "configured",
+          "content": "c1",
+          "id": "s-crash-once",
+          "op": "crash"
+        },
+        {
+          "calls": [
+            {
+              "content": "c1",
+              "id": "s-crash-once",
+              "op": "submit"
+            },
+            {
+              "content": "c1",
+              "id": "s-crash-once",
+              "op": "submit"
+            }
+          ],
+          "op": "together"
+        }
+      ]
+    },
+    "different-content-at-once": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e",
+              "submission": "s-both"
+            }
+          ],
+          "receipts": {
+            "b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e.json": "{\"signature\":\"37af79e9f2eb9981f04ce1ef72d95b84c41e6f018d19efea4518c2968338deb7\",\"sessionId\":\"sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e\",\"phase\":\"accepted\"}"
+          },
+          "reply": [
+            {
+              "accepted": true,
+              "ok": true,
+              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+            },
+            {
+              "error": "Submission id was reused for different content.",
+              "ok": false
+            }
+          ],
+          "sessions": {
+            "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "calls": [
+              {
+                "content": "c1",
+                "id": "s-both",
+                "op": "submit"
+              },
+              {
+                "content": "c2",
+                "id": "s-both",
+                "op": "submit"
+              }
+            ],
+            "op": "together"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+            }
+          ],
+          "receipts": {
+            "b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e.json": "{\"signature\":\"37af79e9f2eb9981f04ce1ef72d95b84c41e6f018d19efea4518c2968338deb7\",\"sessionId\":\"sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e"
+          },
+          "sessions": {
+            "sess_desktop_b818feea0b5f2f874084b97f01d2c91ff1be864deac9e3f2e7c3d78f0385cd1e": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-both",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "calls": [
+            {
+              "content": "c1",
+              "id": "s-both",
+              "op": "submit"
+            },
+            {
+              "content": "c2",
+              "id": "s-both",
+              "op": "submit"
+            }
+          ],
+          "op": "together"
+        },
+        {
+          "content": "c1",
+          "id": "s-both",
+          "op": "submit"
+        }
+      ]
+    },
+    "first-submit": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83",
+              "submission": "s-first"
+            }
+          ],
+          "receipts": {
+            "09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83.json": "{\"signature\":\"b9a113866930fa3ffd0cd69186db6a1a2dbf2d75fa563ca4d54f0fac54ade75b\",\"sessionId\":\"sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83"
+          },
+          "sessions": {
+            "sess_desktop_09423d2c4ef9ef3b3abe42988792df38b24127da93051b2b035cc9ed3b9aaf83": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-first",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "content": "c1",
+          "id": "s-first",
+          "op": "submit"
+        }
+      ]
+    },
+    "identical-at-once": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21",
+              "submission": "s-once"
+            }
+          ],
+          "receipts": {
+            "6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21.json": "{\"signature\":\"d98c0aafe7c5d50a60a7838b9ccfa4c1c2ccbd2759d2a2cf1c39192be7fc0e6a\",\"sessionId\":\"sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21\",\"phase\":\"accepted\"}"
+          },
+          "reply": [
+            {
+              "accepted": true,
+              "ok": true,
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+            },
+            {
+              "accepted": true,
+              "ok": true,
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+            }
+          ],
+          "sessions": {
+            "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "calls": [
+              {
+                "content": "c1",
+                "id": "s-once",
+                "op": "submit"
+              },
+              {
+                "content": "c1",
+                "id": "s-once",
+                "op": "submit"
+              }
+            ],
+            "op": "together"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+            }
+          ],
+          "receipts": {
+            "6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21.json": "{\"signature\":\"d98c0aafe7c5d50a60a7838b9ccfa4c1c2ccbd2759d2a2cf1c39192be7fc0e6a\",\"sessionId\":\"sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21"
+          },
+          "sessions": {
+            "sess_desktop_6cbc8dd0c69be9a5f8bf21392ae15d58ddeeb903b880365eefaf34d41841fe21": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-once",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "calls": [
+            {
+              "content": "c1",
+              "id": "s-once",
+              "op": "submit"
+            },
+            {
+              "content": "c1",
+              "id": "s-once",
+              "op": "submit"
+            }
+          ],
+          "op": "together"
+        },
+        {
+          "content": "c1",
+          "id": "s-once",
+          "op": "submit"
+        }
+      ]
+    },
+    "io-error": {
+      "recorded": [
+        {
+          "daemonCalls": [],
+          "receipts": null,
+          "reply": null,
+          "sessions": {},
+          "step": {
+            "id": "s-io",
+            "op": "obstruct"
+          }
+        },
+        {
+          "daemonCalls": [],
+          "receipts": null,
+          "reply": {
+            "code": "EISDIR",
+            "error": "EISDIR: illegal operation on a directory, read",
+            "ok": false
+          },
+          "sessions": {},
+          "step": {
+            "content": "c1",
+            "id": "s-io",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "id": "s-io",
+          "op": "obstruct"
+        },
+        {
+          "content": "c1",
+          "id": "s-io",
+          "op": "submit"
+        }
+      ]
+    },
+    "refusal-then-other-content": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_bf61bc057cb4ee9e32fe2c4d5c0484aca7e6833f7634f139b2509fc89d64178f"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_bf61bc057cb4ee9e32fe2c4d5c0484aca7e6833f7634f139b2509fc89d64178f"
+            },
+            {
+              "method": "unsubscribe",
+              "sessionId": "sess_desktop_bf61bc057cb4ee9e32fe2c4d5c0484aca7e6833f7634f139b2509fc89d64178f"
+            }
+          ],
+          "receipts": {
+            "bf61bc057cb4ee9e32fe2c4d5c0484aca7e6833f7634f139b2509fc89d64178f.json": "{\"signature\":\"8e577a3af7f3c47b01cffde2b183af1da16d0a00a33d28c1b0db06d6f3024747\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "error": "route refused: unknown provider no-such-provider",
+            "ok": false
+          },
+          "sessions": {},
+          "step": {
+            "content": "refused",
+            "id": "s-refused",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "<fresh:2>"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "<fresh:2>"
+            },
+            {
+              "method": "submit",
+              "sessionId": "<fresh:2>",
+              "submission": "s-refused"
+            }
+          ],
+          "receipts": {
+            "bf61bc057cb4ee9e32fe2c4d5c0484aca7e6833f7634f139b2509fc89d64178f.json": "{\"signature\":\"5c9e78c259edf047cff84aa6e18446798bfb3cbb7dddf7721f277ee3b6d71248\",\"sessionId\":\"<fresh:2>\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "<fresh:2>"
+          },
+          "sessions": {
+            "<fresh:2>": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c2",
+            "id": "s-refused",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "<fresh:2>"
+            }
+          ],
+          "receipts": {
+            "bf61bc057cb4ee9e32fe2c4d5c0484aca7e6833f7634f139b2509fc89d64178f.json": "{\"signature\":\"5c9e78c259edf047cff84aa6e18446798bfb3cbb7dddf7721f277ee3b6d71248\",\"sessionId\":\"<fresh:2>\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "<fresh:2>"
+          },
+          "sessions": {
+            "<fresh:2>": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c2",
+            "id": "s-refused",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "content": "refused",
+          "id": "s-refused",
+          "op": "submit"
+        },
+        {
+          "content": "c2",
+          "id": "s-refused",
+          "op": "submit"
+        },
+        {
+          "content": "c2",
+          "id": "s-refused",
+          "op": "submit"
+        }
+      ]
+    },
+    "refusal-then-same-content": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_48f524c3a7ae5505ae1deb2c1b4493e79d8fbb18b79be3de8fc8b970a7c2ae00"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_48f524c3a7ae5505ae1deb2c1b4493e79d8fbb18b79be3de8fc8b970a7c2ae00"
+            },
+            {
+              "method": "unsubscribe",
+              "sessionId": "sess_desktop_48f524c3a7ae5505ae1deb2c1b4493e79d8fbb18b79be3de8fc8b970a7c2ae00"
+            }
+          ],
+          "receipts": {
+            "48f524c3a7ae5505ae1deb2c1b4493e79d8fbb18b79be3de8fc8b970a7c2ae00.json": "{\"signature\":\"a26a151f0f3345d96e8f0cbc7982b368812059d045f46a1ca0fa494663c32396\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "error": "route refused: unknown provider no-such-provider",
+            "ok": false
+          },
+          "sessions": {},
+          "step": {
+            "content": "refused",
+            "id": "s-refused-same",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "<fresh:1>"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "<fresh:1>"
+            },
+            {
+              "method": "unsubscribe",
+              "sessionId": "<fresh:1>"
+            }
+          ],
+          "receipts": {
+            "48f524c3a7ae5505ae1deb2c1b4493e79d8fbb18b79be3de8fc8b970a7c2ae00.json": "{\"signature\":\"a26a151f0f3345d96e8f0cbc7982b368812059d045f46a1ca0fa494663c32396\",\"sessionId\":\"<fresh:2>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "error": "route refused: unknown provider no-such-provider",
+            "ok": false
+          },
+          "sessions": {},
+          "step": {
+            "content": "refused",
+            "id": "s-refused-same",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "content": "refused",
+          "id": "s-refused-same",
+          "op": "submit"
+        },
+        {
+          "content": "refused",
+          "id": "s-refused-same",
+          "op": "submit"
+        }
+      ]
+    },
+    "refusal-twice-then-other-content": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7"
+            },
+            {
+              "method": "unsubscribe",
+              "sessionId": "sess_desktop_955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7"
+            }
+          ],
+          "receipts": {
+            "955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7.json": "{\"signature\":\"4a6f1c509061d4661b44a5d97f02ff60023bbc5221bba543e28c5b5886432926\",\"sessionId\":\"<fresh:1>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "error": "route refused: unknown provider no-such-provider",
+            "ok": false
+          },
+          "sessions": {},
+          "step": {
+            "content": "refused",
+            "id": "s-refused-twice",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "<fresh:1>"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "<fresh:1>"
+            },
+            {
+              "method": "unsubscribe",
+              "sessionId": "<fresh:1>"
+            }
+          ],
+          "receipts": {
+            "955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7.json": "{\"signature\":\"4a6f1c509061d4661b44a5d97f02ff60023bbc5221bba543e28c5b5886432926\",\"sessionId\":\"<fresh:2>\",\"phase\":\"reserved\",\"refused\":true}"
+          },
+          "reply": {
+            "error": "route refused: unknown provider no-such-provider",
+            "ok": false
+          },
+          "sessions": {},
+          "step": {
+            "content": "refused",
+            "id": "s-refused-twice",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "<fresh:3>"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "<fresh:3>"
+            },
+            {
+              "method": "submit",
+              "sessionId": "<fresh:3>",
+              "submission": "s-refused-twice"
+            }
+          ],
+          "receipts": {
+            "955fd68836d196a222373e070df5488373ee70d431a2e6bc436f29d9309a89f7.json": "{\"signature\":\"bd7b6b6ca696f94287a2c354bee6c24ce1ce3939f2f10cae91ee470fcc2a3019\",\"sessionId\":\"<fresh:3>\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "<fresh:3>"
+          },
+          "sessions": {
+            "<fresh:3>": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-refused-twice",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "content": "refused",
+          "id": "s-refused-twice",
+          "op": "submit"
+        },
+        {
+          "content": "refused",
+          "id": "s-refused-twice",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-refused-twice",
+          "op": "submit"
+        }
+      ]
+    },
+    "retry-after-accepted": {
+      "recorded": [
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec",
+              "submission": "s-accepted"
+            }
+          ],
+          "receipts": {
+            "420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec.json": "{\"signature\":\"9e954fe6f01a61e35539a01103e1dbfef6f9863fff053925ccd6220f210b8722\",\"sessionId\":\"sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+          },
+          "sessions": {
+            "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-accepted",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            }
+          ],
+          "receipts": {
+            "420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec.json": "{\"signature\":\"9e954fe6f01a61e35539a01103e1dbfef6f9863fff053925ccd6220f210b8722\",\"sessionId\":\"sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+          },
+          "sessions": {
+            "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-accepted",
+            "op": "submit"
+          }
+        },
+        {
+          "daemonCalls": [],
+          "receipts": {
+            "420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec.json": "{\"signature\":\"9e954fe6f01a61e35539a01103e1dbfef6f9863fff053925ccd6220f210b8722\",\"sessionId\":\"sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec\",\"phase\":\"accepted\"}"
+          },
+          "reply": null,
+          "sessions": {
+            "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "op": "restart"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "read",
+              "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+            }
+          ],
+          "receipts": {
+            "420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec.json": "{\"signature\":\"9e954fe6f01a61e35539a01103e1dbfef6f9863fff053925ccd6220f210b8722\",\"sessionId\":\"sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec"
+          },
+          "sessions": {
+            "sess_desktop_420fa74b17593a71318a4c7a7c2a6378fb40957d4830bb2a2ebdb0fc48846dec": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-accepted",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "content": "c1",
+          "id": "s-accepted",
+          "op": "submit"
+        },
+        {
+          "content": "c1",
+          "id": "s-accepted",
+          "op": "submit"
+        },
+        {
+          "op": "restart"
+        },
+        {
+          "content": "c1",
+          "id": "s-accepted",
+          "op": "submit"
+        }
+      ]
+    },
+    "retry-after-configured": {
+      "recorded": [
+        {
+          "daemonCalls": null,
+          "receipts": {
+            "d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8.json": "{\"signature\":\"36f0874d3c82c671418b8ab17b59b91dd846ec9fd514e333d64df8d410c2e99a\",\"sessionId\":\"sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8\",\"phase\":\"configured\"}"
+          },
+          "reply": {
+            "crashed": "configured"
+          },
+          "sessions": {
+            "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8": {
+              "prompts": 0,
+              "reserved": true
+            }
+          },
+          "step": {
+            "at": "configured",
+            "content": "c1",
+            "id": "s-configured",
+            "op": "crash"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8",
+              "submission": "s-configured"
+            }
+          ],
+          "receipts": {
+            "d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8.json": "{\"signature\":\"36f0874d3c82c671418b8ab17b59b91dd846ec9fd514e333d64df8d410c2e99a\",\"sessionId\":\"sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8"
+          },
+          "sessions": {
+            "sess_desktop_d3451ca87679dbaac02407e9081f4c261916bf690e2fe90426fa5afe8fc5a6f8": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-configured",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "at": "configured",
+          "content": "c1",
+          "id": "s-configured",
+          "op": "crash"
+        },
+        {
+          "content": "c1",
+          "id": "s-configured",
+          "op": "submit"
+        }
+      ]
+    },
+    "retry-after-reserved": {
+      "recorded": [
+        {
+          "daemonCalls": null,
+          "receipts": {
+            "8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700.json": "{\"signature\":\"b343f5daa6a73d23058fec92e875dfb3ad2db3c2decdec18a1173fb13e09bdcb\",\"sessionId\":\"sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700\",\"phase\":\"reserved\"}"
+          },
+          "reply": {
+            "crashed": "reserved"
+          },
+          "sessions": {},
+          "step": {
+            "at": "reserved",
+            "content": "c1",
+            "id": "s-reserved",
+            "op": "crash"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700"
+            },
+            {
+              "action": "setRoute",
+              "method": "configure",
+              "sessionId": "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700",
+              "submission": "s-reserved"
+            }
+          ],
+          "receipts": {
+            "8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700.json": "{\"signature\":\"b343f5daa6a73d23058fec92e875dfb3ad2db3c2decdec18a1173fb13e09bdcb\",\"sessionId\":\"sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700"
+          },
+          "sessions": {
+            "sess_desktop_8e9a959293b55e549118cd34459306649e640073267c6e4e985ccb1884c99700": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-reserved",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "at": "reserved",
+          "content": "c1",
+          "id": "s-reserved",
+          "op": "crash"
+        },
+        {
+          "content": "c1",
+          "id": "s-reserved",
+          "op": "submit"
+        }
+      ]
+    },
+    "retry-after-submitted": {
+      "recorded": [
+        {
+          "daemonCalls": null,
+          "receipts": {
+            "a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959.json": "{\"signature\":\"e15c3724883cd5ebb5d28ef613f1ff477e30030d28d8168a0f84428747a21868\",\"sessionId\":\"sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959\",\"phase\":\"configured\"}"
+          },
+          "reply": {
+            "crashed": "submitted"
+          },
+          "sessions": {
+            "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "at": "submitted",
+            "content": "c1",
+            "id": "s-submitted",
+            "op": "crash"
+          }
+        },
+        {
+          "daemonCalls": [
+            {
+              "method": "create",
+              "sessionId": "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959"
+            },
+            {
+              "method": "submit",
+              "sessionId": "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959",
+              "submission": "s-submitted"
+            }
+          ],
+          "receipts": {
+            "a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959.json": "{\"signature\":\"e15c3724883cd5ebb5d28ef613f1ff477e30030d28d8168a0f84428747a21868\",\"sessionId\":\"sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959\",\"phase\":\"accepted\"}"
+          },
+          "reply": {
+            "accepted": true,
+            "ok": true,
+            "sessionId": "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959"
+          },
+          "sessions": {
+            "sess_desktop_a0f2b3f2d142764aab77d8353b5c4ed513ba71d937c5f7a299ea47625bde8959": {
+              "prompts": 1,
+              "reserved": false
+            }
+          },
+          "step": {
+            "content": "c1",
+            "id": "s-submitted",
+            "op": "submit"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "at": "submitted",
+          "content": "c1",
+          "id": "s-submitted",
+          "op": "crash"
+        },
+        {
+          "content": "c1",
+          "id": "s-submitted",
+          "op": "submit"
+        }
+      ]
+    }
+  }
+}

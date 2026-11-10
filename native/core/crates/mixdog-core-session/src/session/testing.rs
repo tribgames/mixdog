@@ -1712,6 +1712,7 @@ impl Rig {
             empty_surface: Arc::new(NoEmptySurface),
             task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
             new_place: Arc::new(RecordingPlace::default()),
+            new_tasks: super::new_task::NewTaskReceipts::new(&self._data.path().join("userdata"), tokens.durability_io),
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),

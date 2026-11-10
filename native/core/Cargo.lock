@@ -4559,6 +4559,7 @@ dependencies = [
  "mixdog-migrate",
  "mixdog-protocol",
  "mixdog-rt",
+ "mixdog-statefile",
  "mixdog-store",
  "mixdog-workspace-hack",
  "regex",
