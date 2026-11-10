@@ -144,6 +144,11 @@ impl Metadata {
         }
     }
 
+    /// The logical turn the frame names (`logicalTurnId`), empty for a prewarm.
+    pub fn turn_id(&self) -> &str {
+        &self.turn_id
+    }
+
     /// `_codexWsCompatibilityHeaders`: what the handshake carries beyond the
     /// route's fixed headers. `tier` is the body's `service_tier`.
     pub fn handshake_headers(&self, model: &str, tier: Option<&str>) -> Vec<(String, String)> {

@@ -56,7 +56,7 @@ use super::tcp;
 
 pub use tokio_tungstenite::tungstenite::Message;
 
-type Socket = WebSocketStream<WsIo<MaybeTlsStream<Conn>>>;
+type Socket<S> = WebSocketStream<WsIo<S>>;
 
 /// Frames queued toward the socket and the consumer.
 const QUEUE: usize = 64;
@@ -73,11 +73,25 @@ pub enum ConnectError {
     Proxy { code: String, message: String },
 }
 
+/// The first event `ws` emits when a socket ends, the one Node's stream handler acts on (`socket-handlers.mjs`
+/// `onClose` / `onError`; every later one finds `outcome.done`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WsEnding {
+    /// `close(code, reason)` after the server's close frame; 1005 when the frame carried no code
+    /// (`receiver.js` `controlMessage`).
+    Close { code: u16, reason: String },
+    /// `error`: a frame the receiver refused, with `ws`'s message, its error code and the close code it answers with.
+    Violation { message: String, code: &'static str, close_code: u16 },
+}
+
 /// Liveness and age of one WebSocket connection, shared with its tasks.
 pub struct WsLink {
     opened: Instant,
     schedule: Mutex<KeepaliveSchedule>,
     dead: Mutex<Option<TransportFault>>,
+    ending: Mutex<Option<WsEnding>>,
+    /// The close a violation started is running: the writer finishes it even after the connection is dropped.
+    closing: std::sync::atomic::AtomicBool,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -90,6 +104,8 @@ impl WsLink {
             opened: Instant::now(),
             schedule: Mutex::new(schedule),
             dead: Mutex::new(None),
+            ending: Mutex::new(None),
+            closing: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -132,12 +148,18 @@ impl TransportKeepalive for WsLink {
     }
 }
 
-struct AbortOnDrop([AbortHandle; 2]);
+struct AbortOnDrop {
+    writer: AbortHandle,
+    reader: AbortHandle,
+    link: Arc<WsLink>,
+}
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
-        for handle in &self.0 {
-            handle.abort();
+        self.reader.abort();
+        // A violation's close runs to its end or ws's closeTimeout whoever holds the connection (`setCloseTimer`).
+        if !self.link.closing.load(std::sync::atomic::Ordering::Acquire) {
+            self.writer.abort();
         }
     }
 }
@@ -411,33 +433,46 @@ async fn connect_over(
         None,
     )
     .await;
+    Ok((start(socket, schedule), response.map(|body| body)))
+}
+
+/// The connection's reader and writer over an upgraded `socket`.
+fn start<S>(socket: Socket<S>, schedule: &KeepaliveSchedule) -> WsConnection
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let link = Arc::new(WsLink::new(*schedule));
     let (sink, stream) = socket.split();
     let (out_tx, out_rx) = mpsc::channel(QUEUE);
     let (in_tx, in_rx) = mpsc::channel(QUEUE);
+    let (violation_tx, violation_rx) = tokio::sync::oneshot::channel();
     let writer = mixdog_rt::spawn(
         "ai.ws.writer",
         TaskClass::Work,
-        write_loop(sink, out_rx, in_tx.clone(), link.clone()),
+        write_loop(sink, out_rx, in_tx.clone(), link.clone(), violation_rx),
     );
     let reader = mixdog_rt::spawn(
         "ai.ws.reader",
         TaskClass::Work,
-        read_loop(stream, out_tx.clone(), in_tx, link.clone(), writer.abort_handle()),
+        read_loop(stream, out_tx.clone(), in_tx, link.clone(), writer.abort_handle(), violation_tx),
     );
-    let connection = WsConnection {
+    WsConnection {
         out: out_tx,
         inbound: in_rx,
-        link,
+        link: link.clone(),
         ended: false,
-        _tasks: AbortOnDrop([writer.abort_handle(), reader.abort_handle()]),
-    };
-    Ok((connection, response.map(|body| body)))
+        _tasks: AbortOnDrop { writer: writer.abort_handle(), reader: reader.abort_handle(), link },
+    }
 }
 
 impl WsConnection {
     pub fn link(&self) -> Arc<WsLink> {
         self.link.clone()
+    }
+
+    /// What ended the link, as `ws` reports it.
+    pub fn ending(&self) -> Option<WsEnding> {
+        locked(&self.link.ending).clone()
     }
 
     /// Queues a frame. Waits only for room in this connection's own queue.
@@ -462,12 +497,13 @@ impl WsConnection {
     }
 }
 
-async fn read_loop(
-    mut stream: SplitStream<Socket>,
+async fn read_loop<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: SplitStream<Socket<S>>,
     to_writer: mpsc::Sender<Message>,
     inbound: mpsc::Sender<Result<Message, TransportFault>>,
     link: Arc<WsLink>,
     writer: AbortHandle,
+    violation: tokio::sync::oneshot::Sender<tokio::time::Instant>,
 ) {
     let end = |fault: TransportFault| {
         link.mark_dead(fault.clone());
@@ -486,6 +522,17 @@ async fn read_loop(
                 pong_deadline = None;
                 let fault = match item {
                     None => TransportFault::Closed,
+                    Some(Err(tungstenite::Error::Io(ref io))) if let Some(refused) = super::wsio::violation_of(io) => {
+                        // `receiverOnError`: the error is emitted at once; the close frame `ws.close(code)` queued goes
+                        // out behind it, and the writer finishes that close within ws's closeTimeout from now.
+                        let fault = fault_from_io(io, false);
+                        *locked(&link.ending) = Some(WsEnding::Violation { message: refused.text.clone(), code: refused.ws_code, close_code: refused.code });
+                        link.closing.store(true, std::sync::atomic::Ordering::Release);
+                        link.mark_dead(fault.clone());
+                        let _ = violation.send(tokio::time::Instant::now());
+                        let _ = inbound.send(Err(fault)).await;
+                        return;
+                    }
                     Some(Err(err)) => fault_from_ws_error(&err),
                     Some(Ok(Message::Ping(payload))) => {
                         let _ = to_writer.try_send(Message::Pong(payload));
@@ -493,7 +540,10 @@ async fn read_loop(
                     }
                     Some(Ok(Message::Pong(_) | Message::Frame(_))) => continue,
                     Some(Ok(Message::Close(frame))) => {
-                        let fault = TransportFault::WsClose { code: frame.map(|frame| u16::from(frame.code)) };
+                        // `ws` reports an empty close as 1005 (`receiver.js` `controlMessage`), with an empty reason.
+                        let (code, reason) = frame.map_or((1005, String::new()), |frame| (u16::from(frame.code), frame.reason.as_str().to_owned()));
+                        *locked(&link.ending) = Some(WsEnding::Close { code, reason });
+                        let fault = TransportFault::WsClose { code: Some(code) };
                         // The consumer hears of the close at once. The writer lives on until tungstenite has written its
                         // echo of the close frame, which it does on the next read (ws echoes the code,
                         // `receiverOnConclude`); that read ends when the server closes the connection, or at
@@ -532,21 +582,55 @@ async fn read_loop(
     }
 }
 
-async fn write_loop(
-    mut sink: SplitSink<Socket, Message>,
+async fn write_loop<S: AsyncRead + AsyncWrite + Unpin>(
+    mut sink: SplitSink<Socket<S>, Message>,
     mut queued: mpsc::Receiver<Message>,
     inbound: mpsc::Sender<Result<Message, TransportFault>>,
     link: Arc<WsLink>,
+    mut violation: tokio::sync::oneshot::Receiver<tokio::time::Instant>,
 ) {
-    while let Some(message) = queued.recv().await {
-        if let Err(err) = sink.send(message).await {
+    // The reader ends without a violation on every other path, and then aborts this task itself.
+    let mut watching = true;
+    loop {
+        let message = tokio::select! {
+            biased;
+            at = &mut violation, if watching => match at {
+                Ok(at) => break close_after_violation(sink, queued, at).await,
+                Err(_) => {
+                    watching = false;
+                    continue;
+                }
+            },
+            message = queued.recv() => message,
+        };
+        let Some(message) = message else {
+            let _ = sink.close().await;
+            return;
+        };
+        // A send can wait on a peer that does not read; a violation found meanwhile ends it and starts the close.
+        let sent = tokio::select! {
+            biased;
+            at = &mut violation, if watching => match at {
+                Ok(at) => break close_after_violation(sink, queued, at).await,
+                // The reader is gone, and it aborts this task on its way out.
+                Err(_) => return,
+            },
+            sent = sink.send(message) => sent,
+        };
+        if let Err(err) = sent {
             let fault = fault_from_ws_error(&err);
             link.mark_dead(fault.clone());
             let _ = inbound.send(Err(fault)).await;
             return;
         }
     }
-    let _ = sink.close().await;
+}
+
+/// The close a violation started (`WsIo`'s flush runs it), given up at ws's closeTimeout from `at`; the socket is
+/// dropped then (`setCloseTimer`: `socket.destroy()`). Frames queued after the violation are refused.
+async fn close_after_violation<S: AsyncRead + AsyncWrite + Unpin>(mut sink: SplitSink<Socket<S>, Message>, queued: mpsc::Receiver<Message>, at: tokio::time::Instant) {
+    drop(queued);
+    let _ = tokio::time::timeout_at(at + CLOSE_FLUSH, sink.flush()).await;
 }
 #[cfg(test)]
 mod tests {
@@ -668,6 +752,7 @@ mod tests {
         assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
         assert_eq!(node["manifest"]["harness"]["ws-close-capture.mjs"], hex(ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref()), "ws-close-capture.mjs changed since the recording");
         let mut rust = Vec::new();
+        let mut expected = Vec::new();
         for case in node["cases"].as_array().unwrap() {
             let close = case["frame"].as_str().unwrap();
             let close: Vec<u8> = (0..close.len()).step_by(2).map(|i| u8::from_str_radix(&close[i..i + 2], 16).unwrap()).collect();
@@ -710,13 +795,71 @@ mod tests {
                 events
             });
             let request = format!("ws://{addr}/").into_client_request().unwrap();
-            let (connection, _) = tokio::time::timeout(WITHIN, connect(request, &KeepaliveSchedule::SPEC)).await.expect("the upgrade within 20 s").unwrap();
+            let (mut connection, _) = tokio::time::timeout(WITHIN, connect(request, &KeepaliveSchedule::SPEC)).await.expect("the upgrade within 20 s").unwrap();
             // The connection is held: its end on the wire comes from the close handshake, not from a drop.
             let events = tokio::time::timeout(WITHIN, server).await.expect("the client ends its side within 20 s").unwrap();
+            // What the owner hears, up to the first error or close: Node's stream handler acts on that one and ignores
+            // the rest (`socket-handlers.mjs` `onError` / `onClose` finish the outcome; `if (outcome.done) return`),
+            // which is ws's `close(1006, '')` after a receiver error.
+            let mut heard = Vec::new();
+            loop {
+                match tokio::time::timeout(WITHIN, connection.recv()).await.expect("what the owner hears within 20 s") {
+                    Some(Ok(Message::Text(text))) => heard.push(serde_json::json!({ "kind": "message", "binary": false, "hex": hex(text.as_bytes()) })),
+                    Some(Ok(Message::Binary(data))) => heard.push(serde_json::json!({ "kind": "message", "binary": true, "hex": hex(&data) })),
+                    Some(Ok(other)) => panic!("{other:?} is never shown"),
+                    Some(Err(_)) => {
+                        heard.push(match connection.ending().expect("an ending with the fault") {
+                            WsEnding::Close { code, reason } => serde_json::json!({ "kind": "close", "code": code, "reason": reason }),
+                            WsEnding::Violation { message, code, .. } => serde_json::json!({ "kind": "error", "message": message, "code": code }),
+                        });
+                        break;
+                    }
+                    None => panic!("the link ended without its fault"),
+                }
+            }
             drop(connection);
-            rust.push(serde_json::json!({ "name": case["name"], "frame": case["frame"], "events": events }));
+            let acted_on = case["heard"].as_array().unwrap();
+            let first_end = acted_on.iter().position(|e| e["kind"] != "message").expect("ws ends with a close");
+            if acted_on[first_end]["kind"] == "error" {
+                assert_eq!(acted_on[first_end + 1..], [serde_json::json!({ "kind": "close", "code": 1006, "reason": "" })], "{}", case["name"]);
+            }
+            let node_heard = serde_json::Value::Array(acted_on[..=first_end].to_vec());
+            rust.push(serde_json::json!({ "name": case["name"], "frame": case["frame"], "events": events, "heard": heard }));
+            expected.push(serde_json::json!({ "name": case["name"], "frame": case["frame"], "events": case["events"], "heard": node_heard }));
         }
-        assert_eq!(serde_json::Value::Array(rust), node["cases"]);
+        assert_eq!(rust, expected);
+    }
+
+    // W3, against a peer that never reads: `ws` emits the receiver's error at once (`receiverOnError`), and the socket
+    // its close frame cannot leave on is destroyed `closeTimeout` after `close()` (`setCloseTimer`; 30 000 ms,
+    // `constants.js` CLOSE_TIMEOUT), though its owner let go of the connection at once. On the paused clock: the error
+    // with no time passed, the socket there until the deadline and gone at it.
+    #[tokio::test(start_paused = true)]
+    async fn a_violation_is_reported_at_once_and_its_close_ends_the_socket_at_ws_close_timeout() {
+        mixdog_rt::testing::tokens();
+        let (near, mut far) = tokio::io::duplex(4); // four bytes each way: the eight byte close frame does not fit
+        let socket = WebSocketStream::from_raw_socket(WsIo::new(near, Vec::new(), Some(Extension::default())), tungstenite::protocol::Role::Client, None).await;
+        let mut connection = start(socket, &KeepaliveSchedule::SPEC);
+        let begin = tokio::time::Instant::now();
+        far.write_all(&[0xa1, 0x01, b'x']).await.unwrap(); // RSV2: 1002
+        let got = tokio::time::timeout(WITHIN, connection.recv()).await.expect("the error within 20 s");
+        assert!(matches!(got, Some(Err(_))), "{got:?}");
+        assert_eq!(begin.elapsed(), std::time::Duration::ZERO, "the error comes at once, not after the close");
+        assert_eq!(
+            connection.ending(),
+            Some(WsEnding::Violation { message: "Invalid WebSocket frame: RSV2 and RSV3 must be clear".into(), code: "WS_ERR_UNEXPECTED_RSV_2_3", close_code: 1002 })
+        );
+        drop(connection);
+        // More than the four bytes the pipe toward the client holds: the client reads nothing while its close is stuck,
+        // so this write can only end by failing, when the socket is gone.
+        let probe = far.write_all(&[0u8; 5]);
+        let gone = tokio::time::timeout(CLOSE_FLUSH + WITHIN, probe).await.expect("the socket gone within 50 s");
+        assert!(gone.is_err(), "the write failed because the socket was dropped");
+        assert_eq!(begin.elapsed(), CLOSE_FLUSH, "gone at ws's closeTimeout");
+        let mut seen = Vec::new();
+        tokio::time::timeout(WITHIN, far.read_to_end(&mut seen)).await.expect("what was written within 20 s").unwrap();
+        assert_eq!(&seen[..2], [0x88, 0x82], "the close frame was on its way: {seen:02x?}");
+        assert_eq!(seen.len(), 4, "only what the pipe could take before the socket went");
     }
 
     // W6, the nonce: `Sec-WebSocket-Key` is 16 bytes from a cryptographically secure generator (tungstenite's

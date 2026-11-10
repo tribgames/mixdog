@@ -43,9 +43,17 @@ impl Compat {
 
 struct Parked {
     socket: Box<dyn WsSocket>,
+    owner: u64,
     chain: Chain,
     compat: Compat,
     released: u64,
+}
+
+/// What hears that a session's socket closed (`_onEntryClosed`: `retireCodexTurnStateOwner(poolKey, entry)`), and
+/// that a session's sockets were all closed (`clearCodexTurnStateScope`).
+pub trait SocketEvents: Send + Sync {
+    fn closed(&self, key: &str, owner: u64);
+    fn session_closed(&self, key: &str);
 }
 
 #[derive(Default)]
@@ -65,6 +73,9 @@ struct State {
 #[derive(Default)]
 pub struct WsPool {
     state: Mutex<State>,
+    /// Numbers the sockets, so a turn's state knows the connection that owns it.
+    sockets: std::sync::atomic::AtomicU64,
+    events: Option<Arc<dyn SocketEvents>>,
 }
 
 /// A socket checked out for one response.
@@ -77,6 +88,8 @@ pub struct Checkout {
     /// Sessionless sockets are shared: they start with no chain.
     shared: bool,
     pub socket: Option<Box<dyn WsSocket>>,
+    /// The socket's number ([`WsPool::number`]), set with the socket.
+    pub owner: u64,
     pub chain: Chain,
 }
 
@@ -85,20 +98,40 @@ impl WsPool {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// A pool whose socket closings are reported to `events`.
+    pub fn with_events(events: Arc<dyn SocketEvents>) -> Self {
+        Self { events: Some(events), ..Self::default() }
+    }
+
+    /// The number of a socket just opened.
+    pub fn number(&self) -> u64 {
+        self.sockets.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+    }
+
+    /// The socket `owner` of `key` is closed (dropped).
+    fn closed(&self, key: &str, owner: u64) {
+        if let Some(events) = &self.events {
+            events.closed(key, owner);
+        }
+    }
+
     /// Checks out a socket for `key` when a compatible parked one is alive,
     /// else an empty checkout the caller dials into. A retry after a failure
     /// (or `force_fresh`) never reuses a parked socket and is not parked.
     pub fn checkout(self: &Arc<Self>, key: &str, compat: &Compat, shared: bool, force_fresh: bool) -> Checkout {
         let mut state = self.state();
         let fresh = state.fresh.remove(key) || force_fresh;
+        let mut closed = Vec::new();
         if let Some(parked) = state.idle.get_mut(key) {
             // Idle sockets of another credential or lane, dead ones and ones at
             // the provider's connection age limit are closed here.
-            parked.retain(|p| {
+            let (kept, gone): (Vec<Parked>, Vec<Parked>) = std::mem::take(parked).into_iter().partition(|p| {
                 p.compat == *compat
                     && matches!(p.socket.link().liveness(), mixdog_core_api::domain::keepalive::LinkLiveness::Alive)
                     && p.socket.link().may_start_response()
             });
+            *parked = kept;
+            closed = gone;
         }
         let reused = if fresh {
             None
@@ -111,11 +144,15 @@ impl WsPool {
         let pooled = !fresh && parked_count + leased < MAX_SOCKETS_PER_KEY;
         *state.leased.entry(key.to_owned()).or_default() += 1;
         drop(state);
-        let (socket, chain) = match reused {
-            Some(p) => (Some(p.socket), if shared { Chain::default() } else { p.chain }),
-            None => (None, Chain::default()),
+        for gone in closed {
+            drop(gone.socket);
+            self.closed(key, gone.owner);
+        }
+        let (socket, owner, chain) = match reused {
+            Some(p) => (Some(p.socket), p.owner, if shared { Chain::default() } else { p.chain }),
+            None => (None, 0, Chain::default()),
         };
-        Checkout { pool: self.clone(), key: key.to_owned(), compat: compat.clone(), pooled, shared, socket, chain }
+        Checkout { pool: self.clone(), key: key.to_owned(), compat: compat.clone(), pooled, shared, socket, owner, chain }
     }
 
     pub fn http_active(&self, keys: &[&str]) -> bool {
@@ -149,11 +186,17 @@ impl WsPool {
 
     /// Drops a session's sockets and transport state (the session ended).
     pub fn release_session(&self, key: &str) {
-        let mut state = self.state();
-        state.idle.remove(key);
-        state.fresh.remove(key);
-        state.http.remove(key);
-        state.failures.remove(key);
+        let gone = {
+            let mut state = self.state();
+            state.fresh.remove(key);
+            state.http.remove(key);
+            state.failures.remove(key);
+            state.idle.remove(key)
+        };
+        drop(gone);
+        if let Some(events) = &self.events {
+            events.session_closed(key);
+        }
     }
 
     #[cfg(test)]
@@ -175,29 +218,37 @@ impl Checkout {
             return;
         };
         if !self.pooled {
+            drop(socket);
+            self.pool.closed(&self.key, self.owner);
             return;
         }
         let chain = if self.shared { Chain::default() } else { chain };
         let mut state = self.pool.state();
         state.released += 1;
         let released = state.released;
-        state.idle.entry(self.key.clone()).or_default().push(Parked { socket, chain, compat: self.compat.clone(), released });
+        state.idle.entry(self.key.clone()).or_default().push(Parked { socket, owner: self.owner, chain, compat: self.compat.clone(), released });
     }
 }
 
 impl Drop for Checkout {
     fn drop(&mut self) {
-        let mut state = self.pool.state();
-        if let Some(n) = state.leased.get_mut(&self.key) {
-            *n = n.saturating_sub(1);
-            if *n == 0 {
-                state.leased.remove(&self.key);
+        {
+            let mut state = self.pool.state();
+            if let Some(n) = state.leased.get_mut(&self.key) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    state.leased.remove(&self.key);
+                }
+            }
+            // A socket that did not finish its response is gone: whatever follows
+            // opens its own.
+            if self.socket.is_some() {
+                state.fresh.insert(self.key.clone());
             }
         }
-        // A socket that did not finish its response is gone: whatever follows
-        // opens its own.
-        if self.socket.is_some() {
-            state.fresh.insert(self.key.clone());
+        if let Some(socket) = self.socket.take() {
+            drop(socket);
+            self.pool.closed(&self.key, self.owner);
         }
     }
 }

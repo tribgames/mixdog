@@ -8,7 +8,6 @@
 //! single-frame data message is deflated with the negotiated window and sent with RSV1 (`sender.js:373-383`,
 //! `permessage-deflate.js` `_compress`). Without the extension this is a plain pass-through.
 
-use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::task::Context;
@@ -144,15 +143,30 @@ impl Extension {
     }
 }
 
-/// A protocol violation: the close code `ws` answers it with, and why.
+/// A protocol violation: the close code `ws` answers it with, and the error `ws`'s receiver emits for it (`receiver.js`
+/// `createError`: its `code`, and its message, which carries the prefix `Invalid WebSocket frame: ` where ws adds it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fault {
     pub code: u16,
+    pub ws_code: &'static str,
     pub text: String,
 }
 
-fn fault(code: u16, text: impl Into<String>) -> Fault {
-    Fault { code, text: text.into() }
+impl std::fmt::Display for Fault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl std::error::Error for Fault {}
+
+fn fault(code: u16, ws_code: &'static str, text: impl Into<String>) -> Fault {
+    Fault { code, ws_code, text: text.into() }
+}
+
+/// The message of a receiver error `ws` creates with its prefix.
+fn framed(text: impl std::fmt::Display) -> String {
+    format!("Invalid WebSocket frame: {text}")
 }
 
 /// A frame's fixed fields and where its payload lies in the buffer.
@@ -193,7 +207,7 @@ fn declared(bytes: &[u8]) -> Result<Option<(usize, u64)>, Fault> {
         127 if bytes.len() >= 10 => {
             let length = u64::from_be_bytes(bytes[2..10].try_into().expect("eight bytes"));
             if length > MAX_DECLARED {
-                return Err(fault(1009, "Unsupported WebSocket frame: payload length > 2^53 - 1"));
+                return Err(fault(1009, "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH", "Unsupported WebSocket frame: payload length > 2^53 - 1"));
             }
             Some((8, length))
         }
@@ -208,7 +222,7 @@ fn parse(bytes: &[u8], limit: usize) -> Result<Option<Head>, Fault> {
     let Some((extra, payload)) = declared(bytes)? else { return Ok(None) };
     let masked = bytes[1] & 0x80 != 0;
     if payload > limit as u64 {
-        return Err(fault(1009, "Max payload size exceeded"));
+        return Err(fault(1009, "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH", "Max payload size exceeded"));
     }
     let header = 2 + extra + if masked { 4 } else { 0 };
     let head = Head { first: bytes[0], masked, header, payload: payload as usize };
@@ -250,10 +264,10 @@ fn inflate(decoder: &mut Decompress, data: &[u8], out: &mut Vec<u8>, limit: usiz
     loop {
         out.reserve(STEP);
         let (read, wrote) = (decoder.total_in(), decoder.total_out());
-        let status = decoder.decompress_vec(input, out, FlushDecompress::Sync).map_err(|e| fault(1007, e.to_string()))?;
+        let status = decoder.decompress_vec(input, out, FlushDecompress::Sync).map_err(|e| fault(1007, "Z_DATA_ERROR", e.message().map_or_else(|| e.to_string(), str::to_owned)))?;
         input = &input[(decoder.total_in() - read) as usize..];
         if out.len() > limit {
-            return Err(fault(1009, "Max payload size exceeded"));
+            return Err(fault(1009, "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH", "Max payload size exceeded"));
         }
         if status == Status::StreamEnd {
             // The server ended its deflate stream (a final block): the next message starts a new one.
@@ -264,7 +278,7 @@ fn inflate(decoder: &mut Decompress, data: &[u8], out: &mut Vec<u8>, limit: usiz
             return Ok(());
         }
         if decoder.total_in() == read && decoder.total_out() == wrote {
-            return Err(fault(1007, "invalid deflate stream"));
+            return Err(fault(1007, "Z_DATA_ERROR", "invalid deflate stream"));
         }
     }
 }
@@ -276,7 +290,7 @@ fn deflate(encoder: &mut Compress, data: &[u8]) -> Result<Vec<u8>, Fault> {
     loop {
         out.reserve(STEP);
         let before = encoder.total_in();
-        encoder.compress_vec(input, &mut out, FlushCompress::Sync).map_err(|e| fault(1011, e.to_string()))?;
+        encoder.compress_vec(input, &mut out, FlushCompress::Sync).map_err(|e| fault(1011, "", e.to_string()))?;
         input = &input[(encoder.total_in() - before) as usize..];
         if input.is_empty() && out.len() < out.capacity() {
             break;
@@ -298,6 +312,37 @@ struct Message {
     /// Payload bytes received so far, and (compressed) what they inflated to.
     received: usize,
     plain: Vec<u8>,
+    /// A plain text message's UTF-8, judged as its fragments pass and refused when it is complete.
+    text: Utf8,
+}
+
+/// UTF-8 checked across fragments: the bytes of a character cut by a fragment boundary wait for the next one. `ws`
+/// judges a text message when it is complete (`receiver.js` `dataMessage`: `isValidUTF8(buf)`, 1007), so a violation
+/// found early is only reported at the last fragment.
+#[derive(Default)]
+struct Utf8 {
+    carry: Vec<u8>,
+    bad: bool,
+}
+
+impl Utf8 {
+    fn feed(&mut self, bytes: &[u8]) {
+        if self.bad {
+            return;
+        }
+        let mut data = std::mem::take(&mut self.carry);
+        data.extend_from_slice(bytes);
+        if let Err(error) = std::str::from_utf8(&data) {
+            match error.error_len() {
+                Some(_) => self.bad = true,
+                None => self.carry = data[error.valid_up_to()..].to_vec(),
+            }
+        }
+    }
+
+    fn whole(&self) -> bool {
+        !self.bad && self.carry.is_empty()
+    }
 }
 
 pub struct Codec {
@@ -322,10 +367,10 @@ fn check_close(payload: &[u8]) -> Result<(), Fault> {
     let code = u16::from_be_bytes([payload[0], payload[1]]);
     let allowed = ((1000..=1014).contains(&code) && !matches!(code, 1004..=1006)) || (3000..=4999).contains(&code);
     if !allowed {
-        return Err(fault(1002, format!("invalid status code {code}")));
+        return Err(fault(1002, "WS_ERR_INVALID_CLOSE_CODE", framed(format!("invalid status code {code}"))));
     }
     if std::str::from_utf8(&payload[2..]).is_err() {
-        return Err(fault(1007, "invalid UTF-8 sequence"));
+        return Err(fault(1007, "WS_ERR_INVALID_UTF8", framed("invalid UTF-8 sequence")));
     }
     Ok(())
 }
@@ -357,41 +402,41 @@ impl Codec {
     fn admit(&self, first: u8, second: u8) -> Result<(), Fault> {
         let (rsv1, fin, op, masked, marker) = (first & 0x40 != 0, first & 0x80 != 0, first & 0x0f, second & 0x80 != 0, second & 0x7f);
         if first & 0x30 != 0 {
-            return Err(fault(1002, "RSV2 and RSV3 must be clear"));
+            return Err(fault(1002, "WS_ERR_UNEXPECTED_RSV_2_3", framed("RSV2 and RSV3 must be clear")));
         }
         if rsv1 && !self.negotiated {
-            return Err(fault(1002, "RSV1 must be clear"));
+            return Err(fault(1002, "WS_ERR_UNEXPECTED_RSV_1", framed("RSV1 must be clear")));
         }
         match op {
             0 => {
                 if rsv1 {
-                    return Err(fault(1002, "RSV1 must be clear"));
+                    return Err(fault(1002, "WS_ERR_UNEXPECTED_RSV_1", framed("RSV1 must be clear")));
                 }
                 if self.message.is_none() {
-                    return Err(fault(1002, "invalid opcode 0"));
+                    return Err(fault(1002, "WS_ERR_INVALID_OPCODE", framed("invalid opcode 0")));
                 }
             }
             1 | 2 => {
                 if self.message.is_some() {
-                    return Err(fault(1002, format!("invalid opcode {op}")));
+                    return Err(fault(1002, "WS_ERR_INVALID_OPCODE", framed(format!("invalid opcode {op}"))));
                 }
             }
             8..=10 => {
                 if !fin {
-                    return Err(fault(1002, "FIN must be set"));
+                    return Err(fault(1002, "WS_ERR_EXPECTED_FIN", framed("FIN must be set")));
                 }
                 if rsv1 {
-                    return Err(fault(1002, "RSV1 must be clear"));
+                    return Err(fault(1002, "WS_ERR_UNEXPECTED_RSV_1", framed("RSV1 must be clear")));
                 }
                 // The 7-bit field is judged as it stands: 126 and 127 announce a longer length, over the limit of 125.
                 if marker > 125 || (op == 8 && marker == 1) {
-                    return Err(fault(1002, format!("invalid payload length {marker}")));
+                    return Err(fault(1002, "WS_ERR_INVALID_CONTROL_PAYLOAD_LENGTH", framed(format!("invalid payload length {marker}"))));
                 }
             }
-            op => return Err(fault(1002, format!("invalid opcode {op}"))),
+            op => return Err(fault(1002, "WS_ERR_INVALID_OPCODE", framed(format!("invalid opcode {op}")))),
         }
         if masked {
-            return Err(fault(1002, "MASK must be clear"));
+            return Err(fault(1002, "WS_ERR_UNEXPECTED_MASK", framed("MASK must be clear")));
         }
         Ok(())
     }
@@ -407,7 +452,7 @@ impl Codec {
                 let data = matches!(raw[0] & 0x0f, 0..=2);
                 let so_far = self.message.as_ref().map_or(0, |m| m.received) as u64;
                 if data && payload > 0 && so_far.checked_add(payload).is_none_or(|total| total > MAX_PAYLOAD as u64) {
-                    return Err(fault(1009, "Max payload size exceeded"));
+                    return Err(fault(1009, "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH", "Max payload size exceeded"));
                 }
             }
             let Some(head) = parse(raw, MAX_PAYLOAD)? else { break };
@@ -421,12 +466,12 @@ impl Codec {
                 out.extend_from_slice(&raw[..head.total()]);
             } else {
                 if op != 0 {
-                    self.message = Some(Message { opcode: op, compressed: head.rsv1(), received: 0, plain: Vec::new() });
+                    self.message = Some(Message { opcode: op, compressed: head.rsv1(), received: 0, plain: Vec::new(), text: Utf8::default() });
                 }
                 let message = self.message.as_mut().expect("a data frame belongs to a message");
                 message.received += payload.len();
                 if message.received > MAX_PAYLOAD {
-                    return Err(fault(1009, "Max payload size exceeded"));
+                    return Err(fault(1009, "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH", "Max payload size exceeded"));
                 }
                 if message.compressed {
                     let room = MAX_PAYLOAD;
@@ -441,10 +486,23 @@ impl Codec {
                             self.decoder.reset(false);
                         }
                         let done = self.message.take().expect("the message just read");
+                        if done.opcode == 1 && std::str::from_utf8(&done.plain).is_err() {
+                            return Err(fault(1007, "WS_ERR_INVALID_UTF8", framed("invalid UTF-8 sequence")));
+                        }
                         frame(0x80 | done.opcode, None, &done.plain, out);
                     }
                 } else {
-                    out.extend_from_slice(&raw[..head.total()]);
+                    if message.opcode == 1 {
+                        message.text.feed(payload);
+                        if head.fin() && !message.text.whole() {
+                            return Err(fault(1007, "WS_ERR_INVALID_UTF8", framed("invalid UTF-8 sequence")));
+                        }
+                    }
+                    // A text message already known to be invalid is held back: the next layer judges each fragment
+                    // as it comes and would fail the socket before ws does, at the last one.
+                    if !(message.opcode == 1 && message.text.bad) {
+                        out.extend_from_slice(&raw[..head.total()]);
+                    }
                     if head.fin() {
                         self.message = None;
                     }
@@ -491,8 +549,14 @@ fn close_frame(code: u16) -> io::Result<Vec<u8>> {
     Ok(out)
 }
 
+/// The error a violation fails the stream with; the [`Fault`] inside it is what [`violation_of`] reads back.
 fn failure(fault: &Fault) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, fault.text.clone())
+    io::Error::new(io::ErrorKind::InvalidData, fault.clone())
+}
+
+/// The protocol violation `error` reports, when it is one this stream found.
+pub fn violation_of(error: &io::Error) -> Option<&Fault> {
+    error.get_ref()?.downcast_ref::<Fault>()
 }
 
 /// The stream under a WebSocket; see the module.
@@ -511,12 +575,10 @@ pub struct WsIo<S> {
     /// The violation that ended the connection: every later read fails with it, and a later write is refused, so a
     /// connection whose deflate state is no longer the server's is never used again.
     failed: Option<Fault>,
-    /// The close frame of a violation is queued and not yet written and flushed.
+    /// The close frame of a violation is queued, and the closing it starts is not over.
     closing: bool,
     /// This side of the stream has been shut down after the close handshake.
     ended: bool,
-    /// Armed while the close frame of a violation waits to be written.
-    close_flush: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl<S> WsIo<S> {
@@ -533,7 +595,6 @@ impl<S> WsIo<S> {
             failed: None,
             closing: false,
             ended: false,
-            close_flush: None,
         }
     }
 }
@@ -552,25 +613,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsIo<S> {
                 }
                 return Poll::Ready(Ok(()));
             }
+            // `ws` emits the receiver's error at once (`receiverOnError`) and lets its close frame go out behind it; the
+            // close is finished by [`poll_flush`](AsyncWrite::poll_flush), which the owner bounds by [CLOSE_FLUSH].
             if let Some(violation) = this.failed.clone() {
-                // The close frame leaves before the read fails: the caller stops the writer once it sees the error, and
-                // a close still queued would be lost with it. A socket that stays unwritable is given up after
-                // [CLOSE_FLUSH].
-                // Written means flushed too: a stream that buffers its writes (TLS) holds them until it is flushed.
-                if this.closing {
-                    let sent = match this.drain(cx) {
-                        Poll::Ready(Ok(())) => Pin::new(&mut this.inner).poll_flush(cx),
-                        other => other,
-                    };
-                    if sent.is_pending() {
-                        let wait = this.close_flush.get_or_insert_with(|| Box::pin(tokio::time::sleep(CLOSE_FLUSH)));
-                        if wait.as_mut().poll(cx).is_pending() {
-                            return Poll::Pending;
-                        }
-                    }
-                    this.closing = false;
-                    this.out_ready.clear();
-                }
                 return Poll::Ready(Err(failure(&violation)));
             }
             if !this.early.is_empty() {
@@ -595,6 +640,31 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsIo<S> {
     }
 }
 
+impl<S: AsyncRead + AsyncWrite + Unpin> WsIo<S> {
+    /// The closing a violation starts, as `ws` runs it: the close frame goes out behind what was already queued, the
+    /// stream's write side ends once it is out (`close`: `_closeFrameSent` with the receiver's error emitted →
+    /// `socket.end()`), and what the server still sends is read and dropped until it ends its side
+    /// (`receiverOnError`: `resume(socket)`; `socketOnEnd`). Ready when the server's end has come; the owner gives up
+    /// at [CLOSE_FLUSH] (`setCloseTimer`: `socket.destroy()`).
+    fn poll_close_after_violation(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if !self.ended {
+            std::task::ready!(self.drain(cx))?;
+            std::task::ready!(Pin::new(&mut self.inner).poll_flush(cx))?;
+            std::task::ready!(Pin::new(&mut self.inner).poll_shutdown(cx))?;
+            self.ended = true;
+        }
+        let mut chunk = [0u8; 16 * 1024];
+        loop {
+            let mut read = ReadBuf::new(&mut chunk);
+            std::task::ready!(Pin::new(&mut self.inner).poll_read(cx, &mut read))?;
+            if read.filled().is_empty() {
+                self.closing = false;
+                return Poll::Ready(Ok(()));
+            }
+        }
+    }
+}
+
 impl<S: AsyncWrite + Unpin> WsIo<S> {
     fn drain(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         while !self.out_ready.is_empty() {
@@ -608,7 +678,7 @@ impl<S: AsyncWrite + Unpin> WsIo<S> {
     }
 }
 
-impl<S: AsyncWrite + Unpin> AsyncWrite for WsIo<S> {
+impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsIo<S> {
     fn poll_write(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
         let this = &mut *self;
         if let Some(violation) = &this.failed {
@@ -625,6 +695,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for WsIo<S> {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if self.closing {
+            return self.poll_close_after_violation(cx);
+        }
         std::task::ready!(self.drain(cx))?;
         std::task::ready!(Pin::new(&mut self.inner).poll_flush(cx))?;
         // The close handshake is complete on this side once both close frames have passed and ours is out: `ws` ends
@@ -791,8 +864,10 @@ mod tests {
                     break;
                 }
             }
-            let code = negative["result"]["error"]["closeCode"].as_u64().expect("a negative has a close code");
-            assert_eq!(outcome.expect_err(name).code, code as u16, "{name}");
+            // The error ws's receiver emits, whole: its message, its code and the close code it answers with.
+            let refused = outcome.expect_err(name);
+            let rust = serde_json::json!({ "message": refused.text, "code": refused.ws_code, "closeCode": refused.code });
+            assert_eq!(rust, negative["result"]["error"], "{name}");
         }
     }
 
@@ -847,36 +922,14 @@ mod tests {
         assert_eq!(outcome.unwrap_err().code, 1009);
     }
 
-    #[test]
-    fn a_violation_queues_the_close_frame_and_fails_the_read() {
-        use tokio::io::AsyncReadExt;
-        let (near, mut far) = tokio::io::duplex(1 << 16);
-        let mut ws = WsIo::new(near, Vec::new(), Some(Extension::default()));
-        let mut rsv2 = Vec::new();
-        frame(0xa1, None, b"x", &mut rsv2);
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(async move {
-            use tokio::io::AsyncWriteExt;
-            far.write_all(&rsv2).await.unwrap();
-            let mut byte = [0u8; 1];
-            assert!(ws.read(&mut byte).await.is_err());
-            assert!(ws.read(&mut byte).await.is_err(), "and every later read");
-            let mut close = [0u8; 8];
-            tokio::time::timeout(WITHIN, far.read_exact(&mut close)).await.expect("the close frame within 20 s").unwrap();
-            assert_eq!(close[0], 0x88);
-            assert_eq!(close[1], 0x82, "masked, two bytes");
-            let code = u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]);
-            assert_eq!(code, 1002);
-        });
-    }
-
     const WITHIN: std::time::Duration = std::time::Duration::from_secs(20);
 
-    // W3: the close frame is flushed, not only written, before the read fails: a stream that holds what it is given
-    // until it is flushed (TLS does; a `BufWriter` stands for it) has passed it on to the peer by the time the error
-    // surfaces.
+    // W3: the read fails at once with the violation (`receiverOnError` emits it before the close goes out), and every
+    // later read with it. The flush then runs the close as ws does: the close frame, flushed through a stream that
+    // holds what it is given until it is flushed (TLS does; a `BufWriter` stands for it), then this side's end, then
+    // what the server still sends is dropped until it ends its side.
     #[tokio::test]
-    async fn the_close_frame_of_a_violation_is_flushed_before_the_read_fails() {
+    async fn a_violation_fails_the_read_at_once_and_the_flush_runs_the_close() {
         use tokio::io::AsyncReadExt;
         use tokio::io::AsyncWriteExt;
         let (near, mut far) = tokio::io::duplex(1 << 16);
@@ -885,12 +938,21 @@ mod tests {
         frame(0xa1, None, b"x", &mut rsv2);
         far.write_all(&rsv2).await.unwrap();
         let mut byte = [0u8; 1];
-        assert!(tokio::time::timeout(WITHIN, ws.read(&mut byte)).await.expect("the read fails within 20 s").is_err());
-        let mut close = [0u8; 8];
-        let arrived = tokio::time::timeout(WITHIN, far.read_exact(&mut close)).await;
-        assert!(arrived.is_ok(), "the close frame reached the peer before the read failed");
-        assert_eq!(close[0], 0x88);
-        assert_eq!(u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]), 1002);
+        let error = tokio::time::timeout(WITHIN, ws.read(&mut byte)).await.expect("the read fails within 20 s").unwrap_err();
+        let refused = violation_of(&error).expect("the violation travels in the error");
+        assert_eq!((refused.code, refused.ws_code, refused.text.as_str()), (1002, "WS_ERR_UNEXPECTED_RSV_2_3", "Invalid WebSocket frame: RSV2 and RSV3 must be clear"));
+        assert!(ws.read(&mut byte).await.is_err(), "and every later read");
+        let mut flush = Box::pin(ws.flush());
+        assert!(futures::poll!(flush.as_mut()).is_pending(), "the close is not over while the server's side is open");
+        let mut sent = Vec::new();
+        tokio::time::timeout(WITHIN, far.read_to_end(&mut sent)).await.expect("the close and this side's end within 20 s").unwrap();
+        assert_eq!(sent.len(), 8, "{sent:02x?}");
+        assert_eq!(&sent[..2], [0x88, 0x82], "a masked close with the code alone");
+        assert_eq!(u16::from_be_bytes([sent[6] ^ sent[2], sent[7] ^ sent[3]]), 1002);
+        // What the server sends meanwhile is dropped; its end finishes the close.
+        far.write_all(b"after").await.unwrap();
+        far.shutdown().await.unwrap();
+        tokio::time::timeout(WITHIN, flush).await.expect("the close is over within 20 s of the server's end").unwrap();
     }
 
     // W4: the buffer the inflater grows is bounded while it inflates. A bomb that expands to 64 times the limit leaves
@@ -945,54 +1007,6 @@ mod tests {
         codec.inbound(&mut raw, &mut out).unwrap();
         let outcome = codec.inbound(&mut vec![0x80, 0x7e, 0x00, 0x20], &mut out);
         assert_eq!(outcome.unwrap_err().code, 1009);
-    }
-
-    // W3: the close frame of a violation is written before the read fails, though the socket cannot take it at the
-    // moment, and the wait for it is bounded.
-    #[tokio::test(start_paused = true)]
-    async fn the_close_frame_of_a_violation_waits_for_a_socket_that_cannot_be_written_to() {
-        use tokio::io::AsyncReadExt;
-        use tokio::io::AsyncWriteExt;
-        let (near, mut far) = tokio::io::duplex(4); // room for four bytes: the eight byte close frame does not fit
-        let mut ws = WsIo::new(near, Vec::new(), Some(Extension::default()));
-        let mut rsv2 = Vec::new();
-        frame(0xa1, None, b"x", &mut rsv2);
-        far.write_all(&rsv2).await.unwrap();
-        let mut byte = [0u8; 1];
-        let mut read = Box::pin(ws.read(&mut byte));
-        tokio::time::advance(CLOSE_FLUSH - std::time::Duration::from_secs(1)).await;
-        assert!(futures::poll!(read.as_mut()).is_pending(), "the read does not fail while the close is still queued");
-        let start = tokio::time::Instant::now();
-        let mut close = [0u8; 8];
-        tokio::time::timeout(WITHIN, far.read_exact(&mut close[..4])).await.expect("the first half of the close within 20 s").unwrap();
-        // The pipe has room again: the rest of the close is written, the read fails, and none of it waits for a clock.
-        let outcome = tokio::time::timeout(WITHIN, read).await.expect("the read fails within 20 s once the close is out");
-        assert!(outcome.is_err());
-        assert_eq!(start.elapsed(), std::time::Duration::ZERO, "it failed when the close left, not at the deadline");
-        tokio::time::timeout(WITHIN, far.read_exact(&mut close[4..])).await.expect("the rest of the close within 20 s").unwrap();
-        assert_eq!(close[0], 0x88);
-        let code = u16::from_be_bytes([close[6] ^ close[2], close[7] ^ close[3]]);
-        assert_eq!(code, 1002);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_socket_that_stays_unwritable_gives_the_close_up_after_ws_close_timeout() {
-        use tokio::io::AsyncReadExt;
-        use tokio::io::AsyncWriteExt;
-        let (near, mut far) = tokio::io::duplex(4);
-        let mut ws = WsIo::new(near, Vec::new(), Some(Extension::default()));
-        let mut rsv2 = Vec::new();
-        frame(0xa1, None, b"x", &mut rsv2);
-        far.write_all(&rsv2).await.unwrap();
-        let mut byte = [0u8; 1];
-        let mut read = Box::pin(ws.read(&mut byte));
-        assert!(futures::poll!(read.as_mut()).is_pending());
-        // `ws` destroys the socket `closeTimeout` (30 000 ms, `constants.js` CLOSE_TIMEOUT) after `close()`: the read
-        // is still waiting a millisecond before the deadline and fails at it.
-        tokio::time::advance(CLOSE_FLUSH - std::time::Duration::from_millis(1)).await;
-        assert!(futures::poll!(read.as_mut()).is_pending(), "still waiting just before the deadline");
-        tokio::time::advance(std::time::Duration::from_millis(1)).await;
-        assert!(matches!(futures::poll!(read.as_mut()), Poll::Ready(Err(_))), "failed at the deadline");
     }
 
     // W6: a send and a receive in flight on one connection. The 64 byte pipe stops the send of a 200 KB message until

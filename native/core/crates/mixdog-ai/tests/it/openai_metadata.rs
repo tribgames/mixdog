@@ -104,7 +104,7 @@ fn the_frame_and_handshake_identity_equal_node_s() {
         let mut frame = Map::new();
         frame.insert("type".into(), "response.create".into());
         frame.insert("model".into(), request.model.clone().into());
-        let framed = codec.ws_frame(&request, frame);
+        let framed = codec.ws_frame(&request, frame, input["turnState"].as_str());
         assert_eq!(
             serde_json::to_string(&framed["client_metadata"]).unwrap(),
             serde_json::to_string(&scenario["clientMetadata"]).unwrap(),
@@ -140,7 +140,7 @@ fn the_recorded_exchange_has_the_same_header_names_and_metadata_keys() {
     let request = request(&json!({"model": "gpt-fixture", "sessionId": "s", "cacheKey": "mixdog-codex"}));
     let mut mine = Map::new();
     mine.insert("type".into(), "response.create".into());
-    let mine = codec.ws_frame(&request, mine);
+    let mine = codec.ws_frame(&request, mine, None);
     let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
     assert_eq!(keys(&mine["client_metadata"]), keys(&frame["client_metadata"]));
     let turn = |v: &Value| -> Vec<String> {

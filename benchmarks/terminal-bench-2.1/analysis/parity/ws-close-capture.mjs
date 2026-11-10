@@ -25,14 +25,18 @@ const within = (promise, what) => {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 };
 
-// The close frames a server sends (unmasked, final): a code and a reason, a code alone, none, a code ws refuses
-// (1002), a reason that is not UTF-8 (1007).
+// The frames a server sends (unmasked, final): close frames with a code and a reason, a code alone, none, a code ws
+// refuses (1002), a reason that is not UTF-8 (1007); a text message that is not UTF-8, whole and in two fragments
+// (1007, judged when the message is complete).
 const CASES = [
   { name: 'code and reason', frame: '880503e8627965' },
   { name: 'a library code alone', frame: '88020fa0' },
   { name: 'no payload', frame: '8800' },
   { name: 'a code ws refuses', frame: '880203e7' },
   { name: 'a reason that is not UTF-8', frame: '880403e8c328' },
+  { name: 'a text message that is not UTF-8', frame: '8102c328' },
+  { name: 'a fragmented text message that is not UTF-8', frame: '0102c328' + '800161' },
+  { name: 'a character split across fragments', frame: '0101e2' + '800282ac' + '880203e8' },
 ];
 
 /** The frames in `bytes` (client frames, unmasked here), and the bytes left over. */
@@ -89,10 +93,18 @@ async function record(c) {
   });
   await within(new Promise((ok) => server.listen(0, '127.0.0.1', ok)), 'listening');
   const client = new WebSocket(`ws://127.0.0.1:${server.address().port}/`);
-  client.on('error', () => {});
+  // What the client's owner hears, in order: messages, the receiver's error (message and code), the close (code and
+  // reason).
+  const heard = [];
+  let closed;
+  const clientClosed = new Promise((resolveClosed) => { closed = resolveClosed; });
+  client.on('message', (data, binary) => heard.push({ kind: 'message', binary, hex: Buffer.from(data).toString('hex') }));
+  client.on('error', (error) => heard.push({ kind: 'error', message: error.message, code: error.code }));
+  client.on('close', (code, reason) => { heard.push({ kind: 'close', code, reason: reason.toString('utf8') }); closed(); });
   await within(done, `${c.name}: the connection's end`);
+  await within(clientClosed, `${c.name}: the client's close event`);
   server.close();
-  return { name: c.name, frame: c.frame, events };
+  return { name: c.name, frame: c.frame, events, heard };
 }
 
 const results = [];
