@@ -435,6 +435,8 @@ pub struct Transfers {
     /// Insertion ordered, so a device's oldest grant is the first of its own.
     grants: Mutex<Vec<(String, Grant)>>,
     generations: Mutex<Generations>,
+    /// How many conversations carry a removed mark (`Generations::removed`), so a relist with none pays no lock.
+    removed_marks: std::sync::atomic::AtomicUsize,
     sweeper: Sweeper,
     /// Test seam: called with the name of a point in `authorize`, `begin_grant` or a lease read, where a revoke may run meanwhile.
     #[cfg(test)]
@@ -469,6 +471,7 @@ impl Transfers {
             reads: Mutex::default(),
             grants: Mutex::default(),
             generations: Mutex::default(),
+            removed_marks: std::sync::atomic::AtomicUsize::new(0),
             sweeper: Sweeper::default(),
             #[cfg(test)]
             pause: Mutex::default(),
@@ -612,7 +615,10 @@ impl Transfers {
         let _reporting = Reporting(self);
         let mut gate = self.generations.lock().expect("generations");
         *gate.sessions.entry(session.to_owned()).or_default() += 1;
-        gate.removed.insert(session.to_owned());
+        if gate.removed.insert(session.to_owned()) {
+            // Raised under the generations lock, before the lock is released: a relist that loads zero ran wholly before this removal.
+            self.removed_marks.fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
         self.grants.lock().expect("transfer grants").retain(|(_, g)| g.session != session);
         self.reads.lock().expect("transfer reads").retain(|_, r| r.session != session);
         self.stop_sweeper_when_idle();
@@ -623,9 +629,15 @@ impl Transfers {
     /// was authorized before the removal stays ended and a call that marked it before then is still `expired`; a fresh authorize works.
     /// The removed marks are only the conversations removed and not listed since.
     pub fn relisted(&self, sessions: &[&str]) {
+        // Every list page and row publication passes here: with no removed mark (the ordinary case) it costs one atomic load.
+        if self.removed_marks.load(std::sync::atomic::Ordering::Acquire) == 0 {
+            return;
+        }
         let mut gate = self.generations.lock().expect("generations");
         for session in sessions {
-            gate.removed.remove(*session);
+            if gate.removed.remove(*session) {
+                self.removed_marks.fetch_sub(1, std::sync::atomic::Ordering::Release);
+            }
         }
     }
 
@@ -638,7 +650,15 @@ impl Transfers {
     pub fn revoke_all(&self) {
         let _reporting = Reporting(self);
         let mut gate = self.generations.lock().expect("generations");
-        gate.all += 1;
+        // Node's next relay handle starts a new service with no generations and no catalog (`remote-relay.ts:185`): the per-owner and
+        // per-conversation counts and the removed marks go, which is all that bounds them. `all` moves past every sum a mark taken before
+        // could hold, so no earlier mark matches again.
+        let highest = gate.owners.values().max().copied().unwrap_or(0) + gate.sessions.values().max().copied().unwrap_or(0);
+        gate.all += highest + 1;
+        gate.owners.clear();
+        gate.sessions.clear();
+        gate.removed.clear();
+        self.removed_marks.store(0, std::sync::atomic::Ordering::Release);
         self.grants.lock().expect("transfer grants").clear();
         self.reads.lock().expect("transfer reads").retain(|_, read| read.lease.is_none());
         self.stop_sweeper_when_idle();
@@ -1887,6 +1907,27 @@ mod tests {
         assert_refused_as(t.authorize("dev", "s1", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
         let fresh = grant_of(&t, dir.path(), "dev", "s1");
         assert!(t.begin_grant("dev", &fresh.grant_id).is_ok(), "a fresh authorize of the listed conversation is a transfer");
+    }
+
+    /// A relay close drops the per-conversation bookkeeping as Node's next service starts without it, and still ends what was marked
+    /// before: the removed mark and the counts are gone, and a mark taken before the close is `expired` (`revoke all`), never accepted.
+    #[test]
+    fn a_relay_close_drops_the_removed_marks_and_no_earlier_mark_matches_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let stale = t.mark("dev", "s2");
+        t.remove_session("s1");
+        t.revoke_owner("dev");
+        t.revoke_all();
+        {
+            let gate = t.generations.lock().unwrap();
+            assert!(gate.removed.is_empty() && gate.owners.is_empty() && gate.sessions.is_empty(), "the bookkeeping is gone");
+        }
+        assert_eq!(t.removed_marks.load(std::sync::atomic::Ordering::SeqCst), 0);
+        std::fs::write(dir.path().join("a.bin"), b"0123").unwrap();
+        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
+        assert_refused_as(t.authorize("dev", "s2", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
+        assert!(t.begin_grant("dev", &grant_of(&t, dir.path(), "dev", "s1").grant_id).is_ok(), "a conversation removed before the close is no longer marked");
     }
 
     /// The sweeper's stop and an authorize's arm never lose the schedule (Node's `stopSweeperWhenIdle` and `addGrant` + `ensureSweeper` are

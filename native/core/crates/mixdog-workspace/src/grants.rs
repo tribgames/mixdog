@@ -154,6 +154,15 @@ impl GrantStore {
         }
     }
 
+    /// The relay handle closed. Node's download service and device grant tables are the handle's own (`remote-relay.ts:185`), so its
+    /// `close` ends every device's grants (`clearFileGrants`, `:654`) and the next handle starts with no seen conversation: the grant
+    /// tables and the seen conversations go together (dropping the seen set alone would let a held grant outlive its conversation's
+    /// removal). This is the only bound Node's `seenSessions` has.
+    pub fn relay_closed(&self) {
+        self.devices.lock().expect("grants").clear();
+        self.seen.lock().expect("grant sessions").clear();
+    }
+
     /// Node's `session_row` is the catalog's; the media store's file for an asset is too (see [`SessionCatalog::media`]).
     pub async fn media(&self, asset_id: &str) -> WsResult<Option<MediaEntry>> {
         self.catalog.media(asset_id).await

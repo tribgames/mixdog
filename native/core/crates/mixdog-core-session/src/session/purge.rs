@@ -302,6 +302,10 @@ impl DeleteSeams for SessionDeletion {
         self.tool_events.session_closed(session_id, header, reason, closed_at_ms);
     }
 
+    fn tombstoned(&self, thread: &ThreadId) {
+        self.deleted.tell(thread);
+    }
+
     fn release_mcp_scope(&self, session_id: &str) {
         self.mcp_scopes.release(session_id);
     }

@@ -521,6 +521,12 @@ impl WorkspaceService {
         }
     }
 
+    /// The relay handle closed (switched off, rotated, the core stopping): every phone download ends in that step, and a call in flight
+    /// finds it revoked (Node's `fileDownloads.revokeAll` in the relay's `close`, `remote-relay.ts:653`).
+    pub fn revoke_all_downloads(&self) {
+        self.transfers.revoke_all();
+    }
+
     /// Who a phone's download calls belong to: its paired credential (only a relay peer admitted under one has it), else (a local
     /// client) the connection (Node's `downloadRequester`).
     fn download_owner(&self, req: &CoreRequest) -> Owner {

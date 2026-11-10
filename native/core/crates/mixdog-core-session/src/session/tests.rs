@@ -2389,7 +2389,8 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     };
     let s = id.as_str();
     // The close metric follows the acknowledged delete mark, so it comes after the work release.
-    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete"), format!("sessionClosed:{s}:desktop-session-delete")];
+    // The conversation leaves the catalog when the mark lands, ahead of the purge (a phone's downloads end there, not at `thread/deleted`).
+    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete"), format!("tombstoned:{s}"), format!("sessionClosed:{s}:desktop-session-delete")];
     let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
     // The store unlinks the session's log before Node's hooks run, so the export's removal is first.
     let hooks = golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook));
@@ -2557,8 +2558,9 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     eventually_on!(&[&handle.cell.stepped, &rig.deletes.1], || lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
     let steps = lock(&rig.deletes.0).clone();
     // The tombstone's close metric (`markSessionClosed`), logged at the mark's ack, precedes the purge hooks.
-    assert_eq!(steps[0], format!("sessionClosed:{s}:desktop-auto-delete"));
-    assert_eq!(steps[1], format!("transcriptExport:{s}:/ws"), "the purge hooks run next");
+    assert_eq!(steps[0], format!("tombstoned:{s}"), "the conversation leaves the catalog when the mark lands");
+    assert_eq!(steps[1], format!("sessionClosed:{s}:desktop-auto-delete"));
+    assert_eq!(steps[2], format!("transcriptExport:{s}:/ws"), "the purge hooks run next");
     let tail: Vec<&str> = steps[steps.len() - 4..].iter().map(String::as_str).collect();
     assert_eq!(
         tail,

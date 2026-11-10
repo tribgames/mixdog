@@ -21,8 +21,11 @@ if (args.get('replay')) {
   const { replayDownloads } = await import('./lib/file-downloads-replay.mjs');
   const { readFileSync } = await import('node:fs');
   const recording = JSON.parse(readFileSync(join(FIXTURES_ROOT, 'file-downloads', 'file-downloads.json'), 'utf8'));
-  process.exit((await replayDownloads({ exe: args.get('replay'), recording })).code);
+  process.exit((await replayDownloads({ exe: args.get('replay'), recording, only: args.get('only') ?? null })).code);
 }
+// `--only <scenario name>`: the whole recording is made (each scenario's code runs in order, and the tokens are numbered over all of it), and
+// only that scenario is printed; nothing is staged or committed. The full run, without it, is what produces the fixture.
+const only = args.get('only') ?? null;
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());
 const recorder = 'benchmarks/rust-core/recorders/record-file-downloads.mjs';
@@ -254,6 +257,14 @@ const media = ({ id, name, mime, text }) => {
   writeFileSync(file, text);
   assets.set(id, { file, mime });
   step({ op: 'media', id, name, mime, text });
+};
+/** An index entry whose stored file is empty: Node's store resolves it to the assets folder itself (`storedAssetPath`, `store.mjs:173`:
+ *  `resolve(root, '') === root` is accepted, and the folder exists), so `resolveMediaFile` hands the service the folder. */
+const mediaRoot = (id) => {
+  const root = path('media/assets');
+  mkdirSync(root, { recursive: true });
+  assets.set(id, { file: root, mime: '' });
+  step({ op: 'mediaRoot', id });
 };
 const unmedia = (id) => {
   rmSync(assets.get(id).file);
@@ -842,6 +853,8 @@ png('m-changes', 'a7.png', 'image/png');
 grant = await call('phone', 'fileDownloadAuthorize', [mediaOf('m-changes')]);
 file('append', { file: 'media/assets/a7.png', text: 'more' });
 await call('phone', 'fileDownloadBegin', [grantOf(grant)]);
+mediaRoot('m-root');
+await call('phone', 'fileDownloadAuthorize', [mediaOf('m-root')]);
 await handles();
 
 begin('media after the conversation was deleted', 'a media grant is the conversation\'s: when the conversation is deleted it is gone, and the conversation is no longer available for another');
@@ -910,6 +923,13 @@ for (const { steps: all } of remapped) for (const entry of all) if (entry.frame 
 
 Object.assign(globalThis, real);
 rmSync(dir, { recursive: true, force: true });
+if (only) {
+  const picked = remapped.find((scenario) => scenario.name === only);
+  rmSync(stage, { recursive: true, force: true });
+  if (!picked) throw new Error(`--only ${only}: no scenario of that name`);
+  console.log(JSON.stringify(picked, null, 2));
+  process.exit(0);
+}
 writeJson(join(stage, 'file-downloads.json'), { domain: 'file-downloads', recorder, clockStart: CLOCK_START, remapped: [...counts.keys()], scenarios: remapped });
 writeSetManifest(stage, {
   set: 'file-downloads',
