@@ -7,9 +7,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 75978,
+      "bytes": 128859,
       "path": "golden.json",
-      "sha256": "06a8c0f282965b9b5948a330e85e1b9736613c6316e829a6370fbc047c7f2ec1"
+      "sha256": "b71b38c63a46f5af761b3b646fad63f2a598912ba9f97d553832380b12f06c51"
     }
   ],
   "inputs": 43,
@@ -32,5 +32,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-absolute-local-path.mjs",
   "set": "absolute-local-path",
-  "totalBytes": 75978
+  "totalBytes": 128859
 }
