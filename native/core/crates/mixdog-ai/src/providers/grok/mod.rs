@@ -180,7 +180,7 @@ impl Rewriter for GrokRewriter {
         wire.headers.extend(body_headers);
         if let Ok(mut body) = serde_json::from_slice::<serde_json::Value>(&wire.body) {
             // `send` flattens the tools on each send (`normalizeGrokToolSchemas`); a TypeError it throws fails the send.
-            let mut changed = tool_schema::flatten_tools(&mut body).map_err(|tool_schema::TypeError(message)| {
+            let tool_schema::Flattened { mut changed, marker } = tool_schema::flatten_tools(&mut body).map_err(|tool_schema::TypeError(message)| {
                 let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
                 error.message = message;
                 error
@@ -190,7 +190,7 @@ impl Rewriter for GrokRewriter {
                 changed |= body.as_object_mut().and_then(|map| map.shift_remove("reasoning")).is_some();
             }
             if changed {
-                wire.body = tool_schema::js_json(&body);
+                wire.body = tool_schema::js_json(&body, &marker);
             }
         }
         Ok(wire)

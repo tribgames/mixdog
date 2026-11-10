@@ -1,0 +1,24 @@
+{
+  "steps": [
+    {
+      "step": "creation",
+      "gitRequested": [
+        "status",
+        "check-ignore"
+      ]
+    },
+    {
+      "step": "request-without-sending",
+      "requestBuilt": true,
+      "gitRequested": [],
+      "dataFilesChanged": []
+    },
+    {
+      "step": "next-turn-composition",
+      "gitRequested": [
+        "status",
+        "check-ignore"
+      ]
+    }
+  ]
+}

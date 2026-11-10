@@ -107,14 +107,14 @@ fn create_dir_platform(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-fn create_new_platform(path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
+pub(crate) fn create_new_platform(path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
     let mode = if access == Access::OwnerOnly { 0o600 } else { unix_mode };
     OpenOptions::new().write(true).create_new(true).mode(mode).open(path)
 }
 
 #[cfg(windows)]
-fn create_new_platform(path: &Path, access: Access, _unix_mode: u32) -> io::Result<File> {
+pub(crate) fn create_new_platform(path: &Path, access: Access, _unix_mode: u32) -> io::Result<File> {
     match access {
         Access::OwnerOnly => owner_only::create_new(path),
         Access::Inherit => OpenOptions::new().write(true).create_new(true).open(path),

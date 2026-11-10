@@ -1,0 +1,36 @@
+{
+  "command": "node native/core/crates/mixdog-core/src/run_host/snapshot_effects/record.mjs --tree <b6f10295a export>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 394,
+      "path": "node-recorded.json",
+      "sha256": "be77e9cd34b253189448f2443e04aaf4ea9152435ac23794adfb7a8b18b6fb8c"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "native/core/crates/mixdog-core/src/run_host/snapshot_effects/record.mjs",
+  "recorderSha256": "de986cd388696066c99f4dbf896be3599f26dffaf79ee738903ddb8b0680d583",
+  "runtime": {
+    "electron": "43.8.4",
+    "node": "24.22.1"
+  },
+  "set": "request-snapshot-effects",
+  "totalBytes": 394
+}

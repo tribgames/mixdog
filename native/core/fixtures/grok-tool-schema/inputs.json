@@ -4672,6 +4672,604 @@
    "source": "synthetic-js",
    "name": "root_object_property_over_combined_without_properties",
    "input": {"properties":{"x":{"type":"object","properties":null}},"anyOf":[{"type":"object","properties":{"x":{"type":"object","title":"c"}}}]}
+  },
+ {
+  "source": "synthetic-js",
+  "name": "description_own_tostring_string",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": {
+      "toString": "s"
+     }
+    }
+   }
   }
- ]
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_own_tostring_number",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": {
+      "toString": 5
+     }
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_own_tostring_null",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": {
+      "toString": null
+     }
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_own_tostring_object",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": {
+      "toString": {}
+     }
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_own_tostring_and_valueof",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": {
+      "toString": 1,
+      "valueOf": 2
+     }
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_inherited_tostring_only",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": {
+      "a": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_own_valueof_only",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": {
+      "valueOf": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_array_with_an_own_tostring_element",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": [
+      {
+       "toString": 1
+      }
+     ]
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_array_with_a_plain_object",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": [
+      {},
+      "x"
+     ]
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "description_nested_array_with_an_own_tostring_element",
+  "input": {
+   "properties": {
+    "x": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "array"
+      }
+     ],
+     "description": [
+      "a",
+      [
+       {
+        "toString": "x"
+       }
+      ]
+     ]
+    }
+   }
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "contract_minimum_own_tostring",
+  "input": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "a"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": {
+          "toString": 1
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": 2
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "contract_minimum_inherited_tostring",
+  "input": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "a"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": {
+          "a": 1
+         }
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": 2
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "contract_enum_element_own_tostring",
+  "input": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "a"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "enum": [
+          {
+           "toString": 1
+          }
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": 2
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "contract_action_enum_element_own_tostring",
+  "input": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        {
+         "toString": 1
+        }
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {}
+       }
+      }
+     }
+    },
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {}
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "properties_string_with_a_pair",
+  "input": {
+   "anyOf": [
+    {
+     "type": "object",
+     "properties": "a😀b"
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "properties_string_bmp_only",
+  "input": {
+   "anyOf": [
+    {
+     "type": "object",
+     "properties": "aé한"
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "properties_string_two_pairs",
+  "input": {
+   "anyOf": [
+    {
+     "type": "object",
+     "properties": "😀🎉"
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "properties_string_pairs_in_two_branches",
+  "input": {
+   "anyOf": [
+    {
+     "type": "object",
+     "properties": "😀"
+    },
+    {
+     "type": "object",
+     "properties": "x😀"
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "root_properties_string_with_a_pair",
+  "input": {
+   "properties": "x😀",
+   "anyOf": [
+    {
+     "type": "object",
+     "properties": {
+      "y": {}
+     }
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "contract_input_properties_string_with_a_pair",
+  "input": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "a"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": "😀"
+      }
+     }
+    },
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": "x"
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "contract_input_spread_of_a_string_with_a_pair",
+  "input": {
+   "properties": {
+    "input": "😀z"
+   },
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "a"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": 1
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": 2
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "source": "synthetic-js",
+  "name": "contract_input_spread_of_a_bmp_string",
+  "input": {
+   "properties": {
+    "input": "yz"
+   },
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "a"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": 1
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "object",
+     "properties": {
+      "action": {
+       "enum": [
+        "b"
+       ]
+      },
+      "input": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "minimum": 2
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ }
+]
 }

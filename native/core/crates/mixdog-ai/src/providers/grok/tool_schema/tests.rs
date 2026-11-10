@@ -48,7 +48,8 @@ fn node_outcome(node: &Value) -> Result<String, String> {
 #[test]
 fn every_input_flattens_to_what_node_returned_byte_for_byte() {
     for (input, node) in recorded() {
-        let got = flatten_schema(&input["input"]).map(|flat| String::from_utf8(super::js_json(&flat)).unwrap()).map_err(|TypeError(message)| format!("TypeError: {message}"));
+        let marker = super::lone_marker(&input["input"]);
+        let got = flatten_schema(&input["input"], &marker).map(|flat| String::from_utf8(super::js_json(&flat, &marker)).unwrap()).map_err(|TypeError(message)| format!("TypeError: {message}"));
         assert_eq!(got, node_outcome(&node), "{} ({})", node["name"], node["source"]);
     }
 }
@@ -59,8 +60,9 @@ fn a_body_has_each_tools_parameters_flattened_as_node_flattened_them() {
     // Node's flatten reads `inputSchema`; the encoded body carries the same schema as `parameters`.
     let tools: Vec<Value> = rows.iter().map(|(input, _)| serde_json::json!({ "type": "function", "name": input["name"], "parameters": input["input"] })).collect();
     let mut body = serde_json::json!({ "model": "m", "tools": tools });
-    assert_eq!(super::flatten_tools(&mut body), Ok(true));
-    let text = String::from_utf8(super::js_json(&body)).unwrap();
+    let flattened = super::flatten_tools(&mut body).unwrap();
+    assert!(flattened.changed);
+    let text = String::from_utf8(super::js_json(&body, &flattened.marker)).unwrap();
     let expected = format!(
         "{{\"model\":\"m\",\"tools\":[{}]}}",
         rows.iter()
@@ -75,7 +77,7 @@ fn a_body_has_each_tools_parameters_flattened_as_node_flattened_them() {
 fn a_tool_node_throws_on_fails_the_whole_body() {
     let (input, node) = recorded().into_iter().find(|(_, node)| node["threw"].is_string()).expect("a recorded throw");
     let mut body = serde_json::json!({ "tools": [{ "name": "fine", "parameters": { "type": "object" } }, { "name": "bad", "parameters": input["input"] }] });
-    let error = super::flatten_tools(&mut body).unwrap_err();
+    let Err(error) = super::flatten_tools(&mut body) else { panic!("the body flattened") };
     assert_eq!(format!("TypeError: {}", error.0), node["threw"].as_str().unwrap());
 }
 

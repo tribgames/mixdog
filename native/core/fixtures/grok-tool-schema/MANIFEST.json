@@ -3,14 +3,14 @@
   "fileCount": 2,
   "files": [
     {
-      "bytes": 115269,
+      "bytes": 123845,
       "path": "inputs.json",
-      "sha256": "2c206fc3c015233f93b1344b4c4dc042a9c6f8efe3024fee0cf3676bbd2a3858"
+      "sha256": "0c3e4aeb7cc1b6a04722833d4881f20490066a382ae85ad0b255f3f75eb874d7"
     },
     {
-      "bytes": 87669,
+      "bytes": 92490,
       "path": "node-recorded.json",
-      "sha256": "12bc1b4f2551262e1f7bbf670148004fc0c2f29298b81a25b6108d101c7c0e0c"
+      "sha256": "372334d18ce93c890af009b3032324058f59b193951788570d7534fe58393a28"
     }
   ],
   "product": {
@@ -33,5 +33,5 @@
   "recorder": "native/core/crates/mixdog-ai/src/providers/grok/tool_schema/record.mjs",
   "recorderSha256": "1720d945875eb581f72c2ad7b3d9d0ba07461e437c0a65896b66c51a4301b686",
   "set": "grok-tool-schema",
-  "totalBytes": 202938
+  "totalBytes": 216335
 }

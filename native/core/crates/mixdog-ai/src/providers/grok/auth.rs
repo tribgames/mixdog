@@ -33,6 +33,8 @@ use crate::oauth::RefreshFailure;
 use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
 use crate::oauth::http;
+use crate::oauth::lease::LeaseOpts;
+use crate::oauth::lease::LockProcess;
 use crate::oauth::pace::Pace;
 use crate::oauth::pace::SystemPace;
 use crate::oauth::pages;
@@ -132,21 +134,26 @@ pub fn refresh_form(tokens: &StoredTokens) -> String {
     form.finish()
 }
 
-/// A failed refresh (`_postRefresh`, `grok-oauth-tokens.mjs:339`): the body's OAuth `error`, lower-cased, is its code;
-/// `invalid_grant` and `invalid_client` are terminal (no further attempt, a new sign-in), everything else leaves the
-/// refresh token valid and is tried again.
+/// A failed refresh (`_postRefresh`, `grok-oauth-tokens.mjs:339`): `[grok-oauth] token refresh <status>: <the body,
+/// secrets redacted, its first 200 characters>`; the body's OAuth `error`, lower-cased, is its code (none when it names
+/// none); `invalid_grant` and `invalid_client` are terminal (no further attempt, a new sign-in), everything else
+/// leaves the refresh token valid and is tried again.
 pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8]) -> ProviderError {
     let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
-    let oauth = parsed
-        .get("error")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_lowercase();
+    // `String(json?.error || '').toLowerCase()`.
+    let truthy = |value: &&Value| match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(text) => !text.is_empty(),
+        _ => true,
+    };
+    let oauth = mixdog_js::js_to_lowercase(&parsed.get("error").filter(truthy).map(mixdog_js::value_to_string).unwrap_or_default());
     let terminal = oauth == "invalid_grant" || oauth == "invalid_client";
+    let text = String::from_utf8_lossy(body);
     let mut error = provider_error(
         ConnectFailure {
             code: String::new(),
-            message: format!("[grok-oauth] token refresh {status}"),
+            message: format!("[grok-oauth] token refresh {status}: {}", crate::oauth::scrub::scrubbed_prefix(&text, &[], 200)),
             http_status: Some(status),
             retry_after: advice::from_headers(headers, SystemTime::now()),
         },
@@ -156,9 +163,7 @@ pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8]) -> 
         error.kind = ErrorKind::Auth;
         error.reauth_required = true;
     }
-    if !oauth.is_empty() {
-        error.code = Some(oauth);
-    }
+    error.code = (!oauth.is_empty()).then_some(oauth);
     error
 }
 
@@ -210,6 +215,7 @@ pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens
             .to_owned()
     };
     let now = pace.now_ms();
+    let id_token = json.get("id_token").and_then(Value::as_str).unwrap_or_default();
     Ok(StoredTokens {
         access_token: access.to_owned(),
         refresh_token: text("refresh_token", &tokens.refresh_token),
@@ -218,11 +224,89 @@ pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens
             None => json.get("expires_at").and_then(Value::as_u64).unwrap_or(0),
         },
         token_endpoint: endpoint,
-        user_id: tokens.user_id.clone(),
+        // `tokens.user_id || _identityFromAccessToken(accessToken).user_id || ''`.
+        user_id: [tokens.user_id.clone(), identity_of(access).user_id].into_iter().find(|id| !id.is_empty()).unwrap_or_default(),
         principal_type: text("principal_type", &tokens.principal_type),
         principal_id: text("principal_id", &tokens.principal_id),
-        email: tokens.email.clone(),
+        // `_emailFromJwts(json?.id_token, accessToken) || tokens.email || ''`.
+        email: email_from_jwts(&[id_token, access]).unwrap_or_else(|| tokens.email.clone()),
     })
+}
+
+/// `decodeJwtPayload`: the object the middle of a three-part token decodes to, else none.
+fn jwt_payload(token: &str) -> Option<serde_json::Map<String, Value>> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    // `Buffer.from(part, 'base64')` reads either alphabet and ignores padding.
+    let part: String = parts[1].chars().filter(|c| *c != '=').map(|c| match c {
+        '+' => '-',
+        '/' => '_',
+        other => other,
+    }).collect();
+    let bytes = URL_SAFE_NO_PAD.decode(part).ok()?;
+    match serde_json::from_str(&String::from_utf8_lossy(&bytes)).ok()? {
+        Value::Object(payload) => Some(payload),
+        _ => None,
+    }
+}
+
+/// `emailFromJwts(...tokens)`: the first token's non-blank `email` claim, trimmed.
+fn email_from_jwts(tokens: &[&str]) -> Option<String> {
+    tokens.iter().find_map(|token| {
+        let email = jwt_payload(token)?.get("email")?.as_str()?.trim().to_owned();
+        (!email.is_empty()).then_some(email)
+    })
+}
+
+/// `_identityFromAccessToken`: the account a token's claims name.
+#[derive(Default)]
+struct Identity {
+    user_id: String,
+    principal_type: String,
+    principal_id: String,
+}
+
+fn identity_of(token: &str) -> Identity {
+    let Some(payload) = jwt_payload(token) else { return Identity::default() };
+    // `a || b || ''`, then `String(...)`.
+    let first = |keys: &[&str]| {
+        keys.iter()
+            .filter_map(|key| payload.get(*key))
+            .find(|value| !matches!(value, Value::Null | Value::Bool(false)) && value.as_str() != Some("") && value.as_f64() != Some(0.0))
+            .map(mixdog_js::value_to_string)
+            .unwrap_or_default()
+    };
+    let principal_id = first(&["principal_id", "principalId"]);
+    let principal_type = first(&["principal_type", "principalType"]);
+    let user_id = [first(&["user_id", "userId"]), principal_id.clone(), first(&["sub"])].into_iter().find(|id| !id.is_empty()).unwrap_or_default();
+    Identity { user_id, principal_type, principal_id }
+}
+
+/// `saveTokens` (`grok-oauth-tokens.mjs:213`): the document the whole file becomes, with Node's fallbacks: no expiry is
+/// 0, no endpoint `null`, and an identity field or email that is empty (and absent from the access token's claims) is
+/// left out.
+fn saved_document(tokens: &StoredTokens) -> serde_json::Map<String, Value> {
+    let identity = identity_of(&tokens.access_token);
+    let mut doc = serde_json::Map::new();
+    doc.insert("access_token".into(), Value::String(tokens.access_token.clone()));
+    doc.insert("refresh_token".into(), Value::String(tokens.refresh_token.clone()));
+    doc.insert("expires_at".into(), Value::from(tokens.expires_at));
+    doc.insert("token_endpoint".into(), if tokens.token_endpoint.is_empty() { Value::Null } else { Value::String(tokens.token_endpoint.clone()) });
+    for (key, own, claimed) in [
+        ("user_id", &tokens.user_id, identity.user_id),
+        ("principal_type", &tokens.principal_type, identity.principal_type),
+        ("principal_id", &tokens.principal_id, identity.principal_id),
+    ] {
+        if let Some(value) = [own.clone(), claimed].into_iter().find(|v| !v.is_empty()) {
+            doc.insert(key.into(), Value::String(value));
+        }
+    }
+    if let Some(email) = Some(tokens.email.clone()).filter(|e| !e.is_empty()).or_else(|| email_from_jwts(&[&tokens.access_token])) {
+        doc.insert("email".into(), Value::String(email));
+    }
+    doc
 }
 
 /// `_discoveryCache` (`grok-oauth-tokens.mjs:112`): the token endpoint a successful discovery named, for the process.
@@ -261,12 +345,20 @@ async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn
     }
 }
 
-/// `_postRefreshWithRetry` (`grok-oauth-tokens.mjs:376`): three exchanges at most. A terminal refusal (`invalid_grant`,
-/// `invalid_client`) ends it at once; between two, a pause of `min(2 s, 200 ms·2^n)` plus up to as much again at random.
-async fn refresh_with_retry(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
+/// `_postRefresh`: one exchange, its tokens saved over the whole file (`saveTokens`, under the file's write lock).
+async fn post_refresh(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
+    let fresh = refresh(http, pace, tokens).await?;
+    file.replace(saved_document(&fresh)).await.map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
+    Ok(fresh)
+}
+
+/// `_postRefreshWithRetry` (`grok-oauth-tokens.mjs:376`): three exchanges (each saved) at most. A terminal refusal
+/// (`invalid_grant`, `invalid_client`) ends it at once; between two, a pause of `min(2 s, 200 ms·2^n)` plus up to as
+/// much again at random.
+async fn refresh_with_retry(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
     let mut attempt = 0;
     loop {
-        match refresh(http, pace, tokens).await {
+        match post_refresh(http, pace, file, tokens).await {
             Ok(fresh) => return Ok(fresh),
             // `refresh_error` marks exactly the terminal refusals as needing a new sign-in.
             Err(error) if error.reauth_required || attempt == 2 => return Err(error),
@@ -292,43 +384,35 @@ async fn load_own(file: &CredentialFile) -> Option<StoredTokens> {
     }
 }
 
-/// One exchange of `old` and its rotation published only over the pair that was exchanged, so a process that rotated
-/// first wins.
-async fn exchange(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, old: &StoredTokens) -> Result<StoredTokens, ProviderError> {
-    let fresh = refresh_with_retry(http, pace, old).await?;
-    let Value::Object(update) = serde_json::to_value(&fresh).map_err(|_| storage_error("tokens not serializable"))? else {
-        return Err(storage_error("tokens not serializable"));
-    };
-    let (access, refresh_token) = (old.access_token.clone(), old.refresh_token.clone());
-    let published = file
-        .replace_if(
-            move |doc| {
-                doc.get("access_token").and_then(Value::as_str).unwrap_or_default() == access
-                    && doc.get("refresh_token").and_then(Value::as_str).unwrap_or_default() == refresh_token
-            },
-            update,
-        )
-        .await
-        .map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
-    // Another process rotated first: its generation is the live one.
-    if published {
-        return Ok(fresh);
-    }
-    match file.load::<StoredTokens>().await {
-        Probe::Present(tokens) => Ok(tokens),
-        Probe::Absent => Err(not_connected()),
-        Probe::Unreadable => Err(storage_error("the credential file cannot be read")),
-    }
+/// `getRefreshLockPath`: `${getOwnTokenPath()}.refresh.lock`.
+fn refresh_lock_path(file: &std::path::Path) -> std::path::PathBuf {
+    let mut name = file.as_os_str().to_owned();
+    name.push(".refresh.lock");
+    std::path::PathBuf::from(name)
 }
 
-/// `refreshTokens` (`grok-oauth-tokens.mjs:392`): a newer valid generation in the file is adopted without an exchange;
-/// otherwise the stored generation (or `tokens`) is exchanged, and a refused grant adopts or exchanges a generation
-/// another writer rotated in meanwhile. A forced refresh adopts any unexpired generation, an unforced one only one
-/// outside the skew.
+/// `refreshTokens`' lease (`grok-oauth-tokens.mjs:427-431`): a 120 s wait for the lease, a lease that names no owner
+/// taken over once 120 s old, the lease file the user's alone.
+const REFRESH_LEASE: LeaseOpts = LeaseOpts { timeout: std::time::Duration::from_secs(120), stale: std::time::Duration::from_secs(120), secret: true };
+
+/// A lease that could not be taken, as `withFileLock` throws it (`ELOCKTIMEOUT`, `ELOCKCONTENDED`, or the file error).
+fn lease_error(error: mixdog_statefile::LockError) -> ProviderError {
+    let mut failure = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+    failure.code = error.code().map(str::to_owned);
+    failure.message = error.to_string();
+    failure
+}
+
+/// `refreshTokens` (`grok-oauth-tokens.mjs:387-433`): xAI rotates refresh tokens single-use, so the whole refresh runs
+/// holding the cross-process lease beside the credential file. Under it the file is read again: a generation another
+/// writer stored meanwhile (either token differs from `tokens`) is adopted without an exchange when it has no expiry or
+/// one at or after `now + skew` (`now` for a forced refresh); otherwise the stored generation (or `tokens`) is exchanged,
+/// and a refused grant adopts or exchanges a generation a writer outside the lease rotated in meanwhile.
 async fn refresh_tokens(
     http: &dyn HttpSend,
     pace: &dyn Pace,
     file: &CredentialFile,
+    process: &LockProcess,
     tokens: StoredTokens,
     force: bool,
 ) -> Result<StoredTokens, ProviderError> {
@@ -338,37 +422,59 @@ async fn refresh_tokens(
         error.message = format!("[grok-oauth] refresh token not available: {REAUTH_GUIDANCE}");
         return Err(error);
     }
-    let valid_after = pace.now_ms() + if force { 0 } else { REFRESH_SKEW_MS };
-    let disk = load_own(file).await;
-    if let Some(disk) = &disk
-        && (disk.access_token != tokens.access_token || disk.refresh_token != tokens.refresh_token)
-        && disk.valid_at(valid_after)
-    {
-        return Ok(disk.clone());
-    }
-    let current = disk.unwrap_or(tokens);
-    match exchange(http, pace, file, &current).await {
-        Err(error) if is_invalid_grant(&error) => match load_own(file).await {
-            Some(rotated) if rotated.refresh_token != current.refresh_token => {
-                if rotated.valid_at(valid_after) {
-                    Ok(rotated)
-                } else {
-                    exchange(http, pace, file, &rotated).await
+    let held = async {
+        let valid_after = pace.now_ms() + if force { 0 } else { REFRESH_SKEW_MS };
+        let disk = load_own(file).await;
+        if let Some(disk) = &disk
+            && (disk.access_token != tokens.access_token || disk.refresh_token != tokens.refresh_token)
+            && disk.valid_at(valid_after)
+        {
+            return Ok(disk.clone());
+        }
+        let current = disk.unwrap_or(tokens);
+        match refresh_with_retry(http, pace, file, &current).await {
+            Err(error) if is_invalid_grant(&error) => match load_own(file).await {
+                Some(rotated) if rotated.refresh_token != current.refresh_token => {
+                    if rotated.valid_at(valid_after) {
+                        Ok(rotated)
+                    } else {
+                        refresh_with_retry(http, pace, file, &rotated).await
+                    }
                 }
-            }
-            _ => Err(error),
-        },
-        outcome => outcome,
-    }
+                _ => Err(error),
+            },
+            outcome => outcome,
+        }
+    };
+    file.lease(&refresh_lock_path(file.path()), process, pace, REFRESH_LEASE, held).await.map_err(lease_error)?
 }
 
 type SharedRefresh = futures::future::Shared<futures::future::BoxFuture<'static, Result<StoredTokens, ProviderError>>>;
 
-/// `_refreshesInFlight` (`grok-oauth-tokens.mjs:313`): the refresh in flight for a credential file, shared by every
-/// send of the process that needs one while it runs, and gone once it settled.
-static REFRESHES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, (u64, SharedRefresh)>>> =
-    std::sync::LazyLock::new(Default::default);
-static REFRESH_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// What the Grok credentials of one process share: the process as the lease's lock protocol sees it, and the refresh
+/// in flight per credential file (`_refreshesInFlight`, `grok-oauth-tokens.mjs:313`), shared by every send of the
+/// process that needs one while it runs and gone once it settled.
+pub struct RefreshProcess {
+    lock: Arc<LockProcess>,
+    flights: std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, (u64, SharedRefresh)>>,
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl RefreshProcess {
+    /// This process's.
+    fn this_process() -> Arc<Self> {
+        static THIS: std::sync::LazyLock<Arc<RefreshProcess>> = std::sync::LazyLock::new(|| Arc::new(RefreshProcess::new(LockProcess::this_process())));
+        THIS.clone()
+    }
+
+    fn new(lock: Arc<LockProcess>) -> Self {
+        Self { lock, flights: std::sync::Mutex::default(), generation: std::sync::atomic::AtomicU64::new(0) }
+    }
+
+    fn flights(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<std::path::PathBuf, (u64, SharedRefresh)>> {
+        self.flights.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
 
 /// The Bearer credential of the Grok CLI proxy (`ensureAuth`, `grok-oauth.mjs:370`). A turn refreshes first when the
 /// token is inside its skew; a rejected token is refreshed once more; a refresh that fails while the token is still
@@ -377,6 +483,7 @@ pub struct GrokCredential {
     http: Arc<dyn HttpSend>,
     file: CredentialFile,
     pace: Arc<dyn Pace>,
+    process: Arc<RefreshProcess>,
     current: ArcSwapOption<StoredTokens>,
     /// `_refreshFallbackUntil`: until when (Unix ms) a failed unforced refresh is not tried again.
     fallback_until: std::sync::atomic::AtomicU64,
@@ -401,6 +508,7 @@ impl GrokCredential {
             http,
             file,
             pace: Arc::new(SystemPace),
+            process: RefreshProcess::this_process(),
             current: ArcSwapOption::empty(),
             fallback_until: std::sync::atomic::AtomicU64::new(0),
         }
@@ -409,6 +517,14 @@ impl GrokCredential {
     /// The clock, pause and random draw of the refreshes.
     pub fn with_pace(mut self, pace: Arc<dyn Pace>) -> Self {
         self.pace = pace;
+        self
+    }
+
+    /// A credential of another process sharing this one's credential file: its own lease owner and line, its own
+    /// refreshes in flight (two copies of Node's token module in one process are two such processes).
+    #[cfg(test)]
+    fn in_process(mut self, process: Arc<RefreshProcess>) -> Self {
+        self.process = process;
         self
     }
 
@@ -447,29 +563,26 @@ impl GrokCredential {
 
     /// The refresh in flight for this credential's file, if one is.
     fn in_flight(&self) -> Option<SharedRefresh> {
-        REFRESHES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(self.file.path()).map(|(_, shared)| shared.clone())
+        self.process.flights().get(self.file.path()).map(|(_, shared)| shared.clone())
     }
 
     /// Starts the refresh of `tokens` every send needing one shares until it settled.
     fn start(&self, tokens: StoredTokens, force: bool) -> SharedRefresh {
         use futures::FutureExt;
-        let generation = REFRESH_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let (http, pace, file) = (self.http.clone(), self.pace.clone(), self.file.clone());
+        let generation = self.process.generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (http, pace, file, process) = (self.http.clone(), self.pace.clone(), self.file.clone(), self.process.clone());
         let path = file.path().to_path_buf();
         let shared = async move {
-            let outcome = refresh_tokens(http.as_ref(), pace.as_ref(), &file, tokens, force).await;
-            let mut map = REFRESHES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if map.get(&path).is_some_and(|(id, _)| *id == generation) {
-                map.remove(&path);
+            let outcome = refresh_tokens(http.as_ref(), pace.as_ref(), &file, &process.lock, tokens, force).await;
+            let mut flights = process.flights();
+            if flights.get(&path).is_some_and(|(id, _)| *id == generation) {
+                flights.remove(&path);
             }
             outcome
         }
         .boxed()
         .shared();
-        REFRESHES
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(self.file.path().to_path_buf(), (generation, shared.clone()));
+        self.process.flights().insert(self.file.path().to_path_buf(), (generation, shared.clone()));
         shared
     }
 
@@ -711,6 +824,10 @@ impl PkceProvider for GrokLogin {
         Ok((!email.is_empty()).then_some(email))
     }
 }
+#[cfg(test)]
+#[path = "refresh_lease/tests.rs"]
+mod refresh_lease_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

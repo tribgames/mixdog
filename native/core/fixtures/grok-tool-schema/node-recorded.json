@@ -849,6 +849,116 @@
       "source": "synthetic-js",
       "name": "root_object_property_over_combined_without_properties",
       "json": "{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"object\",\"title\":\"c\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_string",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_number",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_null",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_object",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_tostring_and_valueof",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_inherited_tostring_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_own_valueof_only",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object] Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_array_with_an_own_tostring_element",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_array_with_a_plain_object",
+      "json": "{\"properties\":{\"x\":{\"type\":\"array\",\"description\":\"[object Object],x Pass one or more values as an array.\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "description_nested_array_with_an_own_tostring_element",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_minimum_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_minimum_inherited_tostring",
+      "json": "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"a\",\"b\"]},\"input\":{\"type\":\"object\",\"properties\":{\"n\":{\"minimum\":{\"a\":1}}},\"description\":\"Allowed input by action (* required): a(n>=[object Object]); b(n>=2).\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_enum_element_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_action_enum_element_own_tostring",
+      "threw": "TypeError: Cannot convert object to primitive value"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "properties_string_with_a_pair",
+      "json": "{\"type\":\"object\",\"properties\":{\"0\":\"a\",\"1\":\"\\ud83d\",\"2\":\"\\ude00\",\"3\":\"b\"}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "properties_string_bmp_only",
+      "json": "{\"type\":\"object\",\"properties\":{\"0\":\"a\",\"1\":\"é\",\"2\":\"한\"}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "properties_string_two_pairs",
+      "json": "{\"type\":\"object\",\"properties\":{\"0\":\"\\ud83d\",\"1\":\"\\ude00\",\"2\":\"\\ud83c\",\"3\":\"\\udf89\"}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "properties_string_pairs_in_two_branches",
+      "json": "{\"type\":\"object\",\"properties\":{\"0\":{\"anyOf\":[\"\\ud83d\",\"x\"]},\"1\":{\"anyOf\":[\"\\ude00\",\"\\ud83d\"]},\"2\":\"\\ude00\"}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "root_properties_string_with_a_pair",
+      "json": "{\"type\":\"object\",\"properties\":{\"0\":\"x\",\"1\":\"\\ud83d\",\"2\":\"\\ude00\",\"y\":{}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_input_properties_string_with_a_pair",
+      "json": "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"a\",\"b\"]},\"input\":{\"type\":\"object\",\"properties\":{\"0\":{\"anyOf\":[\"\\ud83d\",\"x\"]},\"1\":\"\\ude00\"},\"description\":\"Allowed input by action (* required): a(0,1); b(0).\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_input_spread_of_a_string_with_a_pair",
+      "json": "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"a\",\"b\"]},\"input\":{\"0\":\"\\ud83d\",\"1\":\"\\ude00\",\"2\":\"z\",\"description\":\"Allowed input by action (* required): a(n>=1); b(n>=2).\"}}}"
+    },
+    {
+      "source": "synthetic-js",
+      "name": "contract_input_spread_of_a_bmp_string",
+      "json": "{\"type\":\"object\",\"properties\":{\"action\":{\"enum\":[\"a\",\"b\"]},\"input\":{\"0\":\"y\",\"1\":\"z\",\"description\":\"Allowed input by action (* required): a(n>=1); b(n>=2).\"}}}"
     }
   ]
 }
