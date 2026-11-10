@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 86475,
+      "bytes": 86638,
       "path": "golden.json",
-      "sha256": "a0b6000024ce5443fb8add864748aa9f44697cad84f4e49d49038ebcd219787e"
+      "sha256": "4fd7c4fe0a09c5d46a22bdfa5c4a4cc916145a63bb4c418788a0277826bbbe53"
     }
   ],
   "node": "v22.20.0",
@@ -27,10 +27,49 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs",
-  "recorderSha256": "666b228f1eba0d14ae6fdbbacf91e674482920c8b2226fc4165bef87b857e965",
+  "recorderSha256": "9f13e328417ac9efdf132e2a9395b3f6104f0e0e23fa45424ec432955017821e",
+  "runOwnValues": {
+    "registration_id": {
+      "placeholder": "<registration:N>, N by order of appearance in history/tool-failures.jsonl; each id checked to be 8 lowercase hex digits",
+      "proof": "two recordings of the same input (a, b): their failure rows differ, and are identical once the ids are named so; their runs and traces are identical",
+      "source": "src/session-runtime/services/agent-watchdog-registry.mjs:161 randomUUID().slice(0, 8)"
+    }
+  },
   "set": "watchdog-stall-rows",
   "syntheticInputs": {
     "agent": "worker",
+    "clockEpoch": 1700000000000,
+    "environment": {
+      "MIXDOG_DIAGNOSTICS": "1",
+      "MIXDOG_FEATURE_MEMORY": "0",
+      "MIXDOG_SKIP_USER_DATA_BACKUP": "1",
+      "profileFolders": [
+        "MIXDOG_DATA_DIR=<the recording's own folder>",
+        "MIXDOG_HOME=<the recording's own folder>",
+        "MIXDOG_CONFIG_DIR=<the recording's own folder>",
+        "MIXDOG_RUNTIME_ROOT=<the recording's own folder>",
+        "HOME=<the recording's own folder>",
+        "USERPROFILE=<the recording's own folder>",
+        "APPDATA=<the recording's own folder>",
+        "LOCALAPPDATA=<the recording's own folder>",
+        "TEMP=<the recording's own folder>",
+        "TMP=<the recording's own folder>"
+      ],
+      "traceDisabledRun": {
+        "MIXDOG_AGENT_TRACE_DISABLE": "1"
+      }
+    },
+    "mockedTimers": {
+      "api": "node:test mock.timers.enable",
+      "apis": [
+        "setInterval",
+        "Date"
+      ],
+      "maxSweeps": 60,
+      "now": 1700000000000,
+      "order": "due time, then registration order, one callback at a time",
+      "step": "one second per sweep; a step tick at its own instant first"
+    },
     "policy": {
       "firstSemanticMs": 8000,
       "firstTransportMs": 5000,
@@ -114,7 +153,18 @@
           ]
         ]
       }
+    ],
+    "sessionIds": [
+      "sess_stall_dispatch_idle-after-output",
+      "sess_stall_dispatch_no-transport",
+      "sess_stall_dispatch_transport-without-output",
+      "sess_stall_dispatch_next-request-after-a-tool",
+      "sess_stall_registry_idle-after-output",
+      "sess_stall_registry_no-transport",
+      "sess_stall_registry_transport-without-output",
+      "sess_stall_registry_next-request-after-a-tool",
+      "sess_stall_parent (the registry runs' parentSessionId)"
     ]
   },
-  "totalBytes": 86475
+  "totalBytes": 86638
 }

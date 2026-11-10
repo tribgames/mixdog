@@ -447,26 +447,71 @@ mod tests {
         }
     }
 
-    /// The rows Node's two watchdogs wrote when they stopped a turn (`fixtures/watchdog-stall-rows`, recorded by
-    /// `benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs` on mocked interval timers and clock): each recorded run is
-    /// armed at its recorded instant, each sweep is given the snapshot Node's sweep read at that instant, the clock moves only by the
-    /// explicit one-second advance, and the stop is recorded through `stall_abort_ctx` (what the dispatch's and the worker turn's
-    /// hooks call) into `mixdog_trace::watchdog_abort_records`. The stop must come at Node's sweep with Node's sentence, and the two
-    /// files must be Node's, whole and in order; the registry's random `registration_id` is checked to be 8 hex digits and named by
-    /// order of appearance on both sides, as the recorder names Node's.
-    #[tokio::test(start_paused = true)]
-    async fn a_stop_writes_the_stall_abort_rows_node_writes() {
-        let _held = HeldClock::hold();
-        mixdog_rt::testing::tokens();
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
+    /// The clock of the failure writer under test: the recorded run's epoch time on the paused clock, and at each reading
+    /// whether the run's signal had been aborted (the writer reads it as it queues a row, for the row's `ts`).
+    #[derive(Default)]
+    struct Probe {
+        run: Mutex<Option<(tokio::time::Instant, i64, Cancel)>>,
+        last: AtomicI64,
+        readings: Mutex<Vec<(i64, bool)>>,
+    }
+
+    impl Clock for Probe {
+        fn now_ms(&self) -> i64 {
+            match &*self.run.lock().unwrap() {
+                Some((start, origin, signal)) => {
+                    let now = origin + start.elapsed().as_millis() as i64;
+                    self.last.store(now, Ordering::SeqCst);
+                    self.readings.lock().unwrap().push((now, signal.is_aborted()));
+                    now
+                }
+                None => self.last.load(Ordering::SeqCst),
+            }
+        }
+    }
+
+    /// The registry's `registration_id`s of a whole file, each 8 lowercase hex digits, named `<registration:N>` by order of
+    /// appearance (the run's own value the fixture's manifest declares, `runOwnValues.registration_id`).
+    fn mask_registrations(text: &str) -> String {
+        let mut seen: Vec<String> = Vec::new();
+        text.split_inclusive('\n')
+            .map(|line| {
+                let row: Value = serde_json::from_str(line.trim_end_matches('\n')).unwrap();
+                let Some(id) = row["registration_id"].as_str() else {
+                    return line.to_owned();
+                };
+                assert!(id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{id} is 8 hex digits");
+                let n = seen.iter().position(|s| s == id).unwrap_or_else(|| {
+                    seen.push(id.to_owned());
+                    seen.len() - 1
+                });
+                line.replace(&format!("\"registration_id\":\"{id}\""), &format!("\"registration_id\":\"<registration:{}>\"", n + 1))
+            })
+            .collect()
+    }
+
+    /// Replays every run of `fixtures/watchdog-stall-rows` (recorded by `benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs`
+    /// on mocked interval timers and clock) into the product's failure writer of a fresh data folder, configured from `env` as the host
+    /// configures it: each run is armed at its recorded instant, each sweep is given the snapshot Node's sweep read at that instant, the
+    /// clock moves only by the explicit one-second advance, and the stop is recorded as both arming sites record it (`factory.rs` hands
+    /// `stall_abort_ctx` to the run's `RunFailureLog::stall_abort`; `agent_dispatch.rs` hands it to the host's `StallLog`, which is
+    /// `FailureWriter::record_watchdog_abort` in `compose_flip.rs`). Each stop must come at Node's sweep with Node's sentence, and its
+    /// row must be queued while the run's signal is not yet aborted (Node records, then aborts: `agent-progress-watchdog.mjs:291-293`).
+    /// Returns the two files the writer's exit flush left (`None`: not written).
+    async fn replay_stall_rows(golden: &Value, env: &[(&str, &str)]) -> (Option<String>, Option<String>) {
+        let tokens = mixdog_rt::testing::tokens();
         let policy = &golden["policy"];
         let policy = WatchdogPolicy {
             first_transport_ms: policy["firstTransportMs"].as_i64().unwrap(),
             first_semantic_ms: policy["firstSemanticMs"].as_i64().unwrap(),
             idle_stale_ms: policy["idleStaleMs"].as_i64().unwrap(),
         };
-        let (mut failures, mut trace) = (String::new(), String::new());
-        let mut registrations: Vec<String> = Vec::new();
+        let data = tempfile::tempdir().unwrap();
+        let vars: std::collections::HashMap<String, String> = env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
+        let config = mixdog_trace::TraceConfig::from_env(data.path(), &|name| vars.get(name).cloned(), false);
+        let io = mixdog_core_api::domain::tool::ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+        let probe = Arc::new(Probe::default());
+        let writer = Arc::new(mixdog_core_run::run_host::failure_log::FailureWriter::new(&config, io, probe.clone()));
         let runs = golden["runs"].as_array().unwrap();
         assert!(!runs.is_empty());
         for run in runs {
@@ -479,15 +524,13 @@ mod tests {
                 "registry" => StallSite::Registry { registration_id: registration_id() },
                 other => panic!("site {other}"),
             };
-            let stops = Arc::new(Mutex::new(Vec::new()));
             let (signal, sweeps) = (Cancel::new(), Arc::new(Sweeps::default()));
-            let clock = Arc::new(Since(tokio::time::Instant::now(), origin));
-            let hook = {
-                let (stops, session, agent) = (stops.clone(), session.clone(), agent.clone());
-                move |snapshot: &Snapshot, message: &str, now: i64| {
-                    let ctx = stall_abort_ctx(&session, Some(&agent), &site, &policy, origin, snapshot, message, now);
-                    stops.lock().unwrap().push((now, mixdog_trace::watchdog_abort_records(&ctx, now).expect("a stop with a session and an error is recorded")));
-                }
+            let start = tokio::time::Instant::now();
+            *probe.run.lock().unwrap() = Some((start, origin, signal.clone()));
+            let clock = Arc::new(Since(start, origin));
+            let log = mixdog_core_run::run_host::failure_log::RunFailureLog::new(writer.clone(), &session, Some(&agent), "");
+            let hook = move |snapshot: &Snapshot, message: &str, now: i64| {
+                mixdog_agent::env::ToolFailureLog::stall_abort(&log, stall_abort_ctx(&session, Some(&agent), &site, &policy, origin, snapshot, message, now));
             };
             let snapshot = move |now: i64| -> Option<Snapshot> {
                 let at = now - origin;
@@ -499,26 +542,39 @@ mod tests {
             run_for((stopped_at / 1000) as u64, &sweeps, &dogs).await;
             assert!(signal.is_aborted(), "{site_name}/{name}: stopped by {stopped_at} ms");
             assert_eq!(signal.reason(), run["message"].as_str().unwrap(), "{site_name}/{name}: the sentence");
-            let stops = std::mem::take(&mut *stops.lock().unwrap());
-            assert_eq!(stops.len(), 1, "{site_name}/{name}: one stop");
-            let (now, abort) = &stops[0];
-            assert_eq!(*now, origin + stopped_at, "{site_name}/{name}: the stop's instant");
-            let mut row = mixdog_trace::stringify(&abort.failure);
-            if let Some(id) = abort.failure["registration_id"].as_str() {
-                assert!(id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()), "{id} is 8 hex digits");
-                let n = registrations.iter().position(|seen| seen == id).unwrap_or_else(|| {
-                    registrations.push(id.to_owned());
-                    registrations.len() - 1
-                });
-                row = row.replace(&format!("\"registration_id\":\"{id}\""), &format!("\"registration_id\":\"<registration:{}>\"", n + 1));
-            }
-            failures.push_str(&row);
-            failures.push('\n');
-            trace.push_str(&mixdog_trace::stringify(&Value::Object(mixdog_trace::build_row(&abort.trace, *now))));
-            trace.push('\n');
+            assert!(
+                probe.readings.lock().unwrap().iter().any(|(at, aborted)| *at == origin + stopped_at && !aborted),
+                "{site_name}/{name}: the row is queued at the stop, before the abort is delivered"
+            );
         }
-        assert_eq!(failures, golden["failures"].as_str().unwrap(), "history/tool-failures.jsonl");
-        assert_eq!(trace, golden["trace"].as_str().unwrap(), "history/agent-trace.jsonl");
+        *probe.run.lock().unwrap() = None;
+        writer.flush().await;
+        let read = |name: &str| std::fs::read_to_string(data.path().join("history").join(name)).ok();
+        (read("tool-failures.jsonl"), read("agent-trace.jsonl"))
+    }
+
+    /// The two files Node wrote when its watchdogs stopped the recorded runs (`MIXDOG_DIAGNOSTICS=1`), whole and in order, the
+    /// registration ids named as the manifest declares.
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_writes_the_stall_abort_rows_node_writes() {
+        let _held = HeldClock::hold();
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
+        let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/MANIFEST.json")).unwrap();
+        assert!(manifest.to_string().contains("\"runOwnValues\":{\"registration_id\""), "the manifest declares the registration id as the run's own");
+        let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1")]).await;
+        assert_eq!(mask_registrations(&failures.expect("tool-failures.jsonl")), golden["failures"].as_str().unwrap(), "history/tool-failures.jsonl");
+        assert_eq!(trace.as_deref(), golden["trace"].as_str(), "history/agent-trace.jsonl");
+    }
+
+    /// With `MIXDOG_AGENT_TRACE_DISABLE=1` Node's stop records nothing (`agent-progress-watchdog.mjs:201`, and `appendAgentTrace`):
+    /// the runs stop as before and the files are what Node's were (`traceDisabled`).
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_with_the_trace_disabled_writes_what_node_writes() {
+        let _held = HeldClock::hold();
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/golden.json")).unwrap();
+        let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1"), ("MIXDOG_AGENT_TRACE_DISABLE", "1")]).await;
+        assert_eq!(failures.as_deref(), golden["traceDisabled"]["failures"].as_str(), "history/tool-failures.jsonl");
+        assert_eq!(trace.as_deref(), golden["traceDisabled"]["trace"].as_str(), "history/agent-trace.jsonl");
     }
 
     #[tokio::test(start_paused = true)]
