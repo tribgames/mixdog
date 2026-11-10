@@ -64,6 +64,7 @@ use super::patch_parse::is_counted_header;
 use super::patch_parse::strip_diff_prefix;
 use super::patch_redirect::relocated_header;
 use super::patch_review::committed_patch;
+use super::patch_review::unit_committed;
 use super::read_state::ReadState;
 use std::sync::Arc;
 use super::os_error::fs_message;
@@ -592,7 +593,7 @@ async fn roll_back(ctx: &ToolContext, tx: &mut Tx, outcome: String) -> R<String>
     // What could not be undone stays on disk, so the review lists it.
     if !errors.is_empty() {
         let paths: Vec<AbsPath> = snapshots.iter().map(|s| s.path.clone()).collect();
-        committed_patch(ctx, tx.state.as_deref(), &snapshots, &paths, &tx.renames).await;
+        committed_patch(ctx, tx.state.as_deref(), &snapshots, &paths, &tx.renames, true).await;
     }
     Ok(if errors.is_empty() { format!("{outcome}\n{ROLLED_BACK}") } else { format!("{outcome}\n--- rollback incomplete ---\n{}", errors.join("\n")) })
 }
@@ -608,7 +609,7 @@ async fn finish_batch(ctx: &ToolContext, tx: &mut Tx, outcome: R<String>, dry: b
                 return Ok(text);
             }
             let paths: Vec<AbsPath> = tx.snapshots.iter().map(|s| s.path.clone()).collect();
-            committed_patch(ctx, tx.state.as_deref(), &tx.snapshots, &paths, &tx.renames).await;
+            committed_patch(ctx, tx.state.as_deref(), &tx.snapshots, &paths, &tx.renames, true).await;
             let leftovers = tx.quarantine.commit(ctx).await?;
             Ok(if leftovers.is_empty() { text } else { format!("{text}\n{}", leftovers.join("\n")) })
         }
@@ -982,8 +983,10 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
             match attempt.await {
                 Ok(text) => {
                     applied.push(text);
-                    mutated.push(resolve_path(base, &unit.path)?);
-                    mutated.push(resolve_path(base, unit.move_path.as_deref().unwrap_or_default())?);
+                    let (from, to) = (resolve_path(base, &unit.path)?, resolve_path(base, unit.move_path.as_deref().unwrap_or_default())?);
+                    unit_committed(opts.state.as_deref(), &[&from, &to]).await;
+                    mutated.push(from);
+                    mutated.push(to);
                 }
                 Err(Stop::Text(e)) => failures.push((i, display, format!("Error: {}", e.strip_prefix("Error: ").unwrap_or(&e)))),
                 Err(other) => return Err(other),
@@ -1005,6 +1008,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
         match apply_ops(ctx, base, &[], std::slice::from_ref(&entry), opts, &mut Tx::unit()).await {
             Ok(text) => {
                 applied.push(text);
+                unit_committed(opts.state.as_deref(), &[&entry.abs]).await;
                 mutated.push(entry.abs.clone());
             }
             Err(Stop::Text(e)) => failures.push((i, display, e)),
@@ -1016,7 +1020,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
     .await;
     // Units that committed are reviewed whichever way the run ends.
     if !mutated.is_empty() {
-        committed_patch(ctx, opts.state.as_deref(), &before, &mutated, &[]).await;
+        committed_patch(ctx, opts.state.as_deref(), &before, &mutated, &[], false).await;
     }
     outcome?;
     let report = sequence_report(units.len(), &applied, &failures, &skipped, mode.continue_after_failure, dry);
@@ -1592,6 +1596,7 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
         match result {
             Ok((text, touched)) => {
                 applied.push(text);
+                unit_committed(opts.state.as_deref(), &touched.iter().collect::<Vec<_>>()).await;
                 mutated.extend(touched);
             }
             Err(Stop::Text(e)) => failures.push((i, display, e)),
@@ -1602,7 +1607,7 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
     }
     .await;
     if !mutated.is_empty() {
-        committed_patch(ctx, opts.state.as_deref(), &before, &mutated, &[]).await;
+        committed_patch(ctx, opts.state.as_deref(), &before, &mutated, &[], false).await;
     }
     outcome?;
     let report = sequence_report(count, &applied, &failures, &skipped, false, opts.dry);
