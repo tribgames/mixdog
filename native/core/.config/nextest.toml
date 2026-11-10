@@ -59,11 +59,13 @@ slow-timeout = { period = "60s", terminate-after = 6 }
 # one cluster at a time is the load a single test was verified under. Matching the module paths
 # keeps tests added to those modules in the group. The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests)::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_killed_while_starting_is_ended_before_its_directory_is_examined)))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests)::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)))'
 test-group = 'pg-cluster'
 
 # The daemon's real-core tests run their core in a child process under the runner's one budget (`compose_test_support::BUDGET`, 690 s, checked
 # at compile time to stay under this limit): nextest ends the test only after the runner's report, at 720 s. Applies to every profile (`pg` among them).
+# The runner's own cluster test is among them. `compose_test_support::runner_tests::every_composed_test_is_run_by_the_pg_profile_with_its_time`
+# fails when a test using the runner is missing here or from the `pg` filter.
 [[profile.default.overrides]]
 filter = '''package(mixdog-app-server-daemon) & (
     test(=compose::review_restart_tests::a_core_composed_again_tells_and_answers_as_node_does)
@@ -76,6 +78,7 @@ filter = '''package(mixdog-app-server-daemon) & (
   | test(=server::tests::a_wedged_stop_step_does_not_hold_the_headless_shutdown)
   | test(=server::tests::shutdown_stops_the_core_in_registration_order_and_refuses_new_clients)
   | test(=serving::tests::start_serves_both_listeners_and_a_stop_releases_once)
+  | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)
 )'''
 slow-timeout = { period = "120s", terminate-after = 6 }
 
