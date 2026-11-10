@@ -1275,6 +1275,8 @@ impl DirInner {
             busy: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            recovered: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -1475,6 +1477,11 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     state.has_older = log.has_older || state.has_older;
     for (ordinal, record) in log.tail {
         apply(&mut state, ordinal, record);
+    }
+    for (rid, draft) in log.drafts {
+        if let Some(run) = state.runs.get_mut(&rid) {
+            run.restore(draft);
+        }
     }
     state.prompt_history =
         super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted);

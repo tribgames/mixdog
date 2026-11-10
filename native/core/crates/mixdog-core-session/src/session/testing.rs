@@ -250,6 +250,8 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
+    /// Every barrier fails (rolled back) with this cause while it is set.
+    pub failing: Arc<Mutex<Option<Arc<str>>>>,
     /// The next read of a thread's model context fails.
     pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
@@ -284,6 +286,7 @@ type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::R
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
+    failing: Arc<Mutex<Option<Arc<str>>>>,
     commit_gate: CommitGate,
     header_gate: CommitGate,
     committed: Arc<tokio::sync::Notify>,
@@ -304,6 +307,9 @@ impl SessionLog for MemLog {
             return Err(BarrierError::Failed {
                 io_kind: "test".into(),
             });
+        }
+        if let Some(cause) = lock(&self.failing).clone() {
+            return Err(BarrierError::Failed { io_kind: cause });
         }
         let sets_compaction = batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("compaction")));
         let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
@@ -416,6 +422,7 @@ impl ThreadStore for MemStore {
             log_id,
             next_ordinal: records.last().map_or(0, |(ordinal, _)| ordinal + 1),
             tail: records,
+            drafts: Vec::new(),
             append: AppendPosition(Box::new(())),
         })
     }
@@ -489,6 +496,7 @@ impl ThreadStore for MemStore {
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            failing: self.failing.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             committed: self.committed.clone(),
@@ -509,6 +517,7 @@ impl ThreadStore for MemStore {
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            failing: self.failing.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             committed: self.committed.clone(),
@@ -830,6 +839,12 @@ impl RunFactory for ScriptRuns {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>> {
         let script = lock(&self.script).clone();
         script(run)
+    }
+
+    /// A scripted run commits rows the script chose; its crash leaves none (the run host's own finalization is
+    /// `RunHostFactory`'s).
+    fn crashed(&self, _run: super::seams::CrashedRun) -> super::seams::CrashedRows {
+        super::seams::CrashedRows::default()
     }
 }
 

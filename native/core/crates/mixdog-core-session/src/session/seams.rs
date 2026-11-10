@@ -233,6 +233,9 @@ pub struct OpenedLog {
     pub next_ordinal: u64,
     /// Committed frames after the checkpoint, in ordinal order.
     pub tail: Vec<(u64, Record)>,
+    /// The drafts of `runs` folded over the whole log (a draft may precede the checkpoint), by run id; empty when `tail`
+    /// holds every record of the open runs.
+    pub drafts: Vec<(String, super::turn_draft::RunDraft)>,
     pub append: AppendPosition,
 }
 
@@ -701,9 +704,31 @@ pub enum RunOutcome {
     Interrupted,
 }
 
+/// A run the process died in: no terminal record ends it (recovery at open, `recoverTurnCheckpoint`).
+pub struct CrashedRun {
+    /// The model context as the log holds it (the run's rows included), oldest first.
+    pub context: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+    /// The run's input row, when the opened state names it.
+    pub input: Option<mixdog_core_api::ids::ItemId>,
+    pub draft: super::turn_draft::RunDraft,
+}
+
+/// What a crashed run leaves (`replayCheckpoint`): a finished one (`sealed`, its answer committed) stays as it is;
+/// otherwise its draft and the marker are finalized as `finalizeTurnInterruptionSnapshot(.., 'process-crash')` does.
+#[derive(Default)]
+pub struct CrashedRows {
+    pub sealed: bool,
+    /// The rows to commit, in order.
+    pub rows: Vec<super::run::ItemCommit>,
+    /// The model context to restart on (a silent compaction), when the finalization changed it.
+    pub context: Option<Vec<(mixdog_core_api::ids::ItemId, Value)>>,
+}
+
 /// The run loop (RL §5.2): owned by the actor, reports only to it.
 pub trait RunFactory: Send + Sync + 'static {
     fn start(&self, run: RunStart) -> Pin<Box<dyn Future<Output = RunOutcome> + Send>>;
+    /// The rows the crashed `run` leaves; pure work on cpu-interactive.
+    fn crashed(&self, run: CrashedRun) -> CrashedRows;
 }
 
 /// The thread feed of one actor instance (`feed.id = threadId`, a fresh epoch per load).

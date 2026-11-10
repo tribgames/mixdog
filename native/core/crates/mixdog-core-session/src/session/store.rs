@@ -71,6 +71,7 @@ use super::seams::SessionLog;
 use super::seams::StoredOp;
 use super::seams::ThreadStore;
 use super::seams::WindowRead;
+use super::turn_draft::RunDraft;
 
 /// UI window rows read at open (P §5.3).
 const WINDOW_ROWS: usize = 200;
@@ -428,6 +429,37 @@ impl StoreThreads {
         Ok(levels)
     }
 
+    /// The draft of the run `rid` that `started` begins, folded over every frame from there to the log's end (a
+    /// checkpoint between them does not carry it).
+    fn run_draft(&self, lane: &InLane<InteractiveIo>, dir: &Path, rid: &str, started: FramePos) -> Result<RunDraft, CoreError> {
+        let mut draft = RunDraft::default();
+        let mut from = started;
+        loop {
+            let read = log::read_forward(lane, dir, from, 1 << 20).map_err(|e| internal("drafts", &e))?;
+            for (record, _, _) in &read.frames {
+                match record {
+                    Record::Draft(record) if record.rid.as_str() == rid => {
+                        if let Slot::Inline(body) = self.resolve(lane, &record.body)? {
+                            draft.apply(&body);
+                        }
+                    }
+                    Record::Item(item)
+                        if item.turn.as_ref().is_some_and(|turn| turn.as_str() == rid)
+                            && item.role.as_ref().is_some_and(|role| role.as_str() == "assistant") =>
+                    {
+                        draft.message_committed();
+                    }
+                    _ => {}
+                }
+            }
+            match read.next {
+                log::ForwardEnd::More(next) => from = next,
+                log::ForwardEnd::Done { .. } => return Ok(draft),
+                log::ForwardEnd::Damaged(damage) => return Err(internal("drafts", &format!("{damage:?}"))),
+            }
+        }
+    }
+
     fn frame_at(
         &self,
         lane: &InLane<InteractiveIo>,
@@ -667,6 +699,7 @@ struct Window {
     has_older: bool,
     prompts: Vec<String>,
     runs: Vec<(u64, mixdog_store::schema::record::RunRecord)>,
+    drafts: Vec<(String, RunDraft)>,
     approvals: Vec<(u64, mixdog_store::schema::record::ApprovalRecord)>,
     queue: Vec<(u64, mixdog_store::schema::record::QueueRecord)>,
 }
@@ -730,6 +763,7 @@ impl ThreadStore for StoreThreads {
             .map_err(|e| internal("prompts", &e))?;
         let dir = &opened.dir;
         let mut runs = Vec::new();
+        let mut drafts = Vec::new();
         for run in &fold.runs {
             let Record::Run(mut record) = self.frame_at(lane, id, dir, run.started)? else {
                 return Err(unexpected("run"));
@@ -737,6 +771,7 @@ impl ThreadStore for StoreThreads {
             if let Some(detail) = &record.detail {
                 record.detail = Some(self.resolve(lane, detail)?);
             }
+            drafts.push((run.rid.clone(), self.run_draft(lane, dir, &run.rid, run.started)?));
             runs.push((run.started.ordinal, record));
         }
         let mut approvals = Vec::new();
@@ -768,6 +803,7 @@ impl ThreadStore for StoreThreads {
             has_older: cursor.is_some(),
             prompts,
             runs,
+            drafts,
             approvals,
             queue,
         })))
@@ -804,6 +840,7 @@ impl ThreadStore for StoreThreads {
             log_id: fold.log_id.clone(),
             next_ordinal: fold.next_ordinal,
             tail: Vec::new(),
+            drafts: read.drafts,
             append: AppendPosition(Box::new(opened)),
         })
     }

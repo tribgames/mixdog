@@ -288,6 +288,7 @@ impl Run {
 
     async fn send_attempts(&mut self) -> Result<SendResult, AgentError> {
         self.request_started_ms = self.env.clock.now_ms();
+        self.emit(RunEvent::SendStarted);
         loop {
             self.throw_if_aborted()?;
             // Calls a dead attempt started are dropped with it.

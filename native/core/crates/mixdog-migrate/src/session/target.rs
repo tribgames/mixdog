@@ -256,7 +256,7 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                         .or_insert_with(|| Value::Array(Vec::new()));
                     switches.as_array_mut().ok_or("modelSwitches is a list")?.push(entry);
                 }
-                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) => {
+                Record::Rewind(_) | Record::Approval(_) | Record::Op(_) | Record::Draft(_) => {
                     return Err(format!("frame {}: a record migration never writes", frame.ordinal));
                 }
             }

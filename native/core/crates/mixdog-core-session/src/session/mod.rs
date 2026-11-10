@@ -141,6 +141,9 @@ pub mod store;
 mod surface;
 pub mod terminal_host;
 mod turn_gate;
+pub mod turn_draft;
+#[cfg(test)]
+mod turn_durability_tests;
 pub mod transcript;
 pub mod transcript_export;
 pub mod turn_snapshot;
@@ -216,6 +219,8 @@ pub use self::seams::SessionMeta;
 pub use self::user_cwd::UserCwd;
 pub use self::store::MemoryCloseIngest;
 pub use self::seams::CommitRecord;
+pub use self::seams::CrashedRows;
+pub use self::seams::CrashedRun;
 pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;

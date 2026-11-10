@@ -903,15 +903,8 @@ async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
                 turn(steps)
             }
         }]);
-        let begun = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut config = config();
-        let counter = begun.clone();
-        config.request_begin = Some(Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }));
-        let ended = h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
-        // `onProviderSendStarted` is the request hook, which runs before the request's first event.
-        let mut stream: Vec<JsonValue> = (0..begun.load(Ordering::SeqCst)).map(|_| json!(["onProviderSendStarted"])).collect();
+        let ended = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
+        let mut stream: Vec<JsonValue> = Vec::new();
         for event in h.observer.events() {
             stream.extend(callbacks_of(event));
         }
@@ -938,6 +931,7 @@ async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
 /// (`StreamEvent::progress_kind`), a notice is `onStageChange('notice', { tone, message })`.
 fn callbacks_of(event: RunEvent) -> Vec<JsonValue> {
     match event {
+        RunEvent::SendStarted => vec![json!(["onProviderSendStarted"])],
         RunEvent::TextDelta(text) => vec![json!(["onStreamDelta", "text"]), json!(["onTextDelta", text])],
         RunEvent::Stage(Stage::Notice { message, tone }) => vec![json!(["onStageChange", "notice", { "tone": tone.as_str(), "message": message }])],
         RunEvent::Usage { .. } => vec![json!(["no Node callback", "Usage"])],

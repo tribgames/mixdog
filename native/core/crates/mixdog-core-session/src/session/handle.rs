@@ -104,6 +104,18 @@ impl SessionHandle {
         &self.cell.stepped
     }
 
+    /// A turn runs, starts or is still settling (the next turn would be queued), as the actor last stepped.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn turn_busy(&self) -> bool {
+        self.cell.busy.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The open-time recovery of the runs the last process died in is done and its records are released.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn recovered(&self) -> bool {
+        self.cell.recovered.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn closing(&self) -> CoreError {
         CoreError::ThreadClosing {
             thread_id: self.id.clone(),

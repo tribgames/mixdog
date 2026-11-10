@@ -236,6 +236,9 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub recovered: std::sync::atomic::AtomicBool,
 }
 
 impl ControlCell {
