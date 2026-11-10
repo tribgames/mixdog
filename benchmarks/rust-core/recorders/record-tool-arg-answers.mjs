@@ -4,14 +4,18 @@
 //
 //   node benchmarks/rust-core/recorders/record-tool-arg-answers.mjs --tree <exact export of b6f10295a with node_modules>
 //
-// Output: native/core/fixtures/tools/arg-answers/answers.json. The workspace root is written as <ROOT>.
+// Output: native/core/fixtures/tool-arg-answers/answers.json (+ MANIFEST.json). The workspace root is written as <ROOT>.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+
+const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+const recorder = 'benchmarks/rust-core/recorders/record-tool-arg-answers.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
+const identity = exactProductIdentity(tree, NODE_COMMIT);
 const work = mkdtempSync(join(tmpdir(), 'mixdog-arg-answers-'));
 process.env.MIXDOG_DATA_DIR = join(work, 'data');
 process.env.MIXDOG_TOOL_FAILURE_LOG_PATH = join(work, 'failures.jsonl');
@@ -23,7 +27,7 @@ const { normalizeToolEnvelope } = await importFrom(tree, 'src/runtime/agent/orch
 const fwd = ws.replace(/\\/g, '/');
 const scrub = (text) => String(text).replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
 
-const task = (name, input) => ({ name: `task-${name}`, tool: 'task', input });
+const task = (name, input) => ({ name: `task_${name}`, tool: 'task', input });
 const edit = (name, input) => ({ name: `edit-${name}`, tool: 'edit', input });
 const cases = [
   task('args-null', null),
@@ -86,12 +90,16 @@ for (const c of cases) {
   }
   recorded.push({ ...c, ...outcome });
 }
-writeJson(join(FIXTURES_ROOT, 'tools', 'arg-answers', 'answers.json'), {
+const finalDir = join(FIXTURES_ROOT, 'tool-arg-answers');
+const stage = stageSet(finalDir);
+writeJson(join(stage, 'answers.json'), {
   node: process.version,
   platform: process.platform,
   recorder: 'benchmarks/rust-core/recorders/record-tool-arg-answers.mjs',
   tree: 'b6f10295a',
   cases: recorded,
 });
+writeSetManifest(stage, { set: 'tool-arg-answers', recorder, command: `node ${recorder} --tree <exact export of ${NODE_COMMIT}>`, identity, extra: { cases: recorded.length } });
+commitStage(stage, finalDir);
 rmSync(work, { recursive: true, force: true });
 console.log(`recorded ${recorded.length} cases`);

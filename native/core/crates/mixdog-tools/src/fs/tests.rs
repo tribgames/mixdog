@@ -154,7 +154,7 @@ async fn file_tools_match_golden_fixtures_on_disk() {
 }
 
 /// What Node's `executeBuiltinTool('edit', …)` answers for a target it cannot read (missing, a directory, an over-long
-/// name, one that cannot be stat'ed): `fixtures/tools/arg-answers/answers.json` (`record-tool-arg-answers.mjs`),
+/// name, one that cannot be stat'ed): `fixtures/tool-arg-answers/answers.json` (`record-tool-arg-answers.mjs`),
 /// recorded on Windows, where the paths in the texts are written with backslashes.
 #[cfg(windows)]
 #[tokio::test]
@@ -166,7 +166,7 @@ async fn edit_read_failures_are_answered_as_node_answers_them() {
     let root = AbsPath::new(&ws).unwrap();
     let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
     let answers: JsonValue = serde_json::from_str(
-        &std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools/arg-answers/answers.json")).unwrap(),
+        &std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tool-arg-answers/answers.json")).unwrap(),
     )
     .unwrap();
     let edit = EditTool::new();

@@ -336,12 +336,12 @@ async fn task_matches_the_golden_twins_recorded_from_node() {
 }
 
 /// What Node's `executeBuiltinTool` answers a `task` call whose arguments are wrong (the guard, then the handler):
-/// every case of `fixtures/tools/arg-answers/answers.json` (`record-tool-arg-answers.mjs`), text for text.
+/// every case of `fixtures/tool-arg-answers/answers.json` (`record-tool-arg-answers.mjs`), text for text.
 #[tokio::test]
 async fn task_arguments_are_answered_as_nodes_guard_answers_them() {
     let rig = rig();
     let c = ctx(&rig, "c0");
-    let answers = fixture("arg-answers", "answers");
+    let answers: JsonValue = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/tool-arg-answers/answers.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
     let mut failures = Vec::new();
     let mut compared = 0;
     for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "task") {
