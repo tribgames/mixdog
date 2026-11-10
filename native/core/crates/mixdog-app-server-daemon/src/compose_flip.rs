@@ -1003,6 +1003,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             now: now_ms.clone(),
         }))
     };
+    let visualize_panes = Arc::new(mixdog_exthost::VisualizePanes::default());
     let seams = DomainSeams {
         provider_roster: provider_admin.clone(),
         quota_resume: quota_store.clone(),
@@ -1037,6 +1038,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         browser_surfaces: Arc::new(crate::domain_seams::browser_surfaces::FeedSurfaces::new(
             mixdog_core_session::session::terminal_host::AppFeedOpen::new(b.sections.clone(), b.presence.clone()),
         )),
+        visualize_panes: visualize_panes.clone(),
         instructions_changed: crate::domain_seams::profile_changes::InstructionsAnnounce::new(gauge.clone(), Arc::default()),
         plugins: PluginSeams {
             host: extension_host.clone(),
@@ -2415,7 +2417,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }))
         .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
-    builder.register(Arc::new(mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())))?;
+    // A phone's pages: a registered project's entry or its device's granted file (the workspace's catalog and grant
+    // store), or a visualize pane's own file (the tabs the desktop set).
+    builder.register(Arc::new(
+        mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())
+            .with_relay_scope(Arc::new(crate::domain_seams::relay_files::WorkspaceRelayFiles(workspace.clone())), visualize_panes.clone()),
+    ))?;
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`
     builder.register(Arc::new(mixdog_tools::orch::status::ToolsService::new(tool_surface.clone())))?; // `tools/*`
     builder.register(Arc::new(mixdog_scm::service::ScmHandle(mixdog_scm::service::ScmService::new(
