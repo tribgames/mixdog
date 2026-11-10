@@ -2331,6 +2331,9 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     let second = seen[1].as_ref().expect("the judged effort is on the very next request");
     assert_eq!(second.updates.iter().collect::<Vec<_>>(), [(&2, &"high".to_owned())]);
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
+    // `currentTurnEffort`: the turn's own snapshot, then the step the judge re-marked.
+    let published: Vec<_> = h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).collect();
+    assert_eq!(published, [Some("low".to_owned()), Some("high".to_owned())]);
 }
 struct Artifacts(Mutex<Vec<String>>);
 #[async_trait]

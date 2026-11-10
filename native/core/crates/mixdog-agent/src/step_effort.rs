@@ -139,8 +139,10 @@ impl Run {
             })
         });
         if let Some(snapshot) = marked {
+            let effort = snapshot.effort.clone();
             self.messages[index].effort = Some(snapshot);
             self.env.sink.replace(&self.messages, &crate::env::Rewrite::default());
+            self.emit(crate::env::RunEvent::TurnEffort(Some(effort)));
         }
     }
 

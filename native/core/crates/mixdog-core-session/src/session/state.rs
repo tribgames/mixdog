@@ -442,6 +442,7 @@ impl SessionState {
             Section::Toasts(toasts) => s.runtime.get_or_insert_with(ThreadRuntime::default).toasts = toasts,
             Section::ProgressHint(hint) => s.runtime.get_or_insert_with(ThreadRuntime::default).progress_hint = hint,
             Section::Route(value) => s.route = Some(merge_route(s.route.take().unwrap_or_default(), value)),
+            Section::TurnEffort(effort) => s.route.get_or_insert_with(ThreadRoute::default).turn_effort = effort,
             Section::Context(value) => s.context = Some(merge_context(s.context.take().unwrap_or_default(), value)),
             Section::Todo(value) => s.todo = value,
             Section::Goal(value) => s.goal = value,
@@ -749,5 +750,18 @@ mod tests {
         state.apply(&Change::Section(Section::SetupChanged(change.clone())), None);
         state.apply(&Change::Section(Section::Runtime(ThreadRuntime { busy: true, ..ThreadRuntime::default() })), None);
         assert_eq!(state.sections.runtime.unwrap().setup_changed, Some(change));
+    }
+
+    /// `runtime.turnEffort` (`currentTurnEffort`): the run's value replaces the held one, a turn
+    /// without one clears it, and a producer's whole route section leaves it.
+    #[test]
+    fn the_turn_effort_is_the_runs_and_a_route_section_leaves_it() {
+        let mut state = SessionState::new(10);
+        assert_eq!(state.route().turn_effort, None);
+        state.apply(&Change::Section(Section::TurnEffort(Some("medium".into()))), None);
+        state.apply(&Change::Section(Section::Route(ThreadRoute { effort: Some("high".into()), ..ThreadRoute::default() })), None);
+        assert_eq!((state.route().turn_effort.as_deref(), state.route().effort.as_deref()), (Some("medium"), Some("high")));
+        state.apply(&Change::Section(Section::TurnEffort(None)), None);
+        assert_eq!(state.route().turn_effort, None);
     }
 }
