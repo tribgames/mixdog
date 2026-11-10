@@ -1,12 +1,15 @@
 //! Connection writer API (P §6.5): implemented by `mixdog-app-server-transport`, used by the
 //! server (control lane) and by every feed (subscription lanes).
 //!
-//! The connection's `queueBytes` is split into a control reserve (responses, errors, server
-//! requests, `serverRequest/resolved`, pings; never dropped) and one event budget shared by all
-//! lanes, with no per-lane minimum. One writer task per connection writes the control lane
-//! first, then lanes round-robin one frame per turn, strict order inside a lane. Bytes return
-//! to the budget when a frame is handed to the socket. No method here waits: producers never
-//! wait on a socket; a full budget is answered by lag (feeds) or close (control).
+//! The connection's `queueBytes` is split into the ordered class's reserve (responses, errors,
+//! server requests, `serverRequest/resolved` and the frames of ordered lanes; never dropped)
+//! and one event budget shared by all lanes, with no per-lane minimum. One writer task per
+//! connection writes pings first and every text frame in the order it was queued on the
+//! connection (Lead decision 2026-11-11): nothing overtakes a frame queued earlier, except that
+//! a lane's frames wait for the response that opens it and a lagged lane's recovery snapshot may
+//! land after frames queued meanwhile. Bytes return to the budget when a frame is handed to the
+//! socket. No method here waits: producers never wait on a socket; a full budget is answered
+//! by lag (droppable feeds) or close (the ordered class).
 //!
 //! Ordering contract per lane: a lane opens gated; the writer drains none of its frames until
 //! the response that carries its [`LaneRelease`] has been written on the control lane
@@ -51,14 +54,32 @@ pub trait ConnectionSink: Send + Sync {
         sub: SubscriptionId,
         recovery: Arc<dyn LaneRecovery>,
     ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed>;
+
+    /// [`Self::open_lane`] for a feed whose events are never dropped (the ordered class): its
+    /// frames hold the control reserve, and once anything of it was written a failed
+    /// reservation closes the connection with 4000 `slowConsumer` instead of lagging. A sink
+    /// without the class opens a plain lane.
+    fn open_ordered_lane(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        self.open_lane(sub, recovery)
+    }
 }
 
 /// One subscription's ordered lane inside a connection.
 pub trait Lane: Send + Sync {
     fn sub(&self) -> SubscriptionId;
 
-    /// Reserves bytes from the connection's shared event budget.
+    /// Reserves bytes for frames: from the connection's shared event budget, or for an ordered
+    /// lane from the control reserve.
     fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull>;
+
+    /// Reserves bytes for a snapshot slot, always from the event budget.
+    fn try_reserve_snapshot(&self, bytes: usize) -> Result<Reservation, BudgetFull> {
+        self.try_reserve(bytes)
+    }
 
     /// Appends `frame`, holding `reservation` (≥ `frame.len()`) until the frame is written.
     /// On a lagged or closed lane the frame is discarded and the bytes return at once.
