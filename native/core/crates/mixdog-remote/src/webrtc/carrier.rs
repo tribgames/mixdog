@@ -234,7 +234,7 @@ async fn run(
     };
     let setup = tokio::time::sleep(peer::SETUP_BUDGET);
     tokio::pin!(setup);
-    let opened = budget.step("open", peer::open(&config, || Ok(None))).await.and_then(|opened| opened);
+    let opened = budget.step("open", peer::open(&config, None)).await.and_then(|opened| opened);
     let peer::Opened { pc, events: mut peer_events } = match opened {
         Ok(opened) => opened,
         Err(fault) => return emit(CarrierEvent::Failed(fault)),

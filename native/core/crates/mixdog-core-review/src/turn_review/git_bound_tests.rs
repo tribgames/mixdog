@@ -35,10 +35,10 @@ use super::shadow::ShadowRepos;
 
 /// What the real process manager does with a child it kills at its run limit: the exit, with the
 /// time limit as its reason, once the limit has passed. With `after`, the limit starts only once
-/// that gate opens.
+/// that order's late capture has queued ([`Order`]).
 struct HeldUntilLimit {
     limit: Option<Duration>,
-    after: Option<watch::Receiver<bool>>,
+    after: Option<Arc<Order>>,
 }
 
 #[async_trait]
@@ -46,8 +46,10 @@ impl EventSource<ProcessEvent> for HeldUntilLimit {
     async fn next(&mut self) -> Option<ProcessEvent> {
         match self.limit {
             Some(limit) => {
-                if let Some(after) = self.after.as_mut() {
-                    after.wait_for(|open| *open).await.expect("the order gate outlives the capture");
+                if let Some(order) = &self.after {
+                    let mut queued = order.queued.subscribe();
+                    let what = format!("the {} capture's hung write-tree starts its limit once the {} capture has its root (`queued`)", order.early(), order.late);
+                    order.awaiting(what, queued.wait_for(|open| *open)).await.expect("the order gate outlives the capture");
                 }
                 tokio::time::sleep(limit).await;
                 self.limit = None;
@@ -118,11 +120,61 @@ fn root_query(args: &[String]) -> bool {
 /// only once the other one's write-tree hangs (`hung`: `Some(true)`, or `Some(false)` when the
 /// other capture ended without one), and the hung write-tree's limit starts only once `late` has
 /// its root (`queued`), that is once it waits at the lock, so the paused clock cannot reach the
-/// limit while a real git of `late` still runs.
+/// limit while a real git of `late` still runs. `late` ending without its root answered (its
+/// `rev-parse` failed to start) also opens `queued`, so the other capture's limit runs and the
+/// test ends on its assertions.
 struct Order {
     late: &'static str,
     hung: watch::Sender<Option<bool>>,
     queued: watch::Sender<bool>,
+    /// The order's waits in progress, for the message of a run that does not end.
+    awaited: Mutex<Vec<String>>,
+}
+
+impl Order {
+    fn new(late: &'static str) -> Arc<Self> {
+        Arc::new(Self { late, hung: watch::Sender::new(None), queued: watch::Sender::new(false), awaited: Mutex::default() })
+    }
+
+    fn early(&self) -> &'static str {
+        if self.late == "first" { "second" } else { "first" }
+    }
+
+    /// `wait`, listed as `what` while it is pending.
+    async fn awaiting<T>(&self, what: String, wait: impl std::future::Future<Output = T>) -> T {
+        self.awaited.lock().unwrap().push(what.clone());
+        let out = wait.await;
+        self.awaited.lock().unwrap().retain(|pending| *pending != what);
+        out
+    }
+}
+
+/// How long, in real time, the two captures may take before the run is taken as gone wrong. Real
+/// time, not the paused test clock: no timer of the test runtime is pending for it, so it cannot
+/// move that clock and has no say in the order of a run that passes. Below nextest's 120 s
+/// termination, so the run ends with this message rather than a bare timeout.
+const WALL_DEADLINE: Duration = Duration::from_secs(60);
+
+/// `run` within [`WALL_DEADLINE`]; a run that has not ended by then fails with `test` and the
+/// order's waits still pending.
+async fn within_wall_deadline<T>(test: &str, order: &Order, run: impl std::future::Future<Output = T>) -> T {
+    let (done, ended) = std::sync::mpsc::channel::<()>();
+    let (expire, expired) = tokio::sync::oneshot::channel::<()>();
+    let watchdog = std::thread::spawn(move || {
+        if ended.recv_timeout(WALL_DEADLINE) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            let _ = expire.send(());
+        }
+    });
+    tokio::pin!(run);
+    tokio::select! {
+        biased;
+        out = &mut run => {
+            drop(done);
+            watchdog.join().expect("the watchdog thread ends");
+            out
+        }
+        Ok(()) = expired => panic!("{test}: the two captures did not end within {WALL_DEADLINE:?} of real time; still awaited: {:?}", order.awaited.lock().unwrap()),
+    }
 }
 
 /// A real child's events, its exit withheld as [`Order`] says.
@@ -136,8 +188,11 @@ impl EventSource<ProcessEvent> for Withheld {
     async fn next(&mut self) -> Option<ProcessEvent> {
         let event = self.inner.next().await;
         if matches!(event, Some(ProcessEvent::Exited { .. })) {
-            self.order.hung.subscribe().wait_for(Option::is_some).await.expect("the order outlives the capture");
-            self.order.queued.send_replace(true);
+            let order = &self.order;
+            let mut hung = order.hung.subscribe();
+            let what = format!("the {} capture's repository root, withheld until the {} capture's write-tree hangs (`hung`)", order.late, order.early());
+            order.awaiting(what, hung.wait_for(Option::is_some)).await.expect("the order outlives the capture");
+            order.queued.send_replace(true);
         }
         event
     }
@@ -189,8 +244,7 @@ impl ProcessManager for Observed {
 
     fn subscribe(&self, handle: &ProcessHandle, from: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         if let Some((_, limit)) = self.held.lock().unwrap().as_ref().filter(|(held, _)| held == handle) {
-            let after = self.order.as_ref().map(|order| order.queued.subscribe());
-            return Ok(Box::new(HeldUntilLimit { limit: *limit, after }));
+            return Ok(Box::new(HeldUntilLimit { limit: *limit, after: self.order.clone() }));
         }
         let inner = self.inner.subscribe(handle, from)?;
         match &self.order {
@@ -312,7 +366,7 @@ async fn a_hung_git_fails_with_the_recorded_text_at_its_limit() {
 /// behind it starts no git until then, then runs its own `write-tree` and snapshots the worktree.
 #[tokio::test(start_paused = true)]
 async fn a_capture_queued_behind_a_hung_write_tree_runs_after_the_limit_and_snapshots() {
-    captures_queued_behind_a_hung_write_tree("second").await;
+    captures_queued_behind_a_hung_write_tree("a_capture_queued_behind_a_hung_write_tree_runs_after_the_limit_and_snapshots", "second").await;
 }
 
 /// The same queue when the join's second capture has its repository root first, as a busy machine
@@ -321,12 +375,12 @@ async fn a_capture_queued_behind_a_hung_write_tree_runs_after_the_limit_and_snap
 /// first is the one that hangs and gives up, whichever of the two it is.
 #[tokio::test(start_paused = true)]
 async fn a_capture_queued_behind_a_hung_write_tree_runs_whichever_capture_locked_first() {
-    captures_queued_behind_a_hung_write_tree("first").await;
+    captures_queued_behind_a_hung_write_tree("a_capture_queued_behind_a_hung_write_tree_runs_whichever_capture_locked_first", "first").await;
 }
 
 /// Two captures of one root joined as `"first"` and `"second"`; `late` is the one that reaches the
-/// root's lock behind the other ([`Order`]).
-async fn captures_queued_behind_a_hung_write_tree(late: &'static str) {
+/// root's lock behind the other ([`Order`]). `test` names the run in a deadline failure.
+async fn captures_queued_behind_a_hung_write_tree(test: &str, late: &'static str) {
     let recorded = bounds();
     let captures = &recorded["measured"]["captures"];
     let limit = millis(&recorded["sourceLimits"]["commandTimeoutMs"]);
@@ -338,7 +392,7 @@ async fn captures_queued_behind_a_hung_write_tree(late: &'static str) {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let real = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
-    let order = Arc::new(Order { late, hung: watch::Sender::new(None), queued: watch::Sender::new(false) });
+    let order = Order::new(late);
     let processes = Observed::new(real, Some(&verb), Some(order.clone()));
     let scm = mixdog_scm::engine::Scm::new(processes.clone(), tokens.maintenance_io, dir.path().join("scm-scratch"));
     let disk: Arc<dyn ReviewDisk> = Arc::new(super::disk::LaneDisk::new(tokens));
@@ -362,10 +416,14 @@ async fn captures_queued_behind_a_hung_write_tree(late: &'static str) {
             let snapshot = worktrees.create(root).await;
             // A capture that ended without a hung write-tree lets the late one have its root.
             order.hung.send_if_modified(|hung| hung.is_none() && hung.replace(false).is_none());
+            // The late capture ended without having queued: the other's limit runs.
+            if name == order.late {
+                order.queued.send_if_modified(|queued| !std::mem::replace(queued, true));
+            }
             snapshot
         })
     };
-    let (first, second) = tokio::join!(capture("first"), capture("second"));
+    let (first, second) = within_wall_deadline(test, &order, async { tokio::join!(capture("first"), capture("second")) }).await;
     let (hung, queued) = if late == "second" { (first, second) } else { (second, first) };
     assert!(hung.is_none(), "the capture whose write-tree hung gives up");
     let snapshot = queued.expect("the queued capture runs and snapshots");
