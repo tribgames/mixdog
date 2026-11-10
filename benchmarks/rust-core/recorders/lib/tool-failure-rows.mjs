@@ -31,6 +31,30 @@ function maskStrings(value, mask) {
 
 const utf8 = (s) => Buffer.byteLength(s, 'utf8');
 
+// The helper programs the Node runtime itself starts and keeps (the shell host `mixdog-spawn`, resolved at
+// native-spawn-client.mjs:366-395 and kept warm by shell-warm-standby.mjs:87-100; the patch tool `mixdog-patch`,
+// pristine-execution.mjs:120-150), each with its version in its image name. They are Node's machinery, not anything a tool call
+// left: the Rust core has no such processes, so they and the console host each one has are set aside from Node's leftovers.
+const NODE_HELPERS = [/^mixdog-spawn-\d+\.\d+\.\d+$/, /^mixdog-patch-\d+\.\d+\.\d+$/];
+const isNodeHelper = (name) => NODE_HELPERS.some((pattern) => pattern.test(name ?? ''));
+
+/**
+ * What a run's job still held when its program exited (lib/job-run.mjs report), in join order, as `{ name, parent }`: the image name,
+ * and its parent as `#k` (the k-th entry of this list), `<runtime>` (the program itself, or for Node one of its helpers: Node's shell
+ * host starts a command where the core starts it itself), or null (any other process). Process ids are each run's own and are
+ * dropped. With `nodeHelpers`, Node's own helpers and the console host whose parent is one of them are set aside (NODE_HELPERS).
+ */
+export function leftAtExit({ program, left }, { nodeHelpers = false } = {}) {
+  const kept = nodeHelpers ? left.filter((m) => !isNodeHelper(m.name) && !(m.name === 'conhost' && isNodeHelper(m.parent))) : left;
+  const parentOf = (m) => {
+    const k = kept.findIndex((other) => other.pid === m.parentPid);
+    if (k >= 0) return `#${k}`;
+    if (m.parentPid === program || (nodeHelpers && isNodeHelper(m.parent))) return '<runtime>';
+    return null;
+  };
+  return kept.map((m) => ({ name: m.name, parent: parentOf(m) }));
+}
+
 /**
  * The rows of `text` normalised, grouped by scenario: `sessions[i]` is scenario i's session id (a string; any other value names no
  * session). A row whose `session_id` is not one of them fails, and so does a row that is not after every row of the scenarios before

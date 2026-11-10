@@ -1,15 +1,18 @@
 // Runs a program inside a Windows job object of its own, so what it leaves behind is found by ownership, not by text: every process
 // it starts, and every process those start, is a member of the job (a member's children join their parent's jobs), whatever its
-// command line names. The job is held by a PowerShell host that starts the program with exactly the given environment, waits for it
-// to exit, then lists the job's members other than itself: a member still running after a bounded wait for it to finish exiting
-// (10 s, a process ended at the program's own exit is gone well within it) is left behind. The host then ends every remaining member
-// (TerminateJobObject, which ends the host as well, after its report is written: the host's own exit code is then not the program's;
-// the report's is). The job is made with KILL_ON_JOB_CLOSE, so ending the host (a deadline, a failure)
-// ends the whole tree.
+// command line names. The job is held by a PowerShell host that joins it before starting the program with exactly the given
+// environment. The job reports every process that joins or leaves it to the host's completion port, in the order it happened; the
+// host follows those reports until the program's own exit, and every member other than itself that had joined and not left by then
+// is left behind, whether or not it ends by itself afterwards. Reports to a completion port are notifications the system may drop,
+// so the host then checks them against the job's own accounting (TotalProcesses, ActiveProcesses): a join it was not told of fails
+// the run instead of being missed. The host then ends every remaining member (TerminateJobObject, which ends the host as well, after
+// its report is written: the host's own exit code is then not the program's; the report's is). The job is made with
+// KILL_ON_JOB_CLOSE, so ending the host (a deadline, a failure) ends the whole tree.
 //
 //   const child = spawnInJob(file, args, { env, cwd, stdio, report });   // a ChildProcess: the host, with the program's exit code
 //   ... await its exit ...
-//   const { exitCode, left } = readJobReport(report);                     // left: [{ pid, name, commandLine }]
+//   const { exitCode, program, left } = readJobReport(report);            // left: [{ pid, name, parentPid, parent, commandLine }]
+//   (names are taken when a member joins; `parent` is the parent's name while it was a member, otherwise null)
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -26,9 +29,22 @@ public static class JobRun {
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length, IntPtr returned);
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
   [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateIoCompletionPort(IntPtr file, IntPtr existing, UIntPtr key, uint threads);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetQueuedCompletionStatus(IntPtr port, out uint message, out UIntPtr key, out IntPtr detail, uint ms);
   [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
-  public static IntPtr Create() {
-    IntPtr job = CreateJobObject(IntPtr.Zero, null);
+  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int infoClass, IntPtr info, int length, IntPtr returned);
+  static IntPtr job, port;
+  // Every process that has joined the job and not left it, in the order the job reported their joins, and how many joins it reported.
+  static readonly List<long> alive = new List<long>();
+  static long joins;
+  public static readonly Dictionary<long, string> names = new Dictionary<long, string>();
+  static readonly Dictionary<long, long> parents = new Dictionary<long, long>();
+  public static string NameOf(long pid) { string name; return names.TryGetValue(pid, out name) ? name : null; }
+  /** The parent's name when the parent was a member of the job (a name taken while it ran), otherwise null. */
+  public static string ParentNameOf(long pid) { long parent; return parents.TryGetValue(pid, out parent) ? NameOf(parent) : null; }
+  public static long ParentOf(long pid) { long parent; return parents.TryGetValue(pid, out parent) ? parent : -1; }
+  public static void Create() {
+    job = CreateJobObject(IntPtr.Zero, null);
     if (job == IntPtr.Zero) throw new Exception("CreateJobObject failed: " + Marshal.GetLastWin32Error());
     // JOBOBJECT_EXTENDED_LIMIT_INFORMATION (144 bytes on x64); LimitFlags at 16: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
     IntPtr info = Marshal.AllocHGlobal(144);
@@ -37,30 +53,75 @@ public static class JobRun {
     bool set = SetInformationJobObject(job, 9, info, 144);
     Marshal.FreeHGlobal(info);
     if (!set) throw new Exception("SetInformationJobObject failed: " + Marshal.GetLastWin32Error());
+    // The port is associated before the first member joins (JOBOBJECT_ASSOCIATE_COMPLETION_PORT, class 7), so every join is reported.
+    port = CreateIoCompletionPort(new IntPtr(-1), IntPtr.Zero, UIntPtr.Zero, 1);
+    if (port == IntPtr.Zero) throw new Exception("CreateIoCompletionPort failed: " + Marshal.GetLastWin32Error());
+    IntPtr assoc = Marshal.AllocHGlobal(16);
+    Marshal.WriteIntPtr(assoc, 0, IntPtr.Zero);
+    Marshal.WriteIntPtr(assoc, 8, port);
+    set = SetInformationJobObject(job, 7, assoc, 16);
+    Marshal.FreeHGlobal(assoc);
+    if (!set) throw new Exception("associating the completion port failed: " + Marshal.GetLastWin32Error());
     if (!AssignProcessToJobObject(job, GetCurrentProcess())) throw new Exception("AssignProcessToJobObject failed: " + Marshal.GetLastWin32Error());
-    return job;
   }
-  public static long[] Members(IntPtr job) {
-    const int max = 4096;
-    IntPtr info = Marshal.AllocHGlobal(8 + 8 * max);
+  /** Follows the job's reports until the process 'program' has left it; returns the members that were in it then, the host's excluded. */
+  public static long[] UntilExit(long program, long host) {
+    while (true) {
+      uint message; UIntPtr key; IntPtr detail;
+      // No deadline here: the caller's deadline ends the host, and with it the job (KILL_ON_JOB_CLOSE).
+      if (!GetQueuedCompletionStatus(port, out message, out key, out detail, 0xFFFFFFFF)) throw new Exception("GetQueuedCompletionStatus failed: " + Marshal.GetLastWin32Error());
+      long pid = detail.ToInt64();
+      // JOB_OBJECT_MSG_NEW_PROCESS 6, JOB_OBJECT_MSG_EXIT_PROCESS 7, JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS 8.
+      if (message == 6) {
+        joins++;
+        alive.Add(pid);
+        // Its name and its parent's while it runs, for the report: a member may be gone by the time the report is written.
+        names[pid] = null;
+        parents[pid] = -1;
+        try {
+          System.Diagnostics.Process member = System.Diagnostics.Process.GetProcessById((int)pid);
+          names[pid] = member.ProcessName;
+          // PROCESS_BASIC_INFORMATION (class 0, 48 bytes on x64): InheritedFromUniqueProcessId at 40.
+          IntPtr basic = Marshal.AllocHGlobal(48);
+          try {
+            if (NtQueryInformationProcess(member.Handle, 0, basic, 48, IntPtr.Zero) == 0) parents[pid] = Marshal.ReadInt64(basic, 40);
+          } finally {
+            Marshal.FreeHGlobal(basic);
+          }
+        } catch (ArgumentException) {
+        } catch (InvalidOperationException) {
+        } catch (System.ComponentModel.Win32Exception) {
+        }
+      } else if (message == 7 || message == 8) {
+        alive.Remove(pid);
+        if (pid == program) break;
+      }
+    }
+    List<long> left = new List<long>(alive);
+    left.Remove(host);
+    return left.ToArray();
+  }
+  /** With no member left behind, the job's accounting must agree with its reports: every process it ever held was reported joining,
+   *  and the host is its only member. A disagreement means a report was dropped, and membership at the program's exit is unknown. */
+  public static string Unreported() {
+    // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION (class 1, 48 bytes): TotalProcesses at 36, ActiveProcesses at 40.
+    IntPtr info = Marshal.AllocHGlobal(48);
     try {
-      if (!QueryInformationJobObject(job, 3, info, (uint)(8 + 8 * max), IntPtr.Zero)) throw new Exception("QueryInformationJobObject failed: " + Marshal.GetLastWin32Error());
-      int assigned = Marshal.ReadInt32(info, 0);
-      int listed = Marshal.ReadInt32(info, 4);
-      if (listed != assigned) throw new Exception("the job lists " + listed + " of its " + assigned + " members");
-      long[] ids = new long[listed];
-      for (int i = 0; i < listed; i++) ids[i] = Marshal.ReadInt64(info, 8 + 8 * i);
-      return ids;
+      if (!QueryInformationJobObject(job, 1, info, 48, IntPtr.Zero)) throw new Exception("QueryInformationJobObject failed: " + Marshal.GetLastWin32Error());
+      long total = (uint)Marshal.ReadInt32(info, 36);
+      long active = (uint)Marshal.ReadInt32(info, 40);
+      if (total == joins && active == 1) return null;
+      return "the job held " + total + " processes (" + active + " active) but reported " + joins + " joins (" + alive.Count + " not left)";
     } finally {
       Marshal.FreeHGlobal(info);
     }
   }
-  public static void End(IntPtr job) {
+  public static void End() {
     if (!TerminateJobObject(job, 1)) throw new Exception("TerminateJobObject failed: " + Marshal.GetLastWin32Error());
   }
 }
 '@
-$job = [JobRun]::Create()
+[JobRun]::Create()
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = $env:JOB_RUN_FILE
 $psi.Arguments = $env:JOB_RUN_ARGS
@@ -71,21 +132,20 @@ $report = $env:JOB_RUN_REPORT
 $psi.EnvironmentVariables.Clear()
 foreach ($p in $wanted.PSObject.Properties) { $psi.EnvironmentVariables[$p.Name] = [string]$p.Value }
 $program = [System.Diagnostics.Process]::Start($psi)
+$stayed = [JobRun]::UntilExit($program.Id, $PID)
 $program.WaitForExit()
 $code = $program.ExitCode
+$unreported = $null
+if ($stayed.Count -eq 0) { $unreported = [JobRun]::Unreported() }
 $left = @()
-$members = [JobRun]::Members($job)
-foreach ($id in $members) {
-  if ($id -eq $PID) { continue }
-  $member = $null
-  try { $member = [System.Diagnostics.Process]::GetProcessById([int]$id) } catch [System.ArgumentException] { continue }
-  if ($member.WaitForExit(10000)) { continue }
+foreach ($id in $stayed) {
+  # A member may have ended since the program's exit: it is left behind all the same, named when it still runs.
   $cim = Get-CimInstance Win32_Process -Filter "ProcessId=$id"
-  $left += [pscustomobject]@{ pid = [int]$id; name = $cim.Name; commandLine = $cim.CommandLine }
+  $left += [pscustomobject]@{ pid = [int]$id; name = [JobRun]::NameOf($id); parentPid = [JobRun]::ParentOf($id); parent = [JobRun]::ParentNameOf($id); commandLine = $(if ($cim) { $cim.CommandLine } else { $null }) }
 }
-[System.IO.File]::WriteAllText($report, (ConvertTo-Json -Compress -Depth 4 @{ exitCode = $code; members = @($members); left = @($left); complete = $true }))
+[System.IO.File]::WriteAllText($report, (ConvertTo-Json -Compress -Depth 4 @{ exitCode = $code; program = $program.Id; left = @($left); unreported = $unreported; complete = $true }))
 # Ending the job ends this host too (it is a member): the report is written first.
-if ($left.Count -gt 0) { [JobRun]::End($job) }
+if ($left.Count -gt 0) { [JobRun]::End() }
 exit $code
 `;
 
@@ -107,5 +167,6 @@ export function readJobReport(report) {
   if (!existsSync(report)) throw new Error(`the job host wrote no report (${report}): it failed before the program's members were listed`);
   const parsed = JSON.parse(readFileSync(report, 'utf8').replace(/^\uFEFF/, ''));
   if (parsed.complete !== true || !Array.isArray(parsed.left)) throw new Error(`the job host's report is incomplete: ${JSON.stringify(parsed)}`);
-  return { exitCode: parsed.exitCode, left: parsed.left };
+  if (parsed.unreported) throw new Error(`the job's membership at the program's exit is unknown: ${parsed.unreported}`);
+  return { exitCode: parsed.exitCode, program: parsed.program, left: parsed.left };
 }

@@ -12,7 +12,7 @@ import { register } from 'node:module';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FILES, scenarios } from './lib/tool-failure-scenarios.mjs';
-import { rowsByScenario } from './lib/tool-failure-rows.mjs';
+import { leftAtExit, rowsByScenario } from './lib/tool-failure-rows.mjs';
 import { readJobReport, spawnInJob } from './lib/job-run.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -65,8 +65,8 @@ async function loadLibs() {
 
 /**
  * Runs one scenario on a fresh core and returns the file it wrote. `root` is this scenario's folder under the run's folder. The core runs
- * in a job object of its own (lib/job-run.mjs): every process it or its tools start is a member, and a member still running after the
- * core exits fails the scenario (and is ended); ending the core's host on any failure path ends the job.
+ * in a job object of its own (lib/job-run.mjs): every process it or its tools start is a member, and the members still in it when the
+ * core exits are returned (and ended) for the caller to compare with Node's; ending the core's host on any failure path ends the job.
  */
 async function runScenario(scenario, root, ws, bin) {
   const home = join(root, 'home');
@@ -186,10 +186,10 @@ async function runScenario(scenario, root, ws, bin) {
     if (!stopped.ok) throw new Error(`/mgmt/stop answered ${stopped.status}`);
     await deadline(exited, 30_000, 'the core exiting');
     const job = readJobReport(join(root, 'job.json'));
-    if (job.left.length) throw new Error(`the core left processes behind (ended now): ${JSON.stringify(job.left)}`);
     if (job.exitCode !== 0) throw new Error(`the core exited with ${job.exitCode}`);
     const file = join(p.data, 'history', 'tool-failures.jsonl');
-    return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '' };
+    // What the job still held when the core exited (ended since by the job host), compared with Node's by the caller.
+    return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '', left: leftAtExit(job), rawLeft: job.left };
   } finally {
     // Every step of the teardown is bounded and runs; the first that failed fails the scenario (after a failure of its own, that one).
     const problems = [];
@@ -222,7 +222,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (JSON.stringify(scenarios(ws)) !== JSON.stringify(golden.scenarios)) throw new Error('the scenarios built for this workspace are not the recorded ones');
     for (const [i, scenario] of golden.scenarios.entries()) {
       if (only && !only.includes(i)) continue;
-      const { threadId, dataDir, text } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
+      const { threadId, dataDir, text, left, rawLeft } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
+      // What the core left running at its exit must be what Node left at its own (Node's helpers set aside), whole and in join order.
+      if (JSON.stringify(left) !== JSON.stringify(golden.leftAtExit[i])) {
+        bad += 1;
+        console.log(`DIFF ${i} ${scenario.name}: left at exit\n   core: ${JSON.stringify(rawLeft)}\n   node: ${JSON.stringify(golden.leftAtExit[i])}`);
+      }
       // The core's file of this scenario, normalised as Node's was. This core ran scenario i alone, so its thread is the only session
       // a row may name: a row of any other session (or of none) fails the run.
       const sessions = golden.scenarios.map((_, k) => (k === i ? threadId : undefined));
