@@ -59,6 +59,11 @@ fn directory_over(rig: &Rig) -> (SessionDirectory, Arc<NewTaskReceipts>) {
 
 /// The submit of the desktop and the phone: `thread/start` of a task with its first prompt and the client's submission id.
 async fn submit(directory: &SessionDirectory, op: &str, id: &str, prompt: &str, draft: Value) -> Result<String, CoreError> {
+    submit_on(directory, op, id, prompt, draft, CancellationToken::new()).await
+}
+
+/// `submit` on a connection whose end cancels `connection`.
+async fn submit_on(directory: &SessionDirectory, op: &str, id: &str, prompt: &str, draft: Value, connection: CancellationToken) -> Result<String, CoreError> {
     let reply = directory
         .request(CoreRequest {
             method: Method("thread/start"),
@@ -67,7 +72,7 @@ async fn submit(directory: &SessionDirectory, op: &str, id: &str, prompt: &str, 
                 "initialInput": { "prompt": prompt, "options": { "clientSubmissionId": id } },
             }),
             op: Some(OpId::from(op)),
-            ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new()),
+            ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, connection),
         })
         .await?;
     let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
@@ -232,6 +237,41 @@ async fn an_accepted_receipt_found_at_start_answers_the_session_and_sends_nothin
     assert_eq!(std::fs::read(receipt_path(&rig, "sub-m")).expect("receipt"), on_disk, "nothing is written for a replay");
     assert!(receipts.writes.lock().unwrap().is_empty());
 }
+/// A lost reply: the client's connection ends while its request runs and the client retries. The attempt does not end with its
+/// caller (Node's promise runs without it), so whatever phase the reply was lost after, the retry finds the attempt running and
+/// joins it, or finds it `accepted`: one task, one prompt.
+#[tokio::test(start_paused = true)]
+async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
+    let rig = Rig::new();
+    let (sending, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+    let runs = Arc::new(AtomicUsize::new(0));
+    let (counted, at_run, held) = (runs.clone(), sending.clone(), release.clone());
+    rig.set_script(Arc::new(move |_run| {
+        counted.fetch_add(1, Ordering::SeqCst);
+        at_run.notify_one();
+        let held = held.clone();
+        Box::pin(async move {
+            held.acquire().await.expect("open").forget();
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let (directory, _) = directory_over(&rig);
+    let connection = CancellationToken::new();
+    // The prompt is being sent: the connection ends and the call is dropped with it, before any answer.
+    tokio::select! {
+        biased;
+        () = sending.notified() => connection.cancel(),
+        answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered before the connection ended: {answered:?}"),
+    }
+    release.add_permits(1);
+    let retry = submit(&directory, "op-2", "sub-l", "write the report", json!({})).await.expect("retry");
+    assert_eq!(retry, derived("sub-l"));
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+    assert_eq!(directory.loaded_ids().len(), 1, "one task");
+    let receipt = stored(&rig, "sub-l").expect("receipt");
+    assert_eq!((receipt.phase(), receipt.refused()), (Phase::Accepted, false));
+}
+
 /// Two identical requests at once start one task; two with other content, the first holds the id.
 #[tokio::test(start_paused = true)]
 async fn requests_at_once_join_or_are_refused() {
@@ -267,14 +307,19 @@ async fn a_file_that_is_no_receipt_binds_nothing() {
     assert_eq!(stored(&rig, "sub-h").expect("receipt").phase(), Phase::Accepted);
 }
 
-/// An I/O error reading the receipt fails the request (a directory where the file should be).
+/// An I/O error reading the receipt fails the request (a directory where the file should be), with the error Node's read gives on
+/// every system (its recording's `io-error` reply: `EISDIR` and its text, where Windows refuses the open as access denied).
 #[tokio::test(start_paused = true)]
 async fn an_io_error_reading_the_receipt_fails_the_request() {
     let rig = Rig::new();
     let runs = counting(&rig);
     let (directory, _) = directory_over(&rig);
     std::fs::create_dir_all(receipt_path(&rig, "sub-i")).expect("obstruction");
-    assert!(submit(&directory, "op-1", "sub-i", "write the report", json!({})).await.is_err());
+    let failed = submit(&directory, "op-1", "sub-i", "write the report", json!({})).await.expect_err("refused");
+    let CoreError::DomainError { code: Some(code), message: Some(message), .. } = &failed else { panic!("a coded failure: {failed:?}") };
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/golden.json")).expect("golden");
+    let node = &golden["scenarios"]["io-error"]["recorded"][1]["reply"];
+    assert_eq!(json!({ "ok": false, "error": message.as_ref(), "code": code.as_ref() }), *node);
     assert_eq!(runs.load(Ordering::SeqCst), 0);
     assert_eq!(directory.loaded_ids().len(), 0);
 }

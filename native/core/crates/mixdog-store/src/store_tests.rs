@@ -768,6 +768,29 @@ async fn large_projection_spans_bounded_transactions() {
     assert_eq!(env.store.projected("s1").await.unwrap().unwrap().ordinal, n + 1);
 }
 
+/// A process that ends right after a barrier is acked never projects it (the projection runs
+/// behind the ack): the next open projects every acked frame of a session still marked dirty,
+/// so the rows a crash interrupted (a prompt whose turn never ran) are read again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn boot_projects_the_frames_a_crash_left_unprojected() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let (w, _) = env.commit(w, vec![item("a")]).await;
+    // Acked on disk, its projection lost with the process.
+    let (_w, acked) = env.append(w, vec![item("b"), item("c")]).await;
+    let end = acked.unwrap().positions.last().unwrap().ordinal + 1;
+    let (rows, _) = env.store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["a"]);
+    let reopened = open_index(&env.data).unwrap();
+    let (rows, _) = reopened.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["c", "b", "a"]);
+    assert_eq!(reopened.projected("s1").await.unwrap().unwrap().ordinal, end);
+    // A session whose index holds its whole log is left as it is.
+    let again = open_index(&env.data).unwrap();
+    let (rows, _) = again.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap();
+    assert_eq!(iids(&rows), ["c", "b", "a"]);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn catalog_upsert_keeps_sid_and_searches_folds() {
     let env = Env::new();

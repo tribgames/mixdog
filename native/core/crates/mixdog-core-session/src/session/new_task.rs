@@ -170,10 +170,22 @@ impl NewTaskReceipts {
 
     /// `readReceipt`: what is no receipt binds nothing; only an I/O error fails.
     async fn read(&self, path: &Path) -> Result<Option<Receipt>, CoreError> {
+        use mixdog_core_base::support::FsFailure;
+        use mixdog_core_base::support::FsStep;
         let path = path.to_owned();
-        let bytes = on_lane(self.io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&path))
-            .await?
-            .map_err(|error| failed("session", error.to_string()))?;
+        let bytes = on_lane(self.io, &CancellationToken::new(), move |lane| {
+            mixdog_statefile::read_content(&path).map_err(|error| {
+                // Node's `open` takes a folder and its read fails (`EISDIR: illegal operation on a directory, read`, libuv on
+                // every system); Windows refuses the open itself. Any other failure is the open's, as Node words it.
+                if mixdog_statefile::metadata(lane, &path).is_ok_and(|meta| meta.is_dir()) {
+                    FsFailure { error: io::ErrorKind::IsADirectory.into(), step: FsStep::Read }
+                } else {
+                    FsFailure { error, step: FsStep::Open(path.clone()) }
+                }
+            })
+        })
+        .await?
+        .map_err(|failure| mixdog_core_base::support::io_failure("session", &failure))?;
         Ok(bytes.and_then(|bytes| Receipt::parse(&bytes)))
     }
 
