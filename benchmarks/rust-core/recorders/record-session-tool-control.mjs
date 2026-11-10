@@ -25,7 +25,7 @@ for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APP
 }
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 const common = await import('./lib/common.mjs');
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } = common;
+const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } = common;
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-session-tool-control.mjs';
@@ -206,10 +206,9 @@ if (only) {
     set: 'session-tool-control',
     recorder: RECORDER,
     command: 'node benchmarks/rust-core/recorders/record-session-tool-control.mjs --tree <tree>',
-    identityTree: tree,
-    identityRef: NODE_COMMIT,
+    identity: nodeTreeIdentity(args, tree, NODE_COMMIT),
     extra: {
-      provenance: recordingProvenance(RECORDER, ['benchmarks/rust-core/recorders/lib/common.mjs']),
+      provenance: { recorder: RECORDER, ...recordingProvenance(RECORDER, ['benchmarks/rust-core/recorders/lib/common.mjs']) },
       exclusions: [
         'The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.',
         'Room sends, members and asks are not recorded (out of scope).',
