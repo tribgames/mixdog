@@ -44,7 +44,7 @@ impl KeychainVault {
 impl SecretVault for KeychainVault {
     async fn get(&self, account: &str) -> Result<Option<String>, VaultError> {
         // The one function every keychain read of the settings screens and of the key store passes in production.
-        #[cfg(test)]
+        #[cfg(feature = "count-work")]
         mixdog_ai::work::credential_read();
         self.store.get(account).await.map_err(vault_error)
     }
@@ -58,6 +58,8 @@ impl SecretVault for KeychainVault {
     }
 
     async fn is_fallback(&self, account: &str) -> Result<bool, VaultError> {
+        #[cfg(feature = "count-work")]
+        mixdog_ai::work::credential_read();
         self.store.is_fallback(account).await.map_err(vault_error)
     }
 }

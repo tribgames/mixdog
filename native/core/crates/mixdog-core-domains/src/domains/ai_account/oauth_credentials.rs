@@ -59,7 +59,7 @@ pub fn credential_file(provider: &str, env: &dyn Fn(&str) -> Option<String>, cwd
 
 fn read_document(path: &Path) -> Option<Value> {
     // The one disk read of an OAuth credential file on the describe path; it does not pass `mixdog_ai`'s `CredentialFile`.
-    #[cfg(test)]
+    #[cfg(feature = "count-work")]
     mixdog_ai::work::credential_read();
     let bytes = mixdog_statefile::read_content(path).ok()??;
     serde_json::from_slice(&bytes).ok()
