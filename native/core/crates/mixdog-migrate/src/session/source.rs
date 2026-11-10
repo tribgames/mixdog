@@ -110,6 +110,9 @@ fn read_json(id: &str, bytes: &[u8], replaced: &mut u64) -> R<(Header, Vec<Value
     let Value::Object(mut map) = value else {
         return q(QuarantineCode::SchemaViolation, "session json is not an object");
     };
+    if json::repeats_a_top_level_key(bytes) {
+        return q(QuarantineCode::ParseError, "session json repeats a top-level key");
+    }
     let messages = match map.shift_remove("messages") {
         Some(Value::Array(m)) => m,
         _ => return q(QuarantineCode::SchemaViolation, "messages is not an array"),

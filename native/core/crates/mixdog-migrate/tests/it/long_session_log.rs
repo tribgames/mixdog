@@ -158,3 +158,20 @@ fn a_log_that_is_not_the_manifests_publishes_nothing() {
     assert!(!roots.data.join("quarantine").exists(), "the log was not set aside");
     assert_eq!(std::fs::read_to_string(&path).expect("log"), changed, "the source stays as it is");
 }
+
+/// A 1.4.5 session json naming a top-level key twice was unreadable to 1.4.5 (`readTopLevelLifecycleRecord`,
+/// `lifecycle-scan.mjs`), whichever copy a parse would keep: it is quarantined, not migrated with the last copy.
+#[test]
+fn a_session_json_repeating_a_top_level_key_is_quarantined() {
+    let migrate_json = |text: &str| {
+        let dir = tempfile::tempdir().expect("scratch dir");
+        let roots = roots_in(dir.path());
+        std::fs::write(roots.data.join("sessions/sess_dup.json"), text).expect("write");
+        let complete = run(&roots);
+        let sessions = read_sessions(&roots, &complete.manifest_sha256).expect("fold");
+        (complete.kinds.data.quarantined_unexpected, sessions.len())
+    };
+    assert_eq!(migrate_json(r#"{"id":"sess_dup","title":"a","messages":[]}"#), (0, 1));
+    assert_eq!(migrate_json(r#"{"id":"sess_dup","title":"a","messages":[],"title":"b"}"#), (1, 0));
+    assert_eq!(migrate_json(r#"{"id":"sess_dup","title":{"x":1,"x":2},"messages":[]}"#), (0, 1), "only the top level");
+}
