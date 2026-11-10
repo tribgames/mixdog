@@ -7,7 +7,7 @@ import { copyFileSync, mkdirSync, readFileSync, watch, writeFileSync } from 'nod
 import { register } from 'node:module';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { endTree, spawnTree } from './process-tree.mjs';
+import { endTree, runTree, spawnTree } from './process-tree.mjs';
 
 export const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
 const DROP = /^(MIXDOG_|HTTPS?_PROXY$|ALL_PROXY$|NO_PROXY$|OPENAI_|ANTHROPIC_|GOOGLE_|GEMINI_|AZURE_|XDG_|ELECTRON_)/i;
@@ -205,6 +205,9 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
   const paths = isolatedPaths(root);
   const exe = stageProfile(paths, { bin, config });
   prepare?.(paths);
+  // The first launch of a freshly copied executable is slower than every later one (the system checks it); that cost is not the
+  // core's boot, so the copy is run once (--version exits at once) before the clock starts.
+  await runTree(exe, ['--version'], { label: 'first launch of the staged mixdogd', deadlineMs: 60_000 });
   const tail = [];
   // The process-start instant: the boot budget runs from here, not from the staging copy above.
   const spawnedAt = performance.now();
@@ -229,9 +232,8 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
       paths,
       discovery: doc,
       client,
-      // The tree helper's pid (see spawnTree); the core's own pids are those running `exe`, and `mark` marks its tree.
+      // The tree helper's pid (see spawnTree); the core's own pids are those running `exe`.
       pid: child.pid,
-      mark: child.treeMark,
       alive: () => child.exitCode === null && child.signalCode === null,
       exe,
       spawnedAt,

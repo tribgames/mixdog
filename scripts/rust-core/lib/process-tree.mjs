@@ -1,10 +1,12 @@
 // Starting a process and ending the WHOLE tree it grew, on Windows and on POSIX. A deadline that ends only the direct
 // child leaves what it started (cargo's compilers and test binaries, an exec's tools) running.
 //
-// The program runs under `treerun` (scripts/rust-core/tree-helper, a Rust program with no dependencies), which owns the
-// tree's identity (a Windows job object; on POSIX the process group plus an environment mark) and ends it when the
-// program exits and when this Node process dies, however it dies. Windows PowerShell as the owner cost 275 ms per spawn
-// (a C# type compiled each time); the helper costs the process start. The helper must be built before this module
+// The program runs under `treerun` (scripts/rust-core/tree-helper, a small Rust program), which owns the tree and ends it
+// when the program exits and when this Node process dies, however it dies. Ownership is by handle, never by number: a
+// Windows job object, or on POSIX the process group of a child the helper has not reaped yet. What escapes a group (a
+// descendant that made its own session) is not hunted for; see process-probe.mjs for how a run proves it left nothing.
+// Windows PowerShell as the owner cost 275 ms per spawn (a C# type compiled each time); the helper costs the process
+// start. The helper must be built before this module
 // spawns anything: `cargo build --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml` (the rust-core job
 // does it in its own step; MIXDOG_TREE_HELPER names a binary built elsewhere, e.g. under another CARGO_TARGET_DIR).
 import { spawn } from 'node:child_process';
@@ -27,33 +29,48 @@ export function helperPath() {
   return path;
 }
 
-/** What the helper reported besides the exit code, or null when it wrote nothing. */
+/**
+ * What the helper reported besides the exit code (`launch`, `signal`), or null when it wrote nothing. The helper writes the
+ * file last and ends it with `"complete":true`: a file without that record is an error, never a success.
+ */
 const readOutcome = (file) => {
+  let text;
   try {
-    return JSON.parse(readFileSync(file, 'utf8'));
+    text = readFileSync(file, 'utf8');
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
   }
+  let record;
+  try {
+    record = JSON.parse(text);
+  } catch {
+    throw new Error(`the tree helper's result ${file} is incomplete: ${text.slice(0, 200)}`);
+  }
+  if (record.complete !== true) throw new Error(`the tree helper's result ${file} has no completion record: ${text.slice(0, 200)}`);
+  return record;
 };
 
 /**
  * `spawn`, but the child's whole tree is owned by a helper that ends it: the returned child is the helper, with the
  * program's stdio and exit code (its 'exit' code is the program's, unchanged). A program that cannot start emits 'error'
- * with the code the helper reports (ENOENT when it is not found), as `spawn` does. `child.treeMark` is the run's unique
- * mark; `child.treeOutcome()` is what the helper reported besides the exit code (`launch`, `signal`, `leftover`) or null.
+ * with the code the helper reports (ENOENT when it is not found), as `spawn` does. `child.treeOutcome()` is what the helper
+ * reported besides the exit code (`launch`, `signal`), null when it reported nothing, and throws when the report is
+ * incomplete; after 'close' it answers what was read before the file was removed. Index 3 of the stdio is the helper's
+ * channel to this process (POSIX), so a caller passes at most three entries.
  */
 export function spawnTree(program, args, options = {}) {
   const { shell, env, stdio = 'pipe', ...rest } = options;
-  const mark = randomUUID();
-  const resultFile = join(tmpdir(), `treerun-${mark}.json`);
+  const resultFile = join(tmpdir(), `treerun-${randomUUID()}.json`);
   const streams = typeof stdio === 'string' ? [stdio, stdio, stdio] : [...stdio];
-  // POSIX: descriptor 3 is the parent's end of a socket pair; its EOF is how the helper learns this process died.
+  if (streams.length > 3) throw new Error('spawnTree: stdio index 3 is the tree helper\'s channel; pass at most three entries');
+  while (streams.length < 3) streams.push('ignore');
+  // POSIX: index 3 is the parent's end of a socket pair; its EOF is how the helper learns this process died.
   const full = WINDOWS ? streams : [...streams, 'pipe'];
   const tail = shell ? ['shell', [program, ...args].join(' ')] : ['args', program, ...args];
   const child = spawn(helperPath(), [resultFile, String(process.pid), ...tail], {
     ...rest,
-    env: { ...(env ?? process.env), MIXDOG_TREE_MARK: mark },
+    env,
     stdio: full,
     // Detached on both: Node ties a non-detached child to its own lifetime on Windows (a job it makes itself) and on POSIX
     // by group; the helper's own watch on this process is what ends the tree, and it must be what carries it.
@@ -61,16 +78,34 @@ export function spawnTree(program, args, options = {}) {
     windowsHide: true,
   });
   child.stdio[3]?.on('error', () => {});
-  child.treeMark = mark;
-  child.treeOutcome = () => readOutcome(resultFile);
+  // Read before removed: this listener is registered first, so it runs before any caller's 'close'.
+  let settled;
+  child.once('close', () => {
+    try {
+      settled = { value: readOutcome(resultFile) };
+    } catch (error) {
+      settled = { error };
+    }
+    rmSync(resultFile, { force: true });
+  });
+  child.treeOutcome = () => {
+    if (!settled) return readOutcome(resultFile);
+    if (settled.error) throw settled.error;
+    return settled.value;
+  };
   child.once('exit', () => {
-    const outcome = child.treeOutcome();
+    let outcome;
+    try {
+      outcome = child.treeOutcome();
+    } catch (error) {
+      child.emit('error', Object.assign(error, { code: 'ETREEHELPER' }));
+      return;
+    }
     if (outcome?.launch) {
       const message = outcome.launch === 'ENOENT' ? `spawn ${program} ENOENT` : `spawn ${program} ${outcome.launch}: ${outcome.message}`;
       child.emit('error', Object.assign(new Error(message), { code: outcome.launch, syscall: `spawn ${program}`, path: program }));
     }
   });
-  child.once('close', () => rmSync(resultFile, { force: true }));
   return child;
 }
 
@@ -81,9 +116,8 @@ const gone = (child) => child.exitCode !== null || child.signalCode !== null;
 /**
  * Ends `child`'s tree, whether or not the program is still running, and answers `{ killed }`: the helper's pid when it
  * had to be ended, empty when it had already gone (it ends the tree as it goes). Rejects when the helper does not exit
- * in time or reports members that outlived the kill. Windows: the helper is killed and its job ends every member.
- * POSIX: closing descriptor 3 tells the helper to end the group and every marked process; it is killed by its group
- * only when it does not answer.
+ * in time. Windows: the helper is killed and its job ends every member. POSIX: closing descriptor 3 tells the helper to
+ * signal the program's group; it is killed by its own group only when it does not answer.
  * @param {import('node:child_process').ChildProcess} child started by `spawnTree`
  */
 export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
@@ -113,13 +147,11 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
       throw error;
     }
   }
-  const leftover = child.treeOutcome?.()?.leftover;
-  if (leftover?.length) throw new Error(`processes of the tree outlived the kill: pid ${leftover.join(', ')}`);
   return { killed };
 }
 
 /**
- * One command to its exit under a deadline: answers `{ status, signal, stdout, stderr, stdoutBytes, mark }`. At the
+ * One command to its exit under a deadline: answers `{ status, signal, stdout, stderr, stdoutBytes }`. At the
  * deadline, or when the child cannot start, the tree is ended and the run rejects with `label` in the message; a failed
  * kill is appended as its own error. A tree that could not be ended after the command finished rejects with the
  * command's own status and stderr beside the cleanup failure (and on `error.result`). `inherit` passes the child's stdio
@@ -155,13 +187,26 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
     child.once('close', async (code, signal) => {
       if (ending) return;
       clearTimeout(deadline);
-      const outcome = child.treeOutcome();
+      // A helper that reports nothing, or an incomplete report, died before it finished: that is never a success.
+      let outcome = null;
+      let unreported;
+      try {
+        outcome = child.treeOutcome();
+        if (!outcome) unreported = `the tree helper (exit ${code}, signal ${signal}) ended without writing its report`;
+      } catch (error) {
+        unreported = error.message;
+      }
       const stdoutBytes = Buffer.concat(out);
-      const result = { status: outcome?.signal ? null : code, signal: outcome?.signal ? signalName(outcome.signal) : signal, stdout: stdoutBytes.toString('utf8'), stderr: stderrText(), stdoutBytes, mark: child.treeMark };
+      const result = { status: outcome?.signal ? null : code, signal: outcome?.signal ? signalName(outcome.signal) : signal, stdout: stdoutBytes.toString('utf8'), stderr: stderrText(), stdoutBytes };
+      let cleanup;
       try {
         await endTree(child);
       } catch (error) {
-        reject(Object.assign(new Error(`${label} finished (status ${result.status}, signal ${result.signal}) but its process tree could not be ended: ${error.message}\nits stderr: ${result.stderr.slice(-600)}`), { result }));
+        cleanup = error.message;
+      }
+      if (unreported || cleanup) {
+        const parts = [unreported && `${label}: ${unreported}`, cleanup && `${label} finished (status ${result.status}, signal ${result.signal}) but its process tree could not be ended: ${cleanup}`];
+        reject(Object.assign(new Error(`${parts.filter(Boolean).join('; ')}\nits stderr: ${result.stderr.slice(-600)}`), { result }));
         return;
       }
       resolveRun(result);
