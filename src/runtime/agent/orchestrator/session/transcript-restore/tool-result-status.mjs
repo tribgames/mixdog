@@ -1,0 +1,383 @@
+/**
+ * Tool-result status, display text, and aggregate-record helpers for the
+ * session runtime.
+ */
+import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
+import {
+  hasBenignExitOutcome,
+  normalizeToolTerminalStatus,
+  toolResultTerminalStatus,
+} from '../../../../shared/tool-status.mjs';
+import { isReadOnlyNavigationMiss } from '../result-classification.mjs';
+import { formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../../../shared/tool-surface.mjs';
+import { normalizeToolName } from '../../../../shared/tool-primitives.mjs';
+import { gitResultError, gitResultExitCode } from '../../../../shared/tool-card-model/git-result.mjs';
+import { readRowsForDisplay } from '../../../../shared/read-row-numbers.mjs';
+import { visualizeOwnerMetaSessionId } from '../../../../visualize-bridge/tool-meta.mjs';
+
+const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
+
+// Detect a shell command that RAN but exited non-zero (a process exit code)
+// as opposed to a real tool-call failure (`[shell-tool-failed]`) or a
+// timeout/abort. New results use bare `[exit code: N]`; legacy transcripts may
+// use `Error: [shell-run-failed] [exit code: N]`. Persistent shell results can
+// prefix `[session: …]`. Returns the numeric exit code, or null otherwise.
+export function shellCommandExitCode(text) {
+  const body = String(text || '');
+  const lines = body.split('\n');
+  if (/^\[tool output offloaded:\s*shell\b/i.test(String(lines[0] || '').trim())) {
+    lines.shift();
+    while (lines.length > 0 && !String(lines[0] || '').trim()) lines.shift();
+  }
+  const header = lines.slice(0, 6).join('\n');
+  // Timeout / signal / abort are NOT a plain command exit — keep them "Failed".
+  if (/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header)) return null;
+  const m = header.match(
+    /^\s*(?:\[session:[^\n]*\]\s*\n)?(?:Error:\s*)?(?:\[shell-run-failed\]\s*)?\[exit code:\s*(\d+)\]/i
+  );
+  if (!m) return null;
+  const code = Number(m[1]);
+  return Number.isFinite(code) ? code : null;
+}
+
+// Only provider envelope metadata establishes a failed invocation. Result
+// bodies can contain "Error:"/HTTP/domain/task status text without making the
+// call itself fail. A recognized plain shell exit wins over provider envelope
+// error flags: adapters commonly label non-zero process exits as tool errors
+// even though the shell tool itself ran successfully.
+export function toolCallOutcome(message, rawText) {
+  if (normalizeToolName(message?.toolName || message?.name) === 'git') {
+    const exitCode = gitResultExitCode(rawText);
+    if (exitCode !== null) return { isCallError: false, isExitError: !hasBenignExitOutcome(rawText), exitCode };
+    if (gitResultError(rawText)) return { isCallError: true, isExitError: false, exitCode: null };
+  }
+  const exitCode = shellCommandExitCode(rawText);
+  if (exitCode != null) {
+    // Every completed shell result carries `[exit code: N]` — including 0.
+    // A non-zero code is a command failure unless execution marked a known
+    // successful no-match/no-change outcome.
+    const benignExit = exitCode !== 0 && hasBenignExitOutcome(rawText);
+    return { isCallError: false, isExitError: exitCode !== 0 && !benignExit, exitCode };
+  }
+  if (isReadOnlyNavigationMiss(message?.toolName || message?.name, rawText)) {
+    return { isCallError: false, isExitError: false, exitCode };
+  }
+  const isCallError = message?.isError === true || message?.toolKind === 'error';
+  return {
+    isCallError,
+    isExitError: false,
+    exitCode,
+  };
+}
+
+// Build the collapsed failure/exit detail string. Real tool-call/result
+// failures keep the red "Failed" wording; completed non-zero commands render
+// as the distinct warning "Exited" state. A mixed group surfaces both.
+export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 0, exitCode } = {}) {
+  const parts = [];
+  if (succeeded > 0) parts.push(`${succeeded} Ok`);
+  if (realErrors > 0) parts.push(`${realErrors} Failed`);
+  if (exitErrors > 0) {
+    const solo = exitErrors === 1 && realErrors === 0 && succeeded === 0;
+    parts.push(solo && Number.isFinite(exitCode) ? `Exited ${exitCode}` : `${exitErrors} Exited non-zero`);
+  }
+  return parts.join(' · ');
+}
+
+function itemHasKnownTerminalStatus(item, texts = []) {
+  const settled = (token) => token === 'completed' || token === 'failed' || token === 'cancelled';
+  if (settled(normalizeToolTerminalStatus(item?.args?.status))) return true;
+  for (const text of texts) {
+    if (settled(toolResultTerminalStatus(text))) return true;
+  }
+  return false;
+}
+
+export function withCancelledResultMarker(text, item) {
+  const body = String(text || '');
+  // Do NOT inspect item.rawResult here: aggregate rawResult is child tool
+  // output (`1. grep\n<result>…`) that can incidentally contain a `status:`
+  // line, which would false-positive as an already-terminal status and skip
+  // the cancelled marker. Only result/text/body are session runtime-controlled
+  // collapsed detail (empty / status word / an existing marker), so they are
+  // the trustworthy terminal-status sources.
+  const sources = [item?.result, item?.text, body];
+  if (itemHasKnownTerminalStatus(item, sources)) return body;
+  if (!body.trim()) return `${CANCELLED_RESULT_STATUS_LINE}\n`;
+  return `${CANCELLED_RESULT_STATUS_LINE}\n${body}`;
+}
+
+export function groupedToolResultText(group) {
+  const completed = Math.min(group.count, group.completed);
+  if (group.count <= 1) return group.results.at(-1)?.text ?? '';
+  const exitErrors = Number(group.exitErrors || 0);
+  if (group.errors > 0 || exitErrors > 0) {
+    const realErrors = Math.max(0, Number(group.callErrors || group.errors || 0));
+    const succeeded = Math.max(0, completed - group.errors - exitErrors);
+    const exitCode = group.results.find((result) => result?.isExitError)?.exitCode;
+    // Command-exits carry no failure reason line; only real failures do.
+    const reasons = group.results
+      .filter((result) => result?.isError && !result?.isExitError)
+      .map((result) => firstErrorLine(result?.text))
+      .filter(Boolean);
+    const uniqueReasons = [...new Set(reasons)].slice(0, 2);
+    const base = failureDetailText({ succeeded, realErrors, exitErrors, exitCode });
+    return [`${base}${uniqueReasons[0] ? ` · ${uniqueReasons[0]}` : ''}`, ...uniqueReasons.slice(1)].join('\n');
+  }
+  for (const result of group.results || []) {
+    const line = String(result?.text || '').trim();
+    if (line) return result.text;
+  }
+  return '';
+}
+
+function firstErrorLine(text) {
+  const clean = toolErrorDisplay(text, 'tool');
+  if (clean) return clean;
+  for (const line of String(text || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^(Error|\[?error|FAIL\b)/i.test(trimmed)) return trimmed;
+  }
+  return (
+    String(text || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) || ''
+  );
+}
+
+/** The members' raw outputs as one numbered text (`1. grep\n…\n\n2. read\n…`).
+ *
+ *  Built by `+`, never `join`: V8 keeps a concatenation as a rope that points
+ *  at the member strings the aggregate already holds (toolMembers[].rawResult,
+ *  the calls' raw text) and copies it flat only when something reads its
+ *  characters. A resumed session restores hundreds of aggregates it never
+ *  displays; a joined string gave each of them a second, flat copy of every
+ *  tool output (~1 MB per idle session in a 30-session measurement). */
+export function aggregateRawResult(calls) {
+  let joined = '';
+  let index = 0;
+  for (const rec of calls || []) {
+    if (rec?.resolved !== true) continue;
+    const text = String(rec?.rawResultText ?? rec?.resultText ?? '').replace(/\s+$/, '');
+    if (!text.trim()) continue;
+    const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
+    index += 1;
+    joined = joined + (index > 1 ? `\n\n${index}. ${label}\n` : `${index}. ${label}\n`) + text;
+  }
+  return joined;
+}
+
+/** Expanded aggregate text with read members' numbered rows rebuilt (the
+ *  model-facing rows carry no numbers and would otherwise lose their gutter).
+ *  Runs at display time so restored, never-expanded aggregates keep their rope. */
+export function aggregateRawResultForDisplay(text) {
+  if (typeof text !== 'string' || !/^\[lines \d+-\d+\]$/m.test(text)) return text;
+  const lines = text.split('\n');
+  const out = [];
+  let member = [];
+  let inRead = false;
+  const flush = () => {
+    if (member.length) out.push(inRead ? readRowsForDisplay(member.join('\n')) : member.join('\n'));
+    member = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const header = (i === 0 || lines[i - 1] === '') && /^\d+\. (.+)$/.exec(lines[i]);
+    if (!header) {
+      member.push(lines[i]);
+      continue;
+    }
+    flush();
+    out.push(lines[i]);
+    inRead = normalizeToolName(header[1]) === 'read';
+  }
+  flush();
+  return out.join('\n');
+}
+
+/** Preserve the atomic calls behind a visual aggregate. Renderers can keep the
+ * aggregate as one quiet summary row while revealing the original tool names,
+ * arguments, and outputs in provider order. */
+export function aggregateToolMembers(calls) {
+  const source = calls?.values?.() || calls || [];
+  const members = [];
+  for (const rec of source) {
+    if (!rec || typeof rec !== 'object') continue;
+    const completed = rec.resolved === true || rec.completedEarly === true;
+    members.push({
+      kind: 'tool',
+      ...(rec.callId != null ? { id: rec.callId } : {}),
+      name: String(rec.name || 'tool'),
+      args: rec.args ?? {},
+      result: rec.resultText ?? null,
+      rawResult: rec.rawResultText ?? rec.resultText ?? null,
+      isError: rec.isError === true,
+      errorCount: rec.isError === true ? 1 : 0,
+      callErrorCount: rec.isCallError === true ? 1 : 0,
+      exitErrorCount: rec.isExitError === true ? 1 : 0,
+      count: 1,
+      completedCount: completed ? 1 : 0,
+      headerFinalized: completed,
+      ...stringUiDiffPatch(rec.uiDiff),
+      ...(Number(rec.startedAt) > 0 ? { startedAt: Number(rec.startedAt) } : {}),
+      ...(Number(rec.completedAt) > 0 ? { completedAt: Number(rec.completedAt) } : {}),
+    });
+  }
+  return members;
+}
+
+export function aggregateBucketForCategory(category, { agentBatch = '' } = {}) {
+  // Merge consecutive tool calls of the SAME category into one aggregate card;
+  // a different category opens a fresh card (no cross-category merge). The
+  // bucket key is the category itself, so a run of Search calls collapses into
+  // one Search card while an adjacent Read/Patch stays separate. Falls back to
+  // 'default' when a call has no resolved category. Hook/approval denials keep
+  // their dedicated ToolHookDenialCard path in App.jsx.
+  const key = String(category || '').trim();
+  // Exception: Read and Search share one lookup bucket so a batched turn of
+  // read+grep renders as ONE card ("Reading 3 files · Searching 2 patterns")
+  // instead of two adjacent cards. The per-category entries in
+  // aggregateCard.categories keep their own verbs/counts, so the merged
+  // header still spells out both. State-changing categories (Patch/Shell/…)
+  // stay separate.
+  if (key === 'Read' || key === 'Search') return 'category:Read+Search';
+  // Agent actions are grouped only inside the provider callback that emitted
+  // them. This keeps a later provider batch from changing an older outbound
+  // card above an intervening result/transcript boundary.
+  if (key === 'Agent') return agentBatch ? `category:Agent:${agentBatch}` : 'category:Agent';
+  return key ? `category:${key}` : 'default';
+}
+
+// Fold one call's category entries into an aggregate's header counts
+// (`categories` Map + first-seen `categoryOrder`), shared by the live card
+// and the restored transcript card.
+export function mergeAggregateCategoryEntries(aggregate, categoryEntries) {
+  for (const entry of categoryEntries) {
+    if (!aggregate.categories.has(entry.key)) aggregate.categoryOrder.push(entry.key);
+    const prev = aggregate.categories.get(entry.key);
+    aggregate.categories.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
+  }
+}
+
+function aggregateSummaries(aggregate) {
+  return [...(aggregate?.calls?.values?.() || [])]
+    .filter((r) => r.summary)
+    .sort((a, b) => Number(a.summarySeq ?? 0) - Number(b.summarySeq ?? 0))
+    .map((r) => r.summary);
+}
+
+function assignAggregateSummaryOrder(aggregate, callRec) {
+  if (!aggregate || !callRec?.summary || callRec.summarySeq != null) return;
+  const next = Math.max(0, Number(aggregate.nextSummarySeq || 0));
+  callRec.summarySeq = next;
+  aggregate.nextSummarySeq = next + 1;
+}
+
+/** Live tool messages: a present uiDiff is always a string (empty if malformed). */
+export function uiDiffFromMessage(source) {
+  if (!source || typeof source !== 'object' || !Object.hasOwn(source, 'uiDiff')) return undefined;
+  return typeof source.uiDiff === 'string' ? source.uiDiff : '';
+}
+
+export function uiDiffPatchFromMessage(source) {
+  const value = uiDiffFromMessage(source);
+  return value === undefined ? {} : { uiDiff: value };
+}
+
+export function assignUiDiffFromMessage(target, source) {
+  const value = uiDiffFromMessage(source);
+  if (value === undefined || !target) return target;
+  target.uiDiff = value;
+  return target;
+}
+
+/** Structured side channel a tool result may carry next to its text (the
+ * Computer Use capability refusal): a stable code plus the capability names,
+ * and the owner conversation of a `visualize` call run for another session's
+ * work (visualize-bridge/tool-meta.mjs). Anything else is dropped so stored
+ * history stays small and predictable. */
+function toolMetaFromMessage(source) {
+  const meta = source?.toolMeta ?? source?.content?.toolMeta;
+  if (!meta || typeof meta !== 'object' || typeof meta.code !== 'string' || !meta.code) return undefined;
+  const missing = Array.isArray(meta.missing) ? meta.missing.filter((name) => typeof name === 'string' && name) : [];
+  const ownerSessionId = visualizeOwnerMetaSessionId(meta.ownerSessionId);
+  return { code: meta.code, missing, ...(ownerSessionId ? { ownerSessionId } : {}) };
+}
+
+export function toolMetaPatchFromMessage(source) {
+  const value = toolMetaFromMessage(source);
+  return value === undefined ? {} : { toolMeta: value };
+}
+
+export function assignToolMetaFromMessage(target, source) {
+  const value = toolMetaFromMessage(source);
+  if (value !== undefined && target) target.toolMeta = value;
+  return target;
+}
+
+/** Stored/member records only copy a string uiDiff; other types stay omitted. */
+export function stringUiDiffPatch(value) {
+  return typeof value === 'string' ? { uiDiff: value } : {};
+}
+
+export function toolResultDisplay(message, rawText, toolName) {
+  const outcome = toolCallOutcome({ ...message, toolName }, rawText);
+  const isError = outcome.isCallError;
+  let text = rawText;
+  if (isError) text = toolErrorDisplay(rawText, toolName || 'tool');
+  else if (outcome.exitCode != null) text = stripShellExitHeader(rawText);
+  return { ...outcome, isError, text };
+}
+
+export function applyAggregateCallFields(
+  callRec,
+  aggregate,
+  { isError, isCallError, isExitError, exitCode, text, rawText, message } = {}
+) {
+  if (!callRec) return callRec;
+  callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
+  assignAggregateSummaryOrder(aggregate, callRec);
+  callRec.isError = isError;
+  callRec.isCallError = isCallError;
+  callRec.isExitError = isExitError;
+  callRec.exitCode = exitCode;
+  callRec.resultText = text;
+  callRec.rawResultText = rawText;
+  assignUiDiffFromMessage(callRec, message);
+  callRec.completedAt = callRec.completedAt || Date.now();
+  return callRec;
+}
+
+export function aggregateLoadingTargets(calls) {
+  const records = calls?.values ? [...calls.values()] : [...(calls || [])];
+  const groups = records.map((call) => toolLoadingTargets(call.name, call.args));
+  if (groups.length === 0 || !groups.every((targets) => targets.length > 0)) return [];
+  return [...new Set(groups.flat())];
+}
+
+export function aggregateResultPatch(aggregate, allCalls, completedCount) {
+  const errors = allCalls.filter((r) => r.isError).length;
+  const callErrors = allCalls.filter((r) => r.isCallError).length;
+  const exitErrors = allCalls.filter((r) => r.isExitError).length;
+  const succeeded = Math.max(0, completedCount - errors - exitErrors);
+  const displayDetail =
+    errors > 0 || exitErrors > 0
+      ? failureDetailText({
+          succeeded,
+          realErrors: callErrors,
+          exitErrors,
+          exitCode: allCalls.find((r) => r.isExitError)?.exitCode,
+        })
+      : formatAggregateDetail(aggregateSummaries(aggregate));
+  return {
+    result: displayDetail,
+    text: displayDetail,
+    isError: errors > 0,
+    errorCount: errors,
+    callErrorCount: callErrors,
+    exitErrorCount: exitErrors,
+    count: allCalls.length,
+    toolMembers: aggregateToolMembers(allCalls),
+  };
+}

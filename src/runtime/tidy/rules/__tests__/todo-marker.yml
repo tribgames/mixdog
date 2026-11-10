@@ -1,0 +1,27 @@
+id: todo-marker
+valid:
+  - |
+    // later we scale this path
+    # later we scale this path
+    -- later we scale this path
+    const x = 1
+    x = 1
+invalid:
+  - |
+    // TODO: handle errors
+    # TODO: handle errors
+    -- TODO: handle errors
+    const x = 1
+    x = 1
+  - |
+    // FIXME broken on windows
+    # FIXME broken on windows
+    -- FIXME broken on windows
+    const x = 1
+    x = 1
+  - |
+    // XXX temporary hack
+    # XXX temporary hack
+    -- XXX temporary hack
+    const x = 1
+    x = 1

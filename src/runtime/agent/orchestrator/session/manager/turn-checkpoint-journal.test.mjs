@@ -1,0 +1,897 @@
+// Focused coverage for the append/coalesced turn-checkpoint journal that
+// replaced the 150ms full growing-turn snapshot:
+//   * prompt durability lands with the first flush's header, off the event loop,
+//   * replay reproduces the exact full-snapshot object (messages + partial
+//     text/reasoning + tool pairing) at bounded write cost,
+//   * crash-torn tails, stale journals, wholesale transcript rewrites,
+//     cancellation and clear all keep latest-wins recovery semantics.
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs, { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+// MIXDOG_DATA_DIR must be set before the modules resolve the checkpoint dir.
+const root = mkdtempSync(join(tmpdir(), 'mixdog-turn-journal-'));
+process.env.MIXDOG_DATA_DIR = root;
+process.on('exit', () => {
+  try {
+    rmSync(root, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
+});
+
+const {
+  clearTurnCheckpoint,
+  createTurnCheckpointRecorder,
+  projectTurnCheckpointMessages,
+  readTurnCheckpoint,
+  recoverTurnCheckpoint,
+  settleTurnCheckpointWrites,
+} = await import('./turn-checkpoint.mjs');
+const { _setJournalOpGateForTest, turnCheckpointPath, turnJournalPath } = await import('./turn-checkpoint-journal.mjs');
+const { createTurnInterruptionTracker, finalizeTurnInterruptionSnapshot } = await import('./turn-interruption.mjs');
+const {
+  recordProviderContextBaseline,
+  resolveCompactionPressureTokens,
+  resolveWorkerCompactPolicy,
+  shouldCompactForSession,
+} = await import('../loop/compact-policy.mjs');
+const { estimateMessagesTokens } = await import('../context-utils.mjs');
+
+function startTurn(sessionId, prompt = 'do the thing') {
+  const tracker = createTurnInterruptionTracker();
+  const outgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: prompt },
+  ];
+  const recorder = createTurnCheckpointRecorder({
+    sessionId,
+    generation: 3,
+    turnToken: `tok-${sessionId}`,
+    startedAt: 1000,
+    base: baseOf(outgoing),
+  });
+  const flush = () =>
+    recorder.record({
+      boundary: 1,
+      currentUserContent: prompt,
+      turnOutgoing: outgoing,
+      interruption: tracker,
+    });
+  return { tracker, outgoing, recorder, flush, prompt };
+}
+
+// The durable record a turn opening at index 1 of `outgoing` is taken against.
+function baseOf(outgoing) {
+  return { epoch: 'e0', refs: outgoing.slice(0, 1) };
+}
+
+// That record as it is on disk.
+function durableOf(session) {
+  return { ...session, transcriptEpoch: 'e0', messages: session.messages.slice() };
+}
+
+/**
+ * Hold every async journal operation in the write lane so reset/clear/stop/
+ * overflow can be driven while a write is GENUINELY in flight (entry.writing
+ * is true and its bytes are not on disk) instead of after settlement.
+ */
+function holdJournalWrites() {
+  let open = () => {};
+  const gate = new Promise((resolve) => {
+    open = resolve;
+  });
+  let released = false;
+  _setJournalOpGateForTest(() => gate);
+  return {
+    release() {
+      if (released) return;
+      released = true;
+      _setJournalOpGateForTest(null);
+      open();
+    },
+  };
+}
+
+test('first flush anchors the prompt once its header lands', async () => {
+  const sessionId = 'sess-anchor';
+  const turn = startTurn(sessionId);
+  assert.equal(turn.flush(), true);
+  // The header is the crash-durability anchor: the turn awaits it before the
+  // provider runs.
+  assert.equal(await turn.recorder.landed(), true);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.turnToken, `tok-${sessionId}`);
+  assert.equal(checkpoint.generation, 3);
+  assert.deepEqual(checkpoint.turnMessages, [{ role: 'user', content: 'do the thing' }]);
+});
+
+// Sync fs calls that only read; anything else (a write, rename, unlink, mkdir,
+// open, fsync, a lock file) blocks the event loop on the disk.
+const SYNC_READ = /^(readFileSync|existsSync|statSync|lstatSync|fstatSync|readdirSync|accessSync|realpathSync) /;
+
+test('turn start (header, journal open, lock) and the seal never write on the event loop', async (t) => {
+  const { syncFsCalls } = await import('../../../../shared/sync-fs-calls.fixture.mjs');
+  const waits = [];
+  const wait = Atomics.wait;
+  t.mock.method(Atomics, 'wait', (...args) => {
+    waits.push(args[3]);
+    return wait(...args);
+  });
+  const sessionId = 'sess-off-main';
+  const turn = startTurn(sessionId);
+  const calls = await syncFsCalls(async () => {
+    assert.equal(turn.flush(), true);
+    assert.equal(await turn.recorder.landed(), true);
+    turn.outgoing.push({ role: 'assistant', content: 'the answer' });
+    const sealed = turn.recorder.record({
+      boundary: 1,
+      currentUserContent: turn.prompt,
+      turnOutgoing: turn.outgoing,
+      interruption: turn.tracker,
+      sealed: true,
+    });
+    assert.equal(sealed, true);
+    await settleTurnCheckpointWrites(sessionId);
+  });
+  assert.deepEqual(
+    calls.filter((call) => !SYNC_READ.test(call)),
+    []
+  );
+  assert.deepEqual(waits, []);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.sealed, true);
+  assert.deepEqual(checkpoint.turnMessages, turn.outgoing.slice(1));
+});
+
+test('a save recording a new epoch whose header write is still queued publishes that header first', async () => {
+  const sessionId = 'sess-save-before-header';
+  const session = { id: sessionId, transcriptEpoch: 'e0' };
+  const tracker = createTurnInterruptionTracker();
+  const outgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'compact me' },
+  ];
+  const recorder = createTurnCheckpointRecorder({
+    session,
+    sessionId,
+    generation: 3,
+    turnToken: `tok-${sessionId}`,
+    startedAt: 1000,
+    base: baseOf(outgoing),
+  });
+  const flush = () =>
+    recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
+  flush();
+  assert.equal(await recorder.landed(), true);
+  const hold = holdJournalWrites();
+  try {
+    // A history rewrite mints a new epoch; its header write is held in flight.
+    outgoing.splice(0, 1, { role: 'system', content: '[summary]' });
+    flush();
+    assert.notEqual(session.transcriptEpoch, 'e0');
+    assert.equal(readTurnCheckpoint(sessionId).fullTranscript, undefined, 'the rewrite is not on disk yet');
+    // The save's snapshot hook: the header naming the new epoch lands first.
+    recorder.publishPendingHeader();
+    const onDisk = readTurnCheckpoint(sessionId);
+    assert.equal(onDisk.fullTranscript, true);
+    assert.equal(onDisk.transcriptEpoch, session.transcriptEpoch);
+  } finally {
+    hold.release();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, session.transcriptEpoch);
+});
+
+test('an older header write still renaming never lands over a newer header a save published', async (t) => {
+  const sessionId = 'sess-header-fence';
+  const session = { id: sessionId, transcriptEpoch: 'e0' };
+  const tracker = createTurnInterruptionTracker();
+  const outgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'compact me' },
+  ];
+  const recorder = createTurnCheckpointRecorder({
+    session,
+    sessionId,
+    generation: 3,
+    turnToken: `tok-${sessionId}`,
+    startedAt: 1000,
+    base: baseOf(outgoing),
+  });
+  const flush = () =>
+    recorder.record({ boundary: 1, currentUserContent: 'compact me', turnOutgoing: outgoing, interruption: tracker });
+  flush();
+  assert.equal(await recorder.landed(), true);
+  // The first rename onto the header is held: that write is genuinely in flight.
+  const headerPath = turnCheckpointPath(sessionId);
+  const realRename = fs.promises.rename;
+  let renameReached;
+  const reached = new Promise((resolve) => {
+    renameReached = resolve;
+  });
+  let releaseRename;
+  const renameHeld = new Promise((resolve) => {
+    releaseRename = resolve;
+  });
+  let held = false;
+  t.mock.method(fs.promises, 'rename', async (from, to) => {
+    if (!held && to === headerPath) {
+      held = true;
+      renameReached();
+      await renameHeld;
+    }
+    return realRename(from, to);
+  });
+  syncBuiltinESMExports();
+  let releaseNext;
+  try {
+    outgoing.splice(0, 1, { role: 'system', content: '[summary one]' });
+    flush();
+    const older = session.transcriptEpoch;
+    await reached;
+    // A second rewrite queues the newer header; the next lane step is held.
+    outgoing.splice(0, 1, { role: 'system', content: '[summary two]' });
+    flush();
+    const newer = session.transcriptEpoch;
+    assert.notEqual(newer, older);
+    let nextReached;
+    const next = new Promise((resolve) => {
+      nextReached = resolve;
+    });
+    _setJournalOpGateForTest(
+      () =>
+        new Promise((resolve) => {
+          releaseNext = resolve;
+          nextReached();
+        })
+    );
+    // The save's snapshot hook publishes the newer header now.
+    recorder.publishPendingHeader();
+    assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, newer);
+    // The older rename goes ahead; the newer open is still held behind it.
+    releaseRename();
+    await next;
+    assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, newer, 'the header never regresses');
+  } finally {
+    releaseRename();
+    _setJournalOpGateForTest(null);
+    releaseNext?.();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(readTurnCheckpoint(sessionId).transcriptEpoch, session.transcriptEpoch);
+});
+
+test('a header write that failed is written again, so the later answer is recoverable', async (t) => {
+  const sessionId = 'sess-header-retry';
+  const turn = startTurn(sessionId);
+  // The header's publish fails once (a transient storage fault) and storage
+  // then recovers.
+  t.mock.method(fs.promises, 'rename', async () => {
+    throw Object.assign(new Error('storage fault'), { code: 'EIO' });
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.equal(turn.flush(), true);
+    assert.equal(await turn.recorder.landed(), false);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  turn.outgoing.push({ role: 'assistant', content: 'the answer' });
+  const sealed = turn.recorder.record({
+    boundary: 1,
+    currentUserContent: turn.prompt,
+    turnOutgoing: turn.outgoing,
+    interruption: turn.tracker,
+    sealed: true,
+  });
+  assert.equal(sealed, true);
+  await settleTurnCheckpointWrites(sessionId);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint?.sealed, true);
+  assert.deepEqual(checkpoint.turnMessages, turn.outgoing.slice(1));
+});
+
+test('journal replay reproduces the full snapshot at bounded cost', async () => {
+  const sessionId = 'sess-replay';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await turn.recorder.landed();
+  const headerBytes = statSync(turnCheckpointPath(sessionId)).size;
+  const body = 'x'.repeat(2000);
+  for (let i = 0; i < 40; i += 1) {
+    turn.tracker.recordTextDelta(`chunk-${i} `);
+    const call = { id: `call-${i}`, name: 'shell', arguments: '{}' };
+    turn.outgoing.push({ role: 'assistant', content: `${body}${i}`, toolCalls: [call] });
+    turn.tracker.recordToolCalls([call]);
+    turn.outgoing.push({ role: 'tool', content: body, toolCallId: call.id });
+    turn.flush();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+
+  // The header is written exactly once per turn — it still holds only the
+  // opening prompt, so the growing turn never rewrites it.
+  assert.equal(statSync(turnCheckpointPath(sessionId)).size, headerBytes);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.deepEqual(checkpoint.turnMessages, turn.outgoing.slice(1));
+  assert.deepEqual(checkpoint.interruption, turn.tracker.snapshot());
+
+  // Bounded cost: total bytes written stay proportional to the turn payload
+  // instead of flushes x turn size (the old writer re-serialized everything
+  // on every flush, ~40x this volume for the same turn).
+  const payloadBytes = Buffer.byteLength(JSON.stringify(checkpoint.turnMessages));
+  const journalBytes = statSync(turnJournalPath(sessionId)).size;
+  assert.ok(
+    journalBytes < payloadBytes * 2,
+    `journal ${journalBytes} bytes should stay near payload ${payloadBytes} bytes`
+  );
+});
+
+test('crash recovery matches the live finalize path (text reset, tool pairing)', async () => {
+  const sessionId = 'sess-recover';
+  const prompt = 'run the tool';
+  const turn = startTurn(sessionId, prompt);
+  turn.flush();
+  turn.tracker.markProviderSendStarted();
+  turn.tracker.recordTextDelta('partial answer');
+  turn.tracker.recordReasoningDelta('thinking');
+  turn.flush();
+  // A UI-acknowledged reset tombstones the tail; a crash cannot complete the
+  // replacement, so the same visible bytes must survive.
+  turn.tracker.tombstoneText(7);
+  turn.flush();
+  const call = { id: 'call-a', name: 'read', arguments: '{}' };
+  turn.tracker.recordToolCalls([call]);
+  turn.outgoing.push({ role: 'assistant', content: '', toolCalls: [call] });
+  turn.tracker.markToolPhaseStarted();
+  turn.tracker.recordToolResult({ toolCallId: 'call-a', content: 'early', __earlyNotify: true });
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.deepEqual(checkpoint.interruption, turn.tracker.snapshot());
+  assert.equal(checkpoint.interruption.partialAssistantContent, 'partial answer');
+
+  const session = {
+    id: sessionId,
+    generation: 3,
+    updatedAt: 0,
+    provider: 'openai-oauth',
+    model: 'gpt-5.6-sol',
+    contextWindow: 272_000,
+    compactBoundaryTokens: 272_000,
+    compaction: { auto: true },
+    tools: [],
+    messages: [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: prompt },
+    ],
+    activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
+    _providerPrefixGuardState: { messageHashes: ['stale'], requestPrefixHash: 'stale' },
+    contextPressureBaselineTokens: 132_000,
+    contextPressureBaselineOutputTokens: 0,
+    contextPressureBaselineMessageCount: 2,
+    contextPressureBaselinePrefixSignature: 'stale-prefix',
+    contextPressureBaselineProvider: 'openai-oauth',
+    contextPressureBaselineModel: 'gpt-5.6-sol',
+    contextPressureBaselineToolSignature: 'stale-tools',
+    contextPressureBaselineBoundary: 'complete',
+    contextPressureBaselineUpdatedAt: Date.now(),
+    lastContextTokensStaleAfterCompact: false,
+  };
+  const staleBaselineUpdatedAt = session.contextPressureBaselineUpdatedAt;
+  const recovery = recoverTurnCheckpoint(session, durableOf(session));
+  assert.equal(recovery.recovered, true);
+  // A recovered (rewritten) transcript must never keep the mid-turn provider
+  // prefix snapshot: a stale one flags every following send as
+  // history_shrink ("Session state changed unexpectedly.").
+  assert.equal(Object.hasOwn(session, '_providerPrefixGuardState'), false);
+  // Keep the saved reading so a matching durable prefix can still use it.
+  // This deliberately stale signature must instead be rejected by pressure
+  // resolution without mutating the persisted provider snapshot.
+  assert.equal(session.contextPressureBaselineTokens, 132_000);
+  assert.equal(session.contextPressureBaselineMessageCount, 2);
+  assert.equal(session.contextPressureBaselinePrefixSignature, 'stale-prefix');
+  assert.equal(session.contextPressureBaselineToolSignature, 'stale-tools');
+  assert.equal(session.contextPressureBaselineUpdatedAt, staleBaselineUpdatedAt);
+  assert.equal(session.lastContextTokensStaleAfterCompact, false);
+  assert.equal(session.contextPressureUnanchoredAfterRestart, true);
+  const expected = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: checkpoint.turnMessages,
+    currentUserContent: checkpoint.currentUserContent,
+    snapshot: turn.tracker.snapshot(),
+    abortReason: 'process-crash',
+  });
+  assert.deepEqual(session.messages, [{ role: 'system', content: 'sys' }, ...expected.messages]);
+  assert.equal(session.messages.at(-1).content, '[Request interrupted by process restart]');
+  // Every observed call is paired with a result in the recovered transcript.
+  assert.ok(session.messages.some((m) => m.role === 'tool' && m.toolCallId === 'call-a'));
+  const policy = resolveWorkerCompactPolicy(session, session.tools);
+  const messageTokensEst = estimateMessagesTokens(session.messages);
+  const pressureTokens = resolveCompactionPressureTokens(messageTokensEst, policy, {
+    messages: session.messages,
+    sessionRef: session,
+  });
+  assert.ok(pressureTokens < policy.triggerTokens);
+  assert.equal(
+    shouldCompactForSession(messageTokensEst, policy, {
+      messages: session.messages,
+      sessionRef: session,
+      pressureTokens,
+    }),
+    false
+  );
+});
+
+test('crash recovery preserves a provider baseline for a matching durable prefix', async () => {
+  const sessionId = 'sess-baseline-prefix';
+  const prompt = 'resume from provider baseline';
+  const turn = startTurn(sessionId, prompt);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  const session = {
+    id: sessionId,
+    generation: 3,
+    updatedAt: 0,
+    provider: 'openai-oauth',
+    model: 'gpt-5.6-sol',
+    contextWindow: 272_000,
+    compactBoundaryTokens: 272_000,
+    compaction: { auto: true },
+    tools: [],
+    messages: [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: prompt },
+    ],
+    activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
+  };
+  assert.equal(
+    recordProviderContextBaseline(
+      session,
+      session.messages.slice(0, 1),
+      { promptTokens: 210_000, outputTokens: 1_200 },
+      { sendTools: session.tools }
+    ),
+    true
+  );
+  const baselineUpdatedAt = session.contextPressureBaselineUpdatedAt;
+
+  const recovery = recoverTurnCheckpoint(session, durableOf(session));
+  assert.equal(recovery.recovered, true);
+  assert.equal(session.contextPressureBaselineTokens, 211_200);
+  assert.equal(session.contextPressureBaselineMessageCount, 1);
+  assert.equal(session.contextPressureBaselineUpdatedAt, baselineUpdatedAt);
+  assert.equal(session.lastContextTokensStaleAfterCompact, false);
+
+  const policy = resolveWorkerCompactPolicy(session, session.tools);
+  const messageTokensEst = estimateMessagesTokens(session.messages);
+  const pressureTokens = resolveCompactionPressureTokens(messageTokensEst, policy, {
+    messages: session.messages,
+    sessionRef: session,
+  });
+  assert.ok(pressureTokens > 211_200);
+  assert.ok(pressureTokens < policy.triggerTokens);
+  assert.equal(
+    shouldCompactForSession(messageTokensEst, policy, {
+      messages: session.messages,
+      sessionRef: session,
+      pressureTokens,
+    }),
+    false
+  );
+});
+
+test('a crash-torn trailing record is discarded and the durable prefix survives', async () => {
+  const sessionId = 'sess-torn';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  turn.tracker.recordTextDelta('durable text');
+  turn.outgoing.push({ role: 'assistant', content: 'committed' });
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  appendFileSync(turnJournalPath(sessionId), '{"t":"m","i":2,"m":{"role":"tool","con');
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.turnMessages.length, 2);
+  assert.equal(checkpoint.turnMessages[1].content, 'committed');
+  assert.equal(checkpoint.interruption.partialAssistantContent, 'durable text');
+});
+
+test('a journal from another turn never replays onto a new header', async () => {
+  const sessionId = 'sess-stale';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  turn.tracker.recordTextDelta('old turn text');
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const header = JSON.parse(readFileSync(turnCheckpointPath(sessionId), 'utf8'));
+  writeFileSync(turnCheckpointPath(sessionId), JSON.stringify({ ...header, turnToken: 'other-token' }), 'utf8');
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.turnToken, 'other-token');
+  assert.equal(checkpoint.interruption.partialAssistantContent, '');
+});
+
+test('the turn replacing and truncating its own messages replays latest-wins', async () => {
+  const sessionId = 'sess-rewrite';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  turn.outgoing.push({ role: 'assistant', content: 'first' }, { role: 'assistant', content: 'second' });
+  turn.flush();
+  turn.outgoing.splice(2, turn.outgoing.length, { role: 'assistant', content: 'rewritten' });
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.fullTranscript, undefined);
+  assert.deepEqual(checkpoint.turnMessages, [
+    { role: 'user', content: turn.prompt },
+    { role: 'assistant', content: 'rewritten' },
+  ]);
+});
+
+test('a rewrite of the history before the turn is one self-contained replacement', async () => {
+  const sessionId = 'sess-prefix-rewrite';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  const opening = turn.outgoing[1];
+  turn.outgoing.splice(0, 1, { role: 'system', content: 'stripped sys' });
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.fullTranscript, true);
+  assert.deepEqual(checkpoint.base, { epoch: 'e0', length: 1 });
+  assert.notEqual(checkpoint.transcriptEpoch, 'e0');
+  assert.deepEqual(checkpoint.turnMessages, [{ role: 'system', content: 'stripped sys' }, opening]);
+});
+
+test('compaction that removes the opening prompt checkpoints the full replacement', async () => {
+  const sessionId = 'sess-full-compaction';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  const compacted = [
+    { role: 'user', content: '[context compacted]' },
+    { role: 'assistant', content: 'durable compact summary' },
+  ];
+  turn.outgoing.splice(0, turn.outgoing.length, ...compacted);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.fullTranscript, true);
+  assert.deepEqual(checkpoint.turnMessages, compacted);
+
+  const stored = {
+    id: sessionId,
+    generation: 3,
+    updatedAt: 0,
+    messages: [
+      { role: 'system', content: 'stale system' },
+      { role: 'user', content: turn.prompt },
+    ],
+    activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
+  };
+  assert.deepEqual(projectTurnCheckpointMessages(stored, checkpoint), compacted);
+
+  const recovered = structuredClone(stored);
+  const recovery = recoverTurnCheckpoint(recovered, structuredClone(stored));
+  assert.equal(recovery.recovered, true);
+  assert.deepEqual(recovered.messages, compacted);
+});
+
+test('clear is token-guarded and removes header + journal', async () => {
+  const sessionId = 'sess-clear';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  turn.tracker.recordTextDelta('x');
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  assert.equal(clearTurnCheckpoint(sessionId, 'someone-elses-token'), false);
+  assert.ok(existsSync(turnCheckpointPath(sessionId)));
+  assert.equal(clearTurnCheckpoint(sessionId, `tok-${sessionId}`), true);
+  // The header (recovery gate) is gone synchronously; the journal unlink
+  // rides the ordered write lane off the event loop.
+  assert.equal(existsSync(turnCheckpointPath(sessionId)), false);
+  assert.equal(readTurnCheckpoint(sessionId), null);
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(existsSync(turnJournalPath(sessionId)), false);
+});
+
+test('clear never runs a synchronous journal unlink and a follow-up turn opens after it', async (t) => {
+  const sessionId = 'sess-clear-lane';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const journalPath = turnJournalPath(sessionId);
+  const unlinks = [];
+  const unlink = fs.unlinkSync;
+  t.mock.method(fs, 'unlinkSync', (target, ...args) => {
+    unlinks.push(String(target));
+    return unlink(target, ...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.equal(clearTurnCheckpoint(sessionId, `tok-${sessionId}`), true);
+    assert.equal(clearTurnCheckpoint(sessionId), true);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  assert.ok(!unlinks.includes(journalPath), 'journal unlink ran on the event loop');
+  // The next turn starts while the removal is still queued: its open must
+  // land after the removal, never be deleted by it.
+  const nextOutgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'next prompt' },
+  ];
+  const next = createTurnCheckpointRecorder({
+    sessionId,
+    generation: 3,
+    turnToken: 'tok-next',
+    startedAt: 3000,
+    base: baseOf(nextOutgoing),
+  });
+  next.record({
+    boundary: 1,
+    currentUserContent: 'next prompt',
+    turnOutgoing: nextOutgoing,
+    interruption: createTurnInterruptionTracker(),
+  });
+  await settleTurnCheckpointWrites(sessionId);
+  const journal = readFileSync(journalPath, 'utf8').trim().split('\n');
+  assert.equal(JSON.parse(journal[0]).turnToken, 'tok-next');
+  assert.equal(readTurnCheckpoint(sessionId).turnToken, 'tok-next');
+});
+
+// ── In-flight write races (regressions) ─────────────────────────────────────
+
+test('a new turn fences an older IN-FLIGHT append (no stale turn under a new token)', async () => {
+  const sessionId = 'sess-fence';
+  const first = startTurn(sessionId, 'first prompt');
+  first.flush();
+  await first.recorder.landed();
+  const hold = holdJournalWrites();
+  let during;
+  let second;
+  try {
+    first.outgoing.push({ role: 'assistant', content: 'STALE_OLD_TURN' });
+    first.tracker.recordTextDelta('STALE_OLD_TURN partial');
+    first.flush(); // genuinely in flight: accepted, not on disk
+    first.recorder.stop();
+
+    const secondOutgoing = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'second prompt' },
+    ];
+    second = createTurnCheckpointRecorder({
+      sessionId,
+      generation: 3,
+      turnToken: 'tok-second',
+      startedAt: 2000,
+      base: baseOf(secondOutgoing),
+    });
+    assert.equal(
+      second.record({
+        boundary: 1,
+        currentUserContent: 'second prompt',
+        turnOutgoing: secondOutgoing,
+        interruption: createTurnInterruptionTracker(),
+      }),
+      true
+    );
+    // Interim window: the new turn's open waits behind the old append, so
+    // the disk still holds the old turn's header and durable journal prefix,
+    // never a mix of the two turns.
+    during = readTurnCheckpoint(sessionId);
+  } finally {
+    hold.release();
+  }
+  assert.equal(during.turnToken, `tok-${sessionId}`);
+  assert.ok(!JSON.stringify(during).includes('STALE_OLD_TURN'));
+
+  await settleTurnCheckpointWrites(sessionId);
+  const after = readTurnCheckpoint(sessionId);
+  assert.equal(after.turnToken, 'tok-second');
+  assert.ok(!JSON.stringify(after).includes('STALE_OLD_TURN'), 'old turn replayed under the new token');
+  assert.deepEqual(after.turnMessages, [{ role: 'user', content: 'second prompt' }]);
+  const journal = readFileSync(turnJournalPath(sessionId), 'utf8').trim().split('\n');
+  assert.equal(JSON.parse(journal[0]).turnToken, 'tok-second');
+  assert.ok(!journal.some((line) => line.includes('STALE_OLD_TURN')));
+});
+
+test('overflow never writes ahead of an older IN-FLIGHT append (latest-wins holds)', async () => {
+  const sessionId = 'sess-overflow';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await turn.recorder.landed();
+  const headBytes = statSync(turnJournalPath(sessionId)).size;
+  const hold = holdJournalWrites();
+  try {
+    turn.outgoing.push({ role: 'assistant', content: 'OLD_IN_FLIGHT' });
+    turn.flush(); // in flight
+    // >4MB of NEWER records queue behind it and cross the overflow ceiling.
+    const filler = 'y'.repeat(512 * 1024);
+    for (let i = 0; i < 9; i += 1) {
+      turn.outgoing[2] = { role: 'assistant', content: `${filler}-${i}` };
+      turn.flush();
+    }
+    turn.outgoing[2] = { role: 'assistant', content: 'NEWEST' };
+    turn.flush();
+    // Nothing may reach disk while an older write is outstanding.
+    assert.equal(statSync(turnJournalPath(sessionId)).size, headBytes, 'overflow drain overtook an in-flight append');
+  } finally {
+    hold.release();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.deepEqual(checkpoint.turnMessages[1], { role: 'assistant', content: 'NEWEST' });
+});
+
+test('explicit process exit flushes in-flight AND queued deltas in order', () => {
+  const sessionId = 'sess-exit';
+  const source = `
+const checkpoint = await import(${JSON.stringify(new URL('./turn-checkpoint.mjs', import.meta.url).href)});
+const journal = await import(${JSON.stringify(new URL('./turn-checkpoint-journal.mjs', import.meta.url).href)});
+const interruption = await import(${JSON.stringify(new URL('./turn-interruption.mjs', import.meta.url).href)});
+const sessionId = ${JSON.stringify(sessionId)};
+const prompt = 'exit prompt';
+const tracker = interruption.createTurnInterruptionTracker();
+const outgoing = [{ role: 'system', content: 'sys' }, { role: 'user', content: prompt }];
+const recorder = checkpoint.createTurnCheckpointRecorder({ sessionId, generation: 3, turnToken: 'tok-exit', startedAt: 1000, base: { epoch: 'e0', refs: outgoing.slice(0, 1) } });
+const flush = () => recorder.record({ boundary: 1, currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
+flush();
+// Never resolves: the next append stays in flight, the one after it queues.
+journal._setJournalOpGateForTest(() => new Promise(() => {}));
+tracker.recordTextDelta('IN_FLIGHT ');
+outgoing.push({ role: 'assistant', content: 'IN_FLIGHT_MESSAGE' });
+flush();
+tracker.recordTextDelta('QUEUED');
+outgoing.push({ role: 'tool', content: 'QUEUED_MESSAGE', toolCallId: 'call-q' });
+flush();
+process.exit(0);
+`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
+    encoding: 'utf8',
+    env: { ...process.env, MIXDOG_DATA_DIR: root },
+  });
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.turnMessages.length, 3, 'exit persisted only the journal head');
+  assert.equal(checkpoint.turnMessages[1].content, 'IN_FLIGHT_MESSAGE');
+  assert.equal(checkpoint.turnMessages[2].content, 'QUEUED_MESSAGE');
+  assert.equal(checkpoint.interruption.partialAssistantContent, 'IN_FLIGHT QUEUED');
+});
+
+test('clear while a write is IN FLIGHT drops the header now and the journal after', async () => {
+  const sessionId = 'sess-clear-race';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await turn.recorder.landed();
+  const hold = holdJournalWrites();
+  try {
+    turn.outgoing.push({ role: 'assistant', content: 'inflight' });
+    turn.flush();
+    assert.equal(clearTurnCheckpoint(sessionId, `tok-${sessionId}`), true);
+    // The header is the recovery gate; it must be gone immediately.
+    assert.equal(existsSync(turnCheckpointPath(sessionId)), false);
+    assert.equal(readTurnCheckpoint(sessionId), null);
+  } finally {
+    hold.release();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(existsSync(turnJournalPath(sessionId)), false, 'in-flight append resurrected the journal');
+  assert.equal(readTurnCheckpoint(sessionId), null);
+});
+
+test('stop while a write is IN FLIGHT keeps that write and drops only queued deltas', async () => {
+  const sessionId = 'sess-stop-race';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await turn.recorder.landed();
+  const hold = holdJournalWrites();
+  try {
+    turn.outgoing.push({ role: 'assistant', content: 'inflight-kept' });
+    turn.flush(); // in flight
+    turn.outgoing.push({ role: 'assistant', content: 'queued-dropped' });
+    turn.flush(); // queued
+    turn.recorder.stop();
+    assert.equal(turn.flush(), false);
+  } finally {
+    hold.release();
+  }
+  await settleTurnCheckpointWrites(sessionId);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.turnMessages.length, 2);
+  assert.equal(checkpoint.turnMessages[1].content, 'inflight-kept');
+  assert.ok(!JSON.stringify(checkpoint).includes('queued-dropped'));
+});
+
+test('replay skips a duplicated re-flushed record and stops at a real gap', async () => {
+  const sessionId = 'sess-seq';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  turn.outgoing.push({ role: 'assistant', content: 'first' });
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const lines = readFileSync(turnJournalPath(sessionId), 'utf8').trim().split('\n');
+  // Exit-handler style duplicate of the last accepted record, then a record
+  // from beyond the durable prefix.
+  appendFileSync(turnJournalPath(sessionId), `${lines[lines.length - 1]}\n`);
+  appendFileSync(
+    turnJournalPath(sessionId),
+    `${JSON.stringify({ t: 'm', i: 2, m: { role: 'assistant', content: 'after-gap' }, s: 99 })}\n`
+  );
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.turnMessages.length, 2);
+  assert.equal(checkpoint.turnMessages[1].content, 'first');
+  assert.ok(!JSON.stringify(checkpoint).includes('after-gap'));
+});
+
+test('journal appends do not probe the checkpoint directory once it was ensured', async (t) => {
+  const sessionId = 'sess-dir-once';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const probes = [];
+  for (const name of ['existsSync', 'mkdirSync', 'statSync']) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      probes.push(name);
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  for (const delta of ['a', 'b', 'c']) {
+    turn.tracker.recordTextDelta(delta);
+    turn.flush();
+    await settleTurnCheckpointWrites(sessionId);
+  }
+  t.mock.restoreAll();
+  assert.deepEqual(probes, []);
+  assert.equal(readTurnCheckpoint(sessionId).interruption.partialAssistantContent, 'abc');
+});
+
+test('a journal append after the checkpoint directory was deleted recreates it', async () => {
+  const sessionId = 'sess-dir-gone';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const dir = join(turnJournalPath(sessionId), '..');
+  rmSync(dir, { recursive: true, force: true });
+  turn.tracker.recordTextDelta('after-delete');
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(existsSync(dir), true);
+  assert.match(readFileSync(join(dir, `${sessionId}.jsonl`), 'utf8'), /after-delete/);
+});
+
+test('stop retires further flushes without dropping the durable prefix', async () => {
+  const sessionId = 'sess-stop';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  turn.tracker.recordTextDelta('durable');
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  turn.tracker.recordTextDelta('-late');
+  turn.recorder.stop();
+  assert.equal(turn.flush(), false);
+  await settleTurnCheckpointWrites(sessionId);
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.interruption.partialAssistantContent, 'durable');
+  assert.deepEqual(checkpoint.turnMessages, [{ role: 'user', content: 'do the thing' }]);
+});

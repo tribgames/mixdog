@@ -1,0 +1,196 @@
+// Tool schema/kind classification + measured-usage ordering.
+import { clean } from './session-text.mjs';
+import { estimateToolSchemaTokens, toolSchemaSignature } from '../session/context-utils.mjs';
+import {
+  finalizeProviderRequestTools,
+  isFinalizedProviderRequestTools,
+  providerNativeToolPrefixCount,
+} from './provider-request-tools.mjs';
+import { MEASURED_TOOL_USAGE, ROUTE_TOOL_ORDER } from './tool-catalog-data.mjs';
+import { nativeDeferredFamilyForRoute } from '../providers/wire-route.mjs';
+
+const toolSchemaBreakdownMemo = new WeakMap();
+
+function sameToolSchemaEntries(cached, tools) {
+  if (!cached || cached.entries.length !== tools.length) return false;
+  const nativePrefixCount = providerNativeToolPrefixCount(tools);
+  for (let index = 0; index < tools.length; index += 1) {
+    const entry = cached.entries[index];
+    const tool = tools[index];
+    if (
+      entry.tool !== tool ||
+      entry.name !== tool?.name ||
+      entry.description !== tool?.description ||
+      entry.inputSchema !== tool?.inputSchema ||
+      entry.input_schema !== tool?.input_schema ||
+      entry.parameters !== tool?.parameters ||
+      entry.schema !== tool?.schema ||
+      entry.deferLoading !== tool?.deferLoading ||
+      entry.defer_loading !== tool?.defer_loading ||
+      entry.annotationsMixdogKind !== tool?.annotations?.mixdogKind ||
+      entry.annotationsAgentHidden !== tool?.annotations?.agentHidden ||
+      entry.native !== index < nativePrefixCount ||
+      entry.wireSignature !== toolSchemaSignature(toolMeteringList(tool, index < nativePrefixCount))
+    )
+      return false;
+  }
+  return true;
+}
+
+function toolMeteringList(tool, native) {
+  return native ? finalizeProviderRequestTools([tool], 1) : [tool];
+}
+
+function toolSchemaEntry(tool, native = false) {
+  return {
+    tool,
+    name: tool?.name,
+    description: tool?.description,
+    inputSchema: tool?.inputSchema,
+    input_schema: tool?.input_schema,
+    parameters: tool?.parameters,
+    schema: tool?.schema,
+    deferLoading: tool?.deferLoading,
+    defer_loading: tool?.defer_loading,
+    annotationsMixdogKind: tool?.annotations?.mixdogKind,
+    annotationsAgentHidden: tool?.annotations?.agentHidden,
+    native,
+    wireSignature: toolSchemaSignature(toolMeteringList(tool, native)),
+  };
+}
+export function toolKind(tool) {
+  const name = clean(tool?.name);
+  if (name.startsWith('mcp__')) return 'mcp';
+  if (name.startsWith('skill:') || tool?.annotations?.mixdogKind === 'skill') return 'skill';
+  if (name === 'Skill' || name.startsWith('skill_') || name === 'skills_list' || name === 'skill_view') return 'skill';
+  if (tool?.annotations?.agentHidden) return 'control';
+  if (['edit', 'apply_patch', 'shell'].includes(name)) return 'mutation';
+  return 'tool';
+}
+
+export function toolSchemaBucket(tool) {
+  const name = clean(tool?.name);
+  const kind = toolKind(tool);
+  if (kind === 'mcp') return 'mcp';
+  if (kind === 'skill') return 'skills';
+  if (name === 'memory' || name === 'recall' || name.includes('memory')) return 'memory';
+  if (name === 'web_search' || name === 'web_fetch') return 'web';
+  if (['read', 'grep', 'find', 'glob', 'list', 'code_graph'].includes(name)) return 'code';
+  if (['shell', 'edit', 'apply_patch'].includes(name)) return 'mutation';
+  if (name === 'agent' || name === 'delegate') return 'agents';
+  if (name.includes('channel') || name.includes('webhook')) return 'channels';
+  if (name.includes('provider') || name === 'load_tool' || name === 'tool_search' || name === 'session') return 'setup';
+  if (kind === 'control') return 'control';
+  return 'other';
+}
+
+export function estimateToolSchemaBreakdown(tools) {
+  if (Array.isArray(tools)) {
+    const cached = toolSchemaBreakdownMemo.get(tools);
+    if (cached && (isFinalizedProviderRequestTools(tools) || sameToolSchemaEntries(cached, tools))) return cached.value;
+  }
+  const out = {};
+  const list = Array.isArray(tools) ? tools : [];
+  const nativePrefixCount = providerNativeToolPrefixCount(list);
+  for (let index = 0; index < list.length; index += 1) {
+    const tool = list[index];
+    const bucket = toolSchemaBucket(tool);
+    const row = out[bucket] || { count: 0, tokens: 0 };
+    row.count += 1;
+    row.tokens += estimateToolSchemaTokens(toolMeteringList(tool, index < nativePrefixCount));
+    out[bucket] = row;
+  }
+  if (Array.isArray(tools)) {
+    toolSchemaBreakdownMemo.set(tools, {
+      entries: tools.map((tool, index) => toolSchemaEntry(tool, index < nativePrefixCount)),
+      value: out,
+    });
+  }
+  return out;
+}
+
+export function measuredToolUsage(name) {
+  return MEASURED_TOOL_USAGE[clean(name)] || 0;
+}
+
+export function parseToolSelection(value) {
+  if (Array.isArray(value)) return value.map(clean).filter(Boolean);
+  if (value && typeof value !== 'string' && typeof value[Symbol.iterator] === 'function') {
+    return [...value].map(clean).filter(Boolean);
+  }
+  return String(value || '')
+    .replace(/^select\s*:/i, '')
+    .split(/[,\s]+/)
+    .map(clean)
+    .filter(Boolean);
+}
+
+export function routeToolRank(name) {
+  const index = ROUTE_TOOL_ORDER.indexOf(clean(name));
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+export function sortedCatalogByMeasuredUsage(catalog) {
+  // Canonical route order first; measured usage orders the unrouted tail.
+  return (catalog || [])
+    .map((tool, index) => ({ tool, index }))
+    .sort((a, b) => {
+      const ar = routeToolRank(a.tool?.name);
+      const br = routeToolRank(b.tool?.name);
+      if (ar !== br) return ar - br;
+      const au = measuredToolUsage(a.tool?.name);
+      const bu = measuredToolUsage(b.tool?.name);
+      if (bu !== au) return bu - au;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.tool);
+}
+
+const IMMUTABLE_SURFACE_TOOLS = new WeakSet();
+
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const key of Object.keys(value)) deepFreeze(value[key]);
+  }
+  return value;
+}
+
+export function activeToolForSurface(tool) {
+  if (!tool || typeof tool !== 'object') return tool;
+  if (IMMUTABLE_SURFACE_TOOLS.has(tool)) return tool;
+  return JSON.parse(JSON.stringify(tool));
+}
+
+// Clone once into a deep-frozen definition that activeToolForSurface passes
+// through without re-cloning. Safe to share: it can never be mutated in place.
+export function immutableToolForSurface(tool) {
+  if (!tool || typeof tool !== 'object') return tool;
+  if (IMMUTABLE_SURFACE_TOOLS.has(tool)) return tool;
+  const frozen = deepFreeze(JSON.parse(JSON.stringify(tool)));
+  IMMUTABLE_SURFACE_TOOLS.add(frozen);
+  return frozen;
+}
+
+// `route` is the session's pinned wire route (session.wireRoute). The
+// first-party Anthropic and OpenAI providers are native by name; a gateway or
+// custom provider is native only on a route pinned with verified support
+// (wire-route.mjs nativeDeferredFamilyForRoute), which is OFF everywhere today.
+export function deferredProviderMode(provider, route = null) {
+  const p = clean(provider).toLowerCase();
+  if (p === 'gemini') return 'manifest';
+  if (nativeProviderFamily(p, route)) return 'native';
+  // xAI/Grok and every other OpenAI-compatible backend have no native
+  // tool_search/tool_search_output contract. Give them one complete canonical
+  // function array instead of a load-driven array whose bytes churn.
+  return 'canonical';
+}
+
+export function nativeProviderFamily(provider, route = null) {
+  const p = clean(provider).toLowerCase();
+  if (p === 'openai' || p === 'openai-oauth') return 'openai';
+  if (p === 'anthropic' || p === 'anthropic-oauth') return 'anthropic';
+  return nativeDeferredFamilyForRoute(p, route);
+}
+
+export const ANTHROPIC_NATIVE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);

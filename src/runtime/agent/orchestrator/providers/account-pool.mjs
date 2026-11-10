@@ -1,0 +1,700 @@
+import {
+  ACCOUNT_PROVIDERS,
+  MAX_ACCOUNTS,
+  accountScopedSessionId,
+  noteAccountScopedSessionId,
+  readProviderAccountPool,
+  chooseProviderAccount,
+  selectProviderAccountIf,
+  blockProviderAccount,
+  providerAccountExhausted,
+  providerAccountExhaustedForModelOnly,
+  providerAccountPolicy,
+  providerAccountsResetAt,
+  providerAccountWithBlocks,
+  providerAccountBlockedUntil,
+  staleQuotaWindows,
+  isCustomKeyProvider,
+} from '../../../shared/provider-accounts.mjs';
+import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
+import { isExplicitUserAbortError, markProviderRecoveryExhausted } from './retry-classifier.mjs';
+import { sleepWithAbort } from './retry-backoff.mjs';
+import { QUOTA_KINDS, boundedCauseChain, providerErrorKind } from './provider-error-kind.mjs';
+import { fetchOAuthUsageSnapshot, readCachedOAuthUsageSnapshot } from './oauth-usage.mjs';
+
+// Only an explicit quota / plan / billing refusal advances the roster as
+// quota; a generic 429, overload, auth refusal, policy denial or transport
+// failure retains its existing recovery.
+export function isAccountQuotaError(error) {
+  if (isExplicitUserAbortError(error)) return false;
+  const { kind, status } = providerErrorKind(error);
+  if (status === 401 || status === 403) return false;
+  return QUOTA_KINDS.has(kind);
+}
+
+// Kinds that say nothing about the account: the server (or the network) is
+// temporarily unable to serve (or has no capacity in the requested service
+// tier). They never block or rotate an account.
+const SERVER_SIDE_KINDS = new Set(['overloaded', 'transient', 'service_tier_unavailable']);
+
+// Provider-supplied roster cooldowns (`accountCooldownPolicy` on the provider
+// object), used when the server named no delay:
+//   { floorMs, rateLimitedMs, quotaStepsMs, unknownMs, rotateOnRateLimit,
+//     waitForCooldownMs, blockedMs }
+// blockedMs: cooldown for an `accountBlocked` refusal, which then rotates.
+// quotaStepsMs escalates per consecutive quota refusal of one account (reset
+// by a served answer). Absent → the inferred five minutes.
+// rotateOnRateLimit rotates on a plain 429 rate limit; its advice, when
+// present, becomes that account's cooldown.
+// waitForCooldownMs: when every eligible account is only cooling down (no
+// quota evidence), the send waits — cancellable, reported as reconnect
+// progress — for the earliest cooldown while the send's total wait stays
+// within this bound; beyond it the cooldown error surfaces. Absent → no wait.
+const INFERRED_COOLDOWN_MS = 5 * 60_000;
+const quotaStrikes = new Map();
+
+function cooldownPolicyOf(instance) {
+  const policy = instance?.accountCooldownPolicy;
+  return policy && typeof policy === 'object' ? policy : null;
+}
+
+function finiteMs(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function policyCooldownMs(policy, strikeKey, reason) {
+  if (reason === 'rate_limited') return finiteMs(policy.rateLimitedMs, INFERRED_COOLDOWN_MS);
+  if (reason === 'quota' && Array.isArray(policy.quotaStepsMs) && policy.quotaStepsMs.length) {
+    const strikes = quotaStrikes.get(strikeKey) || 0;
+    quotaStrikes.set(strikeKey, strikes + 1);
+    return finiteMs(policy.quotaStepsMs[Math.min(strikes, policy.quotaStepsMs.length - 1)], INFERRED_COOLDOWN_MS);
+  }
+  return finiteMs(policy.unknownMs, INFERRED_COOLDOWN_MS);
+}
+
+// Burst throttles reopen within seconds. A 429 whose Retry-After points
+// minutes or days ahead is a closed subscription window, whichever scoped
+// limit the usage endpoint attributes it to.
+const QUOTA_WINDOW_RETRY_AFTER_MS = 60_000;
+
+// A refused account is never dispatched to again, so no ordinary success can
+// prove its quota came back: the roster only shrinks until the window expires.
+// Before the pool gives up, it re-measures EVERY account it is about to refuse
+// for — including one the server scheduled with Retry-After, because a
+// re-created subscription invalidates that schedule as surely as it
+// invalidates our own inference. The usage endpoint costs no model tokens, and
+// a reading below 100% releases the account. Paced per account so repeated
+// refusals inside one turn cannot turn recovery into polling; a new user
+// request clears that pacing (`resetAccountProbePacing`).
+const PROBE_INTERVAL_MS = 5 * 60_000;
+const lastProbeAt = new Map();
+
+// Sending a request is the user asking for a current answer, so the refusal it
+// may run into must be re-measured rather than repeated from a stored reading.
+// Called once per agent loop entry — never per in-turn provider round, which
+// is what keeps the pacing meaningful.
+export function resetAccountProbePacing() {
+  lastProbeAt.clear();
+}
+
+async function probeRefusedAccounts(providerName, pool, model, account) {
+  const now = Date.now();
+  const due = pool.accounts
+    .filter((row) => providerAccountExhausted(row, now, model, { useCredits: pool.useCredits === true }))
+    .filter((row) => now - (lastProbeAt.get(`${providerName}:${row.id}`) || 0) >= PROBE_INTERVAL_MS)
+    .sort((a, b) => (a.usage?.checkedAt || 0) - (b.usage?.checkedAt || 0));
+  if (!due.length) return false;
+  await Promise.all(
+    due.map((row) => {
+      lastProbeAt.set(`${providerName}:${row.id}`, now);
+      return fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}, {
+        force: true,
+      }).catch(() => null);
+    })
+  );
+  return true;
+}
+
+function accountsExhaustedError(useCredits) {
+  const error = new Error(
+    useCredits
+      ? 'All connected accounts have exhausted their quota. Check account usage and reset times.'
+      : 'The plan limit is reached and credit use is off. Turn on credit use or wait for the limit to reset.'
+  );
+  error.code = 'provider_accounts_exhausted';
+  return error;
+}
+
+// Every eligible account is only cooling down after a rate limit (no quota
+// evidence): a rate limit, advising the earliest cooldown end as the wait.
+// The pool already spent its cooldown wait, so this is a terminal verdict for
+// the loop, not an unclassified failure.
+// A row's cooldown for `model` ends when every block holding that model lifts.
+const coolingUntil = (row, model) => providerAccountBlockedUntil(row, model) ?? 0;
+
+function earliestCooldownMs(rows, now, model) {
+  const ends = rows.map((row) => coolingUntil(row, model)).filter((until) => until > now);
+  return ends.length ? Math.min(...ends) - now : null;
+}
+
+function accountsCoolingDownError(rows, now, model) {
+  const error = new Error('Every connected account is cooling down after a rate limit. Try again shortly.');
+  error.code = 'rate_limited';
+  const wait = earliestCooldownMs(rows, now, model);
+  if (wait != null) error.retryAfterMs = wait;
+  return markProviderRecoveryExhausted(error, { owner: 'account-pool', terminal: true });
+}
+
+// Structured proof that the send ended because no account can serve `model`
+// (not merely because a generic 429 or a stopped loop surfaced an error).
+function quotaExhausted(error, providerName, model, rows, options = {}) {
+  if (error && typeof error === 'object') {
+    error.quotaExhausted = {
+      provider: providerName,
+      model: String(model || ''),
+      resetAt: providerAccountsResetAt(rows, Date.now(), model, options),
+    };
+  }
+  return error;
+}
+
+// The send bound to one account: output callbacks are observed even when the
+// caller does not subscribe, and account-bound connection/delta state stays
+// apart without changing the visible Mixdog session, so no stale server state
+// crosses an account switch. `emitted()` reports whether output reached the
+// caller. `servedBy` names the account a history message or provider state
+// came from; only that account's replay and state are passed on.
+const replayAccount = (entry) => entry?.providerReplay?.accountId ?? entry?.providerAccountId;
+
+function boundAccountSend(providerName, row, messages, options, servedBy = replayAccount) {
+  let emitted = false;
+  const opts = { ...options };
+  for (const key of ['onStreamDelta', 'onTextDelta', 'onToolCall', 'onThinkingDelta']) {
+    opts[key] = (...args) => {
+      emitted = true;
+      return options[key]?.(...args);
+    };
+  }
+  if (options.sessionId) {
+    // An explicit empty executor (model-proxy host) must stay empty.
+    opts.toolExecutionSessionId = options.toolExecutionSessionId ?? options.sessionId;
+    opts.sessionId = accountScopedSessionId(providerName, row.id, options.sessionId);
+    // Closing the visible session must reach the connections keyed by it.
+    noteAccountScopedSessionId(options.sessionId, opts.sessionId);
+    // The spend still belongs to the visible session (usage-accounting.mjs).
+    opts.usageSessionId = options.usageSessionId || options.sessionId;
+  }
+  opts.providerState = servedBy(options.providerState) === row.id ? options.providerState : undefined;
+  const history = messages.map((message) => {
+    if (servedBy(message) === row.id) return message;
+    const { providerReplay, reasoning, thinkingBlocks, ...plain } = message;
+    return plain;
+  });
+  return { opts, history, emitted: () => emitted };
+}
+
+// Commit only a successful fallback, without overwriting a newer selection:
+// the selection is compared under the write's lock, not before it. A fallback
+// forced by a model-scoped limit ("7D Fable" full, or a block attributed to
+// one family) serves this request only: the selected account still serves
+// every other model, so it stays the provider's account of record.
+async function commitFallbackAccount(providerName, pool, row, model, refusalScoped, policy) {
+  if (row.id === pool.selectedId || refusalScoped) return null;
+  if (accountExhaustedForModelOnly(providerName, pool.selectedId, model)) return null;
+  return selectProviderAccountIf(providerName, pool.selectedId, row.id, policy);
+}
+
+// The account each session runs on under the headroom policy. Every answer
+// records its provider and account in the assistant message's
+// `providerMetadata` (and in provider state when the adapter keeps one), so
+// the binding survives a restart and eviction from this map, which only
+// spares the history walk. Bounded, oldest binding first out.
+const SESSION_ACCOUNT_LIMIT = 1000;
+export const ROUTING_METADATA_KEY = 'accountRouting';
+const sessionAccounts = new Map();
+
+// Forget every in-memory binding, as a restart does (tests).
+export function resetSessionAccountBindings() {
+  sessionAccounts.clear();
+}
+
+function rememberSessionAccount(key, id) {
+  sessionAccounts.delete(key);
+  sessionAccounts.set(key, id);
+  if (sessionAccounts.size > SESSION_ACCOUNT_LIMIT) sessionAccounts.delete(sessionAccounts.keys().next().value);
+}
+
+function accountExhaustedForModelOnly(providerName, id, model) {
+  const pool = readProviderAccountPool(providerName);
+  const row = pool.accounts.find((entry) => entry.id === id);
+  return (
+    Boolean(row) &&
+    providerAccountExhaustedForModelOnly(row, Date.now(), model, { useCredits: pool.useCredits === true })
+  );
+}
+
+// Only a binding recorded for THIS provider counts: a session that switched
+// providers carries another roster's account ids (every roster has a `default`).
+// The session's binding is read before the serving account, which differs
+// when a model-scoped limit lent this one answer to another account.
+function sessionAccountId(providerName, key, messages, options) {
+  if (key && sessionAccounts.has(key)) return sessionAccounts.get(key);
+  const state = options.providerState;
+  if (state?.providerAccountId && state.providerAccountProvider === providerName) {
+    return state.providerSessionAccountId || state.providerAccountId;
+  }
+  for (let index = (messages?.length || 0) - 1; index >= 0; index -= 1) {
+    const routing = messages[index]?.providerMetadata?.[ROUTING_METADATA_KEY];
+    if (routing?.accountId && routing.provider === providerName) return routing.sessionAccountId || routing.accountId;
+  }
+  return null;
+}
+
+/** The account a send of `model` for `sessionId` would try first right now —
+ *  the session's binding and the choice poolSend makes for its first attempt
+ *  — or null when the provider has no roster account or none is eligible. */
+export function plannedAccountId(providerName, { sessionId = null, messages = [], providerState, model = '' } = {}) {
+  const pool = readProviderAccountPool(providerName);
+  if (!pool.accounts.length) return null;
+  const sessionKey = sessionId ? `${providerName}:${sessionId}` : null;
+  const boundId = sessionAccountId(providerName, sessionKey, messages, { providerState });
+  return chooseProviderAccount(pool, new Set(), Date.now(), model, { sessionAccountId: boundId })?.id || null;
+}
+
+// Stamp the serving account on the answer, independent of transport state,
+// with the account the session stays bound to (`bindingId`).
+function recordServingAccount(providerName, result, id, bindingId) {
+  if (!result || typeof result !== 'object') return;
+  if (result.providerReplay) result.providerReplay = { ...result.providerReplay, accountId: id };
+  if (result.providerState) {
+    result.providerState = {
+      ...result.providerState,
+      providerAccountId: id,
+      providerSessionAccountId: bindingId,
+      providerAccountProvider: providerName,
+    };
+  }
+  const metadata =
+    result.providerMetadata && typeof result.providerMetadata === 'object' ? result.providerMetadata : {};
+  result.providerMetadata = {
+    ...metadata,
+    [ROUTING_METADATA_KEY]: { provider: providerName, accountId: id, sessionAccountId: bindingId },
+  };
+}
+
+// A block covers the quota bucket of the model that failed, which only a usage
+// reading names. An account without a recorded reading is measured once before
+// it is blocked — once per account for this process, whatever the outcome,
+// through the ordinary cache (a fresh failed reading is not repeated) — and
+// again only after a reading has recorded windows and they were dropped.
+// Without a reading the block stays account-wide.
+const measureAttempted = new Set();
+
+async function measureOnce(providerName, row, account) {
+  const key = `${providerName}:${row.id}`;
+  if (row.usage?.windows?.length) {
+    measureAttempted.delete(key);
+    return;
+  }
+  if (measureAttempted.has(key)) return;
+  measureAttempted.add(key);
+  await fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}).catch(
+    () => null
+  );
+}
+
+// The server's id of the limit a refusal names (a Codex model-specific limit),
+// stamped on the error by the provider boundary.
+function quotaLimitOf(error) {
+  for (const item of boundedCauseChain(error)) {
+    if (typeof item?.quotaLimit === 'string' && item.quotaLimit) return item.quotaLimit;
+  }
+  return '';
+}
+
+// Whether the failed account's quota window is exhausted, plus the server's
+// retry delay. Anthropic and other subscriptions may use the same 429 code
+// for burst throttling and exhausted subscription windows, so the native
+// usage endpoint decides rather than a human-readable message.
+// `until` is when the block lifts: the real quota reset when the provider
+// named one, else the advised delay, else an inferred five minutes. A long
+// Retry-After without quota evidence is a rate-limit cooldown: it rotates
+// this send, blocks no longer than advised and is never quota evidence.
+async function accountQuotaExhausted(providerName, row, model, error, account) {
+  const { kind, status, retryAfterMs: delay, resetAt } = providerErrorKind(error);
+  const now = Date.now();
+  const policy = cooldownPolicyOf(account(row.id));
+  const floorMs = policy ? finiteMs(policy.floorMs, 0) : 0;
+  const blockUntil = (withReset, reason = 'unknown') => {
+    if (withReset && resetAt > now) return { until: resetAt, source: 'retry-after', reset: true };
+    if (delay > 0) return { until: now + Math.max(delay, floorMs), source: 'retry-after' };
+    if (policy) {
+      const ms = policyCooldownMs(policy, `${providerName}:${row.id}`, reason);
+      return { until: now + Math.max(ms, floorMs), source: 'inferred' };
+    }
+    return { until: now + INFERRED_COOLDOWN_MS, source: 'inferred' };
+  };
+  if (SERVER_SIDE_KINDS.has(kind) || isExplicitUserAbortError(error)) {
+    return { exhausted: false, delay, evidence: false, ...blockUntil(false) };
+  }
+  // An account-level block (`accountBlocked`, e.g. the account needs
+  // verification): with a policy `blockedMs` that account cools for it and the
+  // roster rotates; never quota evidence. Without one it surfaces as before.
+  const blockedMs = policy ? finiteMs(policy.blockedMs, 0) : 0;
+  if (error?.accountBlocked === true && blockedMs > 0) {
+    return {
+      exhausted: true,
+      accountBlocked: true,
+      delay,
+      evidence: false,
+      until: now + Math.max(blockedMs, floorMs),
+      source: 'inferred',
+    };
+  }
+  const typed = isAccountQuotaError(error);
+  if (typed) {
+    await measureOnce(providerName, row, account);
+    return { exhausted: true, delay, evidence: true, ...blockUntil(true, 'quota') };
+  }
+  // A policy with rotateOnRateLimit rotates on a plain rate limit too (the
+  // advice as its cooldown, else rateLimitedMs); never quota evidence.
+  if (policy?.rotateOnRateLimit === true && kind === 'rate_limited' && status === 429) {
+    await measureOnce(providerName, row, account);
+    return { exhausted: true, delay, evidence: false, ...blockUntil(false, 'rate_limited') };
+  }
+  let exhausted = status === 429 && delay > QUOTA_WINDOW_RETRY_AFTER_MS;
+  // Proof of a spent quota: a typed quota refusal or an exhausted usage window
+  // (a long Retry-After alone only rotates the roster, it proves nothing).
+  let evidence = false;
+  if (status === 429) {
+    await fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}, {
+      force: true,
+    });
+    const pool = readProviderAccountPool(providerName);
+    const entry = pool.accounts.find((item) => item.id === row.id);
+    const options = { useCredits: pool.useCredits === true };
+    evidence = providerAccountExhausted(providerAccountWithBlocks(entry), Date.now(), model, options);
+    exhausted = exhausted || evidence || providerAccountExhausted(entry, Date.now(), model, options);
+  }
+  const reason = evidence ? 'quota' : 'unknown';
+  return { exhausted, delay, evidence, ...(exhausted ? blockUntil(evidence, reason) : {}) };
+}
+
+// Record an exhausted verdict on the roster. An account-level block holds
+// every model, so it carries no model or limit scope.
+function blockRefusedAccount(providerName, accountId, model, error, verdict) {
+  const { evidence, until, source, reset, accountBlocked } = verdict;
+  return blockProviderAccount(providerName, accountId, until, accountBlocked ? '' : model, source, {
+    quota: evidence === true,
+    reset: reset === true,
+    limit: accountBlocked ? '' : quotaLimitOf(error),
+  });
+}
+
+/**
+ * A refusal `error` that account `accountId` gave outside the pool's send (a
+ * cache warm, which never rotates): judged and recorded on the roster exactly
+ * as the send would, with `instance` as that account's provider. Resolves
+ * whether the account was blocked.
+ */
+export async function recordAccountRefusal(providerName, accountId, model, error, instance) {
+  const row = readProviderAccountPool(providerName).accounts.find((entry) => entry.id === accountId);
+  if (!row) return false;
+  const verdict = await accountQuotaExhausted(providerName, row, model, error, () => instance);
+  if (!verdict.exhausted) return false;
+  await blockRefusedAccount(providerName, row.id, model, error, verdict);
+  return true;
+}
+
+// Whether every account in `ids` (default: the roster) is exhausted with quota
+// evidence: observed in this send (`evidenced`), or a full window.
+function rosterExhaustion(providerName, model, evidenced, ids) {
+  const pool = readProviderAccountPool(providerName);
+  // Manual policy: the eligible set is the selected account alone.
+  const scope = ids || (providerAccountPolicy(pool) === 'manual' ? [pool.selectedId] : null);
+  const rows = scope ? pool.accounts.filter((entry) => scope.includes(entry.id)) : pool.accounts;
+  const opts = { useCredits: pool.useCredits === true };
+  const now = Date.now();
+  const all =
+    rows.length > 0 &&
+    rows.every((entry) =>
+      providerAccountExhausted(
+        evidenced.has(entry.id) ? entry : providerAccountWithBlocks(entry, (block) => block.blockedQuota === true),
+        now,
+        model,
+        opts
+      )
+    );
+  return { rows, opts, now, all };
+}
+
+// Mark `error` only when every account in `ids` is exhausted with quota
+// evidence (`rosterExhaustion`). Without an error of its own, the send reports
+// quota exhaustion only on that evidence, and a rate-limit cooldown otherwise.
+function exhaustedSendError(providerName, model, evidenced, error, ids) {
+  const { rows, opts, now, all } = rosterExhaustion(providerName, model, evidenced, ids);
+  if (all) {
+    return quotaExhausted(error || accountsExhaustedError(opts.useCredits), providerName, model, rows, opts);
+  }
+  return error || accountsCoolingDownError(rows, now, model);
+}
+
+// The provider's bound on the time one send spends waiting for cooldowns.
+function cooldownWaitBoundMs(providerName, account, ids) {
+  const id = ids?.[0] || readProviderAccountPool(providerName).selectedId || 'default';
+  return finiteMs(cooldownPolicyOf(account(id))?.waitForCooldownMs, 0);
+}
+
+// A cooldown-only eligible set whose earliest cooldown ends inside the
+// remaining wait budget is waited out; otherwise the send fails as before.
+// `ledger` is the send's own record of the roster (see `poolSend`).
+async function waitOutCooldownOrThrow(request, ledger, error, ids) {
+  const { providerName, model, account, options } = request;
+  const { rows, now, all } = rosterExhaustion(providerName, model, ledger.evidenced, ids);
+  const bound = cooldownWaitBoundMs(providerName, account, ids);
+  // Persisting a short cooldown can outlast its deadline. Release only
+  // attempts cooled by this send, and only under an enabled wait policy.
+  const expired = bound > 0 && rows.some((row) => ledger.cooled.has(row.id) && !(coolingUntil(row, model) > now));
+  let wait = null;
+  if (!all) wait = expired ? 0 : earliestCooldownMs(rows, now, model);
+  if (wait == null || ledger.waitedMs + wait > bound) {
+    throw exhaustedSendError(providerName, model, ledger.evidenced, error, ids);
+  }
+  options.onStageChange?.('reconnecting', {
+    message: `Rate limited — every account is cooling down; retrying in ${Math.ceil(wait / 1000)}s`,
+    reason: 'rate_limited',
+    waitMs: wait,
+    retryAt: now + wait,
+  });
+  // A zero-duration sleep does not check cancellation, including on the
+  // final allowed send when no next loop iteration will check it either.
+  options.signal?.throwIfAborted();
+  await sleepWithAbort(wait, options.signal);
+  ledger.waitedMs += wait;
+  const lifted = Date.now();
+  for (const row of readProviderAccountPool(providerName).accounts) {
+    if (ledger.cooled.has(row.id) && !(coolingUntil(row, model) > lifted)) {
+      ledger.cooled.delete(row.id);
+      ledger.attempted.delete(row.id);
+    }
+  }
+}
+
+// No roster: with credit use off, a stored reading showing the plan's window
+// spent refuses before the implicit account sends.
+function throwIfPlanQuotaSpent(providerName, pool, model) {
+  if (pool.useCredits !== true) {
+    const stored = readCachedOAuthUsageSnapshot({ provider: providerName, model: '' });
+    // A snapshot cached before per-model gating is stale evidence.
+    if (stored?.quotaWindows?.length && !staleQuotaWindows(providerName, stored.quotaWindows)) {
+      const row = { usage: { windows: stored.quotaWindows, checkedAt: stored.cachedAt } };
+      if (providerAccountExhausted(row, Date.now(), model)) {
+        throw quotaExhausted(accountsExhaustedError(false), providerName, model, [row]);
+      }
+    }
+  }
+}
+
+// Headroom policy: a session's first pick, or its move off its account on a
+// limit, becomes the selection; continuing on its account does not, so
+// concurrent sessions never flip the selection back and forth. A move forced
+// by a model-scoped limit serves this request only (`scoped`). Stamps the
+// serving account on `result` and resolves whether the selection may commit.
+function bindServedAccount(providerName, result, rowId, model, binding) {
+  const { policy, boundId, sessionKey, switched, refusalScoped } = binding;
+  const leftBound = Boolean(boundId) && rowId !== boundId;
+  const scoped = switched
+    ? refusalScoped
+    : policy === 'headroom' && leftBound && accountExhaustedForModelOnly(providerName, boundId, model);
+  recordServingAccount(providerName, result, rowId, scoped && boundId ? boundId : rowId);
+  if (sessionKey && policy === 'headroom' && !scoped) rememberSessionAccount(sessionKey, rowId);
+  return { scoped, commit: policy !== 'headroom' || !boundId || leftBound };
+}
+
+// A failed attempt is never re-issued once output reached the caller or the
+// attempt was unsafe to retry (`unsafe`, judged by the caller and read only
+// when nothing was emitted).
+function attemptUnretryable(bound, error, unsafe) {
+  return Boolean(bound.emitted() || unsafe() || error.liveTextEmitted || error.emittedToolCall);
+}
+
+function rotationReason(evidence, accountBlocked) {
+  if (evidence) return 'Quota exhausted';
+  if (accountBlocked) return 'Account blocked';
+  return 'Rate limited (cooldown)';
+}
+
+// The pool's send: walks the eligible accounts until one answers, blocking
+// the ones whose quota window is exhausted along the way.
+function poolSend(providerName, account, servedBy) {
+  return async function send(messages, model, tools, options = {}) {
+    const request = { providerName, model, account, options };
+    // This send's record of the roster: the accounts it tried, those it found
+    // exhausted with quota evidence, those it blocked on a rate-limit
+    // cooldown, and the time it spent waiting for cooldowns.
+    const ledger = { attempted: new Set(), evidenced: new Set(), cooled: new Set(), waitedMs: 0 };
+    let lastError;
+    let probed = false;
+    let sends = 0;
+    const sessionKey = options.sessionId ? `${providerName}:${options.sessionId}` : null;
+    const boundId = sessionAccountId(providerName, sessionKey, messages, options);
+    // Whether this send already left an account, and whether the latest quota
+    // refusal held only for this model's family.
+    let switched = false;
+    let refusalScoped = false;
+    // One try per connectable account at most (provider-accounts.mjs MAX_ACCOUNTS).
+    while (ledger.attempted.size < MAX_ACCOUNTS && sends < MAX_ACCOUNTS) {
+      options.signal?.throwIfAborted();
+      const pool = readProviderAccountPool(providerName);
+      if (!pool.accounts.length) {
+        // A custom provider's key has no plan meter to consult.
+        if (!isCustomKeyProvider(providerName)) throwIfPlanQuotaSpent(providerName, pool, model);
+        return account('default').send(messages, model, tools, options);
+      }
+      const policy = providerAccountPolicy(pool);
+      const row = chooseProviderAccount(pool, ledger.attempted, Date.now(), model, { sessionAccountId: boundId });
+      if (!row) {
+        // Once per send: a refusal built on a stale meter must not outlive the
+        // meter. Re-measuring can only widen the roster, so it is tried before
+        // the failure is reported, never in place of reporting it.
+        if (!probed) {
+          probed = true;
+          if (await probeRefusedAccounts(providerName, pool, model, account)) continue;
+        }
+        await waitOutCooldownOrThrow(request, ledger, lastError);
+        continue;
+      }
+      ledger.attempted.add(row.id);
+      sends += 1;
+      const bound = boundAccountSend(providerName, row, messages, options, servedBy);
+      try {
+        const result = await account(row.id).send(bound.history, model, tools, bound.opts);
+        quotaStrikes.delete(`${providerName}:${row.id}`);
+        const { scoped, commit } = bindServedAccount(providerName, result, row.id, model, {
+          policy,
+          boundId,
+          sessionKey,
+          switched,
+          refusalScoped,
+        });
+        if (commit && (await commitFallbackAccount(providerName, pool, row, model, scoped, policy))) {
+          // Publish only a committed selection, never a speculative retry or
+          // one superseded by a manual switch. The existing progress channel
+          // carries this across runtime shards to the attached UI.
+          try {
+            await options.onStageChange?.('account-changed', {
+              provider: providerName,
+              accountId: row.id,
+              at: Date.now(),
+            });
+          } catch {
+            // A UI refresh must not turn a successful model response into a retry.
+          }
+        }
+        return result;
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        if (error?.reauthRequired === true) {
+          if (policy === 'manual' || attemptUnretryable(bound, error, () => error.unsafeToRetry)) throw error;
+          lastError = error;
+          switched = true;
+          refusalScoped = false;
+          options.onStageChange?.('reconnecting', { message: 'Sign-in expired — switching to the next account' });
+          continue;
+        }
+        const verdict = await accountQuotaExhausted(providerName, row, model, error, account);
+        const { exhausted, evidence, accountBlocked } = verdict;
+        if (options.signal?.aborted || !exhausted) throw error;
+        if (evidence) ledger.evidenced.add(row.id);
+        else ledger.cooled.add(row.id);
+        await blockRefusedAccount(providerName, row.id, model, error, verdict);
+        // An account block is unsafe to re-issue on THAT account only; with no
+        // output emitted, the next account may serve the same request.
+        if (attemptUnretryable(bound, error, () => error.unsafeToRetry && accountBlocked !== true)) throw error;
+        // Manual policy: the eligible set is the selected account alone.
+        if (policy === 'manual') {
+          await waitOutCooldownOrThrow(request, ledger, error, [row.id]);
+          lastError = error;
+          continue;
+        }
+        lastError = error;
+        switched = true;
+        refusalScoped = accountExhaustedForModelOnly(providerName, row.id, model);
+        const reason = rotationReason(evidence, accountBlocked);
+        options.onStageChange?.('reconnecting', { message: `${reason} — switching to the next account` });
+      }
+    }
+    throw exhaustedSendError(
+      providerName,
+      model,
+      ledger.evidenced,
+      lastError || new Error('Provider account attempts exhausted.')
+    );
+  };
+}
+
+export function createAccountPoolProvider(providerName, create) {
+  if (!ACCOUNT_PROVIDERS.includes(providerName) || hasExplicitProviderAuthBinding(providerName)) return create();
+  const instances = new Map();
+  const account = (id) => {
+    if (!instances.has(id)) {
+      const instance = withProviderAccount(providerName, id, create);
+      const bound = new Proxy(instance, {
+        get(target, key) {
+          if (key === 'providerAccountId') return id;
+          const value = target[key];
+          return typeof value === 'function'
+            ? (...args) => withProviderAccount(providerName, id, () => value.apply(target, args))
+            : value;
+        },
+      });
+      instances.set(id, bound);
+    }
+    return instances.get(id);
+  };
+  const active = () => account(readProviderAccountPool(providerName).selectedId || 'default');
+  const send = poolSend(providerName, account);
+
+  return new Proxy(
+    {},
+    {
+      get(_target, key) {
+        if (key === 'send') return send;
+        if (key === 'forAccount') return account;
+        if (key === 'providerAccountId') return readProviderAccountPool(providerName).selectedId || 'default';
+        return active()[key];
+      },
+    }
+  );
+}
+
+// Every key of a custom provider reaches one endpoint, so its answers carry
+// no key-bound server state but what an answer's routing names: history from
+// before the key pool (or from no pooled send) is the primary key's.
+function customKeyServedBy(providerName) {
+  return (entry) => {
+    const routing = entry?.providerMetadata?.[ROUTING_METADATA_KEY];
+    if (routing?.provider === providerName && routing.accountId) return routing.accountId;
+    return replayAccount(entry) || 'default';
+  };
+}
+
+/**
+ * A custom provider's API keys as one roster (provider-accounts.mjs
+ * `setCustomProviderKeyIds`): `primary` is the `default` account and answers
+ * everything but `send`; `keyEngine(id)` is the engine sending with
+ * additional key `id`. Without additional keys the roster is empty and every
+ * send is the primary's own, unchanged.
+ */
+export function createCustomKeyPoolProvider(providerName, primary, keyEngine) {
+  const engines = new Map([['default', primary]]);
+  const account = (id) => {
+    if (!engines.has(id)) engines.set(id, keyEngine(id));
+    return engines.get(id);
+  };
+  const send = poolSend(providerName, account, customKeyServedBy(providerName));
+  return new Proxy(primary, {
+    get: (target, key, receiver) => (key === 'send' ? send : Reflect.get(target, key, receiver)),
+  });
+}

@@ -1,0 +1,871 @@
+import { randomUUID } from 'node:crypto';
+import { getAgentApiKey } from '../../../shared/config.mjs';
+import { noteAbandonedUsage, noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
+import { cursorUsage } from './cursor-wire-stream-sink.mjs';
+import {
+  knownToolNamesFromOpenAITools,
+  parseToolCalls,
+  toOpenAIMessages,
+  toOpenAITools,
+} from './openai-compat-wire.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
+import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
+import { retryAfterMsFromError } from './retry-classifier.mjs';
+import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
+import { acceptedWireTools } from './lib/claude-bridge-schema.mjs';
+import { cursorTokenExpiry, exchangeCursorToken, resolveCursorOAuthAccessToken } from './cursor-auth.mjs';
+import {
+  canonicalCursorModelId,
+  isCursorAutoModelId,
+  isCursorEffortParameterId,
+} from './cursor-wire-normalization.mjs';
+
+let runtimePromise = null;
+const CURSOR_EFFORT_ORDER = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+const CURSOR_DEFAULT_EFFORT_ORDER = Object.freeze([null, 'medium', 'high', 'low', 'none', 'xhigh', 'max']);
+const CURSOR_DEFAULT_CONTEXT_WINDOW = 200_000;
+
+async function loadCursorRuntime() {
+  if (!runtimePromise) {
+    runtimePromise = import('./cursor-wire.mjs');
+  }
+  return runtimePromise;
+}
+
+function toCursorMessages(messages, providerName, { nativePdf } = {}) {
+  const output = [];
+  for (const message of messages || []) {
+    // This is a local envelope over Cursor's execution protocol, not an
+    // OpenAI request. Its pending executions and native capabilities require
+    // the exact original id, including ids longer than OpenAI's 40-char cap.
+    const converted = toOpenAIMessages([message], providerName, { nativePdf, preserveToolCallIds: true });
+    if (message?.role !== 'tool') {
+      output.push(...converted);
+      continue;
+    }
+    const toolMessage = converted.find((entry) => entry.role === 'tool');
+    if (!toolMessage) continue;
+    const media = converted
+      .filter((entry) => entry.role === 'user' && Array.isArray(entry.content))
+      .flatMap((entry) => entry.content);
+    output.push({
+      ...toolMessage,
+      mixdog_tool_error: message.toolKind === 'error' || message.isError === true,
+      ...(media.length ? { mixdog_tool_media: media } : {}),
+      ...(message.readWindow?.lineClipped === true ? { mixdog_read_window: { lineClipped: true } } : {}),
+    });
+  }
+  return output;
+}
+
+function toCursorToolChoice(toolChoice) {
+  if (typeof toolChoice === 'string') return toolChoice;
+  if (!toolChoice || typeof toolChoice !== 'object') return undefined;
+  const name = toolChoice.name || toolChoice.function?.name;
+  return typeof name === 'string' && name ? { type: 'function', function: { name } } : undefined;
+}
+
+async function responseError(response, label) {
+  const text = await response.text().catch(() => '');
+  let message = text;
+  let code = '';
+  try {
+    const parsed = JSON.parse(text);
+    message = parsed?.error?.message || parsed?.message || text;
+    code = String(parsed?.error?.code || parsed?.code || '').toLowerCase();
+  } catch {
+    /* plain text */
+  }
+  const error = new Error(`${label} request failed (${response.status})${message ? `: ${message}` : ''}`);
+  error.status = response.status;
+  error.httpStatus = response.status;
+  if (code) error.code = code;
+  const headers = Object.fromEntries(response.headers?.entries?.() ?? []);
+  if (Object.keys(headers).length) {
+    error.headers = headers;
+    const retryAfterMs = retryAfterMsFromError(error);
+    if (Number.isFinite(retryAfterMs)) error.retryAfterMs = retryAfterMs;
+  }
+  throw error;
+}
+
+async function* responseSseEvents(response, signal) {
+  if (!response?.ok) await responseError(response, 'Cursor');
+  if (!response.body) throw new Error('Cursor response body is empty');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let aborted = false;
+  const onAbort = () => {
+    aborted = true;
+    void reader.cancel(signal?.reason).catch(() => {});
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  try {
+    while (!aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() || '';
+      for (const block of blocks) {
+        for (const line of block.split(/\r?\n/)) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === '[DONE]') continue;
+          let event;
+          try {
+            event = JSON.parse(data);
+          } catch {
+            // A malformed frame is skipped; the well-formed ones around it still count.
+            continue;
+          }
+          yield event;
+        }
+      }
+    }
+    if (aborted) throw signal?.reason instanceof Error ? signal.reason : new Error('Cursor request aborted');
+  } finally {
+    if (signal) {
+      try {
+        signal.removeEventListener('abort', onAbort);
+      } catch {
+        // the abort listener may already be gone
+      }
+    }
+    if (aborted) await reader.cancel().catch(() => {});
+  }
+}
+
+function parseCursorVariantId(value) {
+  const originalId = String(value || '').trim();
+  if (originalId === 'auto' || originalId === 'default') {
+    return { id: originalId, baseId: 'auto', effort: null, fast: false, thinking: false };
+  }
+  let id = originalId;
+  let fast = false;
+  let thinking = false;
+  let effort = null;
+  if (id.endsWith('-fast')) {
+    fast = true;
+    id = id.slice(0, -5);
+  }
+  if (id.endsWith('-thinking')) {
+    thinking = true;
+    id = id.slice(0, -9);
+  }
+  if (id.endsWith('-extra-high')) {
+    effort = 'xhigh';
+    id = id.slice(0, -11);
+  } else {
+    const match = id.match(/-(none|low|medium|high|xhigh|max)$/);
+    if (match) {
+      effort = match[1];
+      id = id.slice(0, -match[0].length);
+    }
+  }
+  if (id.endsWith('-thinking')) {
+    thinking = true;
+    id = id.slice(0, -9);
+  }
+  return {
+    id: originalId,
+    baseId: `${id}${thinking ? '-thinking' : ''}`,
+    effort,
+    fast,
+    thinking,
+  };
+}
+
+function cursorVariantDisplay(entry, variant) {
+  if (variant.baseId === 'auto') return 'Auto';
+  let display = String(entry?.name || entry?.display || entry?.id || variant.baseId).trim();
+  display = display.replace(/\s+Fast$/i, '');
+  if (variant.effort) {
+    const label =
+      variant.effort === 'xhigh' ? 'Extra High' : variant.effort.charAt(0).toUpperCase() + variant.effort.slice(1);
+    display = display.replace(new RegExp(`\\s+${label}(?=\\s+Thinking(?:\\s|$)|\\s+\\(NO ZDR\\)|$)`, 'i'), '');
+  }
+  return display || variant.baseId;
+}
+
+function variantPreference(variant) {
+  const effortRank = CURSOR_DEFAULT_EFFORT_ORDER.indexOf(variant.effort);
+  return (variant.fast ? 100 : 0) + (effortRank < 0 ? 50 : effortRank);
+}
+
+function normalizeCursorParameterValue(id, value) {
+  const text = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (isCursorEffortParameterId(id)) {
+    return text === 'extra-high' ? 'xhigh' : text;
+  }
+  return text;
+}
+
+const CONTEXT_WINDOW_UNIT_SCALE = { k: 1_000, m: 1_000_000 };
+
+function parameterizedModelScore(model) {
+  return (model.modelParameterOptions?.length || 0) + (model.supportsMaxMode ? 1 : 0);
+}
+
+function cursorContextWindow(value) {
+  const match = String(value || '')
+    .trim()
+    .toLowerCase()
+    .match(/^(\d+(?:\.\d+)?)(k|m)?$/);
+  if (!match) return 0;
+  const scale = CONTEXT_WINDOW_UNIT_SCALE[match[2]] ?? 1;
+  return Math.round(Number(match[1]) * scale);
+}
+
+function cursorPlainText(value) {
+  return String(value || '')
+    .replace(/<br\s*\/?>/gi, ' · ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`]+/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s*·\s*/g, ' · ')
+    .replace(/(?:\s*·\s*){2,}/g, ' · ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cursorDescriptionContextWindow(value) {
+  const match = String(value || '').match(/(\d+(?:\.\d+)?)\s*([km])\s+context window/i);
+  return match ? cursorContextWindow(`${match[1]}${match[2]}`) : 0;
+}
+
+function cursorModelDescription(entry) {
+  const display = cursorPlainText(entry?.name || entry?.id);
+  const parts = cursorPlainText(entry?.description).split(' · ').filter(Boolean);
+  if (parts.length && display) {
+    const heading = parts[0].replace(/\s+\([^)]*\)\s*$/, '').trim();
+    if (heading.toLowerCase() === display.toLowerCase()) parts.shift();
+  }
+  return parts.join(' · ');
+}
+
+// The catalog's non-effort, non-fast parameter definitions as selectable
+// options; a context option carries the window it selects.
+function cursorModelParameterOptions(definitions) {
+  return definitions
+    .filter((definition) => !isCursorEffortParameterId(definition.id) && definition.id !== 'fast')
+    .map((definition) => ({
+      id: definition.id,
+      label: definition.name || definition.id,
+      kind: definition.kind,
+      options: definition.values.map((option) => ({
+        value: normalizeCursorParameterValue(definition.id, option.value),
+        label: option.label,
+        ...(definition.id === 'context' && cursorContextWindow(option.value)
+          ? { contextWindow: cursorContextWindow(option.value) }
+          : {}),
+      })),
+    }));
+}
+
+// The advertised window: the default context parameter, the entry's own
+// figure, or the one its description states; a max-only model reports its
+// max-mode window.
+function cursorContextWindows(entry, defaultModelParameters, { supportsMaxMode, supportsNonMaxMode, maxOnly }) {
+  const description = cursorModelDescription(entry);
+  const describedContextWindow = cursorDescriptionContextWindow(description);
+  const nonMaxContextWindow =
+    cursorContextWindow(defaultModelParameters.context) ||
+    Number(entry.contextWindow) ||
+    (supportsMaxMode && supportsNonMaxMode ? 0 : describedContextWindow) ||
+    CURSOR_DEFAULT_CONTEXT_WINDOW;
+  const maxContextWindow = Number(entry.maxContextWindow) || (supportsMaxMode ? describedContextWindow : 0);
+  const contextWindow = maxOnly ? maxContextWindow || nonMaxContextWindow : nonMaxContextWindow;
+  return { description, contextWindow, maxContextWindow };
+}
+
+// Each variant with its parameters keyed by route name (the effort parameter
+// becomes `effort`) and normalized values.
+function cursorVariantRoutes(entry, effortDefinition) {
+  return (entry.variants || []).map((variant) => ({
+    ...variant,
+    routeParameters: Object.fromEntries(
+      Object.entries(variant.parameters || {}).map(([id, value]) => [
+        id === effortDefinition?.id ? 'effort' : id,
+        normalizeCursorParameterValue(id, value),
+      ])
+    ),
+  }));
+}
+
+function cursorDefaultVariant(variants, maxOnly) {
+  return (
+    variants.find((variant) => (maxOnly ? variant.defaultMax === true : variant.defaultNonMax === true)) ||
+    variants.find((variant) => variant.maxMode === maxOnly) ||
+    variants[0] ||
+    null
+  );
+}
+
+function cursorEffortValues(effortDefinition) {
+  if (!effortDefinition) return [];
+  return effortDefinition.values.map((option) => normalizeCursorParameterValue(effortDefinition.id, option.value));
+}
+
+// The efforts the catalog offers a fast variant for.
+function cursorFastEfforts(variants) {
+  return [
+    ...new Set(
+      variants
+        .filter((variant) => variant.routeParameters.fast === 'true')
+        .map((variant) => variant.routeParameters.effort || '')
+    ),
+  ];
+}
+
+function parameterizedCursorModel(entry, provider) {
+  const definitions = Array.isArray(entry.parameterDefinitions) ? entry.parameterDefinitions : [];
+  const effortDefinition = definitions.find((definition) => isCursorEffortParameterId(definition.id));
+  const normalizedVariants = cursorVariantRoutes(entry, effortDefinition);
+  const supportsMaxMode = entry.supportsMaxMode === true;
+  const supportsNonMaxMode = entry.supportsNonMaxMode === true || !supportsMaxMode;
+  const maxOnly = supportsMaxMode && !supportsNonMaxMode;
+  const defaultVariant = cursorDefaultVariant(normalizedVariants, maxOnly);
+  const efforts = cursorEffortValues(effortDefinition);
+  const fastEfforts = cursorFastEfforts(normalizedVariants);
+  const modelParameterOptions = cursorModelParameterOptions(definitions);
+  const defaultModelParameters = Object.fromEntries(
+    Object.entries(defaultVariant?.routeParameters || {}).filter(([id]) => !['effort', 'fast'].includes(id))
+  );
+  const { description, contextWindow, maxContextWindow } = cursorContextWindows(entry, defaultModelParameters, {
+    supportsMaxMode,
+    supportsNonMaxMode,
+    maxOnly,
+  });
+  const id = canonicalCursorModelId(entry.id);
+  return {
+    id,
+    display: isCursorAutoModelId(entry.id) ? 'Auto' : cursorPlainText(entry.name || entry.id),
+    provider,
+    mode: 'chat',
+    contextWindow,
+    ...(maxContextWindow > contextWindow ? { maxContextWindow } : {}),
+    description,
+    supportsVision: entry.supportsVision === true,
+    reasoning: efforts.length > 0 || entry.supportsReasoning === true,
+    supportsReasoning: efforts.length > 0 || entry.supportsReasoning === true,
+    reasoningLevels: efforts,
+    reasoningOptions: efforts.length ? [{ type: 'effort', values: efforts }] : [],
+    fastCapable: definitions.some((definition) => definition.id === 'fast'),
+    fastEfforts,
+    modelParameterOptions,
+    parameterVariants: normalizedVariants.map((variant) => variant.routeParameters),
+    defaultModelParameters,
+    defaultEffort: defaultVariant?.routeParameters?.effort || null,
+    defaultFast: defaultVariant?.routeParameters?.fast === 'true',
+    supportsMaxMode,
+    _cursorParameterized: {
+      id,
+      definitions,
+      effortParameterId: effortDefinition?.id || null,
+      variants: normalizedVariants,
+      contextWindow,
+      maxContextWindow: maxContextWindow || contextWindow,
+      supportsMaxMode,
+      supportsNonMaxMode,
+    },
+  };
+}
+
+function isParameterizedCursorEntry(entry) {
+  return (
+    (Array.isArray(entry?.parameterDefinitions) && entry.parameterDefinitions.length) ||
+    entry?.supportsMaxMode === true ||
+    entry?.supportsNonMaxMode === true ||
+    Number(entry?.maxContextWindow) > 0
+  );
+}
+
+// Records a parameterized catalog entry: the richer of two entries with the
+// same id wins, and every alias and raw id stays resolvable.
+function registerParameterizedEntry(entry, provider, { parameterizedModels, parameterGroups, rawIds, aliases }) {
+  const model = parameterizedCursorModel(entry, provider);
+  const group = model._cursorParameterized;
+  delete model._cursorParameterized;
+  const existingIndex = parameterizedModels.findIndex((candidate) => candidate.id === model.id);
+  const existing = existingIndex >= 0 ? parameterizedModels[existingIndex] : null;
+  const existingScore = existing ? parameterizedModelScore(existing) : -1;
+  if (!existing || parameterizedModelScore(model) >= existingScore) {
+    if (existingIndex >= 0) parameterizedModels[existingIndex] = model;
+    else parameterizedModels.push(model);
+    parameterGroups.set(model.id, group);
+  }
+  rawIds.add(model.id);
+  if (isCursorAutoModelId(entry.id)) rawIds.add(String(entry.id).trim());
+  for (const alias of entry.aliases || []) {
+    const variant = (entry.variants || []).find((candidate) => candidate.legacySlug === alias);
+    if (!aliases.has(alias)) {
+      aliases.set(alias, { baseId: model.id, parameters: variant?.parameters || {}, alias: true });
+    }
+    rawIds.add(alias);
+  }
+}
+
+// One model for a base id's slug variants, described by its preferred variant.
+function variantGroupModel(baseId, variants, provider) {
+  variants.sort((a, b) => variantPreference(a) - variantPreference(b) || a.id.localeCompare(b.id));
+  const representative = variants[0];
+  const efforts = CURSOR_EFFORT_ORDER.filter((effort) => variants.some((variant) => variant.effort === effort));
+  const fastEfforts = [...new Set(variants.filter((variant) => variant.fast).map((variant) => variant.effort || ''))];
+  const supportsReasoning = efforts.length > 0 || representative.thinking;
+  return {
+    id: baseId,
+    display: cursorVariantDisplay(representative.entry, representative),
+    provider,
+    mode: 'chat',
+    contextWindow: Number(representative.entry?.contextWindow) || CURSOR_DEFAULT_CONTEXT_WINDOW,
+    ...(Number(representative.entry?.maxTokens) ? { outputTokens: Number(representative.entry.maxTokens) } : {}),
+    reasoning: supportsReasoning,
+    supportsReasoning,
+    reasoningLevels: efforts,
+    reasoningOptions: efforts.length ? [{ type: 'effort', values: efforts }] : [],
+    fastCapable: fastEfforts.length > 0,
+    fastEfforts,
+  };
+}
+
+function normalizeCursorCatalog(entries, provider) {
+  const groups = new Map();
+  const catalog = { parameterizedModels: [], parameterGroups: new Map(), rawIds: new Set(), aliases: new Map() };
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (isParameterizedCursorEntry(entry)) {
+      registerParameterizedEntry(entry, provider, catalog);
+      continue;
+    }
+    const variant = { ...parseCursorVariantId(entry?.id), entry };
+    if (!variant.id) continue;
+    catalog.rawIds.add(variant.id);
+    if (!groups.has(variant.baseId)) groups.set(variant.baseId, []);
+    groups.get(variant.baseId).push(variant);
+  }
+  if (!groups.has('auto') && !catalog.parameterGroups.has('auto')) {
+    groups.set('auto', [
+      {
+        ...parseCursorVariantId('default'),
+        entry: { id: 'default', name: 'Auto', contextWindow: CURSOR_DEFAULT_CONTEXT_WINDOW, maxTokens: 64_000 },
+      },
+    ]);
+    catalog.rawIds.add('default');
+  }
+  const models = [...catalog.parameterizedModels];
+  for (const [baseId, variants] of groups) {
+    if (catalog.parameterGroups.has(baseId)) continue;
+    models.push(variantGroupModel(baseId, variants, provider));
+  }
+  const { rawIds, aliases, parameterGroups } = catalog;
+  return { models, groups, rawIds, aliases, parameterGroups };
+}
+
+function selectParameterizedCursorVariant(group, requested, sendOpts = {}) {
+  const aliasParameters = requested?.parameters || {};
+  const maxMode =
+    group.supportsMaxMode === true &&
+    (group.supportsNonMaxMode !== true || Number(sendOpts.selectedContextWindow) > Number(group.contextWindow || 0));
+  const modeVariants = group.variants.filter((variant) => variant.maxMode === maxMode);
+  const availableVariants = modeVariants.length ? modeVariants : group.variants;
+  const defaultVariant =
+    availableVariants.find((variant) => (maxMode ? variant.defaultMax === true : variant.defaultNonMax === true)) ||
+    availableVariants[0] ||
+    null;
+  const parameters = { ...(defaultVariant?.parameters || {}), ...aliasParameters };
+  const defaultContext = parameters.context;
+  const routeParameters =
+    sendOpts.modelParameters && typeof sendOpts.modelParameters === 'object' ? sendOpts.modelParameters : {};
+  for (const definition of group.definitions) {
+    if (Object.hasOwn(routeParameters, definition.id)) {
+      parameters[definition.id] = String(routeParameters[definition.id]);
+    }
+  }
+  if (group.effortParameterId && sendOpts.effort) {
+    const wanted = normalizeCursorParameterValue(group.effortParameterId, sendOpts.effort);
+    const option = group.definitions
+      .find((definition) => definition.id === group.effortParameterId)
+      ?.values.find((candidate) => normalizeCursorParameterValue(group.effortParameterId, candidate.value) === wanted);
+    if (!option) throw new Error(`Cursor model ${group.id} does not offer ${wanted} effort`);
+    parameters[group.effortParameterId] = option.value;
+  }
+  if (
+    group.definitions.some((definition) => definition.id === 'fast') &&
+    (requested?.alias !== true || sendOpts.fast === true)
+  ) {
+    parameters.fast = sendOpts.fast === true ? 'true' : 'false';
+  }
+  const matches = (variant) =>
+    Object.entries(parameters).every(([id, value]) => String(variant.parameters?.[id] ?? '') === String(value));
+  let selected = availableVariants.find(matches);
+  // Keep a supported explicit context. A persisted context can exist in this
+  // mode but conflict with its requested effort/fast/other options. In that
+  // case try only the mode's default context, preserving every other choice
+  // and still rejecting the request unless the full combination is offered.
+  if (!selected && Object.hasOwn(routeParameters, 'context')) {
+    if (defaultContext === undefined) delete parameters.context;
+    else parameters.context = defaultContext;
+    selected = availableVariants.find(matches);
+  }
+  if (!selected && availableVariants.length) {
+    throw new Error(`Cursor model ${group.id} does not offer the selected parameter combination`);
+  }
+  return {
+    modelId: group.id,
+    parameters: Object.entries(parameters).map(([id, value]) => ({ id, value: String(value) })),
+    maxMode,
+  };
+}
+
+// Fast is a RequestedModel parameter on parameterized models and an id
+// suffix on raw variants.
+function cursorSelectionIsFast(selection) {
+  if (selection.parameters?.length) {
+    return selection.parameters.some((parameter) => parameter.id === 'fast' && parameter.value === 'true');
+  }
+  return parseCursorVariantId(selection.modelId).fast;
+}
+
+function selectCursorVariant(group, { effort = null, fast = false } = {}) {
+  if (!Array.isArray(group) || group.length === 0) return null;
+  const normalizedEffort =
+    String(effort || '')
+      .trim()
+      .toLowerCase() || null;
+  if (normalizedEffort) {
+    const exact = group.find((variant) => variant.effort === normalizedEffort && variant.fast === fast);
+    if (exact) return exact;
+    const effortExists = group.some((variant) => variant.effort === normalizedEffort);
+    if (fast && effortExists) {
+      throw new Error(`Cursor model ${group[0].baseId} does not offer ${normalizedEffort} effort in Fast mode`);
+    }
+    throw new Error(`Cursor model ${group[0].baseId} does not offer ${normalizedEffort} effort`);
+  }
+  const sameSpeed = group.filter((variant) => variant.fast === fast);
+  for (const preferred of CURSOR_DEFAULT_EFFORT_ORDER) {
+    const match = sameSpeed.find((variant) => variant.effort === preferred);
+    if (match) return match;
+  }
+  return sameSpeed[0] || null;
+}
+
+class CursorProviderBase {
+  // Cursor's chat wire has no document block: PDFs lower to text.
+  nativePdf = false;
+  // Native read results are judged as exact source windows, so the tool
+  // finalizer reports their clipped lines next to the text.
+  consumesReadWindows = true;
+
+  static inputExcludesCache = false;
+  // The in-place stream retry budget is the whole recovery: a spent budget
+  // surfaces instead of being re-run by the outer recovery cycles.
+  retryPolicy = Object.freeze({ recoveryCycles: false });
+  name;
+  config;
+  _runtimeOverride;
+  _cursorCatalog = null;
+
+  constructor(name, config = {}) {
+    this.name = name;
+    this.config = config || {};
+    this._runtimeOverride = this.config.runtime || null;
+  }
+
+  async _runtime() {
+    return this._runtimeOverride || loadCursorRuntime();
+  }
+
+  async _accessToken() {
+    throw new Error('Cursor access-token resolver not implemented');
+  }
+
+  async _loadCursorCatalog(runtime, accessToken) {
+    if (this._cursorCatalog) return this._cursorCatalog;
+    const raw = await runtime.getCursorModels(accessToken);
+    const catalog = normalizeCursorCatalog(raw, this.name);
+    // A fallback list is a stopgap for this call only; the next lookup must
+    // ask Cursor again instead of pinning the reduced list for the session.
+    if (raw?.fallback !== true) this._cursorCatalog = catalog;
+    return catalog;
+  }
+
+  getCachedModelInfo(model) {
+    return this._cursorCatalog?.models?.find((entry) => entry.id === model) || null;
+  }
+
+  async _resolveCursorModel(model, sendOpts, runtime, accessToken) {
+    const requested = canonicalCursorModelId(String(model || 'auto').trim() || 'auto');
+    const catalog = await this._loadCursorCatalog(runtime, accessToken);
+    const alias = catalog.aliases.get(requested);
+    const parameterGroup = catalog.parameterGroups.get(requested);
+    if (parameterGroup) {
+      return selectParameterizedCursorVariant(parameterGroup, { baseId: requested }, sendOpts);
+    }
+    // Existing legacy/alternate ids remain exact pass-through routes. Some
+    // aliases intentionally represent a different context default than
+    // the parameterized base, so folding them would silently change a
+    // persisted route.
+    if (alias) return { modelId: requested, parameters: [] };
+    const parsed = parseCursorVariantId(requested);
+    const group = catalog.groups.get(parsed.baseId);
+    if (!group) return { modelId: requested, parameters: [] };
+    const isCanonical = requested === parsed.baseId || requested === 'auto';
+    if (catalog.rawIds.has(requested) && !isCanonical && !sendOpts.effort && sendOpts.fast !== true) {
+      return { modelId: requested, parameters: [] };
+    }
+    const selected = selectCursorVariant(group, {
+      effort: sendOpts.effort || (isCanonical ? null : parsed.effort),
+      fast: sendOpts.fast === true,
+    });
+    return { modelId: selected?.id || requested, parameters: [] };
+  }
+
+  _chatBody(messages, { cursorSelection, sessionScope, openAiTools, toolChoice }) {
+    const cursorToolChoice = toCursorToolChoice(toolChoice);
+    return {
+      model: cursorSelection.modelId,
+      mixdog_model_parameters: cursorSelection.parameters,
+      mixdog_max_mode: cursorSelection.maxMode === true,
+      // Wire-level pairing guard: a call whose result never committed
+      // (cancel/abort) is hard-rejected unpaired, so synthesize the
+      // missing tool messages on the assembled array.
+      messages: ensureChatToolPairs(toCursorMessages(messages, this.name, { nativePdf: this.nativePdf })),
+      mixdog_session_id: sessionScope,
+      stream: true,
+      stream_options: { include_usage: true },
+      ...(openAiTools ? { tools: openAiTools } : {}),
+      ...(cursorToolChoice !== undefined ? { tool_choice: cursorToolChoice } : {}),
+    };
+  }
+
+  // One streamed chat completion. An error after live text or a tool call
+  // reached the caller is marked unsafe to retry.
+  async _dispatchChat(body, { runtime, accessToken, signal, sendOpts, openAiTools }) {
+    let liveTextEmitted = false;
+    let emittedToolCall = false;
+    try {
+      sendOpts.onStageChange?.('requesting');
+    } catch {
+      // the stage observer is advisory
+    }
+    try {
+      const response = await runtime.handleChatCompletion(body, accessToken, {
+        onStageChange: sendOpts.onStageChange,
+        getAccessToken: (options) => this._accessToken({ signal, ...options }),
+        // A deliberate history reset must reach Cursor's private parked run,
+        // not just the orchestrator's providerState.
+        resetActiveRun: Boolean(sendOpts.cacheBreakIntent),
+        // Native read/edit capabilities are process-local. An explicit empty
+        // executor (the model-proxy host: tools run in the server daemon)
+        // keeps every call an ordinary Mixdog tool call.
+        ownerSessionId: String(sendOpts.toolExecutionSessionId ?? (sendOpts.sessionId || '')),
+      });
+      try {
+        sendOpts.onStageChange?.('streaming');
+      } catch {
+        // the stage observer is advisory
+      }
+      return await consumeCompatChatCompletionStream(responseSseEvents(response, signal), {
+        signal,
+        label: this.name,
+        // The wrapper below always exists; the stream joins the session's
+        // logical request only when the caller reports progress into it.
+        sessionId: typeof sendOpts.onStreamDelta === 'function' ? sendOpts.sessionId : null,
+        onStreamDelta: (delta) => {
+          sendOpts.onStreamDelta?.(delta);
+        },
+        onToolCall: (call) => {
+          emittedToolCall = true;
+          sendOpts.onToolCall?.(call);
+        },
+        onTextDelta: (text) => {
+          if (text) liveTextEmitted = true;
+          sendOpts.onTextDelta?.(text);
+        },
+        parseToolCalls,
+        knownToolNames: knownToolNamesFromOpenAITools(openAiTools),
+      });
+    } catch (error) {
+      if (liveTextEmitted) error.liveTextEmitted = true;
+      if (emittedToolCall) error.emittedToolCall = true;
+      if (liveTextEmitted || emittedToolCall) error.unsafeToRetry = true;
+      throw error;
+    }
+  }
+
+  // What a second dispatch needs after a failed one: a fresh token for
+  // 401/403, a re-resolved model for 404; null when the call must not be
+  // retried.
+  async _sendRetryState(error, { signal, accessToken, cursorSelection, model, sendOpts, runtime }) {
+    const status = Number(error?.httpStatus || error?.status || 0);
+    const safe = error?.unsafeToRetry !== true && !signal?.aborted;
+    if (safe && (status === 401 || status === 403)) {
+      const refreshed = await this._accessToken({ signal, forceRefresh: true });
+      return refreshed && refreshed !== accessToken ? { accessToken: refreshed, cursorSelection } : null;
+    }
+    if (safe && status === 404) {
+      const previousModel = JSON.stringify(cursorSelection);
+      await this._refreshModelCache();
+      const reselected = await this._resolveCursorModel(model, sendOpts, runtime, accessToken);
+      return JSON.stringify(reselected) !== previousModel ? { accessToken, cursorSelection: reselected } : null;
+    }
+    return null;
+  }
+
+  async send(messages, model, tools, sendOpts = {}) {
+    const signal = sendOpts.signal || null;
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('Cursor request aborted');
+    const runtime = await this._runtime();
+    let accessToken = await this._accessToken({ signal });
+    let cursorSelection = await this._resolveCursorModel(model, sendOpts, runtime, accessToken);
+    // The Cursor run and conversation (checkpoint, pending tool batch) live
+    // under this scope; a forked request keeps its own (transport-scope.mjs).
+    const sessionScope = String(
+      sendOpts.transportScope ||
+        sendOpts.sessionId ||
+        sendOpts.providerCacheKey ||
+        sendOpts.promptCacheKey ||
+        `cursor-call:${randomUUID()}`
+    );
+    const openAiTools = tools?.length
+      ? toOpenAITools(acceptedWireTools(tools, 'openai', sendOpts.onToolExcluded, '[cursor] tool'))
+      : undefined;
+    const dispatch = async () => {
+      noteRequestServiceTier(cursorSelectionIsFast(cursorSelection) ? 'fast' : '');
+      // Every attempt (retries included) prepares right before it lowers.
+      const prepared = await preparePdfTextForProvider(messages, this);
+      return this._dispatchChat(
+        this._chatBody(prepared, { cursorSelection, sessionScope, openAiTools, toolChoice: sendOpts.toolChoice }),
+        { runtime, accessToken, signal, sendOpts, openAiTools }
+      );
+    };
+    const usageModel = model || 'auto';
+    let assembled;
+    try {
+      assembled = await dispatch();
+    } catch (error) {
+      if (error?.partialUsage && !error.partialModel) error.partialModel = usageModel;
+      const retry = await this._sendRetryState(error, {
+        signal,
+        accessToken,
+        cursorSelection,
+        model,
+        sendOpts,
+        runtime,
+      });
+      if (!retry) throw error;
+      noteAbandonedUsage(error?.partialUsage, error?.partialModel);
+      ({ accessToken, cursorSelection } = retry);
+      try {
+        assembled = await dispatch();
+      } catch (retryError) {
+        if (retryError?.partialUsage && !retryError.partialModel) retryError.partialModel = usageModel;
+        throw retryError;
+      }
+    }
+    const rawUsage = assembled.rawUsage;
+    // A pinned raw variant (effort/Fast suffix) bills as its catalog model;
+    // the Fast part is carried by the request's tier, not the id.
+    const pinned = parseCursorVariantId(canonicalCursorModelId(String(model || '').trim()));
+    const pricingModel =
+      pinned.baseId !== pinned.id && this._cursorCatalog?.groups?.has(pinned.baseId) ? pinned.baseId : undefined;
+    return {
+      content: assembled.content || '',
+      model: model || assembled.model || 'auto',
+      ...(pricingModel ? { pricingModel } : {}),
+      toolCalls: assembled.toolCalls,
+      stopReason: assembled.stopReason,
+      ...(assembled.reasoningContent ? { reasoningContent: assembled.reasoningContent } : {}),
+      usage: rawUsage ? cursorUsage(rawUsage) : undefined,
+    };
+  }
+
+  async listModels() {
+    const runtime = await this._runtime();
+    const accessToken = await this._accessToken({});
+    return (await this._loadCursorCatalog(runtime, accessToken)).models;
+  }
+
+  async getUsageSnapshot() {
+    const runtime = await this._runtime();
+    const accessToken = await this._accessToken({});
+    const snapshot = await runtime.getCursorUsage(accessToken);
+    return {
+      ...snapshot,
+      provider: this.name,
+    };
+  }
+
+  async _refreshModelCache() {
+    const runtime = await this._runtime();
+    runtime.clearModelCache?.();
+    this._cursorCatalog = null;
+    return this.listModels();
+  }
+}
+
+export class CursorApiProvider extends CursorProviderBase {
+  _cachedAccess = null;
+
+  constructor(config = {}) {
+    super('cursor-api', config);
+  }
+
+  async _accessToken({ signal, forceRefresh = false } = {}) {
+    if (this.config.accessToken) return this.config.accessToken;
+    if (forceRefresh) this._cachedAccess = null;
+    if (this._cachedAccess?.token && this._cachedAccess.expiresAt > Date.now() + 5 * 60_000) {
+      return this._cachedAccess.token;
+    }
+    const apiKey = this.config.apiKey || getAgentApiKey('cursor-api');
+    if (!apiKey) throw new Error('Cursor API key is not configured. Open /providers in Mixdog.');
+    try {
+      const exchanged = await (this.config.exchangeFn || exchangeCursorToken)(apiKey, {
+        fetchFn: this.config.fetchFn || fetch,
+        signal,
+      });
+      this._cachedAccess = {
+        token: exchanged.access_token,
+        expiresAt: exchanged.expires_at || Date.now() + 60 * 60_000,
+      };
+      return this._cachedAccess.token;
+    } catch (error) {
+      if (cursorTokenExpiry(apiKey) > Date.now()) return apiKey;
+      throw error;
+    }
+  }
+}
+
+export class CursorOAuthProvider extends CursorProviderBase {
+  constructor(config = {}) {
+    super('cursor-oauth', config);
+  }
+
+  async _accessToken({ signal, forceRefresh = false } = {}) {
+    if (this.config.accessToken) return this.config.accessToken;
+    return resolveCursorOAuthAccessToken({
+      forceRefresh,
+      fetchFn: this.config.fetchFn || fetch,
+      signal,
+    });
+  }
+}
+
+export const __cursorModelInternals = Object.freeze({
+  normalizeCursorCatalog,
+  parseCursorVariantId,
+  responseSseEvents,
+  selectCursorVariant,
+  selectParameterizedCursorVariant,
+  toCursorMessages,
+  toCursorToolChoice,
+});

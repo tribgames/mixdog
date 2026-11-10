@@ -1,0 +1,95 @@
+// The canonical `agent` tool for this daemon: one standalone agent bound to the
+// live session service, plus the control entry the session runtime host calls
+// for agent spawn/send/close. Built on first use because the provider and
+// orchestrator graphs behind it are the heaviest import in the process, and
+// rebuilt on failure so a transient import error is not cached forever.
+//
+// Inputs: `getSessionService` / `getSessionRuntimeHost` (both are wired after
+// this control exists — the host takes `execute` as a constructor option), and
+// `cwd`. Output: { canonicalAgentTool, execute, runForeground, dispose }.
+
+export function createCanonicalAgentControl({ getSessionService, getSessionRuntimeHost, cwd }) {
+  let canonicalAgentToolPromise = null;
+
+  function canonicalAgentTool() {
+    if (!getSessionService()) {
+      return Promise.reject(new Error('canonical session service is not ready'));
+    }
+    canonicalAgentToolPromise ??= Promise.all([
+      import('../session-runtime/services/agent-tool.mjs'),
+      import('../runtime/agent/orchestrator/config.mjs'),
+      import('../runtime/agent/orchestrator/providers/registry.mjs'),
+    ])
+      .then(([agentModule, cfgMod, reg]) => {
+        const sessionService = getSessionService();
+        return agentModule.createStandaloneAgent({
+          // Every agent-tool config read is a repeated one (reaper pulses, Lead
+          // row upserts, spawn/send): served from the snapshot, never re-loaded.
+          cfgMod: { ...cfgMod, loadConfig: cfgMod.getConfigSnapshot },
+          reg,
+          mgr: sessionService.agentManager,
+          dataDir: cfgMod.getPluginData(),
+          cwd,
+          awaitKeychainPrewarm: async () => {},
+          isKeychainPrewarmReady: () => true,
+          sessionSurface: sessionService.agentSurface,
+          notifySessionCompletion(ownerSessionId, text, meta = {}) {
+            return getSessionRuntimeHost()?.notifySessionCompletion?.(ownerSessionId, text, meta) === true;
+          },
+        });
+      })
+      .catch((error) => {
+        canonicalAgentToolPromise = null;
+        throw error;
+      });
+    return canonicalAgentToolPromise;
+  }
+
+  /** `context` rooted at its caller session (agent-tool: the owner is the caller's root). */
+  async function scopeContext(context) {
+    const sessionService = getSessionService();
+    const parentSessionId = String(context?.callerSessionId || '').trim();
+    await sessionService.rehydrateAgentSessions();
+    return {
+      parentSessionId,
+      sessionService,
+      scopedContext: {
+        ...context,
+        callerSessionId: parentSessionId || null,
+        ownerSessionId: sessionService.rootOwnerSessionId(parentSessionId),
+      },
+    };
+  }
+
+  /** One agent run to its end for a caller with no session to hand it to
+   *  (routine-executor.mjs): resolves `{ sessionId, content }`. */
+  async function runForeground(args = {}, context = {}, options = {}) {
+    const tool = await canonicalAgentTool();
+    const { scopedContext } = await scopeContext(context);
+    return await tool.runToCompletion(args, scopedContext, options);
+  }
+
+  async function execute(args = {}, context = {}) {
+    const tool = await canonicalAgentTool();
+    const { parentSessionId, sessionService, scopedContext } = await scopeContext(context);
+    if (String(args?.type || '') === '__close_all') {
+      await tool.closeAll?.(String(args?.reason || 'agent owner closed'), {
+        callerSessionId: parentSessionId || null,
+        processExit: args?.processExit === true,
+      });
+      await sessionService.cancelAgentDescendants(parentSessionId, String(args?.reason || 'agent owner closed'));
+      return 'agent close all: ok';
+    }
+    return await tool.execute(args, scopedContext);
+  }
+
+  /** Graceful shutdown: drain and release the canonical agent's index writers.
+   *  Never builds the tool just to dispose it. */
+  async function dispose() {
+    if (!canonicalAgentToolPromise) return;
+    const tool = await canonicalAgentToolPromise.catch(() => null);
+    await tool?.disposeAsync?.({ settle: true });
+  }
+
+  return { canonicalAgentTool, execute, runForeground, dispose };
+}

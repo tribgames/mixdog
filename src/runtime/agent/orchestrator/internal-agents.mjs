@@ -1,0 +1,199 @@
+/**
+ * Internal hidden agents — Mixdog-managed, user-untouchable.
+ *
+ * Unlike public workflow agents, these hidden agents are NEVER exposed to callers of the `agent` tool. They are
+ * invoked only by internal handlers (memory summarization / session titles) and carry
+ * their own system prompt + tool-set policy.
+ *
+ * Lookup order (agent-dispatch.resolveMaintenanceRoute):
+ *   1. explicit preset arg
+ *   2. opts.preset
+ *   3. hidden-agent registry (defaults/agents.json + systemFile frontmatter)
+ *
+ * Agent definitions live in defaults/agents.json and the referenced
+ * systemFile markdown frontmatter. Editing those files is a Mixdog source change.
+ *
+ * The preset names refer to entries seeded in mixdog-config.json (agent.presets)
+ * via DEFAULT_PRESETS (see config.mjs). If the user deletes the referenced preset
+ * from their config the hidden agents degrade gracefully — `resolveMaintenanceRoute`
+ * returns a name, but session creation will fail with a clear "preset not
+ * found" error rather than silently mis-dispatching.
+ *
+ * Kind classification:
+ *   - 'maintenance' : background-trigger hidden agents (memory cycle and
+ *                     title generation). Receive only their own self section.
+ *   An entry without a kind only names a route (the explore tool's
+ *   `explore-agent`, which runs no session).
+ *
+ * Permission classification:
+ *   - 'read'       : read-only — apply_patch/shell blocked at loop.mjs runtime
+ *                    guard with the same error string public read-only agents see.
+ *   - 'read-write' : full tool surface for any future mutating hidden role.
+ *
+ * Tool schema profile:
+ *   - 'none' : no tools exposed; pure transform/classifier agents.
+ *   - 'read' : read/search/code-navigation tools only.
+ *   - 'full' : shared agent tool schema for provider cache reuse.
+ */
+
+import { readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { mixdogRoot } from '../../shared/plugin-paths.mjs';
+import { normalizeAgentPermissionOrNone, parseMarkdownFrontmatter } from '../../shared/markdown-frontmatter.mjs';
+
+const _MIXDOG_ROOT = mixdogRoot();
+const _AGENTS_PATH = join(_MIXDOG_ROOT, 'defaults', 'agents.json');
+
+/** @type {{ mtime: number, files: string[], map: object } | null} */
+let _hiddenAgentsCache = null;
+
+function _mtimeSafe(file) {
+  try {
+    return statSync(file).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function _maxMtime(files) {
+  let mtime = 0;
+  for (const file of files) mtime = Math.max(mtime, _mtimeSafe(file));
+  return mtime;
+}
+
+// agents.json plus every systemFile it references. Parsing agents.json is
+// only needed to discover that list, and any list change rewrites agents.json
+// (moving its mtime), so the warm path re-stats the cached list instead.
+function _hiddenAgentsDependencyFiles() {
+  const files = [_AGENTS_PATH];
+  try {
+    const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'));
+    for (const entry of raw.agents || []) {
+      const systemFile = typeof entry?.systemFile === 'string' ? entry.systemFile.trim() : '';
+      if (systemFile) files.push(join(_MIXDOG_ROOT, systemFile));
+    }
+  } catch {
+    /* Best-effort: only systemFile mtimes are lost; the agents.json mtime still gates reloads. */
+  }
+  return files;
+}
+
+function _loadHiddenAgentFrontmatter(systemFile) {
+  const rel = typeof systemFile === 'string' ? systemFile.trim() : '';
+  if (!rel) return {};
+  try {
+    return parseMarkdownFrontmatter(readFileSync(join(_MIXDOG_ROOT, rel), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function _mergeHiddenAgentFrontmatter(entry) {
+  const fm = _loadHiddenAgentFrontmatter(entry.systemFile);
+  const merged = { ...entry };
+  const permission = normalizeAgentPermissionOrNone(fm.permission);
+  if (permission) merged.permission = permission;
+  for (const key of ['toolSchemaProfile', 'kind', 'slot', 'maintKey']) {
+    if (typeof fm[key] === 'string' && fm[key].trim()) merged[key] = fm[key].trim();
+  }
+  return merged;
+}
+
+/**
+ * Read and parse defaults/agents.json. Throws on missing/malformed.
+ */
+function _loadHiddenAgents() {
+  try {
+    const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'));
+    const map = Object.create(null);
+    for (const entry of raw.agents || []) {
+      if (entry?.agent) map[entry.agent] = Object.freeze(_mergeHiddenAgentFrontmatter(entry));
+    }
+    return Object.freeze(map);
+  } catch (err) {
+    // Fail loudly — a missing or malformed agents.json breaks dispatch.
+    throw new Error(`[internal-agents] failed to load defaults/agents.json: ${err.message}`);
+  }
+}
+
+/**
+ * Return the hidden-agent map, re-reading from disk when the file mtime has
+ * changed since the last load. This ensures that BP2 cache rebuilds triggered
+ * by an agents.json modification (tracked via maxMtimeRecursive in
+ * collect.mjs) consume fresh metadata in the same process.
+ */
+// The agent-status pulse resolves a watchdog policy per worker row, and each
+// lookup re-stat'ed every dependency file synchronously. The mtime probe runs
+// at most once per interval; an edit is picked up by the next probe.
+const HIDDEN_AGENTS_RECHECK_MS = 1000;
+let _hiddenAgentsCheckedAt = 0;
+
+function _getHiddenAgents() {
+  const now = Date.now();
+  if (_hiddenAgentsCache && now - _hiddenAgentsCheckedAt < HIDDEN_AGENTS_RECHECK_MS) return _hiddenAgentsCache.map;
+  // The mtime probe never throws; a load failure surfaces with the message
+  // _loadHiddenAgents already gave it, and the stale cache is not reused.
+  if (_hiddenAgentsCache && _maxMtime(_hiddenAgentsCache.files) <= _hiddenAgentsCache.mtime) {
+    _hiddenAgentsCheckedAt = now;
+    return _hiddenAgentsCache.map;
+  }
+  const files = _hiddenAgentsDependencyFiles();
+  const mtime = _maxMtime(files);
+  const map = _loadHiddenAgents();
+  _hiddenAgentsCache = { mtime, files, map };
+  _hiddenAgentsCheckedAt = now;
+  return map;
+}
+
+// Eager validate at module init so startup failures are immediate.
+_getHiddenAgents();
+
+/**
+ * Return the hidden-agent definition, or null if the name is not internal.
+ */
+export function getHiddenAgent(name) {
+  if (!name) return null;
+  return _getHiddenAgents()[name] || null;
+}
+
+/**
+ * Resolve permission stamped on a agent session. Hidden agents declared
+ * `permission: 'read'` are read-locked — caller opts cannot upgrade them.
+ * Other built-in permissions include `none`, `read-write`, `mcp`, and `full`.
+ */
+export function resolveAgentSessionPermission(agent, callerPermission) {
+  const hidden = getHiddenAgent(agent);
+  if (hidden && hidden.permission === 'read') return 'read';
+  if (callerPermission != null && callerPermission !== '') return callerPermission;
+  if (hidden?.permission) return hidden.permission;
+  return null;
+}
+
+/**
+ * Boolean check — useful for branching inside agent-dispatch / session-manager.
+ */
+export function isHiddenAgent(name) {
+  if (!name) return false;
+  return Object.hasOwn(_getHiddenAgents(), name);
+}
+
+/**
+ * List all hidden agent names. Used by diagnostics / setup UI guards to ensure
+ * a user-defined agent doesn't collide with an internal one.
+ */
+export function listHiddenAgentNames() {
+  return Object.keys(_getHiddenAgents());
+}
+
+/**
+ * List hidden agent names matching a given kind ('maintenance').
+ * Consumed by collect.mjs to drive BP2 agent classification dynamically
+ * instead of hard-coding agent-name sets.
+ */
+export function listHiddenAgentsByKind(kind) {
+  const out = [];
+  for (const [name, def] of Object.entries(_getHiddenAgents())) {
+    if (def.kind === kind) out.push(name);
+  }
+  return out;
+}

@@ -1,0 +1,224 @@
+// builtin-features.mjs — common install-first lifecycle for the first-party
+// built-in features (Extensions → Built-in).
+//
+// `installed` is a persisted activation marker in the config `builtins`
+// section. A feature's tools reach the session tool surface only once the
+// feature is BOTH installed and enabled; its toggle merely flips `enabled`
+// after installation. Voice keeps its on-disk runtime probe, and Browser
+// Use / Computer Use keep their bridge-presence gate plus desktop-side
+// installed markers — this section covers the runtime-persisted features.
+//
+// Fresh profiles start with an explicit empty `builtins` section, so every
+// feature presents as "not installed". A config that predates the section is
+// an active profile: it is grandfathered as installed so an upgrade never
+// removes a working tool surface. The daemon stamps the section at its first
+// config adoption, which always happens before onboarding completes, so a
+// brand-new profile can never be mistaken for a grandfathered one.
+// MIXDOG_FEATURE_* env overrides (headless/bench) bypass the gate entirely.
+
+import { featureEnvOverride, memoryToolsEnabled, moduleEnabled } from './config-helpers.mjs';
+import { readBridgeDiscovery } from '../../../bridge-discovery.mjs';
+import { HEADLESS_MODEL_TOOL_NAMES, HEADLESS_TOOL_PROFILE, normalizeToolProfile } from './tool-profile.mjs';
+import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
+import { gitExecutablePresent } from '../../../shared/path-executable.mjs';
+import { onnxRuntimeSupported } from '../../../shared/onnx-runtime-support.mjs';
+import { exploreRouteConfigured } from '../../../shared/agent-route-config.mjs';
+import { setBuiltinInstalledInConfig, withGrandfatheredBuiltins } from '../../../shared/builtin-grandfathering.mjs';
+
+// Browser Use / Computer Use have no install marker: the desktop app publishes
+// a loopback bridge discovery file while the feature is on. The same file
+// names gate the session tool surface in the bridge clients.
+const BROWSER_BRIDGE_DISCOVERY_FILE = 'browser-bridge.json';
+const COMPUTER_BRIDGE_DISCOVERY_FILE = 'computer-bridge.json';
+const TERMINAL_BRIDGE_DISCOVERY_FILE = 'terminal-bridge.json';
+const VISUALIZE_BRIDGE_DISCOVERY_FILE = 'visualize-bridge.json';
+
+function bridgePresent(file) {
+  try {
+    return readBridgeDiscovery(file) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export const INSTALLABLE_BUILTIN_IDS = Object.freeze([
+  'git',
+  'memory',
+  'office',
+  'tidy',
+  'localProvider',
+  'autoEffort',
+]);
+
+/** Model-facing activation for one gated feature: an explicit MIXDOG_FEATURE_*
+ *  env override (headless/bench) wins, otherwise the install marker and the
+ *  persisted toggle both have to agree. */
+export function builtinFeatureActive(configLike, id) {
+  if (id === 'webSearch') {
+    return featureEnvOverride('MIXDOG_FEATURE_WEB_SEARCH') ?? moduleEnabled(configLike, 'webSearch', true);
+  }
+  if (id === 'memory') {
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_MEMORY') ??
+      (builtinInstalled(configLike, 'memory') && memoryToolsEnabled(configLike, true))
+    );
+  }
+  // The Git extension (GitHub tools, git-requiring skills) is install-gated;
+  // the local `git` command tool is not — see localGitToolsActive.
+  if (id === 'git') {
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_GIT') ??
+      (builtinInstalled(configLike, 'git') && moduleEnabled(configLike, 'git', true))
+    );
+  }
+  if (id === 'office') {
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_OFFICE') ??
+      (builtinInstalled(configLike, 'office') && moduleEnabled(configLike, 'office', true))
+    );
+  }
+  // Code tidy installs like office: the tool ships with the runtime, but the
+  // engines it drives are downloaded per project, so the user opts in once.
+  // The `code-tidy` skill follows through `requires: tidy`.
+  if (id === 'tidy') {
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_TIDY') ??
+      (builtinInstalled(configLike, 'tidy') && moduleEnabled(configLike, 'tidy', true))
+    );
+  }
+  if (id === 'localProvider') {
+    return builtinInstalled(configLike, 'localProvider') && moduleEnabled(configLike, 'localProvider', true);
+  }
+  // Auto effort adds no tools: it picks the reasoning effort of each turn and
+  // step from the local effort judge, only on models that can change it
+  // without breaking the prompt cache. It is on unless the user turns it off:
+  // the judge model downloads at boot, and until it is on disk every call keeps
+  // the user's effort.
+  if (id === 'autoEffort') {
+    if (!onnxRuntimeSupported()) return false;
+    return featureEnvOverride('MIXDOG_FEATURE_AUTO_EFFORT') ?? moduleEnabled(configLike, 'autoEffort', true);
+  }
+  // Media Studio is a hidden built-in like setup: no Settings card, no install
+  // step, always on. The lane catalog ships with the runtime and sign-in happens
+  // per provider; only the env override (headless) or a hand-edited module
+  // toggle gates it, and a signed-out catalog fails per call with the lanes it
+  // does have. The image/video skills follow through `requires: media`.
+  if (id === 'media') {
+    return featureEnvOverride('MIXDOG_FEATURE_MEDIA') ?? moduleEnabled(configLike, 'media', true);
+  }
+  // Bridge-gated features (skills that describe the `browser` / `computer`
+  // tools use these ids in metadata.requires so they are offered only while
+  // the tool itself can reach a live desktop bridge).
+  if (id === 'browser') {
+    return featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? bridgePresent(BROWSER_BRIDGE_DISCOVERY_FILE);
+  }
+  if (id === 'computer') {
+    return featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? bridgePresent(COMPUTER_BRIDGE_DISCOVERY_FILE);
+  }
+  if (id === 'terminal') {
+    return featureEnvOverride('MIXDOG_FEATURE_TERMINAL') ?? bridgePresent(TERMINAL_BRIDGE_DISCOVERY_FILE);
+  }
+  // Visualize shows artifacts in the desktop side panel: no install step, on
+  // unless the user turns it off, and only while the desktop bridge is up.
+  if (id === 'visualize') {
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_VISUALIZE') ??
+      (moduleEnabled(configLike, 'visualize', true) && bridgePresent(VISUALIZE_BRIDGE_DISCOVERY_FILE))
+    );
+  }
+  return false;
+}
+
+/** Every tool a settings gate of featureDisallowedToolsFor can deny (the
+ *  headless `load_tool` rule derives from these and is not a setting). */
+export const FEATURE_GATED_TOOL_NAMES = Object.freeze([
+  'web_search',
+  'web_fetch',
+  'memory',
+  'recall',
+  'git',
+  'github',
+  'browser',
+  'browser_devtools',
+  'computer',
+  'terminal',
+  'office',
+  'media',
+  'tidy',
+  'visualize',
+  'explore',
+  'react',
+]);
+
+/** Gated by desktop bridge presence, not a setting. */
+const BRIDGE_GATED_TOOL_NAMES = Object.freeze(['browser', 'browser_devtools', 'computer', 'terminal']);
+
+/** The tools a user setting turns off (react answers for itself: it gates
+ *  non-model callers too). */
+export const SETTING_GATED_TOOL_NAMES = Object.freeze(
+  FEATURE_GATED_TOOL_NAMES.filter((name) => !BRIDGE_GATED_TOOL_NAMES.includes(name) && name !== 'react')
+);
+
+/** The session-surface exclusion list. Session build, the empty-session policy
+ *  refresh, and the deferred tool catalog all consume THIS list, so an
+ *  uninstalled or disabled feature never reaches a session's tool surface.
+ *  Browser Use / Computer Use activate on bridge presence (plus their env
+ *  overrides), which the caller passes in. */
+export function featureDisallowedToolsFor(
+  configLike,
+  {
+    browserAvailable = false,
+    computerAvailable = false,
+    terminalAvailable = false,
+    toolProfile = 'interactive',
+    gitAvailable,
+  } = {}
+) {
+  const browser = featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? browserAvailable === true;
+  const computer = featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? computerAvailable === true;
+  const terminal = featureEnvOverride('MIXDOG_FEATURE_TERMINAL') ?? terminalAvailable === true;
+  const denied = [
+    ...(builtinFeatureActive(configLike, 'webSearch') ? [] : ['web_search', 'web_fetch']),
+    ...(builtinFeatureActive(configLike, 'memory') ? [] : ['memory', 'recall']),
+    ...(localGitToolsActive(configLike, { gitAvailable }) ? [] : ['git']),
+    ...(builtinFeatureActive(configLike, 'git') ? [] : ['github']),
+    ...(browser ? [] : ['browser', 'browser_devtools']),
+    ...(computer ? [] : ['computer']),
+    ...(terminal ? [] : ['terminal']),
+    ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
+    ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
+    ...(builtinFeatureActive(configLike, 'tidy') ? [] : ['tidy']),
+    ...(builtinFeatureActive(configLike, 'visualize') ? [] : ['visualize']),
+    ...(exploreRouteConfigured(configLike) ? [] : ['explore']),
+    // Bots' emoji reactions (Settings → General → Reactions); on unless turned off.
+    ...(configLike?.reactions === false ? ['react'] : []),
+  ];
+  // Headless exec uses the Lead surface and excludes Skill/MCP tools. When
+  // only its eager defaults remain, neither schemas nor loader guidance help.
+  // Derive this from the two catalog contracts, not a second feature list.
+  if (
+    normalizeToolProfile(toolProfile) === HEADLESS_TOOL_PROFILE &&
+    HEADLESS_MODEL_TOOL_NAMES.every((name) => denied.includes(name) || DEFERRED_DEFAULT_LEAD_TOOLS.includes(name))
+  ) {
+    denied.push('load_tool');
+  }
+  return denied;
+}
+
+export function builtinInstalled(configLike, id) {
+  return configLike?.builtins?.[id]?.installed === true;
+}
+
+// The Git command tool ships with the runtime and activates by itself wherever
+// a git executable is on PATH — no extension install, on any tool profile, so
+// interactive and headless sessions share one surface. Without the executable
+// the schema would only cost tokens. Feature overrides and explicit OFF
+// preferences still apply.
+export function localGitToolsActive(configLike, { gitAvailable } = {}) {
+  return (
+    featureEnvOverride('MIXDOG_FEATURE_GIT') ??
+    (moduleEnabled(configLike, 'git', true) && (gitAvailable ?? gitExecutablePresent()))
+  );
+}
+
+export { setBuiltinInstalledInConfig, withGrandfatheredBuiltins };

@@ -1,0 +1,83 @@
+// Resume: reopen a stored session, rebuild the visible transcript from its
+// messages and reconcile steering at the same boundary.
+import { primeContextEstimates } from '../../../../runtime/agent/orchestrator/session/context-utils.mjs';
+import { resumedTranscriptArchive } from '../../compaction-view.mjs';
+
+export function createResumeAction(bag, { restoreTranscriptItems }) {
+  const {
+    runtime,
+    flags,
+    getState,
+    set,
+    flushEmitImmediate,
+    replaceItems,
+    clearToastTimers,
+    routeState,
+    restoreLeadSteeringFromDisk,
+    resetStatsAndSyncContext,
+  } = bag;
+
+  return {
+    resume: async (id, options = {}) => {
+      if (getState().commandBusy) return false;
+      // quiet: viewer-follow refreshes (session runtime share tick) re-resume
+      // on every owner turn — they must not flash the "Resuming conversation"
+      // status.
+      set({
+        commandBusy: true,
+        ...(options.quiet === true
+          ? {}
+          : {
+              commandStatus: { active: true, verb: 'Resuming conversation', startedAt: Date.now(), mode: 'resuming' },
+            }),
+      });
+      clearToastTimers();
+      try {
+        const r = await runtime.resume(id);
+        if (!r) return false;
+        // The context sync below prices the whole just-loaded transcript
+        // synchronously. When this thread owns the runtime session, meter it
+        // in event-loop slices first so that sync reads memoized estimates.
+        if (Array.isArray(r.messages) && runtime.session?.messages === r.messages) {
+          await primeContextEstimates(r.messages, runtime.session);
+        }
+        resetStatsAndSyncContext();
+        const requestedLimit = Number(options.transcriptItemLimit);
+        if (Number.isFinite(requestedLimit) && requestedLimit > 0) {
+          flags.resumeTranscriptItemLimit = Math.max(1, Math.floor(requestedLimit));
+        }
+        const itemLimit = Number(flags.resumeTranscriptItemLimit);
+        const items = restoreTranscriptItems(r.messages, {
+          sessionId: String(r.id || id),
+          itemLimit: Number.isFinite(itemLimit) && itemLimit > 0 ? itemLimit : Number.POSITIVE_INFINITY,
+        });
+        set({
+          items: replaceItems(items),
+          // Paged views continue into the compaction archive past these rows.
+          transcriptArchive: resumedTranscriptArchive(r.transcriptArchive),
+          toasts: [],
+          queued: [],
+          thinking: null,
+          spinner: null,
+          lastTurn: null,
+          ...routeState(),
+          stats: { ...getState().stats },
+        });
+        bag.reconcileQuotaResume?.();
+        // A shard/process restart recreates the runtime before resuming its
+        // durable session. Restore accepted steering while commandBusy is
+        // still held so the central release hook drains it exactly once after
+        // the transcript/session boundary is ready, rather than stranding the
+        // queued prompt behind a visible Cancelled recovery marker.
+        await restoreLeadSteeringFromDisk();
+        return true;
+      } finally {
+        set({ commandBusy: false, commandStatus: null });
+        // Desktop resume returns a snapshot immediately after this promise.
+        // Publish the completed route/transcript boundary now so callers never
+        // observe the previous frame's session id and title.
+        flushEmitImmediate();
+      }
+    },
+  };
+}

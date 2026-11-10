@@ -1,0 +1,104 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+import { drainSessionStore, saveSessionAsync, subscribeLiveSessions } from './store.mjs';
+import { settleSessionSummaryIndex } from './store/listing.mjs';
+
+// A recursive rm racing a late summary-index write lands ENOTEMPTY on Linux.
+// Retry briefly instead of failing the assertion-clean test.
+async function removeDataDir(root) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt >= 10 || !['ENOTEMPTY', 'EBUSY', 'EPERM'].includes(error?.code)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+}
+
+test('async session saves publish their admitted live snapshots', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-live-session-publication-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  mkdirSync(join(root, 'sessions'));
+  const published = [];
+  const unsubscribe = subscribeLiveSessions((session) => {
+    published.push({
+      id: session.id,
+      messageCount: session.messages.length,
+    });
+  });
+  const session = {
+    id: `sess_live_publication_${process.pid}_${Date.now()}`,
+    messages: [{ role: 'user', content: 'hello' }],
+    generation: 0,
+    closed: false,
+  };
+
+  try {
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    session.messages.push({ role: 'assistant', content: 'done' });
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+
+    assert.deepEqual(published, [
+      { id: session.id, messageCount: 1 },
+      { id: session.id, messageCount: 2 },
+    ]);
+  } finally {
+    unsubscribe();
+    drainSessionStore();
+    // Summary-index writes queued by the saves land after they resolve and
+    // would recreate the directory (session-summaries.json) behind the rm.
+    await settleSessionSummaryIndex();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    await removeDataDir(root);
+  }
+});
+
+test('an unowned async save publishes no live snapshot', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-live-session-refusal-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  const sessionsDir = join(root, 'sessions');
+  mkdirSync(sessionsDir);
+  const sessionId = `sess_live_refusal_${process.pid}_${Date.now()}`;
+  writeFileSync(
+    join(sessionsDir, `${sessionId}.json`),
+    JSON.stringify({
+      id: 'foreign-session',
+      messages: [],
+    })
+  );
+  const published = [];
+  const unsubscribe = subscribeLiveSessions((session) => published.push(session.id));
+
+  try {
+    await assert.rejects(
+      saveSessionAsync({
+        id: sessionId,
+        messages: [{ role: 'assistant', content: 'must not publish' }],
+        generation: 0,
+        closed: false,
+      }),
+      // The json under this name is another session's: it does not load, so
+      // no log is built on it.
+      (error) => error?.code === 'ELEGACYUNREADABLE'
+    );
+    assert.deepEqual(published, []);
+  } finally {
+    unsubscribe();
+    drainSessionStore();
+    // Summary-index writes queued by the saves land after they resolve and
+    // would recreate the directory (session-summaries.json) behind the rm.
+    await settleSessionSummaryIndex();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    await removeDataDir(root);
+  }
+});

@@ -1,0 +1,106 @@
+// Standalone-status route info + gateway usage telemetry for sessions.
+// Fire-and-forget statusline telemetry — must never affect the model turn.
+import { getProvider } from '../../providers/registry.mjs';
+import { fetchOAuthUsageSnapshot } from '../../providers/oauth-usage.mjs';
+import {
+  buildGatewayLimits,
+  recordGatewayUsageEvent,
+  summarizeGatewayUsage,
+} from '../../providers/statusline-route-meta.mjs';
+import { estimateTranscriptContextUsage } from '../context-utils.mjs';
+
+/** Effort snapshot of the latest user turn (prepareTurnEffortConfiguration writes it). */
+function turnEffort(session) {
+  const messages = session?.messages || [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role !== 'user') continue;
+    return messages[i]?.meta?.effortConfiguration?.effort || null;
+  }
+  return null;
+}
+
+function standaloneStatusRouteInfo(session) {
+  if (!session) return null;
+  // autoCompactTokenLimit is an EXPLICIT sub-boundary auto-compact limit only.
+  // Do NOT fall back to compactBoundaryTokens/contextWindow here — that
+  // labels a derived full-window value as an explicit limit, which the
+  // runtime would treat as the compaction trigger and collapse the buffer.
+  // The boundary/window stays available via contextWindow/rawContextWindow.
+  const boundary = Number(session.compactBoundaryTokens || session.contextWindow || 0);
+  const limit = Number(session.autoCompactTokenLimit || 0);
+  const explicitAutoCompactTokenLimit = limit > 0 && (!boundary || limit < boundary) ? limit : null;
+  return {
+    provider: session.provider,
+    model: session.model,
+    modelDisplay: session.modelDisplay || session.displayName || session.model,
+    effort: session.effort || '',
+    fast: session.fast === true,
+    ...(session.autoEffort === false ? { autoEffort: false } : {}),
+    modelParameters: session.modelParameters || {},
+    contextWindow: session.contextWindow || null,
+    rawContextWindow: session.rawContextWindow || session.contextWindow || null,
+    effectiveContextWindowPercent: session.effectiveContextWindowPercent || null,
+    autoCompactTokenLimit: explicitAutoCompactTokenLimit,
+    presetId: session.presetId || null,
+    presetName: session.presetName || null,
+  };
+}
+
+export function recordStandaloneStatusTelemetry(session, result, durationMs) {
+  if (!session || !result?.usage) return;
+  const routeInfo = standaloneStatusRouteInfo(session);
+  if (!routeInfo?.provider || !routeInfo?.model) return;
+  const providerOut = {
+    usage: result.usage,
+    model: result.model,
+    serviceTier: result.serviceTier,
+  };
+  // The transcript estimate is the SSOT for the displayed context footprint.
+  // agentLoop()'s result has no `compact` field, so build a synthetic compact
+  // arg carrying the live monotonic estimate (estimateMessagesTokens+reserve)
+  // as afterTokens. This lights up summarizeGatewayUsage's estimate-based
+  // contextUsedPct branch (provider input_tokens swing wildly / unbounded on
+  // e.g. OpenAI gpt-5.5), and lets a genuine >100% pass through.
+  const estimatedTokens = estimateTranscriptContextUsage(session.messages, session.tools || [], {
+    provider: session.provider,
+  });
+  const compactArg = {
+    ...(result.compact && typeof result.compact === 'object' ? result.compact : {}),
+    afterTokens: estimatedTokens,
+  };
+  try {
+    const summary = {
+      ...summarizeGatewayUsage(routeInfo, providerOut, compactArg, durationMs),
+      requestKind: 'chat',
+      // The route key keeps the saved effort (statusline sections stay per
+      // route); `effort` records what this turn ran at, e.g. an auto-effort pick.
+      effort: turnEffort(session) || session.effort || null,
+      sessionId: session.id || null,
+      sourceType: session.sourceType || 'lead',
+      sourceName: session.sourceName || session.agent || null,
+      toolCount: result.toolCallsTotal ?? null,
+      messageCount: Array.isArray(session.messages) ? session.messages.length : null,
+      cacheStrategy: session.providerCacheOpts?.cacheStrategy || null,
+      transportTiming: result.transportTiming || null,
+    };
+    recordGatewayUsageEvent(summary);
+    // Long-range accounting is committed per provider request to the
+    // independent usage ledger. This bounded store serves quota telemetry.
+  } catch {
+    // Statusline telemetry must never affect the model turn.
+  }
+
+  const provider = getProvider(routeInfo.provider);
+  if (!provider) return;
+  fetchOAuthUsageSnapshot(routeInfo, provider, (message) => {
+    if (process.env.MIXDOG_STATUSLINE_TRACE) {
+      process.stderr.write(`[statusline] ${message}\n`);
+    }
+  })
+    .then((snapshot) => {
+      try {
+        buildGatewayLimits(routeInfo, providerOut, snapshot);
+      } catch {}
+    })
+    .catch(() => {});
+}

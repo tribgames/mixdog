@@ -1,0 +1,129 @@
+// Welcome-screen prompt hint. A random starter tip is
+// pinned per process; setup problems (no provider/model, solo workflow,
+// unsupported default web-search route, error toasts) override it with a targeted
+// conditional hint. Dismissal only fires while the hint row is actually on
+// screen AND the draft gains its first character — generic key/mouse events
+// used to dismiss it before the user ever typed.
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  CONDITIONAL_WELCOME_PROMPT_HINTS,
+  activeWorkflowSummaryForStore,
+  providerSetupHasUsableProvider,
+  randomWelcomePromptHint,
+} from './app-format.mjs';
+
+export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
+  const [welcomePromptHintDismissed, setWelcomePromptHintDismissed] = useState(false);
+  const [conditionalWelcomePromptHint, setConditionalWelcomePromptHint] = useState('');
+  const welcomePromptHintRef = useRef(null);
+  if (welcomePromptHintRef.current === null) {
+    welcomePromptHintRef.current = randomWelcomePromptHint();
+  }
+  // Tracks whether the welcome hint row is ACTUALLY on screen this frame.
+  const welcomePromptHintVisibleRef = useRef(false);
+  const dismissWelcomePromptHint = useCallback(() => {
+    if (!welcomePromptHintVisibleRef.current) return;
+    setWelcomePromptHintDismissed(true);
+  }, []);
+
+  // The probe re-runs when the workflow id changes; the workflow snapshot it
+  // hands to the summary probe is read, not tracked, so an identity-only
+  // workflow refresh does not re-probe.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(state.workflow): keyed by workflow id
+  // biome-ignore lint/correctness/useExhaustiveDependencies(state.workflow?.id): workflow id re-probe key
+  useEffect(() => {
+    let alive = true;
+    const refreshConditionalWelcomeHint = async () => {
+      // The no-model and web-search-default probes both read the quick model
+      // list: fetch it once per refresh (a failed read is retried by the next).
+      let quickModels;
+      const listQuickModels = async () => {
+        if (quickModels === undefined) {
+          quickModels = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
+        }
+        return quickModels;
+      };
+      let next = '';
+      try {
+        const setup = await store.getProviderSetup?.();
+        if (setup && !providerSetupHasUsableProvider(setup)) {
+          next = CONDITIONAL_WELCOME_PROMPT_HINTS.noProvider;
+        }
+      } catch {
+        // If provider setup probing fails, let the generic/error tip path decide.
+      }
+      if (!next) {
+        const activeProvider = String(state.provider || '').trim();
+        const activeModel = String(state.model || '').trim();
+        if (!activeProvider || !activeModel) {
+          next = CONDITIONAL_WELCOME_PROMPT_HINTS.noModel;
+        } else {
+          try {
+            const models = await listQuickModels();
+            if (Array.isArray(models) && models.length === 0) {
+              next = CONDITIONAL_WELCOME_PROMPT_HINTS.noModel;
+            }
+          } catch {
+            // Model probing is advisory only; avoid replacing the random hint on failure.
+          }
+        }
+      }
+      let activeWorkflow = null;
+      try {
+        activeWorkflow = await activeWorkflowSummaryForStore(store, state.workflow || {});
+      } catch {
+        // Workflow probing is advisory only; fall back to the state snapshot.
+      }
+      if (!next && String(activeWorkflow?.id || state.workflow?.id || '').toLowerCase() === 'solo') {
+        next = CONDITIONAL_WELCOME_PROMPT_HINTS.soloWorkflow;
+      }
+      if (!next) {
+        // Remote probe on a daemon-backed store: an unguarded reject here used
+        // to escape the fire-and-forget effect below and kill the TUI.
+        let webSearchRoute = null;
+        try {
+          webSearchRoute = (await store.getWebSearchRoute?.()) || null;
+        } catch {
+          // Web-search route probing is advisory only.
+        }
+        const webSearchProvider = String(webSearchRoute?.provider || '').trim();
+        const webSearchModel = String(webSearchRoute?.model || '').trim();
+        const defaultWebSearchRoute =
+          webSearchProvider.toLowerCase() === 'default' && webSearchModel.toLowerCase() === 'default';
+        if (defaultWebSearchRoute) {
+          try {
+            const models = await listQuickModels();
+            const current = Array.isArray(models)
+              ? models.find((model) => model?.provider === state.provider && model?.id === state.model)
+              : null;
+            if (current && current.supportsWebSearch !== true) {
+              next = CONDITIONAL_WELCOME_PROMPT_HINTS.webSearchDefaultUnsupported;
+            }
+          } catch {
+            // Web-search default probing is advisory only.
+          }
+        }
+      }
+      if (!next && toastErrorSignature) {
+        next = CONDITIONAL_WELCOME_PROMPT_HINTS.error;
+      }
+      if (alive) setConditionalWelcomePromptHint((prev) => (prev === next ? prev : next));
+    };
+    // Outer backstop: this effect is fire-and-forget, so ANY rejection from the
+    // hint probes must die here instead of becoming an unhandled rejection.
+    void refreshConditionalWelcomeHint().catch(() => {
+      /* hint stays generic */
+    });
+    return () => {
+      alive = false;
+    };
+  }, [store, state.provider, state.model, state.workflow?.id, toastErrorSignature]);
+
+  return {
+    welcomePromptHintDismissed,
+    conditionalWelcomePromptHint,
+    welcomePromptHintRef,
+    welcomePromptHintVisibleRef,
+    dismissWelcomePromptHint,
+  };
+}

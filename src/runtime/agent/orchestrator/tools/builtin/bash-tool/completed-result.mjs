@@ -1,0 +1,215 @@
+import { renderBackgroundTask, startBackgroundTask } from '../../../../../shared/background-tasks.mjs';
+import { killShellDescendants, waitForShellDescendants } from '../../lib/shell-descendants.mjs';
+import { releaseShellJobWorkspace } from '../lib/shell-job-records.mjs';
+import { readFilterTeeCapture } from '../shell-analysis.mjs';
+import { compactShellOutputLosslessly, renderShellOutputBody } from '../shell-lossless-compact.mjs';
+import { cleanupArtifactAfter, removeTransportFileNow } from './transport-artifacts.mjs';
+import { DELIVERY_FULL_CHARS, EMPTY_PIECE, fitPieces, shellTextPiece } from '../lib/shell-delivery.mjs';
+import { shellLogPiece } from '../lib/shell-task-output.mjs';
+import { shellTaskIdentity } from './backgrounded-result.mjs';
+import { _isBenignSearchExitOne } from './benign-exit.mjs';
+import {
+  SURVIVING_DESCENDANTS_UNREACHABLE_WARNING,
+  SURVIVING_DESCENDANTS_WARNING,
+  _composeShellFailure,
+  _finalizeShellResult,
+  _powershellBashismHint,
+  _placeDestructiveWarningsAfterStatus,
+  _prependDestructiveWarning,
+  _shellFailureStatus,
+} from './result-format.mjs';
+
+/** Register the survivors a finished command left behind as a normal tracked
+ *  task. It uses the SAME task registry every other background shell task
+ *  uses, so task list/read/cancel need no special case: `run` settles the task
+ *  when the last observed survivor exits, `cancel` terminates them. */
+function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs } = {}) {
+  if (!handle?.taskId) return null;
+  // Once cancelled, every observation pass terminates survivors that ignored
+  // the first kill, so a retry is not needed to finish the job.
+  let cancelled = false;
+  try {
+    const task = startBackgroundTask({
+      taskId: handle.taskId,
+      startedAtMs: startedAtMs || Date.now(),
+      surface: 'shell',
+      operation: 'shell',
+      ...shellTaskIdentity(command, options),
+      input: { command, cwd },
+      meta: { task_id: handle.taskId, stdout: null, stderr: null, cwd, timeoutMs: 0 },
+      resultType: 'shell_task_result',
+      run: async () => {
+        await waitForShellDescendants(handle, { sweep: () => cancelled });
+        // The folder reservation the finished command handed to its
+        // survivors ends with the last of them.
+        await releaseShellJobWorkspace(handle.taskId);
+        return {
+          task_id: handle.taskId,
+          status: 'completed',
+          detail: 'every process the command left running has exited',
+        };
+      },
+      // The kill's own re-observation is what `task cancel` reports.
+      cancel: () => {
+        cancelled = true;
+        // A kill that re-observed every survivor gone ends the folder
+        // reservation now, not at the watch's next recheck: `stopped` must
+        // not leave the folder busy for a full recheck period.
+        task.cancelOutcome = killShellDescendants(handle).then(async (outcome) => {
+          // The release consumes the job's lease before it settles, so the
+          // watch's later release is a no-op; persistence failures are retried
+          // and logged by the admission worker, not surfaced on `stopped`.
+          if (outcome.terminated) await Promise.resolve(releaseShellJobWorkspace(handle.taskId)).catch(() => {});
+          return outcome;
+        });
+      },
+    });
+    // The command already returned its result; these processes are a side
+    // effect it left running, not work the agent is waiting on.
+    task.detached = true;
+    return task;
+  } catch {
+    return null;
+  }
+}
+
+// The shell process is gone, but the runner observed live processes still in
+// its process group / tree. Hand them to the task registry so the caller
+// leaves with a task_id that reads, completes on its own when the last
+// survivor exits, and cancels the whole set — instead of work running with no
+// handle at all.
+function survivingDescendantsWarning(result, taskContext) {
+  const task = result.descendants ? trackSurvivingDescendants(result.descendants, taskContext) : null;
+  if (!task) return '';
+  const heading = result.descendants?.reachable
+    ? SURVIVING_DESCENDANTS_WARNING
+    : SURVIVING_DESCENDANTS_UNREACHABLE_WARNING;
+  return [heading, renderBackgroundTask(task, { ownerTool: true })].join('\n');
+}
+
+// Filter-swallow rescue: the tee file is ALWAYS consumed (deleted) — once the
+// run's tree has settled when its result says it may still run; its tail is
+// attached only when the run failed with an empty visible capture — the exact
+// `(no output)` shape that previously cost the model extra diagnostic turns.
+function filterRescueNote(teePlan, { failed, stdout, stderr }, settled) {
+  const rescueTail = readFilterTeeCapture(teePlan.teePath);
+  // Removal goes through the retry + exit-hook path: on Windows a process
+  // that survived an unconfirmed kill still holds the file.
+  if (settled) cleanupArtifactAfter(teePlan.teePath, settled);
+  else removeTransportFileNow(teePlan.teePath);
+  if (!failed || !rescueTail || stdout.trim() || stderr.trim()) return '';
+  return `\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\n${rescueTail}`;
+}
+
+// Three outcomes: TOOL/control-plane failure, interrupted execution, and a
+// process that completed (zero or non-zero). Completed non-zero exits keep
+// their code but never carry Error:/shell-run-failed. Every integer exit
+// status is an observed process completion; stdout/stderr wording never
+// overrides that fact.
+function classifyCompletion(result, timeout, analysisCommand) {
+  const failureStatus = _shellFailureStatus(result, timeout);
+  const { signal, exitCode, shellToolFailed, statusDetail } = failureStatus;
+  const completedExit = !shellToolFailed && !signal && !result.timedOut && Number.isInteger(exitCode);
+  const benignExit = completedExit && _isBenignSearchExitOne(analysisCommand, exitCode, signal, result.stderr);
+  const shellRunFailed = !shellToolFailed && (!!signal || result.timedOut || !Number.isInteger(exitCode));
+  // Distinct timeout marker so callers see "killed by timeout after Nms" vs
+  // an external signal; the detail carries an inline recovery hint.
+  let statusMarker = '';
+  if (shellToolFailed) statusMarker = `[shell-tool-failed] ${statusDetail}`;
+  else if (shellRunFailed) statusMarker = `[shell-run-failed] ${statusDetail}`;
+  else if (completedExit) statusMarker = statusDetail;
+  return {
+    signal,
+    exitCode,
+    completedExit,
+    benignExit,
+    isReallyErrored: shellToolFailed || shellRunFailed,
+    statusMarker,
+    outcomeNote: benignExit ? '\n[outcome: no-match]' : '',
+  };
+}
+
+// A spilled capture is rendered from its log (the in-memory string is already
+// a head+tail cut); an inline one from the captured text.
+function foregroundPiece(text, path, label) {
+  if (!text) return EMPTY_PIECE;
+  if (path) {
+    try {
+      return shellLogPiece(path);
+    } catch {
+      /* unreadable log: deliver the captured text */
+    }
+  }
+  return shellTextPiece(text, { label });
+}
+
+export function renderCompletedResult({
+  result,
+  command,
+  analysisCommand,
+  cwd,
+  options,
+  startedAtMs,
+  teePlan,
+  stdout,
+  stderr,
+  timeout,
+  rewriteNote,
+}) {
+  const outcome = classifyCompletion(result, timeout, analysisCommand);
+  const { signal, exitCode, completedExit, benignExit, isReallyErrored } = outcome;
+  const commandExitedNonzero = completedExit && exitCode !== 0 && !benignExit;
+  const rescueNote = teePlan
+    ? filterRescueNote(teePlan, { failed: isReallyErrored || commandExitedNonzero, stdout, stderr }, result.settled)
+    : '';
+  const descendantWarning = survivingDescendantsWarning(result, { command, cwd, options, startedAtMs });
+  // rewriteNote states that the text which RAN is not the text the caller
+  // sent (wmic → Get-CimInstance); it rides both result shapes.
+  const warningBlock = [descendantWarning, rewriteNote || ''].filter(Boolean).join('\n');
+  const losslessCompaction = compactShellOutputLosslessly({
+    command,
+    rawStdout: result.stdout || '',
+    rawStderr: result.stderr || '',
+    stdout,
+    stderr,
+    exitCode,
+    signal,
+    timedOut: result.timedOut,
+    hasExistingRecovery: Boolean(result.stdoutPath || result.stderrPath),
+    sessionId: options?.sessionId,
+    toolCallId: options?.toolCallId,
+    resultTelemetry: options?.resultTelemetry,
+  });
+  // stdout and stderr are captured on separate fds and pasted as one body.
+  // Without a boundary a stdout tail with no trailing newline glued itself
+  // onto the first stderr line and corrupted both. No spill-path block: a
+  // truncated stream already carries its own "full output at <path>" marker.
+  // Each stream in the shared delivery shape: whole when short, else head,
+  // marker and tail, the marker naming the spill log (or a saved copy).
+  // A compacted stream goes through the same cap, its marker naming the
+  // stream's preserved full capture.
+  const streamPiece = (stream, text, logPath) => {
+    const compacted = losslessCompaction?.[stream];
+    if (compacted == null) return foregroundPiece(text, logPath, stream);
+    const archived = losslessCompaction.recovery?.find((item) => item.stream === stream)?.path;
+    return compacted ? shellTextPiece(compacted, { path: archived || null, label: stream }) : EMPTY_PIECE;
+  };
+  // Both streams share one delivery budget; the line break between them is
+  // taken off it.
+  const [outBody, errBody] = fitPieces(
+    [streamPiece('stdout', stdout, result.stdoutPath), streamPiece('stderr', stderr, result.stderrPath)],
+    DELIVERY_FULL_CHARS - 1
+  );
+  const payload = `${renderShellOutputBody(outBody, errBody, losslessCompaction)}${rescueNote}`;
+  if (outcome.statusMarker) {
+    const bashismHint = commandExitedNonzero || isReallyErrored ? _powershellBashismHint(analysisCommand, stderr) : '';
+    const failure = _composeShellFailure(
+      `${outcome.statusMarker}${outcome.outcomeNote}`,
+      isReallyErrored ? 'Error: ' : '',
+      warningBlock,
+      bashismHint ? `${payload}\n${bashismHint}` : payload
+    );
+    return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, failure));
+  }
+  return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
+}

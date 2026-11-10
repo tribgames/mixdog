@@ -1,0 +1,86 @@
+import { parseAgentJob } from '../agent-envelope.mjs';
+import { notificationQueueKey, resolveTuiRuntimeNotificationDelivery } from '../notification-plan.mjs';
+import { isTerminalExecutionStatus } from './agent-status-refresh.mjs';
+
+// The runtime's setup-changed action after an empty session's settings
+// reconcile (session-runtime/boot/tools.mjs CONTEXT_STATUS_REFRESHED_ACTION).
+const CONTEXT_STATUS_REFRESHED = 'context_status_refreshed';
+
+// Routes one runtime notification by its delivery plan: UI-only kinds patch
+// the store or raise a notice, execution envelopes go through the execution
+// delivery, everything else becomes a model-visible task notification.
+export function createNotificationRouter({
+  set,
+  pushNotice,
+  getDisposed,
+  dedup,
+  statusRefresh,
+  executionDelivery,
+  modelNotification,
+  refreshContextStats = null,
+  getAdmission = () => 'open',
+}) {
+  let uiOpenSeq = 0;
+  let setupChangeSeq = 0;
+  const uiActions = {
+    'setup-ui': (delivery) => set({ setupUiRequest: { id: delivery.id, at: Date.now() } }),
+    'setup-changed': (delivery) => {
+      // An empty session took moved settings: the context gauge re-reads.
+      if (delivery.setupAction === CONTEXT_STATUS_REFRESHED) {
+        refreshContextStats?.();
+        return;
+      }
+      // Monotonic like ui-open: consecutive changes by the same action must
+      // each refresh the attached surfaces.
+      setupChangeSeq += 1;
+      set({ setupChanged: { action: delivery.setupAction, seq: setupChangeSeq, at: Date.now() } });
+    },
+    'ui-open': (delivery) => {
+      // Monotonic seq: the same command requested twice must fire twice, and
+      // the consuming App effect keys on the object identity + seq.
+      uiOpenSeq += 1;
+      set({ uiOpenRequest: { command: delivery.command, seq: uiOpenSeq, at: Date.now() } });
+    },
+    notice: (delivery) =>
+      pushNotice?.(delivery.displayText, delivery.tone || 'info', { transcript: delivery.transcript === true }),
+  };
+
+  return function routeNotification(event) {
+    if (getDisposed()) return;
+    const text = String(event?.content ?? event?.text ?? event ?? '').trim();
+    if (!text) return;
+    const parsed = parseAgentJob(text);
+    const notificationKey = notificationQueueKey(event, text, parsed);
+    const delivery = resolveTuiRuntimeNotificationDelivery(event, text);
+    const executionId = String(event?.meta?.execution_id || parsed?.taskId || '').trim();
+    const status = String(event?.meta?.status || parsed?.status || '').toLowerCase();
+    const terminal = isTerminalExecutionStatus(status);
+    if (terminal) dedup.promote(executionId);
+    if (delivery.action === 'ignore') return;
+    const uiAction = uiActions[delivery.action];
+    if (uiAction) {
+      uiAction(delivery);
+      return true;
+    }
+    if (delivery.action === 'status-only') {
+      statusRefresh.refresh(parsed);
+      return true;
+    }
+    if (delivery.action === 'execution-ui') {
+      return executionDelivery.deliver({
+        event,
+        text,
+        parsed,
+        delivery,
+        executionId,
+        status,
+        terminal,
+        notificationKey,
+      });
+    }
+    statusRefresh.refresh(parsed);
+    // A closing/closed owner enqueues no model work from a notification.
+    if (getAdmission() !== 'open' || event?.meta?.owner_closed === true) return false;
+    return modelNotification.enqueueNotification({ event, text, delivery, notificationKey });
+  };
+}

@@ -1,0 +1,806 @@
+/**
+ * Anthropic OAuth credential store + PKCE login flow.
+ *
+ * Owns the
+ * on-disk credentials file (load/save/refresh/forget) and the loopback
+ * PKCE login flow. anthropic-oauth.mjs imports these back and re-exports
+ * the public functions so external callers keep their existing import path.
+ */
+import { readFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
+import { updateJsonAtomic, writeJsonAtomicAsync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
+import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
+import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { TIMEOUT_PHASE } from '../../../shared/provider-timeout-phase.mjs';
+import { claudeCliUserAgent, resolveCliVersion } from './anthropic-oauth-client-version.mjs';
+import {
+  accountIdentityFields,
+  expiryFromAccessToken,
+  isDefinitiveOAuthFailure,
+  normalizeAccountIdentity,
+  oauthBodySummary,
+  oauthCredentialStatus,
+  oauthFailureReason,
+  oauthPublicError,
+  oauthRequestError,
+  oauthResponseJson,
+  scrubOAuthSecrets,
+} from './lib/oauth-token-utils.mjs';
+import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
+
+const SIGN_IN_EXPIRED_PREFIX = 'Anthropic sign-in expired. Sign in again from Providers.';
+
+// SSRF guard for the OAuth token endpoint override. Env-supplied URLs must be
+// https with a valid http(s) URL shape; reject file:/data:/ftp:/etc. and any
+// http override so a hostile env cannot redirect refresh-token requests.
+function assertSafeTokenURL(rawURL) {
+  let parsed;
+  try {
+    parsed = new URL(String(rawURL));
+  } catch {
+    throw new Error(`[anthropic-oauth] invalid ANTHROPIC_OAUTH_TOKEN_URL: ${rawURL}`);
+  }
+  if (parsed.protocol.toLowerCase() !== 'https:') {
+    throw new Error(`[anthropic-oauth] ANTHROPIC_OAUTH_TOKEN_URL must use https (got ${parsed.protocol})`);
+  }
+  return rawURL;
+}
+const TOKEN_URL = assertSafeTokenURL(
+  process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://platform.claude.com/v1/oauth/token'
+);
+const DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
+const CLAUDE_CODE_CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
+const ANTHROPIC_OAUTH_REFRESH_DISABLED_ENV = 'MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED';
+const CLAUDE_AI_AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize';
+const ALL_OAUTH_SCOPES = [
+  'org:create_api_key',
+  'user:profile',
+  'user:inference',
+  'user:sessions:claude_code',
+  'user:mcp_servers',
+  'user:file_upload',
+];
+const OAUTH_LOGIN_SCOPE = ALL_OAUTH_SCOPES.join(' ');
+const OAUTH_CALLBACK_HOST = 'localhost';
+const OAUTH_CALLBACK_PORT = 54545;
+const OAUTH_CALLBACK_PATH = '/callback';
+const OAUTH_REDIRECT_URI = `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`;
+const OAUTH_MANUAL_REDIRECT_URI =
+  process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_URI || 'https://platform.claude.com/oauth/code/callback';
+const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
+const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
+
+// --- Credential helpers ---
+
+function credentialCandidates() {
+  const bound = boundProviderAuthPath('anthropic-oauth');
+  if (bound) return [resolve(bound)];
+  const explicit = process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH;
+  if (explicit) return [resolve(explicit)];
+  return [DEFAULT_CREDENTIALS_PATH];
+}
+
+// Fallback expiry from the access_token's JWT `exp` claim (epoch ms) when the
+// credentials file carries no explicit expiresAt — without it expiresAt stays 0,
+// which ensureAuth reads as "never expires", disabling proactive refresh. Claude
+// OAuth tokens are opaque so this returns 0 and the file's expiresAt governs.
+// JWT `exp` is epoch SECONDS (RFC 7519).
+function _loadCredentialsFile(path) {
+  if (!existsSync(path)) return null;
+  try {
+    const stat = statSync(path);
+    const raw = JSON.parse(readFileSync(path, 'utf-8'));
+    const oauth = raw?.claudeAiOauth;
+    if (!oauth?.accessToken) return null;
+    return {
+      path,
+      mtimeMs: stat.mtimeMs,
+      accessToken: oauth.accessToken,
+      refreshToken: oauth.refreshToken || null,
+      reauthRequired: oauth.reauthRequired === true,
+      expiresAt: _normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at) || expiryFromAccessToken(oauth.accessToken),
+      scopes: Array.isArray(oauth.scopes) ? oauth.scopes : [],
+      subscriptionType: oauth.subscriptionType || null,
+      identity: normalizeAccountIdentity(oauth.identity),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// The token endpoint names the signed-in account next to the tokens.
+function identityFromTokenResponse(json) {
+  return normalizeAccountIdentity({
+    id: json?.account?.uuid,
+    email: json?.account?.email_address,
+    organizationId: json?.organization?.uuid,
+  });
+}
+
+// Cross-process safe credential save. Lockfile (O_EXCL) prevents two Mixdog
+// refreshers from clobbering each other; atomic rename guarantees readers see
+// either the old or new file, never a half-written one. Used so refresh_token
+// rotation propagates to other Mixdog readers of the same credentials file
+// instead of leaving them stuck on the previous refresh_token.
+async function _saveCredentialsFile(path, raw) {
+  // Secret file, not parent-dir ACL mutation. `secret: true` clamps the file
+  // itself on Windows; it deliberately leaves the data dir inheritance alone.
+  await writeJsonAtomicAsync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+  bumpConfigInputEpoch();
+}
+
+async function _updateCredentialsFile(path, mutator) {
+  const result = await updateJsonAtomic(path, mutator, { fsyncDir: true, mode: 0o600, secret: true });
+  bumpConfigInputEpoch();
+  return result;
+}
+
+// Cheap stat-only probe so ensureAuth can detect Mixdog-updated credentials
+// without paying a full JSON read every call.
+export function _credentialsMaxMtime() {
+  let max = 0;
+  for (const p of credentialCandidates()) {
+    try {
+      const s = statSync(p);
+      if (s.mtimeMs > max) max = s.mtimeMs;
+    } catch {
+      /* not present — skip */
+    }
+  }
+  return max;
+}
+
+export function loadCredentials() {
+  if (modelProxyClientMode()) return null;
+  const loaded = credentialCandidates().map(_loadCredentialsFile).filter(Boolean);
+  if (!loaded.length) return null;
+  loaded.sort((a, b) => (Number(b.expiresAt) || 0) - (Number(a.expiresAt) || 0));
+  return loaded[0];
+}
+
+// Public predicate used by config.buildDefaultConfig — provider is enabled
+// when on-disk credentials exist AND carry the inference scope. Single
+// truth: same loader the runtime uses, no parallel hard-coded path probe.
+export function hasAnthropicOAuthCredentials() {
+  const creds = loadCredentials();
+  if (!creds?.accessToken) return false;
+  const hasInferenceScope = Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
+  if (!hasInferenceScope) return false;
+  const expiresAt = Number(creds.expiresAt) || 0;
+  return expiresAt === 0 || expiresAt > Date.now() || Boolean(creds.refreshToken);
+}
+
+export function describeAnthropicOAuthCredentials() {
+  try {
+    const creds = loadCredentials();
+    if (!creds?.accessToken) {
+      return {
+        authenticated: false,
+        usable: false,
+        refreshable: false,
+        reauthRequired: false,
+        status: 'Not Set',
+        detail: 'Mixdog OAuth credentials',
+      };
+    }
+    const hasInferenceScope = Array.isArray(creds.scopes) && creds.scopes.includes('user:inference');
+    const hasRefresh = Boolean(creds.refreshToken);
+    const expiresAt = _normalizeExpiresAt(creds.expiresAt);
+    const detail = creds.path || DEFAULT_CREDENTIALS_PATH;
+    if (!hasInferenceScope) {
+      return {
+        authenticated: false,
+        usable: false,
+        refreshable: false,
+        reauthRequired: true,
+        status: 'Missing Scope',
+        detail,
+        expiresAt,
+      };
+    }
+    if (creds.reauthRequired) {
+      return {
+        authenticated: false,
+        usable: false,
+        refreshable: false,
+        reauthRequired: true,
+        status: 'Reauth Required',
+        detail,
+        expiresAt,
+      };
+    }
+    return {
+      ...oauthCredentialStatus({ hasRefresh, expiresAt, detail, refreshSkewMs: TOKEN_REFRESH_SKEW_MS }),
+      ...accountIdentityFields(creds.identity),
+      plan: creds.subscriptionType || null,
+    };
+  } catch (err) {
+    return {
+      authenticated: false,
+      usable: false,
+      refreshable: false,
+      reauthRequired: false,
+      status: 'Error',
+      detail: String(err?.message || err).slice(0, 200),
+    };
+  }
+}
+
+export async function forgetAnthropicOAuthCredentials() {
+  let removed = false;
+  for (const path of credentialCandidates()) {
+    try {
+      // No existence pre-check: a first sign-in still in flight would be missed.
+      // The mutator sees the file under the store's lock, queued behind it.
+      let deleted = false;
+      await _updateCredentialsFile(path, (raw) => {
+        if (!raw?.claudeAiOauth) return undefined;
+        const next = { ...raw };
+        delete next.claudeAiOauth;
+        deleted = true;
+        return next;
+      });
+      removed = removed || deleted;
+    } catch (err) {
+      throw new Error(`Anthropic OAuth reset failed for ${path}: ${err?.message || err}`);
+    }
+  }
+  return { removed };
+}
+
+function _normalizeExpiresAt(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0;
+  return value < 1e12 ? value * 1000 : value;
+}
+
+// Token-endpoint expiry: an absolute expires_at wins, else expires_in seconds from now.
+function expiresAtFromTokenResponse(json) {
+  return (
+    _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt) ||
+    (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0)
+  );
+}
+
+function tokenEndpointHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'anthropic-dangerous-direct-browser-access': 'true',
+    'user-agent': claudeCliUserAgent(),
+  };
+}
+
+export function _scrubTokens(text, secretValues = []) {
+  return scrubOAuthSecrets(text, secretValues);
+}
+
+function _tokenEndpointError(operation, status, text, secretValues = []) {
+  const safeDetail = oauthBodySummary(text, secretValues);
+  const detail = safeDetail ? `: ${safeDetail}` : '';
+  const compatibility =
+    status === 403
+      ? ` Anthropic returned HTTP 403 for a request sent as claude-cli/${resolveCliVersion()}.` +
+        ' Possible causes include OAuth client compatibility, account or scope policy,' +
+        ' an intercepting proxy/VPN/WAF, or regional endpoint restrictions.' +
+        ' Verify the account has Claude Code access and the required scopes;' +
+        ' update Mixdog or set MIXDOG_CLI_VERSION to the installed official Claude Code version;' +
+        ' then retry sign-in via /providers without an intercepting network layer if applicable.'
+      : '';
+  return oauthPublicError(new Error(`${operation} ${status}${detail}.${compatibility}`));
+}
+
+export function isAnthropicOAuthRefreshDisabled() {
+  return process.env[ANTHROPIC_OAUTH_REFRESH_DISABLED_ENV] === '1';
+}
+
+function _refreshLockPath(path) {
+  return `${resolve(path)}.anthropic-oauth-refresh.lock`;
+}
+
+async function _refreshOAuthCredentialsUnlocked(creds) {
+  if (!creds?.refreshToken) {
+    throw new Error('Anthropic OAuth refresh token not available. Open /providers in mixdog to sign in again.');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OAUTH_TOKEN_TIMEOUT_MS);
+  try {
+    const res = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: tokenEndpointHeaders(),
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: creds.refreshToken,
+        client_id: CLAUDE_CODE_CLIENT_ID,
+      }),
+      // Never follow a redirect on a secret-bearing request: a token
+      // endpoint that 307/308-redirects would replay the refresh_token to
+      // the redirect target. Fail loud instead.
+      redirect: 'error',
+      signal: controller.signal,
+      dispatcher: getLlmDispatcher(),
+    });
+
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      /* handled below */
+    }
+    if (!res.ok) {
+      const isInvalidGrant = text.includes('invalid_grant') || json?.error === 'invalid_grant';
+      const failure = _tokenEndpointError('token refresh', res.status, text, [creds.refreshToken, creds.accessToken]);
+      if (isDefinitiveOAuthFailure(text, res.status)) {
+        throw Object.assign(new Error(`${SIGN_IN_EXPIRED_PREFIX} ${failure.message}`), {
+          isInvalidGrant: true,
+          reauthRequired: true,
+        });
+      }
+      throw Object.assign(failure, { isInvalidGrant });
+    }
+
+    const accessToken = json?.access_token || json?.accessToken;
+    if (!accessToken) throw new Error('token refresh returned no access token');
+    const expiresAt = expiresAtFromTokenResponse(json);
+    const refreshed = {
+      path: creds.path,
+      accessToken,
+      refreshToken: json?.refresh_token || json?.refreshToken || creds.refreshToken,
+      expiresAt,
+      scopes: Array.isArray(json?.scope) ? json.scope : creds.scopes,
+      subscriptionType: creds.subscriptionType,
+      identity: identityFromTokenResponse(json) || creds.identity || null,
+    };
+    // Persist rotated tokens back so any other Mixdog reader of the same
+    // credentials file picks up the new refresh_token. Without this, a
+    // later process can replay an old single-use refresh token and loop on
+    // invalid_grant.
+    if (creds.path && existsSync(creds.path)) {
+      let published = false;
+      try {
+        await _updateCredentialsFile(creds.path, (raw) => {
+          // Only over the credential this exchange spent: a sign-out or a new
+          // sign-in that landed while the request was in flight wins.
+          const spent = raw?.claudeAiOauth;
+          if (spent?.accessToken !== creds.accessToken || spent?.refreshToken !== creds.refreshToken) return undefined;
+          published = true;
+          return {
+            ...raw,
+            claudeAiOauth: {
+              ...spent,
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken,
+              expiresAt: refreshed.expiresAt,
+              scopes: refreshed.scopes,
+              reauthRequired: undefined,
+              ...(refreshed.identity ? { identity: refreshed.identity } : {}),
+            },
+          };
+        });
+      } catch (err) {
+        process.stderr.write(
+          `[anthropic-oauth] credential save failed: ${_scrubTokens(err?.message || String(err)).slice(0, 200)}\n`
+        );
+        throw new Error(`[oauth] credentials save failed: ${err?.message ?? String(err)}`);
+      }
+      if (!published) {
+        const stored = _loadCredentialsFile(creds.path);
+        if (stored) return stored;
+        throw Object.assign(
+          new Error(
+            'Anthropic OAuth credentials were removed during the token refresh. Open /providers in mixdog to sign in.'
+          ),
+          { reauthRequired: true }
+        );
+      }
+    }
+    return refreshed;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw Object.assign(new Error('Anthropic OAuth token refresh timed out after 30000ms'), {
+        timeoutPhase: TIMEOUT_PHASE.AUTH,
+      });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function refreshOAuthCredentials(creds) {
+  if (modelProxyClientMode()) throw serverModelCredentialsDisabledError('Anthropic OAuth credentials');
+  if (isAnthropicOAuthRefreshDisabled()) {
+    throw new Error(
+      'Anthropic OAuth refresh is disabled in this process; ' +
+        'host credential preflight must provide a fresh snapshot.'
+    );
+  }
+  const credentialPath = resolve(
+    creds?.path || process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH || DEFAULT_CREDENTIALS_PATH
+  );
+  return withFileLock(
+    _refreshLockPath(credentialPath),
+    async () => {
+      const disk = _loadCredentialsFile(credentialPath);
+      // A waiter that started with the prior generation must consume the
+      // winner's persisted rotation, not replay the single-use token.
+      if (
+        disk?.accessToken &&
+        creds?.accessToken &&
+        disk.accessToken !== creds.accessToken &&
+        (!disk.expiresAt || disk.expiresAt > Date.now())
+      ) {
+        return disk;
+      }
+      const attempt = disk || { ...creds, path: credentialPath };
+      try {
+        return await _refreshOAuthCredentialsUnlocked(attempt);
+      } catch (err) {
+        if (err?.reauthRequired !== true) throw err;
+        const latest = _loadCredentialsFile(credentialPath);
+        if (latest?.refreshToken && latest.refreshToken !== attempt.refreshToken) {
+          if (!latest.expiresAt || latest.expiresAt > Date.now()) return latest;
+          return _refreshOAuthCredentialsUnlocked(latest);
+        }
+        try {
+          await _updateCredentialsFile(credentialPath, (raw) => {
+            const oauth = raw?.claudeAiOauth;
+            if (!oauth || oauth.refreshToken !== attempt.refreshToken) return undefined;
+            // Non-destructive: tokens stay intact; a new sign-in or a
+            // successful refresh rewrites the entry without this marker.
+            return { ...raw, claudeAiOauth: { ...oauth, reauthRequired: true } };
+          });
+        } catch (saveErr) {
+          process.stderr.write(
+            `[anthropic-oauth] dead-account mark failed: ${_scrubTokens(saveErr?.message || String(saveErr)).slice(0, 200)}\n`
+          );
+        }
+        throw err;
+      }
+    },
+    {
+      timeoutMs: 120_000,
+      staleMs: 120_000,
+      secret: true,
+    }
+  );
+}
+
+/**
+ * Serialize host-side refresh, establish a bounded access-token lease, and
+ * optionally write an owner-only snapshot while the lease lock is still held.
+ * The returned object deliberately contains metadata only, never token bytes.
+ */
+export async function preflightAnthropicOAuthCredentials({
+  credentialsPath = null,
+  minimumValidityMs = TOKEN_REFRESH_SKEW_MS,
+  snapshotPath = null,
+  refreshFn = refreshOAuthCredentials,
+  now = () => Date.now(),
+  lockTimeoutMs = 120_000,
+} = {}) {
+  if (isAnthropicOAuthRefreshDisabled()) {
+    throw new Error('Anthropic OAuth host preflight cannot run while refresh is disabled.');
+  }
+  const requiredMs = Number(minimumValidityMs);
+  if (!Number.isFinite(requiredMs) || requiredMs < 0) {
+    throw new Error('Anthropic OAuth host preflight minimumValidityMs must be a non-negative number.');
+  }
+  const pinnedPath = resolve(
+    credentialsPath || process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH || DEFAULT_CREDENTIALS_PATH
+  );
+  const initial = _loadCredentialsFile(pinnedPath);
+  if (!initial?.path || !initial.accessToken) {
+    throw new Error(
+      `Anthropic OAuth host preflight found no credentials at ${pinnedPath}. Open /providers in mixdog to sign in.`
+    );
+  }
+
+  return withFileLock(
+    _refreshLockPath(pinnedPath),
+    async () => {
+      let leased = _loadCredentialsFile(pinnedPath);
+      if (!leased?.path || !leased.accessToken) {
+        throw new Error('Anthropic OAuth credentials disappeared during host preflight.');
+      }
+
+      const validAfter = now() + requiredMs;
+      let refreshed = false;
+      if (!leased.expiresAt || leased.expiresAt < validAfter) {
+        if (!leased.refreshToken) {
+          throw new Error(
+            'Anthropic OAuth host preflight cannot establish the required lease: ' + 'refresh token is unavailable.'
+          );
+        }
+        // The public refresh function owns this same lock. Call its
+        // unlocked exchange only because preflight already owns it;
+        // injected test exchanges run under the identical ownership.
+        const next =
+          refreshFn === refreshOAuthCredentials
+            ? await _refreshOAuthCredentialsUnlocked(leased)
+            : await refreshFn(leased);
+        const persisted = _loadCredentialsFile(pinnedPath);
+        if (!persisted?.accessToken || persisted.accessToken !== next?.accessToken) {
+          throw new Error('Anthropic OAuth host preflight refresh was not persisted.');
+        }
+        leased = persisted;
+        refreshed = true;
+      }
+
+      const remainingMs = leased.expiresAt ? leased.expiresAt - now() : 0;
+      if (remainingMs < requiredMs) {
+        throw new Error(
+          `Anthropic OAuth host preflight cannot satisfy the ${Math.ceil(requiredMs / 1000)}s ` +
+            `credential lease (provider granted ${Math.max(0, Math.floor(remainingMs / 1000))}s).`
+        );
+      }
+
+      if (snapshotPath) {
+        const raw = JSON.parse(readFileSync(leased.path, 'utf-8'));
+        // Containers need only the leased access token. Never distribute
+        // the rotating refresh credential, even into disposable storage.
+        if (raw?.claudeAiOauth) {
+          delete raw.claudeAiOauth.refreshToken;
+          delete raw.claudeAiOauth.refresh_token;
+        }
+        await _saveCredentialsFile(snapshotPath, raw);
+      }
+      return {
+        expiresAt: leased.expiresAt,
+        remainingMs,
+        refreshed,
+        snapshotWritten: Boolean(snapshotPath),
+      };
+    },
+    {
+      timeoutMs: lockTimeoutMs,
+      staleMs: 120_000,
+      secret: true,
+    }
+  );
+}
+
+// --- Login flow (PKCE loopback, export for setup UI / CLI) ---
+
+// The login writes to the FIRST candidate, existing or not. A per-account
+// binding names a file that does not exist yet — that is the whole point of
+// adding an account — and falling back to an existing file wrote the second
+// account's tokens over the first (user: 앤트로픽은 두 개 연결이 안 된다).
+function _oauthCredentialsWritePath() {
+  const [first] = credentialCandidates();
+  const path = first || DEFAULT_CREDENTIALS_PATH;
+  mkdirSync(dirname(path), { recursive: true });
+  return path;
+}
+
+function _oauthParseScopeField(scope) {
+  if (Array.isArray(scope)) return scope;
+  return String(scope || '')
+    .split(' ')
+    .filter(Boolean);
+}
+
+// A pasted callback URL also names the redirect_uri it came from; every other
+// shape (code#state, code=…, bare code) is the shared parser's.
+function _parseOAuthCodeInput(input) {
+  try {
+    const url = new URL(String(input || '').trim());
+    const code = url.searchParams.get('code') || '';
+    const state = url.searchParams.get('state') || '';
+    if (code || state) return { code, state, redirectUri: `${url.origin}${url.pathname}` };
+  } catch {
+    /* not a URL */
+  }
+  return parseOAuthCodeInput(input, { allowHashState: true });
+}
+
+async function exchangeAuthorizationCode({ pkce, code, state, redirectUri, signal = null }) {
+  signal?.throwIfAborted();
+  const cleanCode = String(code || '').trim();
+  if (!cleanCode) throw new Error('[anthropic-oauth] authorization code is required');
+  const timeoutSignal = AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS);
+  let tokenRes;
+  try {
+    tokenRes = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: tokenEndpointHeaders(),
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        code: cleanCode,
+        redirect_uri: redirectUri,
+        client_id: CLAUDE_CODE_CLIENT_ID,
+        code_verifier: pkce.verifier,
+        state,
+      }),
+      redirect: 'error',
+      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
+      dispatcher: getLlmDispatcher(),
+    });
+  } catch (err) {
+    throw oauthRequestError('[anthropic-oauth] token exchange', err);
+  }
+  if (!tokenRes.ok) {
+    const text = await tokenRes.text().catch(() => '');
+    throw _tokenEndpointError('[anthropic-oauth] token exchange', tokenRes.status, text, [
+      cleanCode,
+      pkce.verifier,
+      state,
+    ]);
+  }
+  const json = await oauthResponseJson(tokenRes, '[anthropic-oauth] token exchange');
+  const accessToken = json?.access_token || json?.accessToken;
+  const refreshToken = json?.refresh_token || json?.refreshToken;
+  if (!accessToken || !refreshToken) {
+    throw new Error('[anthropic-oauth] token exchange response missing access_token or refresh_token');
+  }
+  const expiresAt = expiresAtFromTokenResponse(json);
+  const scopes = _oauthParseScopeField(json?.scope);
+  const identity = identityFromTokenResponse(json);
+  // A cancelled login never stores the account it was exchanging.
+  signal?.throwIfAborted();
+  const credPath = _oauthCredentialsWritePath();
+  const raw = await _updateCredentialsFile(credPath, (current) => {
+    const base = current && typeof current === 'object' ? current : {};
+    const existingOauth = base.claudeAiOauth || {};
+    return {
+      ...base,
+      claudeAiOauth: {
+        ...existingOauth,
+        accessToken,
+        refreshToken,
+        expiresAt,
+        scopes,
+        reauthRequired: undefined,
+        subscriptionType: existingOauth.subscriptionType ?? null,
+        // A fresh sign-in replaces the account: never keep the previous identity.
+        identity: identity || undefined,
+      },
+    };
+  });
+  return {
+    path: credPath,
+    accessToken,
+    refreshToken,
+    expiresAt,
+    scopes,
+    subscriptionType: raw.claudeAiOauth.subscriptionType,
+    identity,
+  };
+}
+
+export async function beginOAuthLogin({ openBrowserFn = null, openBrowser = true } = {}) {
+  const pkce = createOAuthPkce();
+  const state = randomBytes(32).toString('base64url');
+  const buildUrl = (redirectUri) => {
+    const url = new URL(CLAUDE_AI_AUTHORIZE_URL);
+    url.searchParams.set('code', 'true');
+    url.searchParams.set('client_id', CLAUDE_CODE_CLIENT_ID);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('scope', OAUTH_LOGIN_SCOPE);
+    url.searchParams.set('code_challenge', pkce.challenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    url.searchParams.set('state', state);
+    return url;
+  };
+  const url = buildUrl(OAUTH_REDIRECT_URI);
+  const manualUrl = buildUrl(OAUTH_MANUAL_REDIRECT_URI);
+  const openLoginUrl = async (targetUrl, label = 'login') => {
+    if (!openBrowser) return;
+    try {
+      const openInBrowser = openBrowserFn || (await import('../../../shared/open-url.mjs')).openInBrowser;
+      await openInBrowser(targetUrl.toString());
+    } catch (err) {
+      process.stderr.write(
+        `[anthropic-oauth] browser open failed for ${label} URL: ${String(err?.message || err).slice(0, 200)}\n`
+      );
+    }
+  };
+
+  const controller = new AbortController();
+  let server = null;
+  let timeout = null;
+  let finish = null;
+  let exchangePromise = null;
+  // Browser and manual callbacks share one exchange: an authorization code is
+  // spent once, and a duplicate joins the first instead of failing the login.
+  const acceptCode = (code, redirectUri) => {
+    if (exchangePromise) return exchangePromise;
+    controller.signal.throwIfAborted();
+    // The browser deadline ends when a code arrives; the exchange has its own.
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+    exchangePromise = exchangeAuthorizationCode({ pkce, code, state, redirectUri, signal: controller.signal });
+    exchangePromise.then(
+      (tokens) => finish(tokens),
+      (error) => finish(null, error instanceof Error ? error : new Error(String(error)))
+    );
+    return exchangePromise;
+  };
+  const waitForCallback = new Promise((resolve, reject) => {
+    let settled = false;
+    finish = (value, error = null) => {
+      if (settled) return;
+      settled = true;
+      // Work arriving after the login settled (or was cancelled) is rejected.
+      controller.abort();
+      if (timeout) clearTimeout(timeout);
+      try {
+        server?.close();
+      } catch {
+        /* already closed */
+      }
+      if (error) reject(error);
+      else resolve(value);
+    };
+    server = createServer(async (req, res) => {
+      const u = new URL(req.url || '/', `http://${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}`);
+      if (u.pathname !== OAUTH_CALLBACK_PATH) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      const code = u.searchParams.get('code');
+      if (!code || u.searchParams.get('state') !== state) {
+        // Reject this request only; the valid callback may still arrive.
+        res.writeHead(400, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.end(oauthErrorHtml('The sign-in callback was invalid or did not match this login.'));
+        return;
+      }
+      // The login settles (and its server closes) before this answer is sent,
+      // so the connection must not stay open to the closed login's handler.
+      try {
+        await acceptCode(code, OAUTH_REDIRECT_URI);
+        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
+        res.end(oauthSuccessHtml('Claude'));
+      } catch (err) {
+        // The shared exchange also reports its error through waitForCallback.
+        res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
+        res.end(oauthErrorHtml(oauthFailureReason('Claude could not complete the token exchange.', err)));
+      }
+    });
+    timeout = setTimeout(() => finish(null), OAUTH_LOGIN_TIMEOUT_MS);
+    server.listen(OAUTH_CALLBACK_PORT, OAUTH_CALLBACK_HOST, async () => {
+      process.stderr.write(
+        `\n[anthropic-oauth] Open this URL to log in with Claude:\n${url.toString()}\n\nIf the localhost callback cannot complete, open this manual URL and paste the shown code#state:\n${manualUrl.toString()}\n\n`
+      );
+      await openLoginUrl(url, 'callback');
+    });
+    server.on('error', async (err) => {
+      process.stderr.write(
+        `\n[anthropic-oauth] localhost callback unavailable on ${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}: ${err?.message || err}\n[anthropic-oauth] Opening manual login URL instead. Paste the shown code#state:\n${manualUrl.toString()}\n\n`
+      );
+      await openLoginUrl(manualUrl, 'manual');
+    });
+  });
+
+  return {
+    provider: 'anthropic-oauth',
+    url: url.toString(),
+    manualUrl: manualUrl.toString(),
+    waitForCallback,
+    completeCode: async (input) => {
+      const parsed = _parseOAuthCodeInput(input);
+      if (parsed.state && parsed.state !== state) throw new Error('[anthropic-oauth] OAuth state mismatch');
+      if (!String(parsed.code || '').trim()) throw new Error('[anthropic-oauth] authorization code is required');
+      const redirectUri = parsed.redirectUri || (parsed.state ? OAUTH_MANUAL_REDIRECT_URI : OAUTH_REDIRECT_URI);
+      return await acceptCode(parsed.code, redirectUri);
+    },
+    cancel: () => {
+      finish?.(null);
+    },
+  };
+}
+
+export async function loginOAuth() {
+  const login = await beginOAuthLogin();
+  return await login.waitForCallback;
+}

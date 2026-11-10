@@ -1,0 +1,29 @@
+// The transcript side of a failed-turn retry: a failed turn that never
+// produced output is dropped from the settled items so the resubmitted prompt
+// renders once; a turn with assistant/tool activity stays and the retry
+// continues below it. Gated on the resubmitted text repeating the failed
+// prompt, so a continuation prompt or a merged batch never removes rows.
+const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'notice']);
+
+// An in-place model switch made after the stop (the quota "switch model"
+// path), or a model, workflow or orchestration mode switch applied at the
+// failed turn's start, is not the turn's output and outlives its rewind.
+const SWITCH_DIVIDERS = new Set(['model-switched', 'workflow-switched', 'orchestration-mode-switched']);
+const isModelSwitchDivider = (item) => item?.kind === 'statusdone' && SWITCH_DIVIDERS.has(item.status);
+
+/** The items with the trailing failed, output-less turn removed (a later
+ *  model switch divider kept), or null when nothing qualifies. */
+export function rewoundFailedTurnItems(items, text) {
+  const list = Array.isArray(items) ? items : [];
+  const resubmitted = String(text || '').trim();
+  if (!resubmitted) return null;
+  const start = list.findLastIndex((item) => item?.kind === 'user');
+  if (start < 0 || String(list[start].text || '').trim() !== resubmitted) return null;
+  const tail = list.slice(start + 1);
+  const failed = tail.some((item) => item?.kind === 'turndone' && String(item.status || '').toLowerCase() === 'failed');
+  if (!failed) return null;
+  if (tail.some((item) => !TURN_CHROME_KINDS.has(String(item?.kind || '')) && !isModelSwitchDivider(item))) {
+    return null;
+  }
+  return [...list.slice(0, start), ...tail.filter(isModelSwitchDivider)];
+}

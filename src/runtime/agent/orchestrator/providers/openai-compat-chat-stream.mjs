@@ -1,0 +1,122 @@
+/**
+ * openai-compat-chat-stream.mjs — consuming an OpenAI-compatible
+ * chat-completions SSE stream: the read loop with first-byte and semantic
+ * idle watchdogs, and the exposure-preserving failure path. The per-chunk
+ * projection, the stream state and the settlement live under
+ * openai-compat-chat-stream/.
+ */
+import {
+  PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+  PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+  PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+  createTimeoutSignal,
+  providerFirstOutputTimeoutMs,
+} from '../stall-policy.mjs';
+import { TIMEOUT_PHASE } from '../../../shared/provider-timeout-phase.mjs';
+import {
+  closeCompatStream,
+  markErrorLiveTextEmitted,
+  markUnsafeRetryIfToolEmitted,
+  nextAsyncWithWatchdog,
+} from './openai-compat-stream-common.mjs';
+import {
+  attachPartial,
+  createCompatStreamState,
+  flushLeak,
+  noteReportedUsage,
+  reportTransport,
+  stampCompatOutcome,
+  toolWorkStarted,
+} from './openai-compat-chat-stream/stream-state.mjs';
+import { applyCompatChunk } from './openai-compat-chat-stream/chunk-events.mjs';
+import { streamFirstOutputWindow } from './lib/first-output-window.mjs';
+import { incompleteStreamError, settleCompatStream } from './openai-compat-chat-stream/stream-result.mjs';
+
+export async function consumeCompatChatCompletionStream(
+  stream,
+  {
+    signal,
+    label,
+    providerName,
+    onStreamDelta,
+    onToolCall,
+    onTextDelta,
+    onStreamItemStart,
+    parseToolCalls,
+    knownToolNames,
+    semanticIdleTimeoutMs,
+    firstByteTimeoutMs,
+    leakedToolCallRecovery = true,
+    sessionId = null,
+  } = {}
+) {
+  const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
+  const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
+  const idleMs = idleOverrideEnabled ? Number(semanticIdleTimeoutMs) : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+  // Until the first semantic output the logical request's first-output window
+  // bounds the stream; a request that already had output runs under the
+  // semantic idle from the stream's opening.
+  const firstOutput = streamFirstOutputWindow({
+    sessionId,
+    onStreamDelta,
+    timeoutMs: providerFirstOutputTimeoutMs(idleMs),
+  });
+  const state = createCompatStreamState({
+    providerName,
+    knownToolNames,
+    idleMs,
+    onStreamDelta,
+    onToolCall,
+    onTextDelta,
+    onStreamItemStart,
+    leakedToolCallRecovery,
+  });
+  if (firstOutput.outputSeen) state.semanticIdleDeadlineAt = Date.now() + idleMs;
+  reportTransport(state);
+  const iterator = stream[Symbol.asyncIterator]();
+  let iteratorDone = false;
+  const firstByteTimeout = createTimeoutSignal(
+    signal,
+    Number(firstByteTimeoutMs) > 0 ? Number(firstByteTimeoutMs) : PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+    `${label} first byte`
+  );
+  try {
+    while (true) {
+      const { value: chunk, done } = await nextAsyncWithWatchdog(iterator, {
+        signal: state.sawFirstEvent ? signal : firstByteTimeout.signal,
+        ...firstOutput.idleWatch(state.semanticIdleDeadlineAt, idleMs),
+        idleEnabled: state.sawFirstEvent && idleEnabled,
+        idleLabel: `${label} SSE idle`,
+        streamLabel: label,
+        emittedToolCall: () => toolWorkStarted(state),
+      });
+      if (done) {
+        iteratorDone = true;
+        break;
+      }
+      if (!state.sawFirstEvent) {
+        state.sawFirstEvent = true;
+        firstByteTimeout.cleanup();
+      }
+      applyCompatChunk(state, chunk);
+    }
+    if (state.leakGuard.enabled) flushLeak(state);
+  } catch (err) {
+    // The first-byte window (not a caller cancellation) ended the wait for the first chunk.
+    if (!signal?.aborted && err && typeof err === 'object' && err === firstByteTimeout.signal.reason) {
+      err.timeoutPhase = TIMEOUT_PHASE.FIRST_CHUNK;
+    }
+    // Keep exposed partial text without permitting the request to replay;
+    // every mid-flight failure carries what the stream completed (a
+    // cancellation keeps the caller's own reason untouched).
+    if (state.emittedText) markErrorLiveTextEmitted(err);
+    if (!signal?.aborted) attachPartial(state, err);
+    else noteReportedUsage(state);
+    throw stampCompatOutcome(state, markUnsafeRetryIfToolEmitted(err, state.streamEmitState));
+  } finally {
+    firstByteTimeout.cleanup();
+    if (!iteratorDone) closeCompatStream(stream, iterator);
+  }
+  if (!state.sawFirstEvent || !state.stopReason) throw incompleteStreamError(state, label);
+  return settleCompatStream(state, { label, parseToolCalls });
+}

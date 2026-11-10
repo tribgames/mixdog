@@ -1,0 +1,107 @@
+/**
+ * config-providers-merge.mjs — how the stored `providers` section is folded
+ * onto the probe-built defaults: unknown per-provider keys survive the merge,
+ * a stored `enabled` outranks the credential probe, keychain API keys are
+ * overlaid onto the entries that own one, and the OAuth-only cursor-api entry
+ * is dropped.
+ */
+import { AGENT_PROVIDER_ENV, getAgentApiKey } from '../../shared/config.mjs';
+import { customProviderKeyAccount } from '../../shared/custom-provider-keys.mjs';
+import { customProviderKeyIds, isCustomKeyProvider } from '../../shared/provider-accounts.mjs';
+import { hasAgentApiKey } from '../../shared/provider-api-key.mjs';
+import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
+
+// First-class key providers plus the compat presets whose key also lives in
+// the keychain.
+const builtinProviderNames = () => new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)]);
+
+/** The keychain accounts of the built-in providers' API keys: what a config
+ *  load with secrets asks for, so a boot warm reads these and no other. */
+export function builtinProviderKeyAccounts() {
+  return [...builtinProviderNames()].map((name) => `agent.${name}.apiKey`);
+}
+
+/** The keychain accounts of the configured custom providers' API keys: the
+ *  primary key and each additional key of its roster. Env-keyed and keyless
+ *  providers hold none. */
+export function customProviderKeyAccounts(providers = {}) {
+  return Object.entries(providers).flatMap(([name, val]) => {
+    if (val?.type !== 'custom' || !isCustomKeyProvider(name) || val.auth === 'none' || val.apiKeyEnv) return [];
+    return [`agent.${name}.apiKey`, ...customProviderKeyIds(name).map((id) => customProviderKeyAccount(name, id))];
+  });
+}
+
+/** `presenceOnly`: a stored key only marks its provider enabled; its value is
+ *  neither read nor attached. */
+export function mergeStoredProviders({ raw, defaults, includeSecrets, presenceOnly = false }) {
+  const storedKey = (name) => {
+    if (!presenceOnly) return getAgentApiKey(name);
+    return hasAgentApiKey(name) ? true : null;
+  };
+  const withKey = (entry, name, key) => ({
+    ...(entry || {}),
+    ...(presenceOnly ? {} : { apiKey: key }),
+    enabled: raw.providers?.[name]?.enabled !== false,
+  });
+  // Deep-merge provider subkeys: unknown per-provider values are
+  // preserved through save/load so future fields round-trip
+  // without schema updates here.
+  const mergedProviders = { ...defaults.providers };
+  if (raw.providers && typeof raw.providers === 'object') {
+    for (const [name, val] of Object.entries(raw.providers)) {
+      if (val && typeof val === 'object') {
+        mergedProviders[name] = { ...(mergedProviders[name] || {}), ...val };
+        // A STORED `enabled` is the user's own decision (setup
+        // UI disable / hand edit) and outranks the probe: keep
+        // it authoritative by dropping the probe-availability
+        // marker, so a disable still removes the provider even
+        // while its credential file happens to be unreadable.
+        if (Object.hasOwn(val, 'enabled')) {
+          delete mergedProviders[name].credentialProbeUnavailable;
+        }
+      } else {
+        mergedProviders[name] = val;
+      }
+    }
+  }
+  // Provider API keys live in the OS keychain (std env / MIXDOG_AGENT_*
+  // -> keychain), never plaintext in config. Overlay them so the
+  // provider clients see config.apiKey populated.
+  // AGENT_PROVIDER_ENV covers first-class key providers; OPENAI_COMPAT_PRESETS
+  // covers compat providers (opencode-go, …) whose key also lives in
+  // the keychain. Without the union, a compat provider with a valid
+  // stored key still ships 'no-key' → 401.
+  if (includeSecrets) {
+    for (const name of builtinProviderNames()) {
+      const kc = storedKey(name);
+      if (kc) mergedProviders[name] = withKey(mergedProviders[name], name, kc);
+    }
+  }
+  // Custom providers: the keychain account is the generated custom-<uuid> id.
+  // A keyless (auth 'none') custom provider never carries a key, not even a
+  // hand-edited plaintext one.
+  for (const [name, val] of Object.entries(mergedProviders)) {
+    if (val?.type === 'custom' && val.auth === 'none' && Object.hasOwn(val, 'apiKey')) {
+      const { apiKey: _dropped, ...rest } = val;
+      mergedProviders[name] = rest;
+    }
+  }
+  if (includeSecrets) {
+    for (const [name, val] of Object.entries(mergedProviders)) {
+      if (val?.type !== 'custom' || !name.startsWith('custom-') || val.auth === 'none') continue;
+      if (val.apiKeyEnv) {
+        // Env mode: the named variable is the only key source (no keychain).
+        const { apiKey: _dropped, ...rest } = val;
+        const envKey = process.env[val.apiKeyEnv];
+        mergedProviders[name] = envKey && !presenceOnly ? { ...rest, apiKey: envKey } : rest;
+        continue;
+      }
+      const kc = storedKey(name);
+      if (kc) mergedProviders[name] = withKey(val, name, kc);
+    }
+  }
+  // Cursor account access is OAuth-only. The dashboard's "API"
+  // meter is a quota bucket on that account, not a separate provider.
+  delete mergedProviders['cursor-api'];
+  return mergedProviders;
+}

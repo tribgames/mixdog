@@ -1,0 +1,294 @@
+// Graph (de)serialization, runtime-cache lifecycle, and signature hashing.
+// Graph shape: { cwd, nodes: Map<rel,node>, reverse: Map<rel,Set<rel>>,
+// schemaVersion, builtAt, signature, +runtime caches }. Persisted form omits
+// empty fields.
+import { createHash } from 'node:crypto';
+import { resolve as pathResolve } from 'node:path';
+import { SYMBOL_SCHEMA_VERSION, CODE_GRAPH_MAX_FILES } from './constants.mjs';
+import { _tokenIndexRetainedBytes } from './symbol-index.mjs';
+
+export function _computeGraphSignature(fileMetas) {
+  const hash = createHash('sha1');
+  hash.update(`${SYMBOL_SCHEMA_VERSION}\n`);
+  // R5-③: include rel/path alongside fp so renames and path-swaps (same
+  // bytes moved to a different rel, or two files exchanging paths) flip
+  // the signature and invalidate the memory/disk cache checks at the
+  // call sites just below in buildCodeGraphAsync. Without rel, an fp-only
+  // hash collides across rename pairs and the cache serves stale graph
+  // topology where node.rel no longer matches what's on disk.
+  for (const meta of fileMetas) hash.update(`${meta.rel || ''}\0${meta.fp}\n`);
+  return hash.digest('hex');
+}
+
+export function _serializeGraph(graph) {
+  // Compact-on-disk: omit empty / falsy fields. Saves ~30-50% on disk
+  // for typical mixed-language graphs because most nodes don't carry
+  // packageName / namespaceName / topLevelTypes. Smaller
+  // payload → faster JSON.parse on cold-process boot. _deserializeGraph
+  // tolerates missing fields by defaulting to '' / [].
+  return {
+    schemaVersion: SYMBOL_SCHEMA_VERSION,
+    builtAt: Number(graph?.builtAt || Date.now()),
+    signature: String(graph?.signature || ''),
+    truncated: Boolean(graph?.truncated),
+    maxFiles: CODE_GRAPH_MAX_FILES,
+    nodes: [...(graph?.nodes?.values?.() || [])].map((node) => {
+      const out = {
+        rel: node.rel,
+        lang: node.lang,
+      };
+      if (node.fingerprint) out.fingerprint = node.fingerprint;
+      if (node.parseError) out.parseError = node.parseError;
+      if (Array.isArray(node.rawImports) && node.rawImports.length) out.rawImports = node.rawImports;
+      if (Array.isArray(node.resolvedImportsRel) && node.resolvedImportsRel.length) {
+        out.resolvedImports = node.resolvedImportsRel;
+      }
+      if (Array.isArray(node.importedBy) && node.importedBy.length) {
+        out.importedBy = node.importedBy;
+      }
+      if (node.packageName) out.packageName = node.packageName;
+      if (node.namespaceName) out.namespaceName = node.namespaceName;
+      if (node.goPackageName) out.goPackageName = node.goPackageName;
+      if (Array.isArray(node.topLevelTypes) && node.topLevelTypes.length) {
+        out.topLevelTypes = node.topLevelTypes;
+      }
+      if (Array.isArray(node.tokenSymbols) && node.tokenSymbols.length) {
+        out.tokenSymbols = node.tokenSymbols;
+      }
+      if (Array.isArray(node.symbols) && node.symbols.length) {
+        out.symbols = node.symbols;
+      }
+      // `calls` is deliberately NOT part of this payload: AST call sites are
+      // several times the size of the rest of a node and only callers/callees/
+      // references need them, so they live in a lazily loaded sidecar
+      // (calls-cache.mjs) written next to this entry. Keeping them here grew
+      // the main cache ~3x and added ~1.5s to every cold reload of modes that
+      // never read a call site.
+      return out;
+    }),
+  };
+}
+
+export function _deserializeGraph(cwd, payload) {
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.nodes)) return null;
+  const nodes = new Map();
+  const reverse = new Map();
+  for (const item of payload.nodes) {
+    if (!item || typeof item.rel !== 'string' || typeof item.lang !== 'string') continue;
+    // Persisted fields are repo-relative, mirroring the live build. The
+    // JS resolution layer is gone — resolvedImports/resolvedImportsRel are
+    // restored straight from disk; the reverse index is rederived below from
+    // the forward edges of every node.
+    const resolvedImportsRel = Array.isArray(item.resolvedImports)
+      ? item.resolvedImports.filter((v) => typeof v === 'string')
+      : [];
+    const importedBy = Array.isArray(item.importedBy) ? item.importedBy.filter((v) => typeof v === 'string') : [];
+    const node = {
+      abs: pathResolve(cwd, item.rel),
+      rel: item.rel,
+      lang: item.lang,
+      fingerprint: item.fingerprint || '',
+      parseError: item.parseError || '',
+      rawImports: Array.isArray(item.rawImports) ? item.rawImports : [],
+      resolvedImportsRel,
+      resolvedImports: resolvedImportsRel.map((rel) => pathResolve(cwd, rel)),
+      importedBy,
+      packageName: item.packageName || '',
+      namespaceName: item.namespaceName || '',
+      goPackageName: item.goPackageName || '',
+      topLevelTypes: Array.isArray(item.topLevelTypes) ? item.topLevelTypes : [],
+      tokenSymbols: Array.isArray(item.tokenSymbols) ? item.tokenSymbols : null,
+      symbols: Array.isArray(item.symbols) ? item.symbols : [],
+      // Always unknown at load time — including for a legacy payload that
+      // still carries an inline `calls` (v1 object wire, no longer decoded).
+      // hydrateGraphCallsFromSidecar() fills this in on the first
+      // callers/callees/references query of the process.
+      calls: null,
+    };
+    nodes.set(node.rel, node);
+    // reverse is derived from the FORWARD edges of every node, not from the
+    // persisted importedBy. On the incremental --files path reused nodes carry
+    // a stale importedBy, so a fresh edge A→B (A parsed, B reused) would drop
+    // B's reverse entry. Walking resolvedImportsRel keeps reverse self-consistent.
+    for (const rel of resolvedImportsRel) {
+      if (!reverse.has(rel)) reverse.set(rel, new Set());
+      reverse.get(rel).add(node.rel);
+    }
+  }
+  const graph = _attachGraphRuntimeCaches({
+    cwd,
+    nodes,
+    reverse,
+    // Pre-endLine disk payloads have no schemaVersion → null → dropped by the
+    // previousGraph schema guard so their endLine-less nodes never seed reuse.
+    schemaVersion: typeof payload.schemaVersion === 'string' ? payload.schemaVersion : null,
+    builtAt: Number(payload.builtAt || Date.now()),
+    signature: String(payload.signature || ''),
+  });
+  // Restore the truncation flag persisted from the live build so disk-cache
+  // hits keep emitting the WARN line in find_symbol/overview output instead
+  // of silently working with a partial graph.
+  if (graph && payload.truncated) graph.truncated = true;
+  // A cache-loaded graph has no call sites yet. The marker is what makes the
+  // sidecar read LAZY: only a callers/callees/references query pays for it,
+  // and only once per graph object.
+  if (graph) graph._callsHydration = 'pending';
+  return graph;
+}
+
+export function _attachGraphRuntimeCaches(graph) {
+  if (!graph || typeof graph !== 'object') return graph;
+  if (!graph._referenceSearchCache) graph._referenceSearchCache = new Map();
+  if (!graph._keywordSearchCache) graph._keywordSearchCache = new Map();
+  if (!graph._maskedLinesCache) graph._maskedLinesCache = new Map();
+  if (!graph._sourceLinesCache) graph._sourceLinesCache = new Map();
+  if (!graph._sourceTextCache) graph._sourceTextCache = new Map();
+  if (!graph._symbolTokenIndex) graph._symbolTokenIndex = new Map();
+  if (typeof graph._symbolTokenIndexDirty !== 'boolean') graph._symbolTokenIndexDirty = true;
+  return graph;
+}
+
+const GRAPH_RUNTIME_CACHE_KEYS = new Set([
+  '_referenceSearchCache',
+  '_keywordSearchCache',
+  '_maskedLinesCache',
+  '_sourceLinesCache',
+  '_sourceTextCache',
+  '_symbolTokenIndex',
+]);
+// The base graph is immutable once built except for the one-time call-site
+// hydration, so its walk is memoized per hydration state. The memory-cache
+// prune runs after every code_graph call; re-walking a resident multi-hundred-MB
+// graph each time cost 140-400 ms of main-thread time and millions of
+// short-lived Object.entries arrays.
+const _baseGraphBytes = new WeakMap();
+
+/** Base (non-runtime-cache) size of a graph, memoized per hydration state. */
+export function _estimateGraphBaseBytes(graph) {
+  let base = _baseGraphBytes.get(graph);
+  if (!base || base.hydration !== graph._callsHydration) {
+    const seen = new WeakSet();
+    let bytes = 48;
+    for (const [key, item] of Object.entries(graph)) {
+      if (!GRAPH_RUNTIME_CACHE_KEYS.has(key)) bytes += 8 + _estimateValueBytes(key) + _estimateValueBytes(item, seen);
+    }
+    base = { hydration: graph._callsHydration, bytes };
+    _baseGraphBytes.set(graph, base);
+  }
+  return base.bytes;
+}
+
+// A build Worker measures its graph before posting it; the structured clone
+// has the same own keys and values, so the main thread adopts that number
+// instead of re-walking a multi-hundred-MB graph on arrival.
+export function _seedGraphBaseBytes(graph, bytes) {
+  if (!graph || typeof graph !== 'object' || !Number.isFinite(bytes)) return;
+  _baseGraphBytes.set(graph, { hydration: graph._callsHydration, bytes });
+}
+
+// Call-site hydration changes a graph whose base size is already known by
+// `addedBytes` (applyCallsSidecarEntries: applied lists minus the lists they
+// replaced) and by the marker flip itself, so the estimate moves to the
+// hydrated state without re-walking every call tuple on the main thread (300+
+// ms for a large root). `baseBytes` is the pre-hydration size the caller took
+// before applying anything. Same rules as the walk, so the result equals it.
+export function _noteGraphCallsHydrated(graph, baseBytes, addedBytes) {
+  const markerBytes = (present, value) =>
+    present ? 8 + _estimateValueBytes('_callsHydration') + _estimateValueBytes(value) : 0;
+  const before = markerBytes(Object.hasOwn(graph, '_callsHydration'), graph._callsHydration);
+  graph._callsHydration = 'done';
+  const bytes = baseBytes + addedBytes + markerBytes(true, 'done') - before;
+  _baseGraphBytes.set(graph, { hydration: 'done', bytes });
+}
+
+export function _estimateGraphRetainedBytes(graph) {
+  if (!graph || typeof graph !== 'object' || graph instanceof Map || Array.isArray(graph)) {
+    return _estimateValueBytes(graph);
+  }
+  let bytes = _estimateGraphBaseBytes(graph) + _tokenIndexRetainedBytes(graph);
+  for (const key of GRAPH_RUNTIME_CACHE_KEYS) {
+    if (Object.hasOwn(graph, key)) bytes += 8 + _estimateValueBytes(key) + _estimateRuntimeCacheBytes(graph[key]);
+  }
+  return bytes;
+}
+
+// Runtime-cache entries are immutable once stored (a refresh stores a new
+// object), so an entry measured where it was produced — in a time-sliced
+// prewarm — is not re-walked by the prune after every call. That walk over the
+// line arrays of thousands of files was a 50-90 ms main-thread stretch per call
+// on a large root. Same rules as _estimateValueBytes, so the total is unchanged.
+const _runtimeEntryBytes = new WeakMap();
+
+/**
+ * Measure a `{ fingerprint, lines }` entry (an array of strings) now rather
+ * than at the prune. The walk over the lines of a multi-MB file is its own
+ * 10 ms stretch (30+ ms on a slow CI runner), so it runs in `slice`d steps; the
+ * total is the one _estimateValueBytes gives: the entry with an empty array,
+ * plus a pointer and a string per line.
+ */
+export async function _noteRuntimeCacheEntryBytes(entry, slice) {
+  if (!entry || _runtimeEntryBytes.has(entry)) return;
+  const { lines } = entry;
+  let bytes = _estimateValueBytes({ ...entry, lines: [] }) + lines.length * 8;
+  for (let i = 0; i < lines.length; i++) {
+    bytes += 16 + lines[i].length * 2;
+    if ((i & 1023) === 1023 && slice.expired()) await slice.yield();
+  }
+  _runtimeEntryBytes.set(entry, bytes);
+}
+
+function _estimateRuntimeCacheBytes(cache) {
+  if (!(cache instanceof Map)) return _estimateValueBytes(cache);
+  let bytes = 48 + cache.size * 24;
+  for (const [key, value] of cache) {
+    bytes += _estimateValueBytes(key) + (_runtimeEntryBytes.get(value) ?? _estimateValueBytes(value));
+  }
+  return bytes;
+}
+
+export function _estimateValueBytes(root, seen = new WeakSet()) {
+  const estimate = (value) => {
+    if (value == null) return 0;
+    const type = typeof value;
+    if (type === 'string') return 16 + value.length * 2;
+    if (type === 'number' || type === 'bigint') return 8;
+    if (type === 'boolean') return 4;
+    if (type !== 'object') return 0;
+    if (seen.has(value)) return 0;
+    seen.add(value);
+    if (ArrayBuffer.isView(value)) return 32 + value.byteLength;
+    if (value instanceof ArrayBuffer) return 24 + value.byteLength;
+    if (value instanceof Map) {
+      let bytes = 48 + value.size * 24;
+      for (const [key, item] of value) bytes += estimate(key) + estimate(item);
+      return bytes;
+    }
+    if (value instanceof Set) {
+      let bytes = 48 + value.size * 16;
+      for (const item of value) bytes += estimate(item);
+      return bytes;
+    }
+    if (Array.isArray(value)) {
+      let bytes = 24 + value.length * 8;
+      for (const item of value) bytes += estimate(item);
+      return bytes;
+    }
+    let bytes = 48;
+    for (const [key, item] of Object.entries(value)) {
+      bytes += 8 + estimate(key) + estimate(item);
+    }
+    return bytes;
+  };
+  return estimate(root);
+}
+
+export function _clearGraphRuntimeCaches(graph) {
+  if (!graph) return;
+  graph._sourceTextCache?.clear();
+  graph._maskedLinesCache?.clear();
+  graph._sourceLinesCache?.clear();
+  graph._referenceSearchCache?.clear();
+  graph._keywordSearchCache?.clear();
+  graph._symbolTokenIndex?.clear();
+  graph._symbolTokenIndexDirty = true;
+}

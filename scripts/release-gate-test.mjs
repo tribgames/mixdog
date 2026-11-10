@@ -1,0 +1,1393 @@
+// Consolidated release gate: asset manifests, deploy workflow contract,
+// and version discipline. Referenced by deploy.yml and test:release-assets.
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import test from 'node:test';
+import { parse as parseYaml } from 'yaml';
+import {
+  GRAPH_PLATFORMS,
+  PATCH_PLATFORMS,
+  SPAWN_PLATFORMS,
+  SUPERVISOR_PLATFORMS,
+  validateGraphManifest,
+  validatePatchManifest,
+  validateRuntimeManifest,
+  validateSpawnManifest,
+  validateSupervisorManifest,
+  verifyAssetDownloads,
+  verifyReleaseAssets,
+} from './verify-release-assets.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { buildReleaseTimingReport } from './release-timing-report.mjs';
+import { SESSION_PROTOCOL } from '../src/standalone/session-wire.mjs';
+import {
+  desktopGateRegex,
+  historyGateRegex,
+  mobileGateRegex,
+  patchGateRegex,
+  runtimeGateRegex,
+  RELEASE_CRITICAL_PATHS,
+} from './release-paths.mjs';
+
+// Product/workflow shape is intentionally non-blocking. Opt in from the
+// advisory runner when reviewing a deliberate specification change.
+const advisoryTest = (name, fn) =>
+  test(
+    name,
+    {
+      skip: process.env.MIXDOG_TEST_ADVISORY !== '1' && 'requires MIXDOG_TEST_ADVISORY=1 (npm run test:spec-advisory)',
+    },
+    fn
+  );
+
+// ---- Release asset manifests ----
+const VERSION = '1.2.3';
+const APP_VERSION = '0.9.49';
+const GRAPH_VERSION = '0.1.0';
+const bytes = Buffer.from('local release fixture');
+const sha256 = createHash('sha256').update(bytes).digest('hex');
+
+function patchFixture() {
+  return {
+    version: VERSION,
+    _comment: 'test fixture',
+    assets: Object.fromEntries(
+      Object.entries(PATCH_PLATFORMS).map(([platform, filename]) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/patch-v${VERSION}/${filename}`,
+          sha256,
+        },
+      ])
+    ),
+  };
+}
+
+function runtimeFixture() {
+  return {
+    schema_version: 1,
+    generated_at: '2026-01-01T00:00:00.000Z',
+    release_tag: 'runtime-v1.2.3',
+    pg: { major: 16, minor: 4 },
+    pgvector: { version: '0.8.2' },
+    assets: Object.fromEntries(
+      Object.keys(PATCH_PLATFORMS).map((platform) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/runtime-v1.2.3/mixdog-runtime-${platform}-pg16.4-pgvector0.8.2.tar.gz`,
+          sha256,
+          size: bytes.length,
+        },
+      ])
+    ),
+  };
+}
+
+function graphFixture() {
+  return {
+    version: GRAPH_VERSION,
+    _comment: 'test fixture',
+    assets: Object.fromEntries(
+      Object.entries(GRAPH_PLATFORMS).map(([platform, filename]) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/graph-v${GRAPH_VERSION}/${filename}`,
+          sha256,
+        },
+      ])
+    ),
+  };
+}
+
+function cargoPinnedFixture(kind, platforms) {
+  return {
+    version: VERSION,
+    _comment: 'test fixture',
+    assets: Object.fromEntries(
+      Object.entries(platforms).map(([platform, filename]) => [
+        platform,
+        {
+          url: `https://github.com/tribgames/mixdog/releases/download/${kind}-v${VERSION}/${filename}`,
+          sha256,
+        },
+      ])
+    ),
+  };
+}
+
+const spawnFixture = () => cargoPinnedFixture('spawn', SPAWN_PLATFORMS);
+const supervisorFixture = () => cargoPinnedFixture('supervisor', SUPERVISOR_PLATFORMS);
+
+test('accepts independent strict patch, runtime, app, and graph versions', () => {
+  assert.equal(validatePatchManifest(patchFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
+  assert.equal(validateRuntimeManifest(runtimeFixture()).release_tag, 'runtime-v1.2.3');
+  assert.equal(validateGraphManifest(graphFixture(), { version: APP_VERSION }).version, GRAPH_VERSION);
+  assert.equal(validateSpawnManifest(spawnFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
+  assert.equal(
+    validateSupervisorManifest(supervisorFixture(), `[package]\nversion = "${VERSION}"\n`).version,
+    VERSION
+  );
+});
+
+test('tool manifests may add a verified win32-arm64 asset beyond the required platforms', () => {
+  const cargo = `[package]\nversion = "${VERSION}"\n`;
+  const withArm = (fixture, kind, tag) => {
+    fixture.assets['win32-arm64'] = {
+      url: `https://github.com/tribgames/mixdog/releases/download/${tag}/mixdog-${kind}-win32-arm64.exe`,
+      sha256,
+    };
+    return fixture;
+  };
+  assert.ok(validatePatchManifest(withArm(patchFixture(), 'patch', `patch-v${VERSION}`), cargo).assets['win32-arm64']);
+  assert.ok(validateSpawnManifest(withArm(spawnFixture(), 'spawn', `spawn-v${VERSION}`), cargo).assets['win32-arm64']);
+  assert.ok(
+    validateGraphManifest(withArm(graphFixture(), 'graph', `graph-v${GRAPH_VERSION}`), { version: APP_VERSION }).assets[
+      'win32-arm64'
+    ]
+  );
+  const misnamed = withArm(patchFixture(), 'patch', `patch-v${VERSION}`);
+  misnamed.assets['win32-arm64'].url = misnamed.assets['win32-arm64'].url.replace('win32-arm64', 'win32-x64');
+  assert.throws(() => validatePatchManifest(misnamed, cargo), /patch asset URL must be/);
+});
+
+test('rejects stale Cargo version, partial schema, and wrong patch tag URL', () => {
+  assert.throws(
+    () => validatePatchManifest(patchFixture(), '[package]\nversion = "1.2.2"\n'),
+    /does not match manifest version/
+  );
+
+  const partial = patchFixture();
+  delete partial.assets['linux-arm64'];
+  assert.throws(() => validatePatchManifest(partial, `[package]\nversion = "${VERSION}"\n`), /keys must be exactly/);
+
+  const wrongTag = patchFixture();
+  wrongTag.assets['linux-x64'].url = wrongTag.assets['linux-x64'].url.replace('patch-v1.2.3', 'patch-v1.2.2');
+  assert.throws(() => validatePatchManifest(wrongTag, `[package]\nversion = "${VERSION}"\n`), /patch-v1\.2\.3/);
+
+  const extraPatch = patchFixture();
+  extraPatch.assets['freebsd-x64'] = extraPatch.assets['linux-x64'];
+  assert.throws(() => validatePatchManifest(extraPatch, `[package]\nversion = "${VERSION}"\n`), /keys must be exactly/);
+
+  const extraRuntime = runtimeFixture();
+  extraRuntime.assets['freebsd-x64'] = extraRuntime.assets['linux-x64'];
+  assert.throws(() => validateRuntimeManifest(extraRuntime), /keys must be exactly/);
+
+  const noncanonicalRuntime = runtimeFixture();
+  noncanonicalRuntime.assets['linux-x64'].url = 'https://example.com/runtime.tar.gz';
+  assert.throws(() => validateRuntimeManifest(noncanonicalRuntime), /runtime asset URL must be/);
+});
+
+test('rejects stale, noncanonical, partial, and malformed graph manifests', () => {
+  const partial = graphFixture();
+  delete partial.assets['darwin-arm64'];
+  assert.throws(() => validateGraphManifest(partial, { version: APP_VERSION }), /keys must be exactly/);
+
+  for (const replacement of [
+    'https://github.com/tribgames/mixdog/releases/download/v0.7.18/mixdog-graph-linux-x64',
+    'https://github.com/tribgames/mixdog/releases/download/graph-v0.1.1/mixdog-graph-linux-x64',
+    'https://example.com/tribgames/mixdog/releases/download/graph-v0.1.0/mixdog-graph-linux-x64',
+    'https://github.com/tribgames/mixdog/releases/download/graph-v0.1.0/mixdog-graph-wrong',
+  ]) {
+    const noncanonical = graphFixture();
+    noncanonical.assets['linux-x64'].url = replacement;
+    assert.throws(() => validateGraphManifest(noncanonical, { version: APP_VERSION }), /graph asset URL must be/);
+  }
+
+  const malformedDigest = graphFixture();
+  malformedDigest.assets['win32-x64'].sha256 = 'not-a-digest';
+  assert.throws(() => validateGraphManifest(malformedDigest, { version: APP_VERSION }), /invalid graph asset sha256/);
+
+  const malformedVersion = graphFixture();
+  malformedVersion.version = '0.1';
+  assert.throws(
+    () => validateGraphManifest(malformedVersion, { version: APP_VERSION }),
+    /not strict MAJOR\.MINOR\.PATCH/
+  );
+});
+
+test('downloads local fixture responses, retries, and checks sha256 without network', async () => {
+  let calls = 0;
+  await verifyAssetDownloads(
+    { fixture: { url: 'https://fixtures.invalid/asset', sha256, size: bytes.length } },
+    {
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('fixture transient failure');
+        return new Response(bytes);
+      },
+      retryDelay: async () => {},
+    }
+  );
+  assert.equal(calls, 2);
+
+  calls = 0;
+  await assert.rejects(
+    verifyAssetDownloads(
+      { fixture: { url: 'https://fixtures.invalid/asset', sha256: '0'.repeat(64) } },
+      {
+        fetchImpl: async () => {
+          calls += 1;
+          return new Response(bytes);
+        },
+        retryDelay: async () => {},
+      }
+    ),
+    /verification failed after 3 attempts: sha256 mismatch/
+  );
+  assert.equal(calls, 3);
+});
+
+test('cancels an undeclared-size patch stream immediately at the absolute ceiling', async () => {
+  let chunksProduced = 0;
+  let cancellations = 0;
+  let aborts = 0;
+  const stream = new ReadableStream(
+    {
+      pull(controller) {
+        chunksProduced += 1;
+        controller.enqueue(Buffer.from('abc'));
+      },
+      cancel() {
+        cancellations += 1;
+      },
+    },
+    { highWaterMark: 0 }
+  );
+
+  await assert.rejects(
+    verifyAssetDownloads(
+      { fixture: { url: 'https://fixtures.invalid/asset', sha256 } },
+      {
+        attempts: 1,
+        maxAssetBytes: 5,
+        fetchImpl: async (_url, { signal }) => {
+          signal.addEventListener('abort', () => {
+            aborts += 1;
+          });
+          return { ok: true, status: 200, body: stream };
+        },
+      }
+    ),
+    /byte ceiling exceeded \(5 bytes\)/
+  );
+  assert.equal(chunksProduced, 2);
+  assert.equal(cancellations, 1);
+  assert.equal(aborts, 1);
+});
+
+test('cancels immediately when a stream exceeds its declared size below the absolute ceiling', async () => {
+  let chunksProduced = 0;
+  let cancellations = 0;
+  let aborts = 0;
+  const stream = new ReadableStream(
+    {
+      pull(controller) {
+        chunksProduced += 1;
+        controller.enqueue(Buffer.from('abc'));
+      },
+      cancel() {
+        cancellations += 1;
+      },
+    },
+    { highWaterMark: 0 }
+  );
+
+  await assert.rejects(
+    verifyAssetDownloads(
+      { fixture: { url: 'https://fixtures.invalid/asset', sha256, size: 5 } },
+      {
+        attempts: 1,
+        maxAssetBytes: 10,
+        fetchImpl: async (_url, { signal }) => {
+          signal.addEventListener('abort', () => {
+            aborts += 1;
+          });
+          return { ok: true, status: 200, body: stream };
+        },
+      }
+    ),
+    /byte ceiling exceeded \(5 bytes\)/
+  );
+  assert.equal(chunksProduced, 2);
+  assert.equal(cancellations, 1);
+  assert.equal(aborts, 1);
+});
+
+test('full guard reads deterministic fixtures and downloads every declared asset', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mixdog-release-assets-'));
+  const patch = patchFixture();
+  const runtime = runtimeFixture();
+  const graph = graphFixture();
+  const spawn = spawnFixture();
+  const supervisor = supervisorFixture();
+  const expectedUrls = new Set(
+    [
+      ...Object.values(patch.assets),
+      ...Object.values(runtime.assets),
+      ...Object.values(graph.assets),
+      ...Object.values(spawn.assets),
+      ...Object.values(supervisor.assets),
+    ].map(({ url }) => url)
+  );
+  const paths = {
+    patchManifestPath: join(dir, 'patch.json'),
+    cargoPath: join(dir, 'Cargo.toml'),
+    runtimeManifestPath: join(dir, 'runtime.json'),
+    graphManifestPath: join(dir, 'graph.json'),
+    spawnManifestPath: join(dir, 'spawn.json'),
+    spawnCargoPath: join(dir, 'spawn-Cargo.toml'),
+    supervisorManifestPath: join(dir, 'supervisor.json'),
+    supervisorCargoPath: join(dir, 'supervisor-Cargo.toml'),
+    packagePath: join(dir, 'package.json'),
+  };
+  await Promise.all([
+    writeFile(paths.patchManifestPath, JSON.stringify(patch)),
+    writeFile(paths.cargoPath, `[package]\nversion = "${VERSION}"\n`),
+    writeFile(paths.runtimeManifestPath, JSON.stringify(runtime)),
+    writeFile(paths.graphManifestPath, JSON.stringify(graph)),
+    writeFile(paths.spawnManifestPath, JSON.stringify(spawn)),
+    writeFile(paths.spawnCargoPath, `[package]\nversion = "${VERSION}"\n`),
+    writeFile(paths.supervisorManifestPath, JSON.stringify(supervisor)),
+    writeFile(paths.supervisorCargoPath, `[package]\nversion = "${VERSION}"\n`),
+    writeFile(paths.packagePath, JSON.stringify({ version: APP_VERSION })),
+  ]);
+  let downloads = 0;
+  const requestedUrls = [];
+  try {
+    await verifyReleaseAssets({
+      ...paths,
+      downloadOptions: {
+        attempts: 1,
+        timeoutMs: 1000,
+        fetchImpl: async (url) => {
+          downloads += 1;
+          requestedUrls.push(url);
+          return new Response(bytes);
+        },
+      },
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  assert.equal(downloads, 25);
+  assert.deepEqual(new Set(requestedUrls), expectedUrls);
+});
+
+// ---- Deploy and release workflow contracts ----
+// Source-text on purpose: GitHub workflow YAML and release shell scripts run
+// only on GitHub runners, so the checked-in text is the only surface a test can reach.
+const workflow = (name) => readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
+
+test('Deploy is the one-click release entry with incremental native workers', async () => {
+  const deploy = await workflow('deploy.yml');
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.match(deploy, /workflow_dispatch:/);
+  assert.match(deploy, /id-token:\s*write/);
+  assert.match(deploy, /git fetch --tags --force origin[\s\S]*node --test scripts\/release-gate-test\.mjs/);
+  assert.match(deploy, /options:\s*\[auto,\s*force,\s*skip\]/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/build-runtime\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/build-voice-runtime\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/patch-release\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/graph-release\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/spawn-release\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/supervisor-release\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/release\.yml/);
+  assert.match(deploy, /changedSince\(`\$\{tagPrefix\}\$\{manifestVersion\}`/);
+  assert.match(
+    deploy,
+    /import \{ RELEASE_CRITICAL_PATHS \} from '\.\/scripts\/release-paths\.mjs'/,
+    'deploy must consume the single-source critical path list'
+  );
+  assert.match(
+    deploy,
+    /run_critical: \$\{\{ needs\.plan\.outputs\.run_critical == 'true' \}\}/,
+    'release validate must honor the gate-verified critical skip'
+  );
+  assert.match(
+    deploy,
+    /import \{ nativeReleaseStatuses, unreleasedProblems \} from '\.\/scripts\/native-release-status\.mjs'[\s\S]*if \(mode === 'skip'\) \{[\s\S]*unreleasedProblems\(nativeReleaseStatuses\(\)\)[\s\S]*native=skip would ship stale native tools/,
+    'native=skip must fail while a native tool has unreleased source'
+  );
+  assert.match(
+    await workflow('release.yml'),
+    /node scripts\/verify-release-assets\.mjs[\s\S]*node scripts\/native-release-status\.mjs --check/,
+    'release validate must fail when native sources differ from the pinned native releases'
+  );
+  assert.match(deploy, /const preBumped = !currentTagExists && !currentReleaseExists/);
+  assert.match(deploy, /const appVersion = resume \|\| preBumped/);
+  assert.match(deploy, /needs\.runtime\.result == 'success' \|\| needs\.runtime\.result == 'skipped'/);
+  assert.match(deploy, /needs\.voice\.result == 'success' \|\| needs\.voice\.result == 'skipped'/);
+  assert.match(deploy, /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
+  assert.match(
+    deploy,
+    /IS_DRAFT=\$\(gh release view "\$TAG" --json isDraft --jq '\.isDraft' 2>\/dev\/null \|\| true\)[\s\S]*if \[\[ "\$IS_DRAFT" == "false" \]\][\s\S]*Published tag \$\{TAG\} is immutable/,
+    'only a published release may make its tag immutable; a hidden draft must remain recoverable'
+  );
+  assert.match(
+    deploy,
+    /'isDraft', '--jq', '\.isDraft'[\s\S]*result\.stdout\.trim\(\) === 'false'/,
+    'a hidden draft must remain resumable instead of consuming a release version'
+  );
+  assert.match(deploy, /Moving unpublished recovery tag \$\{TAG\}/);
+  // The resumed version's heading carries its date, so the fold keeps the whole heading line and
+  // appends the notes under it instead of replacing the bare `## vX.Y.Z` text.
+  assert.match(
+    deploy,
+    /const unreleasedPattern = \/\^## Unreleased[\s\S]*else if \(unreleasedBody\)[\s\S]*const escaped = versionHeading\.replace[\s\S]*text\.replace\(new RegExp\(`\^\$\{escaped\}\[\^\\\\n\]\*\$`, 'm'\), \(heading\) => `\$\{heading\}\\n\\n\$\{unreleasedBody\}`\)/,
+    "an unpublished same-version recovery must fold its notes under that release's dated heading"
+  );
+  const { jobs } = parseYaml(deploy);
+  // A native version bump changes the old-glibc tools' cache keys, so Deploy
+  // warms them from the bumped commit without uploading (the release run's own
+  // call uploads the per-run artifact), and nothing waits on the warm-up.
+  const warm = jobs['linux-native-tools-warm'];
+  assert.equal(warm.uses, './.github/workflows/linux-native-tools.yml');
+  assert.deepEqual(warm.needs, ['plan', 'prepare-native']);
+  assert.equal(warm.if, "${{ needs.plan.outputs.native_changed == 'true' }}");
+  assert.deepEqual(warm.with, { ref: '${{ needs.prepare-native.outputs.sha }}', upload_artifact: false });
+  assert.equal(jobs['prepare-native'].outputs.sha, '${{ steps.bump.outputs.sha }}');
+  assert.match(
+    jobs['prepare-native'].steps.find((step) => step.id === 'bump').run,
+    /create_tag "\$SPAWN_BUILD" "\$SPAWN_TAG"\s*\n\s*create_tag "\$SUPERVISOR_BUILD" "\$SUPERVISOR_TAG"\s*\n\s*echo "sha=\$\(git rev-parse HEAD\)" >> "\$GITHUB_OUTPUT"\s*$/
+  );
+  for (const [name, job] of Object.entries(jobs)) {
+    assert.ok(![job.needs ?? []].flat().includes('linux-native-tools-warm'), `${name} must not wait on the warm-up`);
+  }
+  const nativeTools = parseYaml(await workflow('linux-native-tools.yml'));
+  assert.equal(nativeTools.on.workflow_call.inputs.upload_artifact.default, true);
+  assert.equal(
+    nativeTools.jobs.build.steps.find((step) => String(step.uses).startsWith('actions/upload-artifact@')).if,
+    'inputs.upload_artifact'
+  );
+  // The timing report runs beside post-release-check, after the release call.
+  const timings = jobs['release-timings'];
+  assert.deepEqual(timings.needs, ['prepare-app', 'release']);
+  assert.match(timings.if, /always\(\) && needs\.release\.result != 'skipped'/);
+  assert.deepEqual(timings.permissions, { actions: 'read', contents: 'read' });
+  assert.ok(!jobs['post-release-check'].needs.includes('release-timings'));
+  const record = timings.steps.find((step) => step.name === 'Record timing and warn on material regressions');
+  assert.equal(record['continue-on-error'], true);
+  assert.match(record.run, /node scripts\/release-timing-report\.mjs/);
+  assert.equal(jobs.release.permissions.actions, 'read');
+  for (const bump of ['patch', 'minor', 'major']) {
+    assert.equal(
+      packageJson.scripts[`release:${bump}`],
+      `gh workflow run deploy.yml --ref main -f bump=${bump} -f native=auto`
+    );
+  }
+});
+
+test('release path selection classifies desktop, runtime, and critical paths', () => {
+  const desktop = new RegExp(desktopGateRegex());
+  const runtime = new RegExp(runtimeGateRegex());
+  for (const path of [
+    'apps/desktop/src/main/index.ts',
+    'src/help.mjs',
+    'package-lock.json',
+    'scripts/native-binary-arch.test.mjs',
+    'scripts/prune-desktop-runtime.mjs',
+    'scripts/prune-embedding-runtime.test.mjs',
+    'scripts/release-paths.mjs',
+  ])
+    assert.match(path, desktop, `desktop gate must select ${path}`);
+  for (const path of ['docs/guide.md', 'apps/relay/src/index.ts', 'scripts/session-bench.mjs']) {
+    assert.doesNotMatch(path, desktop, `desktop gate must skip ${path}`);
+  }
+  // The runtime gate runs the discovered default lane, so every source and
+  // script root selects it; only trees with no runtime tests stay out.
+  for (const path of [
+    '.github/workflows/release.yml',
+    'native/mixdog-spawn/src/main.rs',
+    'src/runtime/agent/orchestrator/session/loop.mjs',
+    'src/tui/app.mjs',
+    'src/runtime/memory/lib/query-handlers.mjs',
+    'scripts/provider-contract-test.mjs',
+    'scripts/tool-contracts/search-tools.test.mjs',
+    'scripts/test.mjs',
+    'scripts/release-paths.mjs',
+    'package.json',
+  ])
+    assert.match(path, runtime, `runtime gate must select ${path}`);
+  for (const path of ['docs/testing.md', 'apps/desktop/src/main/index.ts', 'apps/relay/src/index.ts']) {
+    assert.doesNotMatch(path, runtime, `runtime gate must skip ${path}`);
+  }
+  for (const path of ['src', 'scripts', 'native', 'package-lock.json']) {
+    assert.ok(RELEASE_CRITICAL_PATHS.includes(path), `critical paths must cover ${path}`);
+  }
+  const patch = new RegExp(patchGateRegex());
+  for (const path of [
+    'native/mixdog-patch/src/fs_atomic.rs',
+    'native/mixdog-patch/Cargo.lock',
+    'src/runtime/agent/orchestrator/tools/patch/native-server.mjs',
+    'scripts/native-edit-wire-test.mjs',
+    'scripts/release-paths.mjs',
+    '.github/workflows/release-gate.yml',
+    'package-lock.json',
+  ])
+    assert.match(path, patch);
+  for (const path of ['docs/testing.md', 'native/mixdog-graph/src/main.rs', 'apps/desktop/src/renderer/App.tsx']) {
+    assert.doesNotMatch(path, patch);
+  }
+  // The shipped-history check follows the trees its history is generated from.
+  const history = new RegExp(historyGateRegex());
+  for (const path of [
+    'src/defaults/shipped-history.json',
+    'src/defaults/skills/office/SKILL.md',
+    'src/agents/worker/AGENT.md',
+    'src/workflows/default/WORKFLOW.md',
+    'src/output-styles/concise.md',
+    'scripts/build-shipped-history.mjs',
+    'src/runtime/shared/shipped-definitions.mjs',
+    '.github/workflows/release-gate.yml',
+  ])
+    assert.match(path, history, `history gate must select ${path}`);
+  for (const path of ['src/tui/app.mjs', 'scripts/test.mjs', 'apps/mobile/scripts/asc_api.py'])
+    assert.doesNotMatch(path, history, `history gate must skip ${path}`);
+  // The mobile Python suites follow the mobile scripts and workflows.
+  const mobile = new RegExp(mobileGateRegex());
+  for (const path of [
+    'apps/mobile/scripts/test_testflight_submit.py',
+    'apps/mobile/scripts/ios-ci-signing.py',
+    '.github/workflows/mobile-ios.yml',
+    '.github/workflows/mobile-android.yml',
+    '.github/workflows/release-gate.yml',
+  ])
+    assert.match(path, mobile, `mobile gate must select ${path}`);
+  for (const path of ['apps/mobile/src/App.tsx', '.github/workflows/release.yml', 'scripts/test.mjs'])
+    assert.doesNotMatch(path, mobile, `mobile gate must skip ${path}`);
+});
+
+// Workflow YAML has no local executable surface; validate the job's source-binary
+// selection and dependency gate rather than a downloaded release's behavior.
+test('the PR patch gate builds source before testing it and participates in the final verdict', async () => {
+  const { jobs } = parseYaml(await workflow('release-gate.yml'));
+  const patch = jobs.patch;
+  assert.equal(patch.needs, 'changes');
+  assert.equal(patch.if, "needs.changes.outputs.patch == 'true'");
+  assert.equal(jobs.changes.outputs.patch, '${{ steps.paths.outputs.patch }}');
+  const selection = jobs.changes.steps.find((step) => step.id === 'paths').run;
+  assert.match(selection, /PATCH_RE=\$\(node scripts\/release-paths\.mjs patch-regex\)/);
+  assert.match(selection, /grep -Eq "\$PATCH_RE" \/tmp\/changed/);
+  const build = patch.steps.findIndex((step) =>
+    step.run?.includes('cargo test --locked --manifest-path native/mixdog-patch/Cargo.toml')
+  );
+  const verify = patch.steps.findIndex((step) => step.run?.includes('npm run test:native-edit-wire'));
+  assert.ok(build >= 0 && verify > build);
+  assert.match(patch.steps[build].run, /cargo build --locked --manifest-path native\/mixdog-patch\/Cargo.toml/);
+  assert.equal(
+    patch.steps[verify].env.MIXDOG_PATCH_NATIVE_BIN,
+    '${{ github.workspace }}/native/mixdog-patch/target/debug/mixdog-patch'
+  );
+  assert.match(patch.steps[verify].run, /npm test -- src\/runtime\/agent\/orchestrator\/tools\/patch\//);
+  assert.match(patch.steps[verify].run, /npm run smoke:patch/);
+  assert.ok(jobs.complete.needs.includes('patch'));
+  assert.equal(jobs.complete.steps[0].env.PATCH, '${{ needs.patch.result }}');
+  assert.match(jobs.complete.steps[0].run, /\[\[ "\$PATCH" == success \|\| "\$PATCH" == skipped \]\]/);
+});
+
+test('every workflow parses as YAML without duplicate keys', async () => {
+  const dir = new URL('../.github/workflows/', import.meta.url);
+  const names = (await readdir(dir)).filter((name) => name.endsWith('.yml'));
+  assert.ok(names.length > 0);
+  for (const name of names) {
+    // The yaml parser rejects duplicate mapping keys, which GitHub would
+    // otherwise resolve silently (last wins) or reject at dispatch time.
+    assert.doesNotThrow(() => parseYaml(readFileSync(new URL(name, dir), 'utf8'), { uniqueKeys: true }), name);
+  }
+});
+
+test('the gate shards its long lanes, installs in parallel, and adds history and mobile checks to the verdict', async () => {
+  const { jobs, on } = parseYaml(await workflow('release-gate.yml'));
+  const stepRun = (job, pattern) => job.steps.find((step) => pattern.test(step.run ?? ''));
+
+  // Sharded lanes: a matrix without its --test-shard flag, or the reverse, would
+  // run the whole lane twice or half of it once.
+  for (const name of ['runtime', 'runtime-macos'])
+    assert.deepEqual(jobs[name].strategy.matrix.shard, [1, 2, 3], `${name} shard matrix`);
+  assert.deepEqual(jobs['runtime-slow'].strategy.matrix.shard, [1, 2], 'runtime-slow shard matrix');
+  for (const name of ['runtime', 'runtime-macos'])
+    assert.match(
+      stepRun(jobs[name], /--test-shard/).run,
+      /npm test -- --test-shard=\$\{\{ matrix\.shard \}\}\/3/,
+      `${name} shard flag`
+    );
+  assert.match(
+    stepRun(jobs['runtime-slow'], /test:slow/).run,
+    /npm run test:slow -- --test-shard=\$\{\{ matrix\.shard \}\}\/2/
+  );
+  const desktopTests = jobs['desktop-tests'];
+  const legs = desktopTests.strategy.matrix.include;
+  assert.deepEqual(
+    legs.filter((leg) => leg.lane === 'fast').map((leg) => [leg.runner, leg.shard]),
+    [
+      ['ubuntu-22.04', 1],
+      ['ubuntu-22.04', 2],
+      ['ubuntu-22.04', 3],
+    ],
+    'the desktop fast lane is three legs on separate machines'
+  );
+  assert.deepEqual(
+    legs.filter((leg) => leg.lane !== 'fast').map((leg) => leg.shard),
+    [undefined, undefined]
+  );
+  const fastStep = desktopTests.steps.find((step) => step.if === "matrix.lane == 'fast'");
+  assert.equal(fastStep.run, 'npm test --prefix apps/desktop -- --test-shard=${{ matrix.shard }}/3');
+
+  // Parallel installs wait on every PID, so one failed install fails the step.
+  for (const install of [
+    stepRun(jobs.desktop, /npm_ci --prefix apps\/desktop &/),
+    stepRun(desktopTests, /npm_ci --prefix apps\/desktop &/),
+  ]) {
+    assert.match(
+      install.run,
+      /npm_ci --prefix apps\/desktop(?: && node apps\/desktop\/node_modules\/electron\/install\.js; \})? &\s*desktop_pid=\$!/
+    );
+    assert.match(install.run, /npm_ci &\s*root_pid=\$!/);
+    assert.match(install.run, /wait "\$desktop_pid" \|\| status=1/);
+    assert.match(install.run, /wait "\$root_pid" \|\| status=1/);
+    assert.match(install.run, /exit "\$status"/);
+  }
+  // Electron downloads its binary on first use: the test job fetches it once
+  // after install so parallel test files never race to download it.
+  assert.match(
+    stepRun(desktopTests, /npm_ci --prefix apps\/desktop &/).run,
+    /\{ npm_ci --prefix apps\/desktop && node apps\/desktop\/node_modules\/electron\/install\.js; \} &/
+  );
+
+  // The selection step diffs two commits' trees: shallow checkout, base by SHA.
+  const checkout = jobs.changes.steps[0];
+  assert.match(checkout.uses, /^actions\/checkout@/);
+  assert.equal(checkout.with, undefined, 'the changes job does not fetch full history');
+  const selection = jobs.changes.steps.find((step) => step.id === 'paths').run;
+  assert.match(selection, /git fetch --no-tags --depth=1 origin "\$BASE" \|\| true/);
+  assert.match(selection, /git ls-files > \/tmp\/changed/, 'an unfetchable base still selects everything');
+  assert.match(selection, /history-regex/);
+  assert.match(selection, /mobile-regex/);
+  assert.match(selection, /grep -Eq "\$RUNTIME_RE" \/tmp\/changed-runtime/);
+  assert.equal(jobs.changes.outputs.history, '${{ steps.paths.outputs.history }}');
+  assert.equal(jobs.changes.outputs.mobile, '${{ steps.paths.outputs.mobile }}');
+  assert.equal((selection.match(/echo "history=false"/g) || []).length, 2, 'history is set on every path');
+  assert.equal((selection.match(/echo "mobile=false"/g) || []).length, 2, 'mobile is set on every path');
+
+  // The shipped history is checked on a full clone, on pushes (the final history).
+  const history = jobs['shipped-history'];
+  assert.equal(history.needs, 'changes');
+  assert.equal(history.if, "needs.changes.outputs.history == 'true' && github.event_name != 'pull_request'");
+  assert.equal(history.steps[0].with['fetch-depth'], 0);
+  assert.ok(history.steps.some((step) => step.run === 'node scripts/build-shipped-history.mjs --check'));
+
+  // Mobile Python suites: the iOS workflow's packages, then every test_*.py.
+  const mobile = jobs['mobile-scripts'];
+  assert.equal(mobile.if, "needs.changes.outputs.mobile == 'true'");
+  assert.equal(mobile.steps.length, 3);
+  assert.match(mobile.steps[1].run, /pip install .*--upgrade pyjwt "cryptography>=42"/);
+  assert.match(mobile.steps[2].run, /python3 -m unittest discover -s apps\/mobile\/scripts -p "test_\*\.py"/);
+  for (const trigger of [on.pull_request.paths, on.push.paths]) {
+    const exclusion = trigger.indexOf('!.github/workflows/mobile-*.yml');
+    assert.ok(exclusion >= 0 && trigger.indexOf('.github/workflows/mobile-*.yml') > exclusion);
+    assert.ok(trigger.indexOf('apps/mobile/scripts/**') > exclusion);
+  }
+
+  // `complete` waits on, and judges, every gate job.
+  const gates = Object.keys(jobs).filter((name) => name !== 'changes' && name !== 'complete');
+  assert.deepEqual([...jobs.complete.needs].sort(), ['changes', ...gates].sort());
+  const verdict = jobs.complete.steps[0];
+  // A failed selection must fail the gate rather than skip every job into a pass.
+  assert.equal(verdict.env.CHANGES, '${{ needs.changes.result }}');
+  assert.ok(verdict.run.includes('[[ "$CHANGES" == success ]]'));
+  assert.ok(!verdict.run.includes('"$CHANGES" == skipped'));
+  for (const name of gates) {
+    const variable = name.toUpperCase().replaceAll('-', '_');
+    assert.equal(verdict.env[variable], `\${{ needs.${name}.result }}`, name);
+    assert.ok(verdict.run.includes(`[[ "$${variable}" == success || "$${variable}" == skipped ]]`), name);
+  }
+});
+
+test('Linux native tools build per-tool caches and compile the missing tools concurrently', async () => {
+  const { jobs } = parseYaml(await workflow('linux-native-tools.yml'));
+  const steps = jobs.build.steps;
+  for (const tool of ['computer', 'graph', 'patch']) {
+    const cache = steps.find((step) => step.id === `cache-${tool}`);
+    assert.equal(cache.with.path, `native-out/mixdog-${tool}`);
+    assert.match(
+      cache.with.key,
+      new RegExp(
+        `^native-glibc228-\\$\\{\\{ matrix\\.arch \\}\\}-${tool}-\\$\\{\\{ matrix\\.image \\}\\}-\\$\\{\\{ hashFiles\\('native/mixdog-${tool}/\\*\\*', 'apps/desktop/scripts/linux-build-native-old-glibc\\.sh'\\) \\}\\}$`
+      )
+    );
+    assert.equal(cache.with['restore-keys'], undefined, 'a prefix hit would ship a binary from other sources');
+    assert.equal(
+      steps.find((step) => step.id === 'missing').env[`HIT_${tool.toUpperCase()}`].includes(`cache-${tool}`),
+      true
+    );
+  }
+  const build = steps.find((step) => step.run?.includes('linux-build-native-old-glibc.sh'));
+  assert.equal(build.if, "steps.missing.outputs.tools != ''");
+  assert.match(build.run, /-e MIXDOG_NATIVE_TOOLS="\$\{\{ steps\.missing\.outputs\.tools \}\}"/);
+  assert.ok(steps.some((step) => step.run?.includes('test -f "native-out/mixdog-$tool"')));
+  const script = await readFile(
+    new URL('../apps/desktop/scripts/linux-build-native-old-glibc.sh', import.meta.url),
+    'utf8'
+  );
+  assert.match(script, /tools=\$\{MIXDOG_NATIVE_TOOLS:-computer graph patch\}/);
+  assert.match(script, /CARGO_TARGET_DIR=\/tmp\/target-\$tool cargo build[\s\S]*\) &\s*pids\+=\("\$!"\)/);
+  assert.match(script, /for pid in "\$\{pids\[@\]\}"; do\s*wait "\$pid" \|\| status=1/);
+});
+
+test('Linux .deb packaging compresses with every core', async () => {
+  const verify = parseYaml(await workflow('linux-desktop-verify.yml'));
+  const allSteps = Object.values(verify.jobs).flatMap((job) => job.steps ?? []);
+  for (const name of ['Build Linux package', 'Build N+1 Linux package (patch version bumped)']) {
+    const step = allSteps.find((candidate) => candidate.name === name);
+    assert.ok(step, name);
+    assert.equal(step.env?.XZ_DEFAULTS, '-T0', name);
+  }
+  const desktopPackage = parseYaml(await workflow('desktop-package.yml'));
+  const unix = desktopPackage.jobs.package.steps.find((step) => step.name === 'Build Unix desktop package');
+  assert.equal(unix.env.XZ_DEFAULTS, "${{ inputs.platform == 'linux' && '-T0' || '' }}");
+});
+
+test('the weekly suite-health sweep runs the opt-out catalog and reports failures', async () => {
+  const sweep = await workflow('suite-health.yml');
+  assert.match(sweep, /schedule:[\s\S]*cron:/, 'the sweep must run on a schedule');
+  assert.match(sweep, /workflow_dispatch:/);
+  assert.match(sweep, /node scripts\/suite-health\.mjs/, 'the sweep must execute the opt-out suite enumeration');
+  assert.match(sweep, /electron\/install\.js/, 'the sweep must fetch the lazily downloaded Electron binary');
+  assert.match(sweep, /packages:\s*xvfb/, 'the sweep must provide the X server its Electron entries run under');
+  assert.match(sweep, /packages:\s*xvfb\s*\n/, 'the X server is the only package the Electron entries need');
+  assert.doesNotMatch(sweep, /dbus|gnome-keyring/, 'the sweep must not depend on a keyring session');
+  for (const step of ['Fetch the Electron binary', 'Install a virtual X server']) {
+    assert.match(
+      sweep,
+      // \r?: a Windows checkout (core.autocrlf=true) has CRLF workflow files.
+      new RegExp(`- name: ${step}\\r?\\n\\s+continue-on-error: true`),
+      `${step} must not block the rest of the sweep or the issue report`
+    );
+  }
+  assert.match(sweep, /issues:\s*write/);
+  assert.match(sweep, /suite-health-report\.md/, 'a failed sweep must surface as a tracked issue');
+});
+
+// Which lanes the incremental gate runs, and the desktop output cache it warms
+// on every main push so the deploy gate one job later can hit the same key.
+function assertIncrementalGateContract(automaticGate) {
+  assert.match(automaticGate, /pull_request:[\s\S]*push:[\s\S]*branches:\s*\[main\]/);
+  assert.match(automaticGate, /name:\s*Select incremental gates/);
+  // Path selection is single-sourced: the gate derives its grep patterns from
+  // scripts/release-paths.mjs instead of duplicating hand-written regexes.
+  assert.match(automaticGate, /release-paths\.mjs desktop-regex/);
+  assert.match(automaticGate, /release-paths\.mjs runtime-regex/);
+  // A suite that guards a contract must run in CI: tool-smoke stayed
+  // local-only and silently drifted three contracts behind the runtime. The
+  // gate runs the discovered default lane, so a new file joins by existing.
+  assert.match(
+    automaticGate,
+    /runtime:[\s\S]*npm run build:spawn:test[\s\S]*run:\s*npm test\b/,
+    'the runtime gate must build the spawn test binary and run the default lane'
+  );
+  // A shard flag without its matrix would silently drop half the lane.
+  assert.match(
+    automaticGate,
+    /runtime:[\s\S]*shard:\s*\[1,\s*2,\s*3\][\s\S]*npm test -- --test-shard=\$\{\{\s*matrix\.shard\s*\}\}\/3/,
+    'the default lane must run every shard of its split'
+  );
+  assert.match(
+    automaticGate,
+    /runtime-slow:[\s\S]*npm run test:slow/,
+    'the slow lane must run beside the default lane'
+  );
+  assert.match(
+    automaticGate,
+    /desktop-tests:[\s\S]*lane:\s*fast[\s\S]*lane:\s*slow[\s\S]*runner:\s*windows-latest/,
+    'the desktop lanes must run as separate legs with a Windows Computer Use leg'
+  );
+  assert.match(
+    automaticGate,
+    /npm run test:daemon:e2e --prefix apps\/desktop/,
+    'the built daemon must be verified end to end where it is built'
+  );
+  assert.match(automaticGate, /needs\.changes\.outputs\.desktop == 'true'/);
+  assert.match(automaticGate, /needs\.changes\.outputs\.graph == 'true'/);
+  // The gate warms the exact version-neutral key the deploy gate restores;
+  // the key's own shape is asserted against release.yml below.
+  assert.match(
+    automaticGate,
+    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/
+  );
+  assert.match(
+    automaticGate,
+    /name:\s*Build desktop[\s\S]*steps\.desktop-out\.outputs\.cache-hit != 'true'/,
+    'an unchanged desktop bundle must not be rebuilt by the gate'
+  );
+  assert.match(automaticGate, /manifest-cache-key\.mjs/);
+}
+
+// The deploy gate: identity, validation, one desktop build, four package legs,
+// and a single publish of one exact hidden draft.
+function assertReleaseWorkflowContract(release) {
+  assert.match(release, /identity:[\s\S]*Verify release tag matches package version/);
+  assert.match(release, /validate:[\s\S]*needs:\s*identity[\s\S]*fetch-depth:\s*0/);
+  assert.match(
+    release,
+    /validate:[\s\S]*Verify bundled release assets[\s\S]*Build the native spawn test binary\s*\n\s*if: inputs\.run_critical && steps\.spawn-bin\.outputs\.cache-hit != 'true'\s*\n\s*run: npm run build:spawn:test[\s\S]*Verify changed source-critical release invariants\s*\n\s*if: inputs\.run_critical\s*\n\s*run: \|\s*\n\s*npm test\b/,
+    'the deploy gate re-runs the default lane only when the gate did not cover it'
+  );
+  assert.doesNotMatch(
+    release,
+    /Install ripgrep|apt-get[^\n]*ripgrep/,
+    'the native search backend must not pay for a system ripgrep install'
+  );
+  assert.doesNotMatch(release, /\n {2}release-invariants:/);
+  assert.doesNotMatch(
+    release,
+    /test:release-focused:\$\{\{ matrix\.group \}\}/,
+    'the four focused groups stay out of the deploy gate'
+  );
+  assert.match(release, /desktop-build:[\s\S]*name:\s*build-desktop-once/);
+  assert.doesNotMatch(release, /desktop-build:\s*\n(?:[^\n]*\n){0,3}\s*needs:/);
+  assert.doesNotMatch(release, /name:\s*Execute code graph from a clean cache/);
+  // Version-neutral keys: Deploy rewrites the manifest version one job before
+  // these caches are read, so a raw hashFiles() key can never hit on the run
+  // that needs it. The gate warms the identical key on every main push.
+  // The key's version prefix is deliberately bumpable: what must hold is the
+  // version-neutral manifest digest and the absence of the lock file, not a
+  // particular generation number.
+  assert.match(
+    release,
+    /Restore unchanged desktop output[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/
+  );
+  const desktopOutKey = release.match(/desktop-out-v\d+-[\s\S]*?\) \}\}/)?.[0] || '';
+  assert.ok(desktopOutKey, 'the desktop output cache key must be present');
+  assert.doesNotMatch(
+    desktopOutKey,
+    /package-lock\.json/,
+    'the lock file reaches this key only through the version-neutral digest'
+  );
+  // Actions are SHA-pinned with the release as a trailing comment, so the
+  // major version is asserted through that comment. Matching a bare `@v7` tag
+  // could never succeed here and left the check permanently red.
+  assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@[0-9a-f]{40} # v7/);
+  assert.doesNotMatch(release, /desktop-runtime\.yml|desktop-runtime-(?:win32|darwin|linux)/);
+  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
+  assert.match(
+    release,
+    /desktop-darwin-x64:[\s\S]*?runner:\s*macos-15-intel[\s\S]*?artifact_arch:\s*x64[\s\S]*?target:\s*mac/
+  );
+  assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*desktop-darwin-x64[^\]]*\]/);
+  assert.match(release, /'mixdog-desktop-mac-x64\.dmg'[\s\S]*'mixdog-desktop-mac-x64\.zip'/);
+  // electron-updater on macOS reads latest-mac.yml and downloads <zip>.blockmap;
+  // the release is not complete without them. The feed is merged from both
+  // architectures' feeds in the publish job, before the asset set is verified.
+  for (const name of [
+    'latest-mac.yml',
+    'mixdog-desktop-mac-arm64.zip.blockmap',
+    'mixdog-desktop-mac-x64.zip.blockmap',
+  ]) {
+    assert.ok(release.includes(`'${name}'`), `the release asset contract must require ${name}`);
+  }
+  assert.match(
+    release,
+    /pattern:\s*desktop-mac-feed-\*[\s\S]*name:\s*Merge and upload macOS update feed[\s\S]*merge-mac-update-feed\.mjs[\s\S]*upload-release-assets\.sh latest-mac\.yml/
+  );
+  assert.ok(
+    release.indexOf('name: Merge and upload macOS update feed') <
+      release.indexOf('name: Verify complete hidden release'),
+    'the merged macOS feed must be on the draft before the asset set is verified'
+  );
+  // The packagers start without waiting for build-desktop-once; each waits for
+  // the desktop-out artifact inside desktop-package.yml (actions: read), and
+  // publish needs the build directly so a failed build always blocks it.
+  for (const packageJob of ['windows', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
+    assert.match(
+      release,
+      new RegExp(
+        `desktop-${packageJob}:\\s*needs:\\s*\\[prepare-github-release(?:, linux-native-tools)?\\]\\s*uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml\\s*permissions:\\s*contents:\\s*write\\s*actions:\\s*read\\s`
+      ),
+      packageJob
+    );
+  }
+  assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*\bdesktop-build\b[^\]]*\]/);
+  // Linux ships native tools built in manylinux_2_28 and is gated on the full
+  // Linux verification of the exact release commit.
+  for (const packageJob of ['linux-x64', 'linux-arm64']) {
+    assert.match(release, new RegExp(`desktop-${packageJob}:\\s*needs:\\s*\\[[^\\]]*linux-native-tools[^\\]]*\\]`));
+  }
+  assert.match(release, /linux-native-tools:[\s\S]*?uses:\s*\.\/\.github\/workflows\/linux-native-tools\.yml/);
+  assert.match(
+    release,
+    /linux-verify-full:[\s\S]*?uses:\s*\.\/\.github\/workflows\/linux-desktop-verify\.yml[\s\S]*?full:\s*true[\s\S]*?ref:\s*\$\{\{\s*inputs\.ref\s*\}\}/
+  );
+  assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*linux-verify-full[^\]]*linux-verify-sha-gate[^\]]*\]/);
+  assert.match(release, /prepare-github-release:[\s\S]*needs:\s*\[identity\][\s\S]*draft:\s*true/);
+  // `npm run build` is typecheck && build:fast; the one build runs them side by
+  // side and fails if either does.
+  assert.doesNotMatch(release, /npm run build --prefix apps\/desktop/);
+  assert.equal((release.match(/npm run build:fast --prefix apps\/desktop/g) || []).length, 1);
+  assert.match(
+    release,
+    /npm run typecheck --prefix apps\/desktop &\s*typecheck_pid=\$!\s*status=0\s*npm run build:fast --prefix apps\/desktop \|\| status=1\s*wait "\$typecheck_pid" \|\| status=1\s*exit "\$status"/
+  );
+  assert.match(
+    release,
+    /npm ci --prefer-offline --no-audit --no-fund &\s*root_pid=\$!\s*npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund &\s*desktop_pid=\$!\s*status=0\s*wait "\$root_pid" \|\| status=1\s*wait "\$desktop_pid" \|\| status=1\s*exit "\$status"/,
+    'the build installs both trees in parallel and waits on each PID'
+  );
+  assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);
+  assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
+  assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
+  assert.match(release, /name:\s*Verify complete hidden release/);
+  assert.match(release, /Hidden release asset set is not exact/);
+  assert.ok(
+    release.indexOf('name: Publish staged npm package') > release.indexOf('name: Verify complete hidden release')
+  );
+  assert.ok(
+    release.indexOf('name: Publish one complete GitHub release') > release.indexOf('name: Publish staged npm package')
+  );
+  assert.match(release, /npm publish \.\/staged-npm\/\*\.tgz --provenance --access public/);
+  assert.match(release, /-F draft=false -f make_latest=true/);
+  assert.match(
+    release,
+    /stage-relay:[\s\S]*needs:\s*\[identity,\s*desktop-build\][\s\S]*Restore renderer precompression cache[\s\S]*Stage production relay artifact/
+  );
+  assert.match(
+    release,
+    /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay,\s*android-link\][\s\S]*Download staged production relay/
+  );
+  // A partial re-run preserves stage-relay and re-runs deploy-relay as a
+  // dependent of the failed job, so an attempt-scoped artifact name would
+  // resolve to an artifact that attempt never uploaded.
+  assert.equal((release.match(/production-relay-\$\{\{ github\.run_id \}\}/g) || []).length, 2);
+  assert.doesNotMatch(release, /production-relay-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(release, /Stage production relay artifact[\s\S]*overwrite:\s*true/);
+  assert.match(
+    release,
+    /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/
+  );
+  assert.match(release, /name:\s*Atomically deploy and verify production/);
+  assert.ok(
+    release.includes("awk '{print \\$1}'"),
+    'the remote hash command must preserve awk $1 without expanding a shell positional parameter'
+  );
+  assert.equal(release.includes("awk '{print \\\\$1}'"), false);
+  assert.match(release, /secrets\.RELAY_SSH_KEY/);
+  assert.match(release, /vars\.RELAY_DOMAIN/);
+  assert.match(release, /DESKTOP_VERSION="\$\{RELEASE_TAG#v\}"/);
+  assert.match(release, /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION'/);
+  // The timing report runs in deploy.yml beside post-release-check.
+  assert.doesNotMatch(release, /release-timings:|release-timing-report\.mjs/);
+}
+
+// The per-platform packaging workflow: what it restores, what it saves before
+// packaging can fail, and how verified assets reach the hidden draft.
+function assertDesktopPackageContract(desktopPackage) {
+  assertDesktopRuntimeCacheContract(desktopPackage);
+  assertSecureDesktopCacheContract(desktopPackage);
+  assertDesktopDependencyCacheContract(desktopPackage);
+  assertDesktopUploadContract(desktopPackage);
+}
+
+// The prepared runtime and the browser importer: restored first, saved before
+// packaging can fail.
+function assertDesktopRuntimeCacheContract(desktopPackage) {
+  assert.match(desktopPackage, /manifest-cache-key\.mjs/);
+  assert.match(
+    desktopPackage,
+    /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@[0-9a-f]{40} # v8/
+  );
+  // The download waits for this run's desktop-out artifact and fails at once
+  // when build-desktop-once failed, since the job no longer needs it.
+  assert.match(desktopPackage, /actions:\s*read/);
+  assert.ok(
+    desktopPackage.indexOf('name: Wait for the common desktop output') > 0 &&
+      desktopPackage.indexOf('name: Wait for the common desktop output') <
+        desktopPackage.indexOf('name: Download common desktop output'),
+    'the desktop-out download must follow the wait for the artifact'
+  );
+  const wait = desktopPackage.match(/name: Wait for the common desktop output[\s\S]*?(?=\n\s*- name:)/)?.[0] || '';
+  assert.match(wait, /actions\/runs\/\$\{GITHUB_RUN_ID\}\/artifacts\?name=desktop-out/);
+  assert.match(wait, /actions\/runs\/\$\{GITHUB_RUN_ID\}\/jobs/);
+  assert.match(wait, /endswith\(" \/ build-desktop-once"\)/);
+  assert.match(wait, /completed\*\)\s*echo "::error title=Desktop build failed::[^\n]*\n\s*exit 1/);
+  assert.doesNotMatch(desktopPackage, /Download prepared platform runtime|desktop-runtime-\$\{\{ inputs\.platform/);
+  assert.match(desktopPackage, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
+  assert.match(desktopPackage, /name:\s*Resolve package and runtime cache keys/);
+  assert.match(desktopPackage, /name:\s*Restore pruned runtime dependencies/);
+  assert.match(desktopPackage, /name:\s*Restore prepared runtime archive/);
+  assert.match(desktopPackage, /name:\s*Restore prepared runtime archive[\s\S]*id:\s*prepared-runtime/);
+  // The prepared runtime is saved the moment it exists, not in a post step
+  // that a later packaging failure would skip: a failed Windows job used to
+  // discard five minutes of preparation and the retry paid it again.
+  assert.match(desktopPackage, /name:\s*Restore prepared runtime archive[\s\S]*actions\/cache\/restore@/);
+  assert.match(
+    desktopPackage,
+    /name:\s*Save prepared runtime archive[\s\S]*actions\/cache\/save@[\s\S]*cache-primary-key/
+  );
+  assert.ok(
+    desktopPackage.indexOf('name: Prepare platform runtime') <
+      desktopPackage.indexOf('name: Save prepared runtime archive') &&
+      desktopPackage.indexOf('name: Save prepared runtime archive') <
+        desktopPackage.indexOf('name: Build Windows installer'),
+    'the prepared runtime must be saved before any packaging step can fail'
+  );
+  assert.doesNotMatch(
+    desktopPackage,
+    /npm run test:packaging/,
+    'source-shape packaging invariants run in the gate, not after a full package build'
+  );
+  // The Chrome password importer build (~230s of Rust on Windows) is keyed
+  // on its own source and restored before prepare-runtime, whose marker
+  // check then skips the build; the save follows preparation directly.
+  assert.match(
+    desktopPackage,
+    /name:\s*Restore built browser importer[\s\S]*actions\/cache\/restore@[\s\S]*apps\/desktop\/\.cache\/browser-import[\s\S]*hashFiles\('native\/mixdog-browser-import\/\*\*'/
+  );
+  assert.ok(
+    desktopPackage.indexOf('name: Restore built browser importer') <
+      desktopPackage.indexOf('name: Prepare platform runtime') &&
+      desktopPackage.indexOf('name: Prepare platform runtime') <
+        desktopPackage.indexOf('name: Save built browser importer') &&
+      desktopPackage.indexOf('name: Save built browser importer') <
+        desktopPackage.indexOf('name: Build Windows installer'),
+    'the browser importer cache must bracket runtime preparation'
+  );
+}
+
+// The secure-desktop helper's cache, signer pin and signature check.
+function assertSecureDesktopCacheContract(desktopPackage) {
+  // The secure-desktop helper follows the same restore/prepare/save bracket,
+  // its crate reaches the prepared runtime key, and its signature is verified.
+  assert.match(
+    desktopPackage,
+    /name:\s*Restore built secure-desktop helper[\s\S]*actions\/cache\/restore@[\s\S]*apps\/desktop\/\.cache\/secure-desktop[\s\S]*hashFiles\('native\/mixdog-secure-desktop\/\*\*'/
+  );
+  assert.ok(
+    desktopPackage.indexOf('name: Restore built secure-desktop helper') <
+      desktopPackage.indexOf('name: Prepare platform runtime') &&
+      desktopPackage.indexOf('name: Prepare platform runtime') <
+        desktopPackage.indexOf('name: Save built secure-desktop helper') &&
+      desktopPackage.indexOf('name: Save built secure-desktop helper') <
+        desktopPackage.indexOf('name: Build Windows installer'),
+    'the secure-desktop helper cache must bracket runtime preparation'
+  );
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /native\/mixdog-secure-desktop\/src\/\*\*/
+  );
+  // The helper's version resource (the UAC prompt's program name) is built by
+  // build.rs; a change to it alone must not restore a stale runtime either.
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /native\/mixdog-secure-desktop\/build\.rs/
+  );
+  // The browser importer ships in the same prepared runtime; its source must
+  // reach the key too, so a change to it cannot restore a stale runtime.
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /native\/mixdog-browser-import\/src\/\*\*/
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Verify Windows signatures[\s\S]*dist\/win-unpacked\/resources\/native-tools\/mixdog-secure-desktop\.exe/
+  );
+  // The helper's elevated install stages only an image signed by the release
+  // signer pinned at build time: the workflow supplies the full subject DN and
+  // an Artifact Signing profile EKU, keys every cache that holds a built
+  // helper on that pin, and runs the packaged helper's own pin check.
+  assert.match(desktopPackage, /^\s*MIXDOG_SECURE_DESKTOP_SIGNER_SUBJECT: '\s*CN=[^']*, O=[^']*, C=[A-Z]{2}'\s*$/m);
+  assert.match(
+    desktopPackage,
+    /^\s*MIXDOG_SECURE_DESKTOP_SIGNER_EKU: "1\.3\.6\.1\.4\.1\.311\.97\.(?!1\.0")\d+(\.\d+)*"\s*$/m
+  );
+  assert.match(desktopPackage, /echo "signer_pin=\$\(node -e /);
+  assert.match(
+    desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '',
+    /inputs\.platform == 'win32' && format\('-signer-\{0\}', steps\.runtime-dependencies\.outputs\.signer_pin\)/
+  );
+  assert.match(
+    desktopPackage.match(/key: desktop-secure-desktop-v\d+-[^\n]*/)?.[0] || '',
+    /-signer-\$\{\{ steps\.runtime-dependencies\.outputs\.signer_pin \}\}\s*$/
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Verify Windows signatures[\s\S]*mixdog-secure-desktop\.exe' verify-image\s*\n\s*if \(\$LASTEXITCODE -ne 0\)/
+  );
+  const preparedRuntimeKey = desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '';
+  assert.ok(preparedRuntimeKey, 'the prepared runtime cache key must be present');
+  assert.doesNotMatch(
+    preparedRuntimeKey,
+    /hashFiles\([^)]*package(?:-lock)?\.json/,
+    'the manifests reach this key only through the version-neutral digest'
+  );
+}
+
+// The dependency caches and the steps the workflow no longer has.
+function assertDesktopDependencyCacheContract(desktopPackage) {
+  // darwin-x64 skips the npm download cache: its restore and save cost more
+  // than the install gains there.
+  assert.match(
+    desktopPackage,
+    /name:\s*Restore stable desktop npm downloads\s*\n\s*if: inputs\.platform != 'darwin' \|\| inputs\.arch != 'x64'\s*\n/
+  );
+  assert.match(desktopPackage, /dependency-lock-cache-key\.mjs/);
+  // The Computer Use backend cache is restored first; Rust installs only when
+  // it misses (prepare-runtime calls no cargo on a marker match).
+  assert.ok(
+    desktopPackage.indexOf('name: Restore built Computer Use backend') <
+      desktopPackage.indexOf('name: Install Rust for the Computer Use backend'),
+    'the backend cache must be restored before the toolchain install'
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Install Rust for the Computer Use backend\s*\n\s*if: >-\s*\n\s*inputs\.platform == 'darwin'\s*\n\s*&& steps\.prepared-runtime\.outputs\.cache-hit != 'true'\s*\n\s*&& steps\.computer-native\.outputs\.cache-hit != 'true'\s*\n/
+  );
+  assert.match(
+    desktopPackage,
+    /runtime-dependency-cache-key\.mjs[\s\S]*--platform=\$\{\{ inputs\.platform \}\} --arch=\$\{\{ inputs\.arch \}\}/
+  );
+  assert.match(desktopPackage, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
+  assert.match(desktopPackage, /key:\s*desktop-\$\{\{ steps\.runtime-dependencies\.outputs\.key \}\}/);
+  assert.match(desktopPackage, /MIXDOG_RUNTIME_NPM_CACHE="?\$\(npm config get cache\)"?/);
+  assert.doesNotMatch(desktopPackage, /name:\s*Verify platform embedding runtime/);
+  assert.doesNotMatch(desktopPackage, /name:\s*Install runtime dependencies/);
+  assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
+}
+
+// How verified assets reach the hidden draft.
+function assertDesktopUploadContract(desktopPackage) {
+  // Every platform uploads through the bounded script: `gh release upload
+  // --clobber` stalled past its step timeout on linux-arm64 once the draft
+  // already held the earlier attempt's AppImage.
+  assert.equal((desktopPackage.match(/^\s*gh release upload/gm) || []).length, 0);
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload verified Linux asset to hidden draft[\s\S]*?upload-release-assets\.sh "\$asset"/
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Smoke and upload verified Windows assets in parallel[\s\S]*upload-release-assets\.sh "\$\{assets\[@\]\}" &[\s\S]*npm run verify:packaged-runtime[\s\S]*wait "\$upload_pid"/
+  );
+  // A recovery run meets the earlier attempt's macOS assets on the draft;
+  // `gh release upload --clobber` raced GitHub's asset delete and failed with
+  // 422 "already exists", so both macOS architectures go through the script.
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload verified macOS assets to hidden draft[\s\S]*?upload-release-assets\.sh "\$\{assets\[@\]\}"/
+  );
+  // Each macOS job stages its own feed for the publish job to merge; uploading
+  // it directly would let the second architecture overwrite the first.
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload verified macOS assets to hidden draft[\s\S]*?mac-\$\{\{ inputs\.artifact_arch \}\}\.zip\.blockmap/
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload macOS update feed artifact for the publish job[\s\S]*?actions\/upload-artifact@[0-9a-f]{40}[\s\S]*?desktop-mac-feed-\$\{\{ inputs\.arch \}\}[\s\S]*?apps\/desktop\/dist\/latest-mac\.yml/
+  );
+  assert.doesNotMatch(desktopPackage, /^\s*"apps\/desktop\/dist\/latest-mac\.yml"/m);
+  assert.doesNotMatch(desktopPackage, /inputs\.arch \}\}" == x64/);
+  assert.match(desktopPackage, /RELEASE_ID:\s*\$\{\{ inputs\.release_id \}\}/);
+}
+
+// The bounded uploader every platform funnels its assets through, instead of
+// `gh release upload --clobber`.
+function assertUploadScriptContract(uploadScript) {
+  assert.match(uploadScript, /--http1\.1/);
+  assert.match(uploadScript, /--max-time 150/);
+  assert.match(uploadScript, /--speed-limit 1024 --speed-time 20/);
+  assert.match(uploadScript, /--header "Expect:"/);
+  assert.match(uploadScript, /for attempt in 1 2/);
+  assert.match(uploadScript, /remote_asset_is_complete/);
+  assert.match(uploadScript, /upload_asset "\$asset" &/);
+  assert.match(uploadScript, /if ! wait "\$pid"/);
+}
+
+// The relay install transaction the deploy job drives.
+function assertRelayDeployContract(relayDeploy) {
+  // Rename failures, signals and failed recovery are exercised against the
+  // actual shell transaction by apps/relay/deploy/release-transaction.test.mjs.
+  assert.match(relayDeploy, /sha256sum "\$INSTALL_DIR\/renderer\/index\.html"/);
+  assert.match(relayDeploy, /package-lock\.json/);
+  assert.match(relayDeploy, /npm ci --omit=dev/);
+  assert.match(relayDeploy, /--hardlink-base/);
+  assert.match(relayDeploy, /cp -al "\$INSTALL_DIR\/renderer"/);
+}
+
+test('application release overlaps gates and publishes one exact hidden draft', async () => {
+  const [release, automaticGate, desktopPackage, relayDeploy, uploadScript] = await Promise.all([
+    workflow('release.yml'),
+    workflow('release-gate.yml'),
+    workflow('desktop-package.yml'),
+    readFile(new URL('../apps/relay/deploy/deploy-release.sh', import.meta.url), 'utf8'),
+    readFile(new URL('../.github/scripts/upload-release-assets.sh', import.meta.url), 'utf8'),
+  ]);
+  assertIncrementalGateContract(automaticGate);
+  assertReleaseWorkflowContract(release);
+  assertDesktopPackageContract(desktopPackage);
+  assertUploadScriptContract(uploadScript);
+  assertRelayDeployContract(relayDeploy);
+  for (const worker of [release, desktopPackage]) {
+    assert.doesNotMatch(worker, /actions\/(?:upload|download)-artifact@v4/);
+  }
+});
+
+test('release timing report flags material regressions and renders the slowest steps', () => {
+  const jobs = (seconds) => ({
+    jobs: [
+      {
+        name: 'release / desktop-darwin-x64',
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: `2026-01-01T00:01:${String(seconds).padStart(2, '0')}Z`,
+        steps: [
+          {
+            name: 'Build desktop package',
+            started_at: '2026-01-01T00:00:00Z',
+            completed_at: `2026-01-01T00:00:${String(seconds).padStart(2, '0')}Z`,
+          },
+        ],
+      },
+    ],
+  });
+  const report = buildReleaseTimingReport(jobs(40), jobs(20));
+  assert.equal(report.regressions.length, 1);
+  assert.equal(report.regressions[0].percent, 100);
+  assert.match(report.markdown, /Build desktop package/);
+  assert.match(report.markdown, /\+100%/);
+});
+
+advisoryTest('desktop production dependencies contain only main-process runtime externals', async () => {
+  const desktop = JSON.parse(await readFile(new URL('../apps/desktop/package.json', import.meta.url), 'utf8'));
+  assert.deepEqual(Object.keys(desktop.dependencies).sort(), [
+    '@homebridge/node-pty-prebuilt-multiarch',
+    'electron-updater',
+    'koffi',
+    'vscode-jsonrpc',
+    'ws',
+  ]);
+  for (const bundled of [
+    '@fontsource-variable/jetbrains-mono',
+    'jsonc-parser',
+    'qrcode',
+    '@git-diff-view/react',
+    '@monaco-editor/react',
+    'monaco-editor',
+    'pretendard',
+    'react',
+    'react-dom',
+  ]) {
+    assert.ok(desktop.devDependencies[bundled], `${bundled} must stay build-only`);
+  }
+});
+
+test('native release workflows are reusable and unchanged runtime platforms stay skipped', async () => {
+  const voiceConfig = JSON.parse(await readFile(new URL('./voice-runtime-config.json', import.meta.url), 'utf8'));
+  const [runtime, voice, patch, graph, spawn, supervisor] = await Promise.all([
+    workflow('build-runtime.yml'),
+    workflow('build-voice-runtime.yml'),
+    workflow('patch-release.yml'),
+    workflow('graph-release.yml'),
+    workflow('spawn-release.yml'),
+    workflow('supervisor-release.yml'),
+  ]);
+  for (const worker of [runtime, voice, patch, graph, spawn, supervisor]) assert.match(worker, /workflow_call:/);
+  assert.match(runtime, /needs\.build\.result == 'skipped' && inputs\.refresh_manifest/);
+  // Shipped runtime assets are immutable: every publish step uses the gate's
+  // planned tag, never the requested one.
+  assert.match(runtime, /node scripts\/plan-runtime-release-tag\.mjs/);
+  assert.doesNotMatch(runtime, /(?:tag_name|RELEASE_TAG): \$\{\{ inputs\.tag/);
+  assert.doesNotMatch(runtime, /needs\.build\.result == 'success' \|\| needs\.build\.result == 'skipped'\)\s*\}\}/);
+  assert.ok(voiceConfig.platforms.some((platform) => platform.key === 'linux-arm64'));
+  assert.match(voice, /draft:\s*true[\s\S]*Verify complete hidden release[\s\S]*draft:\s*false/);
+  assert.match(voice, /make_latest:\s*false/);
+  assert.match(patch, /ref:\s*refs\/tags\/\$\{\{ inputs\.tag \|\| github\.ref_name \}\}/);
+  assert.match(patch, /test:[\s\S]*cargo build --release --locked --target x86_64-unknown-linux-gnu/);
+  assert.match(patch, /build:[\s\S]*needs:\s*gate/);
+  assert.doesNotMatch(patch, /max-parallel:/);
+  assert.match(patch, /manifest:[\s\S]*needs:\s*\[test,\s*build\]/);
+  assert.match(patch, /pattern:\s*patch-\*-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(graph, /workflow_dispatch\|workflow_call/);
+  assert.doesNotMatch(graph, /max-parallel:/);
+  assert.equal((graph.match(/cargo test --locked --manifest-path native\/mixdog-graph\/Cargo\.toml/g) || []).length, 1);
+  assert.equal(
+    (graph.match(/mozilla-actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/g) || []).length,
+    2
+  );
+  assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-primary-v1-\$\{\{ matrix\.pkey \}\}/);
+  assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-comparison-v1-\$\{\{ matrix\.pkey \}\}/);
+  for (const [name, worker] of [
+    ['graph', graph],
+    ['spawn', spawn],
+    ['supervisor', supervisor],
+  ]) {
+    assert.match(worker, /rebuild:[\s\S]*name:\s*build-\$\{\{ matrix\.pkey \}\}-comparison/);
+    assert.match(worker, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build,\s*rebuild\]/);
+    assert.match(worker, new RegExp(`pattern:\\s*rebuild-${name}-\\*-\\$\\{\\{ github\\.run_attempt \\}\\}`));
+    assert.match(worker, /cmp "_release\/\$asset" "_repro\/\$asset"/);
+    assert.match(
+      worker,
+      new RegExp(
+        `^concurrency:\\s*\\n\\s*group:\\s*${name}-release-\\$\\{\\{ inputs\\.tag \\|\\| github\\.ref_name \\}\\}`,
+        'm'
+      )
+    );
+    assert.match(worker, new RegExp(`sync:[\\s\\S]*group:\\s*${name}-release-finalize`));
+  }
+  assert.doesNotMatch(graph, /^ {2}publish:/m);
+});
+
+advisoryTest('runtime platform smoke restores npm downloads on every runner', async () => {
+  const smoke = await workflow('runtime-platform-smoke.yml');
+  assert.match(smoke, /actions\/setup-node@[0-9a-f]{40} # v6[\s\S]*cache:\s*npm/);
+  assert.match(smoke, /cache-dependency-path:\s*package-lock\.json/);
+  assert.match(smoke, /npm ci --prefer-offline --no-audit --no-fund/);
+});
+
+// ---- Version discipline ----
+const ROOT = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
+const STRICT_VERSION = /^\d+\.\d+\.\d+$/;
+
+test('project versions stay synchronized and the development protocol is valid', () => {
+  const manifests = [
+    'package.json',
+    'package-lock.json',
+    'apps/desktop/package.json',
+    'apps/desktop/package-lock.json',
+    'apps/relay/package.json',
+    'apps/relay/package-lock.json',
+  ].map((relativePath) => ({
+    relativePath,
+    value: JSON.parse(readFileSync(join(ROOT, relativePath), 'utf8')),
+  }));
+  const currentVersion = manifests[0].value.version;
+  assert.match(currentVersion, STRICT_VERSION);
+  for (const { relativePath, value } of manifests) {
+    assert.equal(value.version, currentVersion, `${relativePath} version is not synchronized`);
+    if (value.packages?.['']) {
+      assert.equal(
+        value.packages[''].version,
+        currentVersion,
+        `${relativePath} root lock package version is not synchronized`
+      );
+    }
+  }
+
+  assert.ok(Number.isInteger(SESSION_PROTOCOL) && SESSION_PROTOCOL > 0, 'session protocol must be a positive integer');
+});
+
+test('npm package declares the published native platform families', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  assert.deepEqual(pkg.os, ['darwin', 'linux', 'win32']);
+  assert.deepEqual(pkg.cpu, ['x64', 'arm64']);
+});
+
+test('the checked-in runtime manifest satisfies the release schema', async () => {
+  const runtimeSource = await readFile(
+    new URL('../src/runtime/memory/data/runtime-manifest.json', import.meta.url),
+    'utf8'
+  );
+  const runtime = JSON.parse(runtimeSource);
+  assert.equal(validateRuntimeManifest(runtime).release_tag, runtime.release_tag);
+});

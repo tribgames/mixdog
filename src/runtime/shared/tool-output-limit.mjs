@@ -1,0 +1,69 @@
+// Single source of truth for the model-facing tool-output byte budget.
+// read / shell / list-tree all truncate their output to this cap so the
+// context cost of any one tool call is bounded and consistent. Override with
+// MIXDOG_TOOL_OUTPUT_MAX_BYTES. Line-based sub-caps (e.g. bash max lines) stay
+// per-tool; this governs only the byte budget.
+import { capMarker } from './tool-output-marker.mjs';
+export { capMarker, formatCapSize, windowMarker } from './tool-output-marker.mjs';
+// A positive integer from an env var, or `fallback` when unset or invalid.
+export function positiveEnvInt(name, fallback) {
+  const v = parseInt(process.env[name], 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+export const TOOL_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_TOOL_OUTPUT_MAX_BYTES', 50 * 1024);
+export const LOCATOR_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_LOCATOR_OUTPUT_MAX_BYTES', 20 * 1024);
+// grep results stay in context for the rest of the session. 2026-09-28 cost
+// audit: only 6% of greps capped at 10KB were paged, so carrying the tail cost
+// more than the follow-up turns it saved.
+export const GREP_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_GREP_OUTPUT_MAX_BYTES', 5 * 1024);
+export const CODE_GRAPH_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_CODE_GRAPH_OUTPUT_MAX_BYTES', 30 * 1024);
+// recall/memory search returns model-facing prose blocks; uncapped multi-query
+// browses were observed injecting 42KB in one call (2026-08-05 audit). Same
+// class as locators: 20KB with a factual continuation footer.
+export const RECALL_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_RECALL_OUTPUT_MAX_BYTES', 20 * 1024);
+// github results after field reduction; the full response stays in a raw
+// artifact. Provisional: reduced pr.list/run.list pages measured ~2k tokens.
+export const GITHUB_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_GITHUB_OUTPUT_MAX_BYTES', 10 * 1024);
+// setup results are compact JSON (a provider index, a 25-row model page, minimal
+// status rows). The same figure is the setup inline-offload threshold, so one
+// result can no longer sit just under the 50KB default (a 34-model catalog did).
+export const SETUP_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_SETUP_OUTPUT_MAX_BYTES', 20 * 1024);
+
+function _prefixByBytes(value, maxBytes) {
+  const text = String(value || '');
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (Buffer.byteLength(text.slice(0, mid), 'utf8') <= maxBytes) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo);
+}
+
+// Preserve complete leading rows and replace the omitted tail with a
+// tool-specific continuation. Unlike the generic middle truncator this keeps
+// locator/graph output structurally usable and byte-accurate.
+export function capLineOrientedToolOutput(result, maxBytes, footerForPrefix) {
+  if (typeof result !== 'string' || !(Number(maxBytes) > 0)) return result;
+  const cap = Math.trunc(Number(maxBytes));
+  if (Buffer.byteLength(result, 'utf8') <= cap) return result;
+  const lines = result.split(/\r?\n/);
+  let lo = 0;
+  let hi = lines.length;
+  let best = '';
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const kept = lines.slice(0, mid);
+    const footer = String(footerForPrefix?.(kept, lines) || capMarker({ limit: cap }));
+    const candidate = `${kept.join('\n')}${kept.length ? '\n' : ''}${footer}`;
+    if (Buffer.byteLength(candidate, 'utf8') <= cap) {
+      best = candidate;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  if (best) return best;
+  return _prefixByBytes(String(footerForPrefix?.([], lines) || capMarker({ limit: cap })), cap);
+}

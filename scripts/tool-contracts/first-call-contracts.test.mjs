@@ -1,0 +1,303 @@
+import './_env.mjs';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import Ajv from 'ajv';
+import { BUILTIN_TOOLS } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import { CODE_GRAPH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
+import { PATCH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
+import { TOOL_DEFS as memory } from '../../src/runtime/memory/tool-defs.mjs';
+import { TOOL_DEFS as web } from '../../src/runtime/web-search/tool-defs.mjs';
+import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs.mjs';
+import { TOOL_DEFS as computer } from '../../src/runtime/computer-bridge/tool-defs.mjs';
+import { TOOL_DEFS as office } from '../../src/runtime/office/tool-defs.mjs';
+import { TOOL_DEFS as media } from '../../src/runtime/media/tool-defs.mjs';
+import { GOAL_TOOL_DEFS } from '../../src/session-runtime/goal-tool-defs.mjs';
+import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.mjs';
+import { SESSION_TOOL, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../../src/session-runtime/tool-defs.mjs';
+import { AGENT_TOOL } from '../../src/standalone/agent-tool/tool-def.mjs';
+import {
+  REACTION_TOOL_DEFS,
+  validateReactionArgs,
+} from '../../src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
+import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
+import {
+  COMPUTER_ACTION_CONTRACTS,
+  validateComputerToolArgs,
+  toComputerHostCommand,
+} from '../../src/runtime/computer-bridge/action-schema.mjs';
+import { validateXlsxOperations } from '../../src/runtime/office/portable/xlsx-contract.mjs';
+import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
+import { toGeminiTools } from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
+import {
+  requestAnthropicTools,
+  sanitizeAnthropicInputSchema,
+} from '../../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
+import { toOpenAIResponsesTool } from '../../src/runtime/agent/orchestrator/providers/openai-responses-payload.mjs';
+
+// URI transport/security validation belongs to the tools. Here the independent
+// validator checks JSON Schema structure, value types, and numeric/string bounds.
+const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
+const catalog = [
+  ...BUILTIN_TOOLS,
+  ...CODE_GRAPH_TOOL_DEFS,
+  ...PATCH_TOOL_DEFS,
+  ...memory,
+  ...web,
+  ...browser,
+  ...computer,
+  ...office,
+  ...media,
+  ...GOAL_TOOL_DEFS,
+  ...SETUP_TOOL_DEFS,
+  SESSION_TOOL,
+  SKILL_TOOL,
+  TOOL_SEARCH_TOOL,
+  AGENT_TOOL,
+  ...REACTION_TOOL_DEFS,
+];
+const schemaFor = (name) => catalog.find((tool) => tool.name === name).inputSchema;
+const accepts = (schema, args) => {
+  assert.equal(ajv.validate(schema, args), true, JSON.stringify(ajv.errors));
+};
+const projections = (tool) => {
+  const gemini = toGeminiTools([tool]).functionDeclarations[0];
+  return [
+    ['canonical', tool.inputSchema],
+    ['Gemini/Antigravity', gemini.parametersJsonSchema ?? gemini.parameters],
+    ['Grok', normalizeGrokToolSchemas([tool])[0].inputSchema],
+    ['Anthropic', anthropicSchema(tool, 'anthropic')],
+  ];
+};
+function anthropicSchema(tool, provider) {
+  const opts = { providerToolSnapshotAuthoritative: true, providerNativeToolPrefixCount: 0 };
+  return requestAnthropicTools([tool], [], opts, provider)[0].input_schema;
+}
+
+test('the complete catalog and provider projections remain valid without mutating source contracts', () => {
+  assert.equal(new Set(catalog.map((tool) => tool.name)).size, catalog.length);
+  const original = JSON.stringify(catalog);
+  for (const tool of catalog) {
+    for (const [provider, schema] of projections(tool)) {
+      assert.equal(ajv.validateSchema(schema), true, `${tool.name}/${provider}: ${JSON.stringify(ajv.errors)}`);
+      ajv.compile(schema);
+      assert.equal(
+        JSON.stringify(schema).includes('__mixdog_unrepresentable_schema_conjunction__'),
+        false,
+        `${tool.name}/${provider} must not advertise an impossible placeholder`
+      );
+    }
+    const openai = toOpenAIResponsesTool(tool);
+    if (openai.type !== 'custom') assert.deepEqual(openai.parameters, tool.inputSchema);
+  }
+  assert.equal(JSON.stringify(catalog), original);
+});
+
+test('react first calls that every provider schema accepts agree with runtime validation', () => {
+  for (const args of [
+    { emoji: '👍' },
+    { emoji: '❤', messages_back: 3 },
+    { remove: true },
+    { remove: true, messages_back: 1 },
+  ]) {
+    for (const [provider, schema] of projections(REACTION_TOOL_DEFS[0])) {
+      assert.equal(ajv.validate(schema, args), true, `${provider}: ${JSON.stringify(ajv.errors)}`);
+    }
+    validateReactionArgs(args);
+  }
+  for (const args of [
+    { emoji: '👍', messages_back: 21 },
+    { emoji: '👍', messages_back: -1 },
+    { emoji: '👍', extra: 1 },
+  ]) {
+    assert.equal(ajv.validate(schemaFor('react'), args), false, JSON.stringify(args));
+  }
+});
+
+test('Goal boundaries are known before a call', () => {
+  accepts(schemaFor('goal'), { action: 'create', objective: 'One-shot outcome', time_limit_minutes: 30 });
+  accepts(schemaFor('goal'), { action: 'block', blocker: 'The user must sign in' });
+  accepts(schemaFor('goal'), { action: 'complete' });
+  assert.equal(ajv.validate(schemaFor('goal'), { action: 'set_tasks' }), false);
+  assert.equal(ajv.validate(schemaFor('goal'), { action: 'create', tasks: [] }), false);
+  assert.equal(ajv.validate(schemaFor('goal'), { action: 'block', blocker: '' }), false);
+});
+
+test('documented browser first calls and stored-login sequences agree with runtime validation', () => {
+  const cases = [
+    { action: 'navigate', input: { url: 'https://example.test/', includeScreenshot: true } },
+    { action: 'locate', input: { query: 'Save', limit: 20 } },
+    { action: 'console', input: { limit: 20 } },
+    { action: 'snapshot', input: { mode: 'both', maxElements: 100 } },
+    { action: 'fill', input: { ref: 'p1-s1-e1', checked: false } },
+    {
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'fill', savedAccount: 'a•••a@example.test' },
+          { action: 'click', target: { role: 'button', name: 'Sign in' } },
+        ],
+      },
+    },
+  ];
+  for (const args of cases) {
+    accepts(schemaFor('browser'), args);
+    const result = validateBrowserToolArgs(args, { tool: 'browser' });
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(result.input, args.input);
+  }
+  const fields = schemaFor('browser').properties.input.properties;
+  assert.ok(fields.mode.description.trim() && fields.maxChars.description.trim());
+  assert.equal(
+    validateBrowserToolArgs({ action: 'snapshot', input: '{"mode":"both"}' }).ok,
+    true,
+    'unambiguous JSON transport shape remains supported'
+  );
+});
+
+test('browser rejects schema-invalid scalar and nested values before input dispatch', () => {
+  const cases = [
+    { action: 'snapshot', input: { mode: 'wrong' } },
+    { action: 'snapshot', input: { maxElements: -1 } },
+    { action: 'fill', input: { ref: 'p1-s1-e1', checked: 'false' } },
+    { action: 'click', input: { snapshotId: 's1', x: -1, y: 1 } },
+    { action: 'click', input: { ref: 'p1-s1-e1', button: 'other' } },
+    { action: 'click', input: { ref: 'p1-s1-e1', expect: { timeoutMs: -1 } } },
+    {
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'fill', ref: 'p1-s1-e1', checked: false },
+          { action: 'press', key: 'Enter', submit: 'yes' },
+        ],
+      },
+    },
+  ];
+  for (const args of cases) {
+    assert.equal(ajv.validate(schemaFor('browser'), args), false, JSON.stringify(args));
+    assert.equal(validateBrowserToolArgs(args).ok, false, JSON.stringify(args));
+  }
+  const args = { action: 'init_script', input: { operation: 'add', script: 'x'.repeat(20_001) } };
+  assert.equal(ajv.validate(schemaFor('browser_devtools'), args), false);
+  assert.equal(validateBrowserToolArgs(args).ok, false);
+});
+
+test('every computer action keeps its usable input fields through provider flattening', () => {
+  const tool = computer[0];
+  const window_id = 'hwnd:0x1';
+  const cases = [
+    { action: 'list', input: { kind: 'windows' } },
+    { action: 'diagnose' },
+    { action: 'capture' },
+    { action: 'verify', input: { window_id, expect: [{ window_exists: true }] } },
+    { action: 'wait_for_user' },
+    { action: 'act', input: { window_id, actions: [{ type: 'click', ref: 'ref:1' }] } },
+    { action: 'window', input: { window_id, operation: 'focus' } },
+    { action: 'menu', input: { window_id, path: ['File'] } },
+    { action: 'clipboard', input: { operation: 'read' } },
+    { action: 'launch', input: { app: 'notepad.exe' } },
+    { action: 'saved_login', input: { window_id, savedAccount: 'a@b.c', field: 'password' } },
+  ];
+  assert.deepEqual(cases.map((args) => args.action).sort(), [...tool.inputSchema.properties.action.enum].sort());
+  for (const args of cases) {
+    assert.equal(validateComputerToolArgs(args), null, JSON.stringify(args));
+    assert.equal(typeof toComputerHostCommand(args).action, 'string');
+    for (const [, schema] of projections(tool)) accepts(schema, args);
+  }
+  const sourceFields = [
+    ...new Set(COMPUTER_ACTION_CONTRACTS.flatMap((branch) => Object.keys(branch.properties.input.properties))),
+  ].sort();
+  // Only first-party Anthropic opts into the nested form: an object root with
+  // no root combiner whose `input` offers one alternative per action, titled
+  // with it, carrying that action's exact contract.
+  for (const key of ['oneOf', 'anyOf', 'allOf', 'not']) assert.equal(tool.inputSchema[key], undefined, key);
+  for (const schema of [anthropicSchema(tool, 'anthropic'), anthropicSchema(tool, 'anthropic-oauth')]) {
+    for (const key of ['oneOf', 'anyOf', 'allOf', 'not']) assert.equal(schema[key], undefined, key);
+    const alternatives = schema.properties.input.anyOf;
+    assert.deepEqual(
+      alternatives.map((alternative) => alternative.title).sort(),
+      [...tool.inputSchema.properties.action.enum].sort()
+    );
+    for (const contract of COMPUTER_ACTION_CONTRACTS) {
+      const [action] = contract.properties.action.enum;
+      const { title, description, ...shape } = alternatives.find((alternative) => alternative.title === action);
+      assert.equal(description, `Input when action="${action}".`);
+      assert.deepEqual(shape, contract.properties.input, action);
+    }
+  }
+  // Every other path keeps the advertised flat projection: every action's
+  // fields with the per-action pairing in words.
+  const gemini = toGeminiTools([tool]).functionDeclarations[0].parametersJsonSchema;
+  for (const schema of [
+    tool.inputSchema,
+    normalizeGrokToolSchemas([tool])[0].inputSchema,
+    gemini,
+    anthropicSchema(tool, 'opencode-go'),
+    sanitizeAnthropicInputSchema(tool.inputSchema, tool.name, 'first-call'),
+  ]) {
+    assert.equal(schema.properties.input.anyOf, undefined);
+    assert.deepEqual(Object.keys(schema.properties.input.properties).sort(), sourceFields);
+    assert.ok(schema.properties.input.description.trim(), 'flat input keeps a description');
+  }
+});
+
+test('computer nested text bounds match the public schema before host execution', () => {
+  const args = { action: 'verify', input: { window_id: 'hwnd:0x1', expect: [{ present: 'x'.repeat(4096) }] } };
+  accepts(schemaFor('computer'), args);
+  assert.equal(validateComputerToolArgs(args), null);
+  args.input.expect[0].present += 'x';
+  assert.equal(ajv.validate(schemaFor('computer'), args), false);
+  assert.match(validateComputerToolArgs(args), /4096/);
+});
+
+test('Office matrices, row values and PDF field maps survive every provider schema', () => {
+  const operations = [
+    {
+      op: 'set_range',
+      range: 'A1:B2',
+      values: [
+        [1, 'two'],
+        [true, null],
+      ],
+    },
+    { op: 'append_row', values: [1, 'two', true] },
+    { op: 'fill_form', values: { name: 'Ada', accepted: true } },
+  ];
+  validateXlsxOperations(structuredClone(operations.slice(0, 2)));
+  for (const operation of operations) {
+    for (const [, schema] of projections(office[0])) {
+      accepts(schema, { action: 'batch', operations: [operation] });
+    }
+  }
+  accepts(schemaFor('office'), { action: 'render', pages: Array.from({ length: 101 }, (_, i) => i + 1) });
+});
+
+test('Gemini uses its JSON Schema wire field for opaque values instead of guessing a type', () => {
+  const declaration = toGeminiTools(office).functionDeclarations[0];
+  assert.equal(Object.hasOwn(declaration, 'parameters'), false);
+  assert.deepEqual(declaration.parametersJsonSchema, office[0].inputSchema);
+  const untypedArray = {
+    name: 'rows',
+    inputSchema: {
+      type: 'object',
+      properties: { values: { type: 'array' } },
+      required: ['values'],
+    },
+  };
+  const arrayDeclaration = toGeminiTools([untypedArray]).functionDeclarations[0];
+  assert.equal(Object.hasOwn(arrayDeclaration, 'parameters'), false);
+  accepts(arrayDeclaration.parametersJsonSchema, {
+    values: [
+      [1, 2],
+      [3, 4],
+    ],
+  });
+  // A closed schema (additionalProperties:false) has no legacy Schema form, so
+  // it keeps its JSON Schema wire field; the same schema left open is typed.
+  const closed = toGeminiTools(GOAL_TOOL_DEFS).functionDeclarations[0];
+  assert.equal(Object.hasOwn(closed, 'parameters'), false);
+  assert.deepEqual(closed.parametersJsonSchema, GOAL_TOOL_DEFS[0].inputSchema);
+  const { additionalProperties: _closed, ...openSchema } = structuredClone(GOAL_TOOL_DEFS[0].inputSchema);
+  const typed = toGeminiTools([{ ...GOAL_TOOL_DEFS[0], inputSchema: openSchema }]).functionDeclarations[0];
+  assert.equal(Object.hasOwn(typed, 'parametersJsonSchema'), false);
+  assert.ok(typed.parameters);
+});

@@ -1,0 +1,581 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import { gzipSync } from 'node:zlib';
+
+import { extractArchive, extractTarGz, extractZip, isNupkgMetadata, isSafeEntryPath, parseUstar } from './extract.mjs';
+import {
+  ENGINE_DIGEST_FILE,
+  installEngine,
+  installEngines,
+  managedEngineBinary,
+  manifestAsset,
+  planInstall,
+  platformAssetKey,
+  readEnginesManifest,
+  verifyDownloadDigest,
+} from './install.mjs';
+
+function workspace(t, prefix = 'tidy-install-') {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+
+const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
+
+function tarEntry(name, content, { prefix = '', typeflag = '0' } = {}) {
+  const body = Buffer.from(content, 'utf8');
+  const header = Buffer.alloc(512);
+  header.write(name, 0, 100, 'utf8');
+  header.write('000755 \0', 100, 8, 'utf8');
+  header.write('0000000 \0', 108, 8, 'utf8');
+  header.write('0000000 \0', 116, 8, 'utf8');
+  header.write(`${body.length.toString(8).padStart(11, '0')}\0`, 124, 12, 'utf8');
+  header.write('00000000000 ', 136, 12, 'utf8');
+  header.write('        ', 148, 8, 'utf8');
+  header.write(typeflag, 156, 1, 'utf8');
+  header.write('ustar\0', 257, 6, 'utf8');
+  header.write('00', 263, 2, 'utf8');
+  if (prefix) header.write(prefix, 345, 155, 'utf8');
+  let sum = 0;
+  for (const byte of header) sum += byte;
+  header.write(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'utf8');
+  const padded = Buffer.alloc(Math.ceil(body.length / 512) * 512);
+  body.copy(padded);
+  return Buffer.concat([header, padded]);
+}
+
+function tarball(entries) {
+  return Buffer.concat([...entries, Buffer.alloc(1024)]);
+}
+
+function fakeFetch(buffer) {
+  return async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => '' },
+    body: Readable.from([buffer]),
+  });
+}
+
+test('sha256 verification accepts the manifest digest and rejects a tampered file', async (t) => {
+  const root = workspace(t);
+  const file = join(root, 'asset.bin');
+  const payload = Buffer.from('managed engine payload');
+  writeFileSync(file, payload);
+  assert.equal(await verifyDownloadDigest(file, sha256(payload)), sha256(payload));
+  await assert.rejects(() => verifyDownloadDigest(file, 'f'.repeat(64)), /sha256 mismatch/);
+  await assert.rejects(() => verifyDownloadDigest(file, 'not-a-digest'), /64-hex digest/);
+});
+
+test('the ustar reader handles prefixes, long names, and rejects traversal', async (t) => {
+  const root = workspace(t);
+  const archive = join(root, 'engine.tar.gz');
+  writeFileSync(
+    archive,
+    gzipSync(tarball([tarEntry('bin/engine', 'binary-bytes'), tarEntry('LICENSE', 'MIT', { prefix: 'engine-1.0.0' })]))
+  );
+  const written = extractTarGz(archive, join(root, 'out'));
+  assert.deepEqual(written.sort(), ['bin/engine', 'engine-1.0.0/LICENSE']);
+  assert.equal(readFileSync(join(root, 'out', 'bin', 'engine'), 'utf8'), 'binary-bytes');
+  assert.equal(readFileSync(join(root, 'out', 'engine-1.0.0', 'LICENSE'), 'utf8'), 'MIT');
+
+  const longNameTar = tarball([
+    tarEntry('././@LongLink', 'deep/nested/engine-with-a-very-long-name\0', { typeflag: 'L' }),
+    tarEntry('ignored', 'payload'),
+  ]);
+  const entries = parseUstar(longNameTar);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].name, 'deep/nested/engine-with-a-very-long-name');
+
+  const evil = join(root, 'evil.tar.gz');
+  writeFileSync(evil, gzipSync(tarball([tarEntry('../escaped', 'nope')])));
+  assert.throws(() => extractTarGz(evil, join(root, 'out2')), /unsafe archive entry/);
+  assert.equal(isSafeEntryPath('/abs'), false);
+  assert.equal(isSafeEntryPath('C:/abs'), false);
+  assert.equal(isSafeEntryPath('bin/engine'), true);
+});
+
+test('zip extraction round-trips through the existing jszip dependency', async (t) => {
+  const root = workspace(t);
+  const { default: JSZip } = await import('jszip');
+  const zip = new JSZip();
+  zip.file('biome.exe', 'zip-binary-bytes');
+  zip.folder('docs').file('README.md', '# readme');
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  const archive = join(root, 'engine.zip');
+  writeFileSync(archive, buffer);
+  const written = await extractZip(archive, join(root, 'out'));
+  assert.ok(written.includes('biome.exe'));
+  assert.equal(readFileSync(join(root, 'out', 'biome.exe'), 'utf8'), 'zip-binary-bytes');
+  assert.equal(readFileSync(join(root, 'out', 'docs', 'README.md'), 'utf8'), '# readme');
+});
+
+test('nupkg extraction strips NuGet metadata and keeps the module', async (t) => {
+  const root = workspace(t);
+  const { default: JSZip } = await import('jszip');
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', 'ct');
+  zip.file('_rels/.rels', 'rels');
+  zip.file('package/services/metadata.psmdcp', 'meta');
+  zip.file('PSScriptAnalyzer.nuspec', '<package/>');
+  zip.file('.signature.p7s', 'sig');
+  zip.file('PSScriptAnalyzer.psd1', '@{ ModuleVersion = "1.25.0" }');
+  zip.file('PSScriptAnalyzer.psm1', 'function Invoke-Formatter {}');
+  const archive = join(root, 'engine.nupkg');
+  writeFileSync(archive, await zip.generateAsync({ type: 'nodebuffer' }));
+  const dest = join(root, 'out');
+  const written = await extractArchive({
+    archive: 'nupkg',
+    srcPath: archive,
+    destDir: dest,
+    binPath: 'PSScriptAnalyzer.psd1',
+  });
+  assert.ok(written.includes('PSScriptAnalyzer.psd1'));
+  assert.ok(written.includes('PSScriptAnalyzer.psm1'));
+  assert.ok(!written.some((name) => isNupkgMetadata(name)));
+  assert.equal(existsSync(join(dest, '[Content_Types].xml')), false);
+  assert.equal(existsSync(join(dest, '_rels', '.rels')), false);
+  assert.equal(existsSync(join(dest, 'package', 'services', 'metadata.psmdcp')), false);
+  assert.equal(existsSync(join(dest, 'PSScriptAnalyzer.nuspec')), false);
+  assert.equal(readFileSync(join(dest, 'PSScriptAnalyzer.psd1'), 'utf8'), '@{ ModuleVersion = "1.25.0" }');
+});
+
+function manifestFor(id, { sha, archive = 'none', binPath = id, bytes = 0 } = {}) {
+  return {
+    version: 1,
+    engines: {
+      [id]: {
+        version: '1.2.3',
+        license: 'MIT',
+        kind: ['format'],
+        languages: ['bash'],
+        source: 'mirror',
+        assets: {
+          [platformAssetKey()]: { url: 'https://example.invalid/asset', sha256: sha, archive, binPath, bytes },
+        },
+      },
+    },
+  };
+}
+
+test('policy gates every download decision before the network', async () => {
+  const manifest = manifestFor('shfmt', { sha: 'a'.repeat(64), bytes: 2048 });
+  const base = { ids: ['shfmt'], manifest, pluginData: '/nowhere' };
+
+  const ask = await planInstall({ ...base, policy: 'ask' });
+  assert.equal(ask.targets.length, 0);
+  assert.deepEqual(ask.needsApproval.engines, [{ id: 'shfmt', version: '1.2.3', bytes: 2048, license: 'MIT' }]);
+  assert.equal(ask.needsApproval.bytes, 2048);
+
+  assert.equal((await planInstall({ ...base, policy: 'ask', approveDownloads: true })).targets.length, 1);
+  assert.equal((await planInstall({ ...base, policy: 'auto' })).targets.length, 1);
+  assert.equal((await planInstall({ ...base })).targets.length, 1, 'default policy is auto');
+
+  const never = await planInstall({ ...base, policy: 'never' });
+  assert.equal(never.targets.length, 0);
+  assert.equal(never.needsApproval, null);
+  assert.match(never.errors[0].error, /disabled by policy/);
+
+  const toolchain = await planInstall({ ids: ['rustfmt'], manifest, pluginData: '/nowhere', policy: 'auto' });
+  assert.match(toolchain.errors[0].error, /toolchain engine/);
+  assert.match(toolchain.errors[0].installHint, /rustup/);
+
+  const unknown = await planInstall({ ids: ['nope'], manifest, pluginData: '/nowhere', policy: 'auto' });
+  assert.match(unknown.errors[0].error, /unknown engine/);
+
+  const noAsset = await planInstall({
+    ids: ['shfmt'],
+    manifest: { version: 1, engines: {} },
+    pluginData: '/nowhere',
+    policy: 'auto',
+  });
+  assert.match(noAsset.errors[0].error, /no .* asset in the engines manifest/);
+});
+
+test('install verifies, extracts, and lands the engine in its versioned dir', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const target = (await planInstall({ ids: ['shfmt'], manifest, pluginData: root, policy: 'auto' })).targets[0];
+
+  const installed = await installEngine(target, { pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(installed.status, 'installed');
+  assert.equal(installed.path, join(root, 'tools', 'shfmt', '1.2.3', 'shfmt'));
+  assert.equal(readFileSync(installed.path, 'utf8'), payload.toString('utf8'));
+  assert.equal((await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root })).version, '1.2.3');
+
+  // A second install is a no-op, and no staging directory survives.
+  const again = await installEngine(target, { pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(again.status, 'present');
+});
+
+test('a cached engine tampered after install is never reused and is reinstalled', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const first = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  const bin = first.installed[0].path;
+  assert.ok(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }));
+
+  writeFileSync(bin, '#!/bin/sh\necho evil payload\n');
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null, 'tampered binary');
+  assert.equal((await planInstall({ ids: ['shfmt'], manifest, pluginData: root })).targets.length, 1);
+
+  const again = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(again.installed[0].status, 'installed');
+  assert.equal(readFileSync(bin, 'utf8'), payload.toString('utf8'));
+  assert.ok(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }));
+
+  // An existing record that does not match is never trusted or overwritten.
+  const digestFile = join(root, 'tools', 'shfmt', '1.2.3', ENGINE_DIGEST_FILE);
+  for (const bad of ['f'.repeat(64), 'not-a-digest']) {
+    writeFileSync(digestFile, bad);
+    verifiedReset(bin);
+    assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null, `record ${bad}`);
+    assert.equal(readFileSync(digestFile, 'utf8'), bad, 'the bad record is left as found');
+  }
+});
+
+// Drop the per-process "already verified" memo for one binary by changing its
+// size, so the next lookup hashes again.
+function verifiedReset(bin) {
+  const body = readFileSync(bin);
+  writeFileSync(bin, Buffer.concat([body, Buffer.from('\n')]));
+  writeFileSync(bin, body);
+}
+
+function legacyInstall(root, payload) {
+  const dir = join(root, 'tools', 'shfmt', '1.2.3');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'shfmt'), payload);
+  return dir;
+}
+
+test('a legacy install with no digest record is accepted under never and ask, and its digest is recorded', async (t) => {
+  const payload = Buffer.from('#!/bin/sh\necho legacy shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  for (const policy of ['never', 'ask']) {
+    const root = workspace(t);
+    const dir = legacyInstall(root, payload);
+    const plan = await planInstall({ ids: ['shfmt'], manifest, pluginData: root, policy });
+    assert.deepEqual(plan.errors, [], policy);
+    assert.equal(plan.needsApproval, null, policy);
+    assert.equal(plan.targets.length, 0, policy);
+    assert.equal(plan.present[0].version, '1.2.3', policy);
+    assert.equal(readFileSync(join(dir, ENGINE_DIGEST_FILE), 'utf8'), sha256(payload), `${policy}: recorded`);
+    assert.deepEqual(
+      readdirSync(dir).sort(),
+      [ENGINE_DIGEST_FILE, 'shfmt'].sort(),
+      `${policy}: no temp file is left behind`
+    );
+  }
+});
+
+test('a legacy install a crash left NUL-filled is not reused and never records its digest', async (t) => {
+  const root = workspace(t);
+  const manifest = manifestFor('shfmt', { sha: sha256(Buffer.from('x')), archive: 'none', binPath: 'shfmt' });
+  const dir = legacyInstall(root, Buffer.alloc(8192));
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  assert.equal(existsSync(join(dir, ENGINE_DIGEST_FILE)), false, 'a torn binary is not trusted on first use');
+});
+
+test('with a recorded digest the digest alone decides, not the content probe', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.concat([Buffer.alloc(5000), Buffer.from('tail')]);
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const dir = legacyInstall(root, payload);
+  writeFileSync(join(dir, ENGINE_DIGEST_FILE), sha256(payload));
+  assert.ok(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), 'a matching record is intact');
+  writeFileSync(join(dir, 'shfmt'), Buffer.alloc(payload.length + 1));
+  assert.equal(
+    await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }),
+    null,
+    'a NUL-filled copy differs'
+  );
+});
+
+test('a tampered legacy-style install with a mismatching record stays rejected under never', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const dir = legacyInstall(root, Buffer.from('#!/bin/sh\necho evil\n'));
+  writeFileSync(join(dir, ENGINE_DIGEST_FILE), sha256(payload));
+  const plan = await planInstall({ ids: ['shfmt'], manifest, pluginData: root, policy: 'never' });
+  assert.equal(plan.present.length, 0);
+  assert.match(plan.errors[0].error, /downloads are disabled/);
+  assert.equal(readFileSync(join(dir, ENGINE_DIGEST_FILE), 'utf8'), sha256(payload));
+});
+
+// Make `fs.<name>` fail for paths inside `dir` until the test ends.
+function failFsIn(t, name, dir, onFail = () => {}) {
+  const original = fs[name];
+  fs[name] = (...args) => {
+    if (String(args[0]).startsWith(dir) || String(args[1]).startsWith(dir)) {
+      onFail();
+      throw Object.assign(new Error(`${name} blocked`), { code: 'EBUSY' });
+    }
+    return original(...args);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs[name] = original;
+    syncBuiltinESMExports();
+  });
+}
+
+test('a corrupted binary whose replacement failed is not reported as installed', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const dir = legacyInstall(root, Buffer.from('#!/bin/sh\necho evil\n'));
+  writeFileSync(join(dir, ENGINE_DIGEST_FILE), sha256(payload));
+  const target = (await planInstall({ ids: ['shfmt'], manifest, pluginData: root, policy: 'auto' })).targets[0];
+
+  failFsIn(t, 'rmSync', dir);
+  await assert.rejects(
+    () => installEngine(target, { pluginData: root, fetchFn: fakeFetch(payload) }),
+    /rmSync blocked/
+  );
+});
+
+test('a concurrent install that landed a verified copy is reported as installed', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const target = (await planInstall({ ids: ['shfmt'], manifest, pluginData: root, policy: 'auto' })).targets[0];
+  const dir = join(root, 'tools', 'shfmt', '1.2.3');
+
+  failFsIn(t, 'renameSync', join(root, 'tools', 'shfmt', '.tmp-'), () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'shfmt'), payload);
+    writeFileSync(join(dir, ENGINE_DIGEST_FILE), sha256(payload));
+  });
+  const installed = await installEngine(target, { pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(installed.status, 'installed');
+  assert.equal(readFileSync(installed.path, 'utf8'), payload.toString('utf8'));
+});
+
+test('install reports per-engine download progress to its callback', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n'.repeat(64));
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const progress = [];
+  const outcome = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    policy: 'auto',
+    fetchFn: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (name) => (String(name).toLowerCase() === 'content-length' ? String(payload.length) : '') },
+      body: Readable.from([payload.subarray(0, 100), payload.subarray(100)]),
+    }),
+    onProgress: (event) => progress.push(event),
+  });
+  assert.equal(outcome.installed[0].status, 'installed');
+  assert.ok(progress.length > 0, 'the installer must report progress');
+  for (const event of progress) {
+    assert.equal(event.id, 'shfmt');
+    assert.equal(event.totalBytes, payload.length);
+    assert.ok(event.receivedBytes > 0 && event.receivedBytes <= payload.length);
+  }
+  assert.equal(progress.at(-1).receivedBytes, payload.length);
+});
+
+test('a digest mismatch aborts the install and leaves nothing behind', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('tampered');
+  const manifest = manifestFor('shfmt', { sha: 'c'.repeat(64) });
+  const outcome = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    policy: 'auto',
+    fetchFn: fakeFetch(payload),
+  });
+  assert.deepEqual(outcome.installed, []);
+  assert.match(outcome.errors[0].error, /sha256 mismatch/);
+  assert.equal(existsSync(join(root, 'tools', 'shfmt', '1.2.3')), false);
+});
+
+// A body that delivers some bytes, then dies the way a Wi-Fi switch kills a socket.
+function abortedFetch(partial) {
+  return async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => '' },
+    body: new Readable({
+      read() {
+        this.push(partial);
+        process.nextTick(() => this.destroy(new Error('fetch failed: network changed')));
+      },
+    }),
+  });
+}
+
+test('a download aborted mid-body leaves no engine dir or staging, and the next install recovers', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const first = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    fetchFn: abortedFetch(payload.subarray(0, 5)),
+  });
+  assert.deepEqual(first.installed, []);
+  assert.match(first.errors[0].error, /network changed/);
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  assert.deepEqual(readdirSync(join(root, 'tools', 'shfmt')), [], 'no staging or version dir survives');
+
+  const retry = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(retry.installed[0].status, 'installed');
+  assert.equal(readFileSync(retry.installed[0].path, 'utf8'), payload.toString('utf8'));
+});
+
+test('an empty or binary-less engine dir is not installed and is replaced by the next install', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const dir = join(root, 'tools', 'shfmt', '1.2.3');
+  mkdirSync(dir, { recursive: true });
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  writeFileSync(join(dir, 'leftover.part'), 'half');
+  writeFileSync(join(dir, 'shfmt'), Buffer.alloc(64));
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null, 'a NUL-filled binary');
+  assert.equal((await planInstall({ ids: ['shfmt'], manifest, pluginData: root })).targets.length, 1);
+
+  const outcome = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(outcome.installed[0].status, 'installed');
+  assert.equal(existsSync(join(dir, 'leftover.part')), false);
+  assert.equal(readFileSync(join(dir, 'shfmt'), 'utf8'), payload.toString('utf8'));
+});
+
+test('staging left by a crashed install is reclaimed; a live owner is left alone', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const engineRoot = join(root, 'tools', 'shfmt');
+  const dead = join(engineRoot, `.tmp-2147483646-${Date.now()}-dead00`);
+  const ancient = join(engineRoot, `.tmp-${process.pid}-${Date.now() - 2 * 60 * 60 * 1000}-old000`);
+  const live = join(engineRoot, `.tmp-${process.pid}-${Date.now()}-live00`);
+  for (const dir of [dead, ancient, live]) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'asset-shfmt'), 'partial');
+  }
+  await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
+  assert.equal(existsSync(dead), false);
+  assert.equal(existsSync(ancient), false);
+  assert.equal(existsSync(live), true);
+});
+
+test('a stalled download fails with a clear error instead of hanging forever', async (t) => {
+  const root = workspace(t);
+  const manifest = manifestFor('shfmt', { sha: 'a'.repeat(64) });
+  const outcome = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    stallTimeoutMs: 50,
+    // One chunk, then silence: the socket stays open and never ends.
+    fetchFn: async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => '' },
+      body: new Readable({
+        read() {
+          if (!this.sent) {
+            this.sent = true;
+            this.push(Buffer.from('partial'));
+          }
+        },
+      }),
+    }),
+  });
+  assert.deepEqual(outcome.installed, []);
+  assert.match(outcome.errors[0].error, /stalled/);
+  assert.deepEqual(readdirSync(join(root, 'tools', 'shfmt')), []);
+});
+
+test('an "ask" policy install returns the approval request without fetching', async (t) => {
+  const root = workspace(t);
+  let fetched = false;
+  const manifest = manifestFor('shfmt', { sha: 'd'.repeat(64) });
+  const outcome = await installEngines({
+    ids: ['shfmt'],
+    manifest,
+    pluginData: root,
+    policy: 'ask',
+    fetchFn: async () => {
+      fetched = true;
+      throw new Error('must not fetch');
+    },
+  });
+  assert.equal(fetched, false);
+  assert.equal(outcome.needsApproval.engines[0].id, 'shfmt');
+  assert.deepEqual(outcome.installed, []);
+});
+
+test('the manifest engines the catalog knows are installable by id', async () => {
+  const manifest = readEnginesManifest();
+  for (const id of ['air', 'mago']) {
+    if (!manifest.engines[id]?.assets?.[platformAssetKey()]) continue;
+    const plan = await planInstall({ ids: [id], manifest, pluginData: '/nowhere', policy: 'ask' });
+    assert.deepEqual(plan.errors, [], `${id} must not be rejected as unknown`);
+    assert.equal(plan.needsApproval.engines[0].id, id);
+    const auto = await planInstall({ ids: [id], manifest, pluginData: '/nowhere', policy: 'auto' });
+    assert.equal(auto.targets.length, 1);
+  }
+});
+
+test('the shipped engines manifest parses and keeps the documented schema', () => {
+  const manifest = readEnginesManifest();
+  assert.equal(manifest.version, 1);
+  assert.equal(typeof manifest.engines, 'object');
+  const ids = Object.keys(manifest.engines).sort();
+  assert.deepEqual(ids, [
+    'air',
+    'biome',
+    'clang-format',
+    'dprint',
+    'gofumpt',
+    'mago',
+    'psscriptanalyzer',
+    'ruff',
+    'shellcheck',
+    'shfmt',
+    'stylua',
+  ]);
+  assert.equal(ids.includes('ast-grep'), false);
+  const pssa = manifestAsset(manifest, 'psscriptanalyzer');
+  assert.equal(pssa.version, '1.25.0');
+  assert.equal(pssa.pkey, 'any');
+  assert.equal(pssa.asset.archive, 'nupkg');
+  assert.equal(pssa.asset.binPath, 'PSScriptAnalyzer.psd1');
+  assert.equal(pssa.asset.bytes, 14658674);
+  assert.match(pssa.asset.url, /PSScriptAnalyzer\/1\.25\.0$/);
+  for (const [id, entry] of Object.entries(manifest.engines)) {
+    assert.ok(entry.version, `${id} needs a version`);
+    assert.ok(Array.isArray(entry.languages), `${id} needs languages`);
+    assert.ok(
+      entry.assets && typeof entry.assets === 'object' && Object.keys(entry.assets).length > 0,
+      `${id} needs platform assets`
+    );
+    for (const [pkey, asset] of Object.entries(entry.assets || {})) {
+      assert.match(asset.sha256 || '', /^[a-f0-9]{64}$/i, `${id}/${pkey} needs a sha256`);
+      assert.ok(asset.binPath, `${id}/${pkey} needs a binPath`);
+    }
+  }
+  const missingDir = mkdtempSync(join(tmpdir(), 'tidy-manifest-'));
+  mkdirSync(missingDir, { recursive: true });
+  assert.deepEqual(readEnginesManifest(join(missingDir, 'nope.json')), { version: 1, engines: {} });
+  rmSync(missingDir, { recursive: true, force: true });
+});

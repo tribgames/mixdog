@@ -1,0 +1,156 @@
+/**
+ * goal-runtime.mjs — assembles the Goal runtime from its parts around one
+ * explicit runtime record (`ctx`): configuration and per-session bookkeeping
+ * first, then the store, deadlines, title scheduler, mutations and the
+ * control surface, each reading the earlier stages through `ctx`.
+ */
+import { GOAL_TOOL_DEFS, MAX_GOAL_TIME_LIMIT_MS } from './goal-tool-defs.mjs';
+import { goalsRoot, reportGoalStorageError } from './goal-storage.mjs';
+import { createGoalDeadlines } from './goal-deadlines.mjs';
+import {
+  DEFAULT_COMPLETED_GOAL_TTL_MS,
+  DEFAULT_GOAL_DEADLINE_WARNING_MS,
+  DEFAULT_GOAL_TIME_LIMIT_MS,
+  normalizedCompletedGoalTtlMs,
+  parseGoalDuration,
+} from './goal-state.mjs';
+import { createGoalStore } from './goal-store.mjs';
+import { createGoalTitleScheduler } from './goal-title.mjs';
+import { createGoalMutations } from './goal-mutations.mjs';
+import { runGoalControl } from './goal-control.mjs';
+import { executeGoalTool } from './goal-tool-exec.mjs';
+import { createGoalTurnLifecycle } from './goal-turns.mjs';
+
+export {
+  DEFAULT_COMPLETED_GOAL_TTL_MS,
+  DEFAULT_GOAL_DEADLINE_WARNING_MS,
+  DEFAULT_GOAL_TIME_LIMIT_MS,
+  GOAL_TOOL_DEFS,
+  MAX_GOAL_TIME_LIMIT_MS,
+  parseGoalDuration,
+};
+export { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from './goal-storage.mjs';
+
+export function createGoalRuntime({
+  dataDir,
+  now: injectedNow,
+  // Suspend evidence needs a monotonic clock paired with the wall clock. An
+  // injected `now` has no real pair, so a test supplies its own or none. A test
+  // that fakes `Date` must pass `monotonicNow: null` (undefined takes the default).
+  monotonicNow = injectedNow ? null : () => performance.now(),
+  suspendDetectable,
+  defaultTimeLimitMs = DEFAULT_GOAL_TIME_LIMIT_MS,
+  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
+  deadlineWarningMs = DEFAULT_GOAL_DEADLINE_WARNING_MS,
+  generateTitle = null,
+  writeGoalRecord,
+  onStorageError = reportGoalStorageError,
+} = {}) {
+  const now = injectedNow ?? (() => Date.now());
+  const ctx = {
+    dataDir,
+    root: goalsRoot(dataDir),
+    now,
+    defaultTimeLimitMs,
+    completedRetentionMs: normalizedCompletedGoalTtlMs(completedGoalTtlMs),
+    generateTitle,
+    writeGoalRecord,
+    onStorageError,
+    listeners: new Set(),
+    mutationChains: new Map(),
+    turnGoalIds: new Map(),
+    turnStartedAt: new Map(),
+    // Session -> the objective revision the current turn has seen (turn start,
+    // a status read, or a refusal that showed it). In memory like the turn.
+    turnObjectiveRevisions: new Map(),
+    titleJobs: new Map(),
+    // Session -> the Goal identity and turn an automatic turn answered with no
+    // tool call. In memory on purpose: a restart is a new chance.
+    idleReviewTurns: new Map(),
+    // Session -> id of the Goal whose full continuation rules this context
+    // already holds. In memory on purpose: a restart is a fresh context.
+    continuationTiers: new Map(),
+    // Session -> Goal id whose turn ended in a stop (failed, cancelled, usage
+    // limit) the record could not save. The record still reads active, so
+    // without this a full disk would start turn after turn into the same error.
+    unsavedStops: new Map(),
+    closed: false,
+  };
+  Object.assign(ctx, createGoalStore(ctx));
+  ctx.deadlines = createGoalDeadlines({
+    now,
+    readRecord: ctx.readStoredRecord,
+    withMutation: ctx.withMutation,
+    commit: ctx.commit,
+    stampLive: ctx.stampLive,
+    onStorageError,
+    deadlineWarningMs,
+    monotonicNow,
+    ...(suspendDetectable !== undefined ? { suspendDetectable } : {}),
+  });
+  ctx.scheduleGoalTitle = createGoalTitleScheduler(ctx);
+  Object.assign(ctx, createGoalMutations(ctx));
+  ctx.control = (sessionId, rawArgs) => runGoalControl(ctx, sessionId, rawArgs);
+  const { withMutation, emit, visibleSnapshot, storedSnapshot, deadlines, listeners } = ctx;
+
+  return {
+    tools: GOAL_TOOL_DEFS,
+    snapshot(sessionId) {
+      const goal = visibleSnapshot(sessionId);
+      if (goal) deadlines.armDeadline(sessionId);
+      return goal;
+    },
+    storedSnapshot,
+    watchSession(sessionId) {
+      if (!sessionId) return null;
+      const goal = visibleSnapshot(sessionId);
+      if (goal) deadlines.armDeadline(sessionId);
+      emit(sessionId, goal);
+      return goal;
+    },
+    subscribe(listener) {
+      if (typeof listener !== 'function') return () => {};
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    control(sessionId, args = {}) {
+      return withMutation(sessionId, () => ctx.control(sessionId, args));
+    },
+    executeTool: (name, args = {}, context = {}) => executeGoalTool(ctx, name, args, context),
+    // Tasks a legacy record still carries for the session's todo list to
+    // adopt; [] once adopted (clearLegacyTasks).
+    legacyTasks(sessionId) {
+      try {
+        return ctx.readRecord(sessionId).goal?.legacyTasks || [];
+      } catch {
+        return [];
+      }
+    },
+    clearLegacyTasks(sessionId) {
+      return withMutation(sessionId, async (id) => {
+        const goal = ctx.readRecord(id).goal;
+        if (!goal?.legacyTasks?.length) return null;
+        goal.legacyTasks = [];
+        return ctx.commit(id, goal);
+      });
+    },
+    ...createGoalTurnLifecycle(ctx),
+    close() {
+      ctx.closed = true;
+      for (const job of ctx.titleJobs.values()) job.abort.abort(new Error('Goal runtime closed.'));
+      ctx.titleJobs.clear();
+      deadlines.close();
+      ctx.turnGoalIds.clear();
+      ctx.turnStartedAt.clear();
+      ctx.turnObjectiveRevisions.clear();
+      ctx.idleReviewTurns.clear();
+      ctx.continuationTiers.clear();
+      ctx.unsavedStops.clear();
+      listeners.clear();
+      // Accepted writes keep their ordering until they settle. Callers may
+      // await this barrier before releasing the session's backing resources.
+      // The storage cache (and its directory watch) goes once they have.
+      return Promise.allSettled([...ctx.mutationChains.values()]).then(() => ctx.closeStorage());
+    },
+  };
+}

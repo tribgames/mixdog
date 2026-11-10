@@ -1,0 +1,81 @@
+id: no-history-comment
+valid:
+  - |
+    // ordinary note about the algorithm
+    # ordinary note about the algorithm
+    -- ordinary note about the algorithm
+    const x = 1
+    x = 1
+  - |
+    // previously reviewed by the team
+    # previously reviewed by the team
+    -- previously reviewed by the team
+    const x = 1
+    x = 1
+  - |
+    // A seed copied from a CRLF checkout must be normalized.
+    const x = 1
+  - |
+    // shared with the slide it was copied from
+    const x = 1
+  - |
+    /**
+     * Formats the payload.
+     * Extracted verbatim from foo.mjs.
+     */
+    const x = 1
+  - |
+    // File-level docs about the algorithm.
+    // Extracted verbatim from foo.mjs.
+    // More notes for the reader.
+    const x = 1
+  - |
+    // removed from the hot path
+    # removed from the hot path
+    -- removed from the hot path
+    const x = 1
+    x = 1
+invalid:
+  - |
+    // extracted verbatim from foo
+    # extracted verbatim from foo
+    -- extracted verbatim from foo
+    const x = 1
+    x = 1
+  - |
+    // moved from bar.ts
+    # moved from bar.ts
+    -- moved from bar.ts
+    const x = 1
+    x = 1
+  - |
+    // moved here from bar.ts
+    # moved here from bar.ts
+    -- moved here from bar.ts
+    const x = 1
+    x = 1
+  - |
+    // behavior-preserving move
+    # behavior-preserving move
+    -- behavior-preserving move
+    const x = 1
+    x = 1
+  - |
+    // copied from baz
+    # copied from baz
+    -- copied from baz
+    const x = 1
+    x = 1
+  - |
+    // was previously in qux
+    # was previously in qux
+    -- was previously in qux
+    const x = 1
+    x = 1
+  - |
+    // Extracted verbatim from foo.mjs.
+    // Previously lived in bar.mjs.
+    const x = 1
+  - |
+    /** Extracted verbatim from foo.mjs. */
+    const x = 1

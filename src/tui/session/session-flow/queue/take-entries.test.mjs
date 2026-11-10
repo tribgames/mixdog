@@ -1,0 +1,134 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-take-entries-'));
+process.env.MIXDOG_DATA_DIR = dataDir;
+test.after(() => rmSync(dataDir, { recursive: true, force: true }));
+
+const { materializePromptSubmission } = await import('../../../../runtime/attachments/store.mjs');
+const { createTakeEntriesOps } = await import('./take-entries.mjs');
+
+function storedImage(label) {
+  const intake = materializePromptSubmission(
+    [{ type: 'image', data: Buffer.from(label).toString('base64'), mimeType: 'image/png' }],
+    {}
+  );
+  return intake.prompt[0];
+}
+
+function entryWith(id, images) {
+  return { id, text: `prompt ${id}`, mode: 'prompt', pastedImages: images };
+}
+
+test('restoreQueued drops only the missing attachment and never the prompt', () => {
+  const kept = storedImage('kept image');
+  const gone = { attachmentRef: createHash('sha256').update('never stored').digest('hex'), sizeBytes: 12 };
+  const pending = [
+    entryWith('a', { 1: { id: 1, type: 'image', ...kept } }),
+    entryWith('b', { 2: { id: 2, type: 'image', ...gone } }),
+  ];
+  const removed = [];
+  const { restoreQueued } = createTakeEntriesOps({
+    pending,
+    pendingNotificationKeys: new Set(),
+    removeQueuedEntries: (entries) => removed.push(...entries),
+  });
+  const restored = restoreQueued('draft');
+  assert.equal(restored.count, 2);
+  assert.equal(restored.text, 'prompt a\nprompt b\ndraft');
+  assert.deepEqual(Object.keys(restored.pastedImages), ['1']);
+  assert.equal(restored.pastedImages[1].content, Buffer.from('kept image').toString('base64'));
+  assert.match(restored.notice, /1 attachment was no longer available/);
+  assert.equal(pending.length, 0);
+  assert.equal(removed.length, 2);
+});
+
+test('restore returns file attachments hydrated to base64 and drops only a missing one', () => {
+  const [pdf, sheet] = ['%PDF-1.4 restore me', 'sheet bytes'].map(
+    (text, index) =>
+      materializePromptSubmission([
+        {
+          type: 'file',
+          data: Buffer.from(text).toString('base64'),
+          mimeType:
+            index === 0 ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          filename: index === 0 ? 'spec.pdf' : 'kpi.xlsx',
+        },
+      ]).prompt[0]
+  );
+  const gone = {
+    type: 'file',
+    mimeType: 'application/pdf',
+    filename: 'lost.pdf',
+    attachmentRef: createHash('sha256').update('lost pdf').digest('hex'),
+    sizeBytes: 8,
+  };
+  const pending = [
+    {
+      id: 'f',
+      text: '[PDF #1: spec.pdf] [File #2: kpi.xlsx] [PDF #3: lost.pdf]',
+      mode: 'prompt',
+      content: [pdf, sheet, gone],
+    },
+  ];
+  const { restoreQueued } = createTakeEntriesOps({
+    pending,
+    pendingNotificationKeys: new Set(),
+    removeQueuedEntries() {},
+  });
+  const restored = restoreQueued('');
+  assert.equal(restored.count, 1);
+  assert.deepEqual(restored.content, [
+    {
+      type: 'file',
+      data: Buffer.from('%PDF-1.4 restore me').toString('base64'),
+      mimeType: 'application/pdf',
+      filename: 'spec.pdf',
+    },
+    {
+      type: 'file',
+      data: Buffer.from('sheet bytes').toString('base64'),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      filename: 'kpi.xlsx',
+    },
+  ]);
+  assert.match(restored.notice, /1 attachment was no longer available/);
+  assert.equal(restored.text.includes('lost.pdf'), true, 'the prompt text is kept');
+});
+
+test('restoreQueued settles each reclaimed submission cancelled exactly once, and only those it took', () => {
+  const settled = [];
+  const entry = (id, mode = 'prompt', onSettled = (detail) => settled.push([id, detail])) => ({
+    id,
+    text: `prompt ${id}`,
+    mode,
+    onSettled,
+  });
+  const pending = [
+    entry('a'),
+    entry('note', 'task-notification'),
+    entry('boom', 'prompt', () => {
+      throw new Error('callback failed');
+    }),
+    entry('b'),
+  ];
+  const { restoreQueued } = createTakeEntriesOps({
+    pending,
+    pendingNotificationKeys: new Set(),
+    removeQueuedEntries() {},
+  });
+  restoreQueued('', 'a');
+  assert.deepEqual(settled, [['a', { status: 'cancelled', reason: 'reclaimed', result: null, session: null }]]);
+  restoreQueued('');
+  assert.deepEqual(
+    settled.map(([id]) => id),
+    ['a', 'b'],
+    'a throwing callback does not stop the rest; a notification is not reclaimable'
+  );
+  restoreQueued('');
+  assert.equal(settled.length, 2, 'nothing is settled twice');
+});

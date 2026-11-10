@@ -1,0 +1,993 @@
+// Resident native search: forwards rg-style windowed line requests to ONE
+// long-lived engine that embeds the ripgrep matcher/searcher/printer crates
+// and is the only local-search backend. Unsupported requests and server
+// failures are explicit errors at the caller.
+//
+// The engine is reached through one crash-isolated
+// `mixdog-graph --serve-search` child process.
+//
+// MIXDOG_SEARCH_SERVER=0 disables; MIXDOG_SEARCH_SERVER_BIN overrides the
+// executable.
+import { existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path';
+import { bindChildLifecycle, createNativeSearchTransport } from './native-search-transport.mjs';
+import { invalidateBuiltinResultCache } from './cache-layers.mjs';
+import { getPluginData } from '../../config.mjs';
+import { ensureGraphBinary } from '../graph-binary-fetcher.mjs';
+import { runWithSearchIoAdmission } from './search-admission.mjs';
+
+const RESTART_BACKOFF_MS = 30_000;
+// Default request budget. Deliberately BELOW the read-only I/O watchdog in
+// tool-exec.mjs (20s): with both at 20s the watchdog killed the call first on
+// a cold whole-filesystem walk, so the soft-deadline partial the server hands
+// back near its own budget never reached the model (observed as a bare
+// "timed out with no partial output" on a full-root glob). The 2.5s margin
+// covers caller preprocessing plus response serialization/ranking.
+const REQUEST_TIMEOUT_MS = 17_500;
+const SERVER_READY_TIMEOUT_MS = 1_000;
+const CANCEL_GRACE_MS = 1_000;
+const PROCESS_FAILURES_BEFORE_BACKOFF = 2;
+const SEARCH_TIMEOUT_RECYCLE_WINDOW_MS = 30_000;
+const SEARCH_TIMEOUT_BURST_MS = 1_000;
+const FUZZY_INVENTORY_LEASE_MS = (() => {
+  const configured = Number(process.env.MIXDOG_FIND_INVENTORY_LEASE_MS);
+  if (!Number.isFinite(configured) || configured < 0) return 0;
+  return Math.min(30_000, Math.floor(configured));
+})();
+
+let _server = null; // { transport, exited, pending: Map, sequence }
+let _binaryPath; // undefined = unresolved, null = unavailable
+let _lastFailureAt = 0;
+let _lastFailure = null;
+let _consecutiveProcessFailures = 0;
+let _binaryResolveStarted = false;
+let _warmPromise = null;
+let _lastTimeoutRecycleAt = 0;
+const _abortSignalSubscribers = new WeakMap();
+
+const searchServerDisabled = () => process.env.MIXDOG_SEARCH_SERVER === '0';
+
+function codedError(code, message, cause = null) {
+  const error = new Error(message);
+  error.code = code;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function requestKind(request) {
+  if (request?.processSnapshot) return 'process snapshot';
+  if (request?.listMetadata) return 'list metadata';
+  if (request?.fuzzy != null) return 'fuzzy';
+  return request?.args?.includes?.('--files') ? 'file inventory' : 'content';
+}
+
+function timeoutError(request, deadlineMs) {
+  const kind = requestKind(request);
+  // The remedy must name arguments this tool actually publishes. "Set max
+  // depth" named none: `find` exposes query/path/limit/include_noise only, so
+  // the one measured timeout left the caller with no actionable next step.
+  const detail =
+    kind === 'fuzzy'
+      ? ' Fuzzy ranking requires a complete file inventory; narrow the search to a subdirectory via path, or use glob for a wildcard path match.'
+      : '';
+  return codedError('NATIVE_SEARCH_TIMEOUT', `native ${kind} search timed out after ${deadlineMs}ms.${detail}`);
+}
+
+function softDeadlineMs(hardDeadlineMs) {
+  // Leave enough of the caller's total budget for response serialization,
+  // transport, and JS-side ranking. The old 500ms ceiling raced the outer
+  // 20s read-only deadline and discarded a valid native partial response.
+  const margin = Math.min(2_000, Math.max(250, Math.floor(hardDeadlineMs * 0.075)));
+  return Math.max(1, hardDeadlineMs - margin);
+}
+
+const walkErrorDetailSuffix = (details) => (details.length > 0 ? `; ${details.join('; ')}` : '');
+
+function processFailure(error, server, detail = '') {
+  if (error?.code === 'NATIVE_SEARCH_PROCESS_EXIT') return error;
+  const stderr = String(server?.stderrTail || '').trim();
+  let cause = '';
+  if (error instanceof Error) {
+    const code = error.code ? `${error.code}: ` : '';
+    cause = `${code}${error.message}`;
+  }
+  const suffix = [detail, cause, stderr ? `stderr: ${stderr}` : ''].filter(Boolean).join('; ');
+  return codedError(
+    'NATIVE_SEARCH_PROCESS_EXIT',
+    `native search server exited${suffix ? ` (${suffix})` : ''}`,
+    error instanceof Error ? error : null
+  );
+}
+
+function noteProcessFailure(error) {
+  _lastFailure = error;
+  _consecutiveProcessFailures += 1;
+  if (_consecutiveProcessFailures >= PROCESS_FAILURES_BEFORE_BACKOFF) {
+    _lastFailureAt = Date.now();
+  }
+}
+
+function clearProcessFailures() {
+  _lastFailure = null;
+  _lastFailureAt = 0;
+  _consecutiveProcessFailures = 0;
+}
+
+function noteSearchTimeout(_server, now = Date.now()) {
+  const sincePrevious = _lastTimeoutRecycleAt > 0 ? now - _lastTimeoutRecycleAt : Infinity;
+  _lastTimeoutRecycleAt = now;
+  // Requests issued as one batch time out together; that burst is a single
+  // event, not a streak.
+  if (sincePrevious <= SEARCH_TIMEOUT_BURST_MS) return 'none';
+  // The server is no longer recycled on a first timeout, so a recurrence
+  // within the window — on this server or its replacement — is what marks the
+  // runtime worker unhealthy.
+  return sincePrevious <= SEARCH_TIMEOUT_RECYCLE_WINDOW_MS ? 'runtime' : 'server';
+}
+
+function subscribeAbortSignal(signal, callback) {
+  if (!signal?.addEventListener || typeof callback !== 'function') return () => {};
+  let state = _abortSignalSubscribers.get(signal);
+  if (!state) {
+    const callbacks = new Set();
+    const listener = () => {
+      _abortSignalSubscribers.delete(signal);
+      const pending = [...callbacks];
+      callbacks.clear();
+      for (const fn of pending) {
+        try {
+          fn();
+        } catch {}
+      }
+    };
+    state = { callbacks, listener };
+    _abortSignalSubscribers.set(signal, state);
+    signal.addEventListener('abort', listener, { once: true });
+  }
+  state.callbacks.add(callback);
+  return () => {
+    if (!state.callbacks.delete(callback) || state.callbacks.size > 0) return;
+    if (_abortSignalSubscribers.get(signal) === state) {
+      _abortSignalSubscribers.delete(signal);
+      try {
+        signal.removeEventListener('abort', state.listener);
+      } catch {}
+    }
+  };
+}
+
+function unavailableError() {
+  const detail = _lastFailure?.message ? ` Last process failure: ${_lastFailure.message}` : '';
+  return codedError('NATIVE_SEARCH_UNAVAILABLE', `native search server unavailable.${detail}`);
+}
+
+function _setServerReferenced(server, referenced) {
+  try {
+    server?.transport?.[referenced ? 'ref' : 'unref']?.();
+  } catch {}
+}
+
+// The graph module's binary path; its resolver shape is duck-typed so a
+// refactor there degrades to "server unavailable", never throws.
+function graphBinaryCandidate(mod) {
+  return mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+}
+
+function _resolveBinary() {
+  if (_binaryPath !== undefined) return _binaryPath;
+  // The graph and resident-search protocols ship in the same executable.
+  // Honor either override synchronously so a first grep never races the lazy
+  // graph module import while an explicitly injected binary already exists.
+  const explicit = String(process.env.MIXDOG_SEARCH_SERVER_BIN || process.env.MIXDOG_GRAPH_BIN || '').trim();
+  if (explicit && existsSync(explicit)) {
+    _binaryPath = explicit;
+    return _binaryPath;
+  }
+  if (!_binaryResolveStarted) {
+    _binaryResolveStarted = true;
+    // Reuse the code-graph binary resolution lazily.
+    void import('../code-graph/graph-binary.mjs')
+      .then((mod) => {
+        try {
+          const candidate = graphBinaryCandidate(mod);
+          _binaryPath = candidate && existsSync(candidate) ? candidate : null;
+        } catch {
+          _binaryPath = null;
+        }
+      })
+      .catch(() => {
+        _binaryPath = null;
+      });
+  }
+  return _binaryPath;
+}
+
+function _teardown(error, { countFailure = true, detail = '' } = {}) {
+  const server = _server;
+  _server = null;
+  if (!server) return;
+  flushNativeWatcherInvalidations();
+  const failure = processFailure(error, server, detail);
+  if (countFailure) noteProcessFailure(failure);
+  for (const pending of server.pending.values()) {
+    try {
+      pending.reject(failure);
+    } catch {}
+  }
+  server.pending.clear();
+  for (const timer of server.cancelWatchdogs?.values?.() || []) clearTimeout(timer);
+  server.cancelWatchdogs?.clear?.();
+  try {
+    server.resolveReady?.(false);
+  } catch {}
+  try {
+    server.transport.kill();
+  } catch {}
+}
+
+export async function shutdownNativeSearchServer(reason = 'process-exit', timeoutMs = 1_000) {
+  const server = _server;
+  if (!server) return true;
+  const transport = server.transport;
+  // The exit promise is armed at attach time rather than here: the transport
+  // routes each event to exactly one handler, so a second listener registered
+  // now would displace the teardown wiring.
+  const exited = server.exited;
+  try {
+    transport.end();
+  } catch {}
+  _teardown(new Error(`native search server shutdown (${reason})`), { countFailure: false });
+  _warmPromise = null;
+  let timer;
+  const stopped = await Promise.race([
+    exited,
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), Math.max(10, Number(timeoutMs) || 1_000));
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
+  if (!stopped) {
+    try {
+      transport.kill('SIGKILL');
+    } catch {}
+  }
+  return stopped;
+}
+
+export { bindChildLifecycle as _bindNativeSearchServerLifecycle };
+
+// Inventories persisted before search roots were canonicalized (see
+// canonicalPath) can hold another spelling of a folder's files under the
+// folder's canonical key; loading one would keep serving every file twice.
+// Drop that snapshot once per data dir, before a server of this process loads
+// it. The marker records that the remaining snapshot was written by servers
+// that only ever saw canonical roots.
+const INVENTORY_SNAPSHOT_FILE = 'file-inventories-v1.bin';
+const CANONICAL_ROOTS_MARKER = 'file-inventories-v1.canonical-roots';
+let _inventorySnapshotChecked = false;
+
+function dropAliasSpelledInventorySnapshot() {
+  if (_inventorySnapshotChecked) return;
+  _inventorySnapshotChecked = true;
+  const dir = join(getPluginData(), 'search-index');
+  const marker = join(dir, CANONICAL_ROOTS_MARKER);
+  if (existsSync(marker)) return;
+  try {
+    rmSync(join(dir, INVENTORY_SNAPSHOT_FILE), { force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(marker, '');
+  } catch {
+    // A snapshot that cannot be removed now (held open by another server) is
+    // retried by the next process; search itself does not depend on it.
+  }
+}
+
+// Watcher invalidations are applied once per window: a checkout or a build
+// reports thousands of `invalidate` lines, and applying each walked every
+// cache and listener on the daemon main thread. Tool writes never come
+// through here; they invalidate synchronously at their own call site.
+const WATCH_COALESCE_MS = 50;
+// Above this many distinct paths a pending batch is lifted to covering
+// directories (see collapseWatchPaths).
+const WATCH_BATCH_MAX_PATHS = 512;
+let _watchPending = null; // Set of reported paths, or 'all' (unknown boundary)
+let _watchTimer = null;
+
+function pathDepth(path) {
+  return path.split(/[\\/]/).filter(Boolean).length;
+}
+
+// The deepest paths are replaced by their parent directories until at most
+// `max` remain, so every reported path stays under one kept path, and a
+// shallow path is not lifted for a deep burst elsewhere. Lexical only: a kept
+// directory covers what it was lifted from by prefix, whatever it names.
+function collapseWatchPaths(paths, max) {
+  let depths = new Map([...paths].map((path) => [path, pathDepth(path)]));
+  while (depths.size > max) {
+    let deepest = 0;
+    for (const depth of depths.values()) deepest = Math.max(deepest, depth);
+    const next = new Map();
+    let raised = false;
+    for (const [path, depth] of depths) {
+      const parent = depth === deepest ? dirname(path) : path;
+      if (parent !== path) raised = true;
+      if (!next.has(parent)) next.set(parent, parent === path ? depth : depth - 1);
+    }
+    if (!raised) break;
+    depths = next;
+  }
+  return new Set(depths.keys());
+}
+
+function queueWatcherInvalidation(paths) {
+  if (paths.length === 0) _watchPending = 'all';
+  if (_watchPending !== 'all') {
+    _watchPending ??= new Set();
+    for (const path of paths) _watchPending.add(String(path));
+    if (_watchPending.size > WATCH_BATCH_MAX_PATHS) {
+      _watchPending = collapseWatchPaths(_watchPending, WATCH_BATCH_MAX_PATHS);
+    }
+  }
+  if (_watchTimer) return;
+  _watchTimer = setTimeout(flushNativeWatcherInvalidations, WATCH_COALESCE_MS);
+  _watchTimer.unref?.();
+}
+
+/** Applies the pending watcher invalidations now. Runs on its timer, before
+ *  any server response is handled (a response must never be read, or cached,
+ *  ahead of a change the server reported before it), and at teardown. */
+export function flushNativeWatcherInvalidations() {
+  if (_watchTimer) clearTimeout(_watchTimer);
+  _watchTimer = null;
+  const pending = _watchPending;
+  _watchPending = null;
+  if (!pending) return;
+  invalidateBuiltinResultCache(pending === 'all' ? null : [...pending], { canonical: true });
+}
+
+function onServerLine(server, line) {
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (message?.event === 'invalidate' && Array.isArray(message.paths)) {
+    queueWatcherInvalidation(message.paths);
+    return;
+  }
+  flushNativeWatcherInvalidations();
+  if (message?.ready === true) {
+    server.readyState = true;
+    server.resolveReady?.(true);
+    return;
+  }
+  if (message?.event === 'cancelled') {
+    completeNativeCancellation(server, Number(message?.id));
+    clearProcessFailures();
+    return;
+  }
+  const pending = server.pending.get(Number(message?.id));
+  if (!pending) return;
+  server.pending.delete(Number(message.id));
+  clearProcessFailures();
+  pending.resolve(message);
+}
+
+export { onServerLine as _onNativeSearchLineForTest };
+
+function _ensureServer() {
+  if (_server) return _server;
+  if (
+    _consecutiveProcessFailures >= PROCESS_FAILURES_BEFORE_BACKOFF &&
+    Date.now() - _lastFailureAt < RESTART_BACKOFF_MS
+  )
+    return null;
+  dropAliasSpelledInventorySnapshot();
+  let transport;
+  try {
+    transport = createNativeSearchTransport({
+      binaryPath: _resolveBinary(),
+      cwd: process.cwd(),
+    });
+  } catch (error) {
+    noteProcessFailure(processFailure(error, null, 'spawn failed'));
+    return null;
+  }
+  if (!transport) return null;
+  let resolveReady;
+  const ready = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
+  // Armed here, not at shutdown: the transport routes each event to exactly
+  // one handler, so a listener added later would displace the teardown wiring.
+  let markExited;
+  const exited = new Promise((resolve) => {
+    markExited = resolve;
+  });
+  const server = {
+    transport,
+    exited,
+    pending: new Map(),
+    cancelWatchdogs: new Map(),
+    sequence: 0,
+    stderrTail: '',
+    ready,
+    readyState: false,
+    readyWaiters: 0,
+    resolveReady,
+  };
+  transport.on('stderr', (chunk) => {
+    server.stderrTail = `${server.stderrTail}${String(chunk || '')}`.slice(-8192);
+  });
+  transport.on('line', (line) => onServerLine(server, line));
+  transport.on('error', (error) => {
+    markExited(true);
+    if (_server === server) _teardown(error);
+  });
+  transport.on('exit', (code, signal) => {
+    markExited(true);
+    if (_server === server) {
+      _teardown(null, {
+        // A clean code-0 exit is the server's own idle self-shutdown
+        // (MIXDOG_SEARCH_SERVER_IDLE_MS), not a fault. Counting it would let
+        // two quiet stretches trip the restart backoff and refuse the next
+        // real search for 30s.
+        countFailure: code !== 0,
+        detail: `exit code=${code ?? 'null'} signal=${signal ?? 'null'}`,
+      });
+    }
+  });
+  // An attached engine must never be the reason a one-shot CLI or test stays
+  // alive — a child's pipe handles and the addon's keep-alive handle both do
+  // that. Keep the resident server idle-unreferenced, then reference it only
+  // while a request is awaiting a response.
+  _setServerReferenced(server, false);
+  _server = server;
+  return server;
+}
+
+async function _waitServerReady(server, timeoutMs = 5_000) {
+  if (!server) return false;
+  if (server.readyState) return true;
+  server.readyWaiters += 1;
+  _setServerReferenced(server, true);
+  let timer;
+  try {
+    return (
+      (await Promise.race([
+        server.ready,
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(false), timeoutMs);
+          timer.unref?.();
+        }),
+      ])) === true
+    );
+  } finally {
+    if (timer) clearTimeout(timer);
+    server.readyWaiters = Math.max(0, server.readyWaiters - 1);
+    if (server.readyWaiters === 0 && server.pending.size === 0) {
+      _setServerReferenced(server, false);
+    }
+  }
+}
+
+async function _awaitWithin(promise, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), Math.max(1, timeoutMs));
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function cancelGraceMs() {
+  const configured = Number(process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS);
+  return Number.isFinite(configured) && configured > 0 ? Math.max(1, Math.floor(configured)) : CANCEL_GRACE_MS;
+}
+
+function completeNativeCancellation(server, id) {
+  const timer = server?.cancelWatchdogs?.get?.(id);
+  if (timer) clearTimeout(timer);
+  server?.cancelWatchdogs?.delete?.(id);
+}
+
+function armNativeCancellationWatchdog(server, request) {
+  if (!(server.cancelWatchdogs instanceof Map)) server.cancelWatchdogs = new Map();
+  completeNativeCancellation(server, request.id);
+  const graceMs = cancelGraceMs();
+  const timer = setTimeout(() => {
+    server.cancelWatchdogs.delete(request.id);
+    const error = codedError(
+      'NATIVE_SEARCH_CANCEL_STALLED',
+      `native ${requestKind(request)} search did not stop within ${graceMs}ms after cancellation`
+    );
+    if (_server === server) {
+      _teardown(error, { countFailure: false, detail: 'cancellation grace expired' });
+    } else {
+      try {
+        server.transport.kill();
+      } catch {}
+    }
+  }, graceMs);
+  timer.unref?.();
+  server.cancelWatchdogs.set(request.id, timer);
+}
+
+export { completeNativeCancellation as _ackNativeSearchCancellationForTest };
+
+// Boot-time prewarm: binary resolution is async (dynamic import), so the
+// first search of a cold session otherwise waits for startup. Long-lived hosts
+// call this fire-and-forget to have the resident
+// server up before the first tool call. Honors the same kill switch.
+export async function warmNativeSearchServer(timeoutMs = 5_000) {
+  if (searchServerDisabled()) return false;
+  if (!_warmPromise) {
+    const warm = (async () => {
+      try {
+        if (!_resolveBinary()) {
+          const mod = await import('../code-graph/graph-binary.mjs');
+          let candidate = graphBinaryCandidate(mod);
+          if (!candidate) candidate = await ensureGraphBinary(getPluginData());
+          if (candidate && existsSync(candidate)) _binaryPath = candidate;
+          else if (_binaryPath === undefined) _binaryPath = null;
+        }
+        const server = _ensureServer();
+        return await _waitServerReady(server);
+      } catch {
+        return false;
+      }
+    })();
+    _warmPromise = warm;
+    void warm.finally(() => {
+      if (_warmPromise === warm) _warmPromise = null;
+    });
+  }
+  return await _awaitWithin(_warmPromise, timeoutMs);
+}
+
+async function _readyServer(timeoutMs = SERVER_READY_TIMEOUT_MS) {
+  const startedAt = Date.now();
+  const remaining = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
+  let server = _ensureServer();
+  if (server && (await _waitServerReady(server, remaining()))) return server;
+  if (await warmNativeSearchServer(remaining())) {
+    server = _ensureServer();
+    if (server && (await _waitServerReady(server, remaining()))) return server;
+  }
+  return null;
+}
+
+async function requestNative(server, request, execOptions, deadlineMs) {
+  _setServerReferenced(server, true);
+  const response = await new Promise((resolve, reject) => {
+    let settled = false;
+    let onAbort = null;
+    let unsubscribeAbort = null;
+    const cancelServerWork = () => {
+      try {
+        server.transport.write(`${JSON.stringify({ cancel: request.id })}\n`);
+      } catch {}
+      armNativeCancellationWatchdog(server, request);
+    };
+    const settle = (value, cancel = false, error = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        unsubscribeAbort?.();
+      } catch {}
+      unsubscribeAbort = null;
+      onAbort = null;
+      if (cancel) cancelServerWork();
+      if (error) reject(error);
+      else resolve(value);
+      if (server.pending.size === 0) _setServerReferenced(server, false);
+    };
+    const settleTimeout = (error) => {
+      const action = requestKind(request) === 'process snapshot' ? 'none' : noteSearchTimeout(server);
+      settle(null, true, error);
+      if (action === 'none') return;
+      // A single timeout no longer recycles the server: `settle(cancel=true)`
+      // already told it to stop, and the cancellation watchdog tears it down
+      // if it does not comply. Killing it here also destroyed every warm
+      // inventory, so the next call re-walked from cold and timed out again.
+      if (action !== 'runtime') return;
+      queueMicrotask(() => {
+        if (_server === server) {
+          _teardown(error, { countFailure: false, detail: 'repeated request timeouts' });
+        }
+      });
+    };
+    const timer = setTimeout(() => {
+      server.pending.delete(request.id);
+      settleTimeout(timeoutError(request, deadlineMs));
+    }, deadlineMs);
+    timer.unref?.();
+    server.pending.set(request.id, {
+      resolve: settle,
+      reject: (error) => settle(null, false, processFailure(error, server)),
+    });
+    onAbort = () => {
+      server.pending.delete(request.id);
+      const reason = execOptions.signal?.reason;
+      if (reason?.code === 'READ_ONLY_IO_TIMEOUT') {
+        settleTimeout(timeoutError(request, deadlineMs));
+      } else {
+        settle(null, true, codedError('NATIVE_SEARCH_ABORTED', `native ${requestKind(request)} search aborted`));
+      }
+    };
+    if (execOptions.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    unsubscribeAbort = subscribeAbortSignal(execOptions.signal, onAbort);
+    try {
+      server.transport.write(`${JSON.stringify(request)}\n`);
+    } catch (error) {
+      if (_server === server) _teardown(error);
+      else {
+        server.pending.delete(request.id);
+        settle(null, false, processFailure(error, server, 'stdin write failed'));
+      }
+    }
+  });
+  return response;
+}
+
+// Search budget left after excluding server setup. Setup is not search, so it
+// is subtracted from the elapsed wall time rather than from the caller's
+// deadline; the floor of 1 keeps every downstream timer valid.
+function searchRemainingMs(deadlineMs, startedAt, setupMs, now = Date.now()) {
+  return Math.max(1, deadlineMs - (now - startedAt - Math.max(0, setupMs)));
+}
+
+export {
+  noteSearchTimeout as _noteSearchTimeoutForTest,
+  requestNative as _requestNativeForTest,
+  searchRemainingMs as _searchRemainingMsForTest,
+  softDeadlineMs as _softDeadlineMsForTest,
+};
+
+async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
+  // The caller's deadline budgets SEARCH time. Server setup — binary resolve,
+  // spawn, handshake — is not search, and charging it to the same budget left
+  // a cold whole-filesystem probe roughly 250ms of actual walking out of 1500:
+  // the request then died with NO response at all, not even the ranked partial
+  // the server is built to hand back at its soft deadline. Readiness keeps its
+  // own independent bound (SERVER_READY_TIMEOUT_MS), so excluding it here
+  // cannot make a call wait longer than setup + one full search budget.
+  const overallStartedAt = Date.now();
+  let setupMs = 0;
+  const readyWithinSetup = async (budgetMs) => {
+    const setupStartedAt = Date.now();
+    try {
+      return await _readyServer(Math.min(budgetMs, SERVER_READY_TIMEOUT_MS));
+    } finally {
+      setupMs += Date.now() - setupStartedAt;
+    }
+  };
+  let server = await readyWithinSetup(deadlineMs);
+  if (!server) throw unavailableError();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const remaining = searchRemainingMs(deadlineMs, overallStartedAt, setupMs);
+    const request = buildRequest(server, remaining);
+    try {
+      return await runWithSearchIoAdmission(
+        request,
+        execOptions,
+        async () => {
+          // Admission wait is search work, unlike process setup. Recompute the
+          // remaining budget after the broad request reaches the disk.
+          const admittedRemaining = searchRemainingMs(deadlineMs, overallStartedAt, setupMs);
+          if (Number.isFinite(Number(request.deadlineMs))) {
+            request.deadlineMs = softDeadlineMs(admittedRemaining);
+          }
+          return await requestNative(server, request, execOptions, admittedRemaining);
+        },
+        { waitTimeoutMs: remaining }
+      );
+    } catch (error) {
+      if (error?.code !== 'NATIVE_SEARCH_PROCESS_EXIT' || attempt > 0) throw error;
+      server = await readyWithinSetup(searchRemainingMs(deadlineMs, overallStartedAt, setupMs));
+      if (!server) throw unavailableError();
+    }
+  }
+  throw unavailableError();
+}
+
+// The caller's timeout, bounded by REQUEST_TIMEOUT_MS; `fallbackMs` when the
+// caller set none.
+function callerDeadlineMs(execOptions, fallbackMs) {
+  const callerTimeoutMs = Number(execOptions.timeout);
+  return Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+    : fallbackMs;
+}
+
+// An empty answer the server calls complete with nothing else vouching for it.
+function isUnverifiedEmpty(response) {
+  return (
+    Array.isArray(response.lines) &&
+    response.lines.length === 0 &&
+    response.complete === true &&
+    response.partial !== true &&
+    response.inventoryChecked !== true
+  );
+}
+
+// Queue plus handler time used up the soft deadline budget.
+function consumedDeadline(response, deadlineMs) {
+  return (
+    (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0) >=
+    Math.max(500, softDeadlineMs(deadlineMs) - 250)
+  );
+}
+
+// The server walks a root as the request spells it, but its file-change
+// updates carry the resolved path. Any other spelling of the same folder —
+// letter case on Windows, a junction or symlink, a `..` segment — therefore
+// listed every file twice (one copy per spelling). Roots are resolved once,
+// here, so the first walk, later updates and the inventory key agree.
+function canonicalPath(path) {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
+// One positional operand resolved against the canonical cwd. An operand that
+// is already canonical is sent unchanged. An exact file that is itself a
+// symlink keeps its own name: --glob/--type filter the name the caller asked
+// for. `file` tells restoreOperandSpelling how the server prints the operand.
+function canonicalOperand(cwd, operand) {
+  const joined = isAbsolute(operand) ? operand : `${cwd}${sep}${operand}`;
+  let canonical;
+  let file;
+  try {
+    file = statSync(joined).isFile();
+    canonical =
+      file && lstatSync(joined).isSymbolicLink()
+        ? join(realpathSync.native(dirname(joined)), basename(joined))
+        : realpathSync.native(joined);
+  } catch {
+    return null;
+  }
+  if (canonical === (isAbsolute(operand) ? operand : resolvePath(cwd, operand))) return null;
+  // The server prints results with `/` when the operand only uses `/`.
+  const sent = operand.includes('/') && !operand.includes('\\') ? canonical.replaceAll('\\', '/') : canonical;
+  if (sent === operand) return null;
+  // A directory is printed with its trailing separators trimmed.
+  const printed = (path) => (file ? path : path.replace(/[\\/]+$/, ''));
+  return { sent, from: printed(sent), to: printed(operand), file };
+}
+
+// Canonical cwd and operands for a search request, plus the operands whose
+// spelling restoreOperandSpelling puts back into the result lines. Positional
+// operands follow the last `--` (search-builders emits it before them; a `--`
+// pattern is always an `-e` value before it).
+function canonicalSearchRequest(cwd, argsList) {
+  const root = canonicalPath(cwd);
+  const args = argsList.map(String);
+  const remaps = [];
+  const operandsAt = args.lastIndexOf('--') + 1;
+  if (operandsAt > 0) {
+    for (let i = operandsAt; i < args.length; i += 1) {
+      const remap = canonicalOperand(root, args[i]);
+      if (!remap) continue;
+      args[i] = remap.sent;
+      remaps.push(remap);
+    }
+  }
+  remaps.sort((a, b) => b.from.length - a.from.length);
+  return { cwd: root, args, remaps };
+}
+
+// Results under a canonicalized operand are printed by the server as
+// `<operand><sep><relative>` (a directory) or as the operand itself followed
+// by `:`/`-` fields (an exact file); show them under the caller's spelling.
+function restoreOperandSpelling(lines, remaps) {
+  if (remaps.length === 0) return lines;
+  return lines.map((line) => {
+    if (typeof line !== 'string') return line;
+    for (const { from, to, file } of remaps) {
+      if (!line.startsWith(from)) continue;
+      const rest = line.slice(from.length);
+      if (rest !== '' && !(file ? /^[:-]/ : /^[\\/]/).test(rest)) continue;
+      return `${to}${rest}`;
+    }
+    return line;
+  });
+}
+
+/** Returns a runRgWindowedLines-shaped result, or null when the native server
+ *  is disabled or the response carries no line list. */
+export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
+  if (searchServerDisabled()) return null;
+  const deadlineMs = callerDeadlineMs(execOptions, REQUEST_TIMEOUT_MS);
+  const canonical = canonicalSearchRequest(String(execOptions.cwd || process.cwd()), argsList);
+  const buildRequest = (server, remaining) => ({
+    id: ++server.sequence,
+    cwd: canonical.cwd,
+    args: [...canonical.args],
+    offset: Math.max(0, Math.floor(Number(opts.offset) || 0)),
+    limit: Number.isFinite(Number(opts.limit)) && Number(opts.limit) > 0 ? Math.floor(Number(opts.limit)) : 0,
+    deadlineMs: softDeadlineMs(remaining),
+    keepWarm: opts.keepWarm === true,
+    ...(opts.bulkHint === true ? { bulkHint: true } : {}),
+    ...(opts.mtimeTopK === true ? { mtimeTopK: true } : {}),
+  });
+  let response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
+  // Deadline-swallow defense (binaries before the serve_search response-level
+  // deadline re-check): a server under host saturation can burn the whole
+  // soft deadline queued+scanning and return complete-but-EMPTY with the
+  // mid-scan timeout swallowed — indistinguishable from a real no-match and
+  // observed as a false "(no matches)". When an empty "complete" answer's
+  // queue+handler time consumed its deadline budget, re-ask ONCE; the retry
+  // (served from a now-warm server) returns either the real matches or a
+  // fast, trustworthy empty.
+  const legacySuspectEmpty =
+    isUnverifiedEmpty(response) &&
+    (consumedDeadline(response, deadlineMs) ||
+      // filesScanned===0 on an empty "complete" answer: the scan loops never
+      // opened a single file. Either the scope truly has no eligible files
+      // (retry returns the same answer in ~ms) or the server's file list was
+      // transiently wrong (observed once: a file-scope grep answered empty in
+      // 0ms while the file demonstrably matched). One re-ask disambiguates.
+      Number(response.filesScanned) === 0);
+  if (legacySuspectEmpty) {
+    if (_server) {
+      _teardown(codedError('NATIVE_SEARCH_INTEGRITY', 'native search returned an unverified empty result'), {
+        countFailure: false,
+        detail: 'unverified empty response',
+      });
+    }
+    try {
+      response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
+    } catch (error) {
+      throw codedError(
+        'NATIVE_SEARCH_INTEGRITY',
+        'native search could not verify an empty result with a fresh server',
+        error
+      );
+    }
+    if (isUnverifiedEmpty(response) && consumedDeadline(response, deadlineMs)) {
+      throw codedError(
+        'NATIVE_SEARCH_INTEGRITY',
+        'native search returned an unverified empty result after a fresh-server retry'
+      );
+    }
+  }
+  if (response.unsupported || response.error) {
+    const rejected = new Error(String(response.error || response.unsupported));
+    rejected.code = response.error ? 'NATIVE_SEARCH_ERROR' : 'NATIVE_SEARCH_UNSUPPORTED';
+    throw rejected;
+  }
+  if (!Array.isArray(response.lines)) return null;
+  const scanErrors = Math.max(0, Math.floor(Number(response.scanErrors) || 0));
+  const walkErrorDetails = Array.isArray(response.walkErrorDetails)
+    ? response.walkErrorDetails.map(String).slice(0, 8)
+    : [];
+  return {
+    lines: restoreOperandSpelling(response.lines, canonical.remaps),
+    complete: response.complete === true,
+    totalSeen: Math.max(0, Math.floor(Number(response.totalSeen) || 0)),
+    partial: response.partial === true,
+    timeout: response.timeout === true,
+    filesScanned: Math.max(0, Math.floor(Number(response.filesScanned) || 0)),
+    // Unreadable/half-read files the native scanner skipped: route the count
+    // through the existing rg-exit-2 partial phrasing in search-tool.mjs so
+    // the model sees WHY the result may be missing matches.
+    ...(scanErrors > 0
+      ? {
+          rgStderr: `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing${walkErrorDetailSuffix(walkErrorDetails)}`,
+        }
+      : {}),
+    queueMs: Math.max(0, Number(response.queueMs) || 0),
+    handlerMs: Math.max(0, Number(response.handlerMs) || 0),
+    requestClass: response.class === 'bulk' ? 'bulk' : 'interactive',
+    inventoryChecked: response.inventoryChecked === true,
+    cacheSafe: response.cacheSafe !== false,
+    walkErrorDetails,
+    served: true,
+  };
+}
+
+export async function tryServeFuzzySearch(args, execOptions = {}) {
+  if (searchServerDisabled()) return null;
+  const deadlineMs = callerDeadlineMs(execOptions, REQUEST_TIMEOUT_MS);
+  const response = await requestNativeWithRestart(
+    (server, remaining) => ({
+      id: ++server.sequence,
+      // Matches are relative to cwd, so only the root needs canonicalizing.
+      cwd: canonicalPath(String(args?.cwd || execOptions.cwd || process.cwd())),
+      fuzzy: String(args?.query || ''),
+      limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
+      hidden: args?.hidden !== false,
+      includeNoise: args?.includeNoise === true,
+      // Background inventory continuation is explicit opt-in, not a
+      // prerequisite for a normal find response.
+      ...(FUZZY_INVENTORY_LEASE_MS > 0 ? { keepInventoryMs: FUZZY_INVENTORY_LEASE_MS } : {}),
+      ...(Number.isFinite(Number(args?.maxDepth)) && Number(args.maxDepth) > 0
+        ? { maxDepth: Math.floor(Number(args.maxDepth)) }
+        : {}),
+      exclude: Array.isArray(args?.exclude) ? args.exclude.map(String) : [],
+      deadlineMs: softDeadlineMs(remaining),
+    }),
+    execOptions,
+    deadlineMs
+  );
+  if (response?.unsupported) {
+    throw codedError('NATIVE_SEARCH_UNSUPPORTED', String(response.unsupported));
+  }
+  if (response?.error) {
+    throw codedError('NATIVE_SEARCH_ERROR', String(response.error));
+  }
+  if (!Array.isArray(response?.matches)) throw unavailableError();
+  return {
+    matches: response.matches.map(String),
+    hasMore: response.hasMore === true,
+    totalMatches: Math.max(0, Number(response.totalMatches) || 0),
+    totalSeen: Math.max(0, Number(response.totalSeen) || 0),
+    complete: response.complete === true,
+    partial: response.partial === true,
+    timeout: response.timeout === true,
+    scanErrors: Math.max(0, Math.floor(Number(response.scanErrors) || 0)),
+    walkErrorDetails: Array.isArray(response.walkErrorDetails) ? response.walkErrorDetails.map(String).slice(0, 8) : [],
+    inventoryChecked: response.inventoryChecked === true,
+    cacheSafe: response.cacheSafe !== false,
+    queueMs: Math.max(0, Number(response.queueMs) || 0),
+    handlerMs: Math.max(0, Number(response.handlerMs) || 0),
+    inventoryMs: Math.max(0, Number(response.inventoryMs) || 0),
+    rankMs: Math.max(0, Number(response.rankMs) || 0),
+    inventoryContinues: response.inventoryContinues === true,
+    inventoryLeaseMs: Math.max(0, Number(response.inventoryLeaseMs) || 0),
+    requestClass: response.class === 'fuzzy' ? 'fuzzy' : 'bulk',
+    served: true,
+  };
+}
+
+export async function tryServeListMetadata(paths, execOptions = {}) {
+  if (searchServerDisabled()) return null;
+  const list = Array.isArray(paths) ? paths.map(String) : [];
+  if (list.length === 0) return [];
+  if (list.length > 50_000) {
+    throw codedError('NATIVE_SEARCH_UNSUPPORTED', 'list metadata request exceeds 50000 paths');
+  }
+  const deadlineMs = callerDeadlineMs(execOptions, Math.min(5_000, REQUEST_TIMEOUT_MS));
+  const response = await requestNativeWithRestart(
+    (server) => ({
+      id: ++server.sequence,
+      cwd: String(execOptions.cwd || process.cwd()),
+      listMetadata: list,
+    }),
+    execOptions,
+    deadlineMs
+  );
+  if (response?.error) {
+    throw codedError('NATIVE_SEARCH_ERROR', String(response.error));
+  }
+  if (!Array.isArray(response?.entries) || response.entries.length !== list.length) {
+    throw unavailableError();
+  }
+  return response.entries;
+}
+
+export function _resetNativeSearchClientForTest() {
+  _teardown(new Error('test reset'), { countFailure: false });
+  _binaryPath = undefined;
+  _lastFailureAt = 0;
+  _lastFailure = null;
+  _consecutiveProcessFailures = 0;
+  _binaryResolveStarted = false;
+  _warmPromise = null;
+  _lastTimeoutRecycleAt = 0;
+  _inventorySnapshotChecked = false;
+}
