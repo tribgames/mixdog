@@ -4,9 +4,11 @@
 
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 
+pub mod awaiting;
 mod boot;
 mod core_memory;
 mod embeddings;
+pub mod fakes;
 mod ingest;
 mod jobs;
 mod recall;
