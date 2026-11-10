@@ -238,3 +238,19 @@ async fn a_postmaster_still_starting_up_is_not_ready() {
     assert!(connected, "the port takes connections");
     assert!(!ready, "a refused session is not readiness");
 }
+
+/// `pg_ctl start`'s output is kept whole at the size a start writes (Node keeps all of it, `process.mjs:401-406`, so its failure text is the same), and
+/// only the last `OUTPUT_TAIL` bytes of a postmaster that keeps writing into the inherited pipe.
+#[test]
+fn the_start_output_keeps_a_failure_whole_and_only_the_tail_of_a_flood() {
+    let failure = b"pg_ctl: another server might be running; trying to start server anyway\n";
+    let mut kept = Vec::new();
+    keep_tail(&mut kept, failure);
+    assert_eq!(kept, failure);
+    for _ in 0..(2 * OUTPUT_TAIL / failure.len()) {
+        keep_tail(&mut kept, failure);
+    }
+    keep_tail(&mut kept, b"the last line");
+    assert_eq!(kept.len(), OUTPUT_TAIL);
+    assert!(kept.ends_with(b"the last line"));
+}

@@ -43,6 +43,11 @@ pub trait SessionSource: Send + Sync {
 /// The runtime proxy's refusal of a call whose memory runtime never came up (`memory-runtime-proxy/discovery.mjs:95`).
 const RUNTIME_NOT_READY: &str = "memory runtime did not become ready";
 
+/// How long after the launch of the memory runtime's opening a call waits for it: Node's proxy waits 60 s for the spawned child's ready message
+/// (`memory-runtime-proxy/daemon-spawn.mjs:62`) and, on its timeout, 30 s more for the still running child to publish a live port (`:141`), then refuses.
+/// A child that exited before ready (its opening failed) is waited for in the same 30 s although nothing can bring it back: the core answers that at once.
+pub const RUNTIME_READY_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
+
 /// The memory runtime's tool entry: `handleToolCall(name, args)` as text.
 #[async_trait]
 pub trait MemoryModule: Send + Sync {
@@ -109,7 +114,7 @@ impl LocalMemory {
 #[async_trait]
 impl MemoryModule for LocalMemory {
     async fn ready(&self) -> Result<(), String> {
-        self.db.ready().await.map_err(|error| error.message())
+        self.db.ready_within(RUNTIME_READY_WAIT).await.map_err(|error| error.message())
     }
 
     async fn memory(&self, args: Value) -> String {
@@ -251,8 +256,8 @@ impl MemoryService {
         Self { memory, sessions }
     }
 
-    /// Node's `memoryModule()` (`resource-recall-api.mjs:39-43`) through its runtime proxy: a call waits for the memory runtime, and one whose runtime
-    /// never comes up (its opening failed) is refused with the proxy's text (`memory-runtime-proxy/discovery.mjs:95`), whatever the opening's own
+    /// Node's `memoryModule()` (`resource-recall-api.mjs:39-43`) through its runtime proxy: a call waits for the memory runtime (until
+    /// [`RUNTIME_READY_WAIT`] after its opening's launch), and one whose runtime does not come up by then is refused with the proxy's text (`memory-runtime-proxy/discovery.mjs:95`), whatever the opening's own
     /// error was: Node's child answers `starting` to every health probe until its init succeeded (`http-router/lifecycle-routes.mjs:43-45`).
     async fn runtime(&self) -> Result<(), CoreError> {
         self.memory.ready().await.map_err(|_| CoreError::DomainError { domain: "memory".into(), code: None, message: Some(RUNTIME_NOT_READY.into()), detail: None })

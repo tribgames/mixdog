@@ -491,30 +491,71 @@ mod tests {
         golden["scenarios"].as_array().unwrap().iter().find(|scenario| scenario["name"] == name).cloned().unwrap_or_else(|| panic!("no recorded scenario {name}"))
     }
 
-    /// One recorded request through the dispatch a client's request takes (`domain_for`, then the wire error `error_data`), in the recording's shape. Node's
-    /// `session.configure` action is the core's method (`recall`'s `[query, options]` are `query` and `args`, `memoryControl`'s `[args]` is `args`), and Node's
-    /// `/call` answers an action's error with HTTP 200 and `{ error }`, the wire's domain error message.
+    /// The core's method and params for a recorded Node action: Node's `session.configure` action is the core's method (`recall`'s `[query, options]` are
+    /// `query` and `args`, `memoryControl`'s `[args]` is `args`).
+    fn method_of(request: &serde_json::Value) -> (&'static str, serde_json::Value) {
+        let args = request["args"].as_array().unwrap();
+        match request["action"].as_str().unwrap() {
+            "recall" => ("memory/recall", serde_json::json!({ "query": args[0], "args": args[1] })),
+            "memoryControl" => ("memory/memoryControl", serde_json::json!({ "args": args[0] })),
+            other => panic!("unrecorded action {other}"),
+        }
+    }
+
+    /// What Node's client reads of an answer: the body (`{ error }` for a refused action). Its HTTP status belongs to Node's `/call`, which the core does not
+    /// serve (it answers 426, `control/tests.rs`); the core's client gets a JSON-RPC frame over `/rpc` (see [`rpc_call`]).
+    fn node_body(answer: &serde_json::Value) -> serde_json::Value {
+        answer["body"].clone()
+    }
+
+    /// One recorded request through the dispatch a client's request takes (`domain_for`, then the wire error `error_data`), as the body Node's client reads.
     async fn replay(core: &crate::compose::ComposedCore, request: &serde_json::Value) -> serde_json::Value {
         use mixdog_core_api::handle::CoreHandle as _;
         use mixdog_core_api::ids::Method;
         use mixdog_core_api::{CallContext, CoreRequest};
-        let args = request["args"].as_array().unwrap();
-        let (method, params) = match request["action"].as_str().unwrap() {
-            "recall" => ("memory/recall", serde_json::json!({ "query": args[0], "args": args[1] })),
-            "memoryControl" => ("memory/memoryControl", serde_json::json!({ "args": args[0] })),
-            other => panic!("unrecorded action {other}"),
-        };
+        let (method, params) = method_of(request);
         let service = core.domain_for(method).expect("the method is served");
         match service.call(CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("test") }).await {
             Err(error) => match mixdog_app_server::error_data(&error) {
-                mixdog_app_protocol::ErrorData::DomainError { domain, message: Some(message), .. } if domain == "memory" => {
-                    serde_json::json!({ "status": 200, "body": { "error": message } })
-                }
+                mixdog_app_protocol::ErrorData::DomainError { domain, message: Some(message), .. } if domain == "memory" => serde_json::json!({ "error": message }),
                 other => serde_json::json!({ "unexpected error": format!("{other:?}") }),
             },
             Ok(mixdog_core_api::Reply::Value(value)) => serde_json::json!({ "unexpected value": value }),
             Ok(_) => serde_json::json!({ "unexpected": "a subscription" }),
         }
+    }
+
+    /// One request as a client of the core sends it: a WebSocket to the serving `/rpc` with the session token, `initialize`, then the request. Returns the
+    /// upgrade's HTTP status and the request's response frame as received.
+    async fn rpc_call(port: u16, token: &str, method: &str, params: serde_json::Value) -> (u16, serde_json::Value) {
+        use futures::{SinkExt as _, StreamExt as _};
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+        use tokio_tungstenite::tungstenite::Message;
+        let mut request = format!("ws://127.0.0.1:{port}/rpc").into_client_request().unwrap();
+        request.headers_mut().insert("Authorization", format!("Bearer {token}").parse().unwrap());
+        let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await.unwrap();
+        async fn answer<S>(socket: &mut S, id: u64) -> serde_json::Value
+        where
+            S: futures::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+        {
+            loop {
+                let frame = socket.next().await.expect("the connection stays open").unwrap();
+                let Ok(text) = frame.to_text() else { continue };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else { continue };
+                if value["id"] == id {
+                    return value;
+                }
+            }
+        }
+        let (mut socket, upgrade) = tokio_tungstenite::client_async(request, stream).await.unwrap();
+        let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
+            "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
+        socket.send(Message::text(initialize.to_string())).await.unwrap();
+        assert!(answer(&mut socket, 0).await.get("result").is_some(), "initialized");
+        socket.send(Message::text(serde_json::json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}).to_string())).await.unwrap();
+        let frame = answer(&mut socket, 1).await;
+        let _ = socket.close(None).await;
+        (upgrade.status().as_u16(), frame)
     }
 
     /// A fresh profile whose runtime install fails (its folder `<data>/runtime` is a regular file, so the real installer fails at its first step and nothing
@@ -552,7 +593,7 @@ mod tests {
             answers.push(awaiting_for(LIMIT, || format!("the request {}", request["action"]), replay(&core, request)).await);
         }
         awaiting_for(LIMIT, || "the core's stop".into(), core.stop("test")).await;
-        assert_eq!(answers, requests.iter().map(|request| request["answer"].clone()).collect::<Vec<_>>(), "the answers are Node's");
+        assert_eq!(answers, requests.iter().map(|request| node_body(&request["answer"])).collect::<Vec<_>>(), "the answers are Node's");
         assert!(!data.join("pgdata").exists(), "a failed install initialises nothing");
     }
 
@@ -620,6 +661,7 @@ mod tests {
             assert_eq!(document["core"]["state"], "serving");
             let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
             let control = u16::try_from(document["core"]["control"]["port"].as_u64().unwrap()).unwrap();
+            let rpc = u16::try_from(document["core"]["rpc"]["port"].as_u64().unwrap()).unwrap();
             let status = || async {
                 let request = reqwest::Client::new().get(format!("http://127.0.0.1:{control}/mgmt/status")).bearer_auth(&token).send();
                 awaiting_for(LIMIT, || "the /mgmt/status answer".into(), request).await.unwrap().status()
@@ -632,18 +674,26 @@ mod tests {
             // its opening cannot complete is what the answers must equal.
             let scenario = first_requests_scenario("recall then memoryControl while the spawn lock is held by another live process");
             let requests = scenario["requests"].as_array().unwrap().clone();
-            let first = requests[0].clone();
-            let replaying = core.clone();
-            let using = tokio::spawn(async move { replay(&replaying, &first).await });
+            // The first request goes as a client sends it, over the serving `/rpc`.
+            let (method, params) = method_of(&requests[0]);
+            let rpc_token = token.clone();
+            let mut params = params;
+            params["opId"] = serde_json::json!("op-1");
+            let using = tokio::spawn(async move { rpc_call(rpc, &rpc_token, method, params).await });
             awaiting_for(LIMIT, || "the first request to enter the install".into(), entries.recv()).await.expect("announced");
             assert!(!using.is_finished(), "the request waits for the install");
             assert_eq!(status().await, 200, "the daemon answers while the request waits");
             release.send(()).expect("the install waits at the gate");
-            let mut answers = vec![awaiting_for(LIMIT, || "the first request to end with the install".into(), using).await.unwrap()];
+            let (upgraded, frame) = awaiting_for(LIMIT, || "the first request to end with the install".into(), using).await.unwrap();
+            println!("the client received: upgrade {upgraded}, frame {frame}");
+            assert_eq!(upgraded, 101, "the client's connection is the WebSocket upgrade");
+            assert_eq!(frame["id"], 1);
+            assert!(frame.get("result").is_none(), "{frame}");
+            let mut answers = vec![serde_json::json!({ "error": frame["error"]["data"]["message"] })];
             for request in &requests[1..] {
                 answers.push(awaiting_for(LIMIT, || format!("the request {}", request["action"]), replay(&core, request)).await);
             }
-            assert_eq!(answers, requests.iter().map(|request| request["answer"].clone()).collect::<Vec<_>>(), "the answers are Node's");
+            assert_eq!(answers, requests.iter().map(|request| node_body(&request["answer"])).collect::<Vec<_>>(), "the answers are Node's");
             // The database's own error is the install's outcome; the client sees the runtime proxy's text above.
             let db = core.memory_db();
             let outcome = awaiting_for(LIMIT, || "a database use".into(), db.client()).await.err().map(|error| error.message());

@@ -201,6 +201,8 @@ struct Opening {
     flight: Option<(u64, Flight)>,
     /// Openings launched so far: the number of the next one.
     launched: u64,
+    /// When the latest opening was launched: a request's wait for the runtime is bounded from it (Node's from its spawn of the memory child).
+    since: Option<tokio::time::Instant>,
 }
 
 /// Forgets its opening when the opening task ends, however it ends.
@@ -273,6 +275,9 @@ impl MemoryStack {
         let built = Arc::new_cyclic(|me: &std::sync::Weak<MemoryStack>| {
             let deferred = |schema: Schema| {
                 let me = me.clone();
+                let launched = me.clone();
+                let since: crate::memory::pg::db::OpeningSince =
+                    Arc::new(move || launched.upgrade().and_then(|stack| stack.opening.lock().expect("opening").since));
                 Db::deferred(
                     schema,
                     Arc::new(move || {
@@ -286,6 +291,7 @@ impl MemoryStack {
                             })
                         })
                     }),
+                    since,
                 )
             };
             let (memory_db, search_db) = (deferred(Schema::Memory), deferred(Schema::SessionSearch));
@@ -374,6 +380,7 @@ impl MemoryStack {
                     opening.launched += 1;
                     let number = opening.launched;
                     let flight = self.launch(number)?;
+                    opening.since = Some(tokio::time::Instant::now());
                     opening.flight = Some((number, flight.clone()));
                     flight
                 }

@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mixdog_rt::{DurabilityIo, TaskClass};
@@ -428,7 +429,7 @@ type StartRun = tokio::task::JoinHandle<Result<()>>;
 /// (`mixdog-spawn/src/contain.rs`, `Containment::create`). Its stdout and stderr are drained as they come, as Node's `data` listeners do, and the run
 /// ends when the child has exited and both pipes have closed (Node's `close` event): the postmaster inherits the pipe ends (pg_ctl starts it with handle
 /// inheritance on), so for a postmaster that started they stay open for its life and only the readiness probe ends the wait, as in Node.
-fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<StartRun> {
+fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartOutput)> {
     use tokio::io::AsyncReadExt as _;
     let mut command = tokio::process::Command::new(runtime.bin("pg_ctl"));
     command
@@ -444,23 +445,54 @@ fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<StartRun> {
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW, as Node's windowsHide
     let mut child = command.spawn().map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
     let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
-    let drain = |pipe: Option<Box<dyn tokio::io::AsyncRead + Unpin + Send>>| async move {
-        let mut bytes = Vec::new();
-        if let Some(mut pipe) = pipe {
-            let _ = pipe.read_to_end(&mut bytes).await;
+    let output = StartOutput::default();
+    let drain = |pipe: Option<Box<dyn tokio::io::AsyncRead + Unpin + Send>>, into: Arc<std::sync::Mutex<Vec<u8>>>| async move {
+        let Some(mut pipe) = pipe else { return };
+        let mut chunk = [0u8; 4096];
+        while let Ok(read) = pipe.read(&mut chunk).await
+            && read > 0
+        {
+            keep_tail(&mut into.lock().expect("output"), &chunk[..read]);
         }
-        String::from_utf8_lossy(&bytes).into_owned()
     };
     let (stdout, stderr) = (stdout.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>), stderr.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>));
-    Ok(mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
-        let (status, stdout, stderr) = tokio::join!(child.wait(), drain(stdout), drain(stderr));
+    let captured = output.clone();
+    let run = mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
+        let (status, (), ()) = tokio::join!(child.wait(), drain(stdout, captured.stdout.clone()), drain(stderr, captured.stderr.clone()));
         let status = status.map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
         if status.success() {
             return Ok(());
         }
-        let text = [stderr.trim(), stdout.trim()].into_iter().find(|text| !text.is_empty()).map_or_else(|| format!("status {}", status.code().unwrap_or(-1)), str::to_owned);
+        let text = captured.text().unwrap_or_else(|| format!("status {}", status.code().unwrap_or(-1)));
         Err(MemoryError::Runtime(format!("pg_ctl failed: {text}")))
-    }))
+    });
+    Ok((run, output))
+}
+
+/// What `pg_ctl start` and the postmaster that inherits its pipes have written so far: the last [`OUTPUT_TAIL`] bytes of each stream. Node keeps all of
+/// it (`process.mjs:401-406`); a start's output is a few lines, so its failure text is the same, and a chatty postmaster cannot grow this without bound.
+#[derive(Clone, Default)]
+struct StartOutput {
+    stdout: Arc<std::sync::Mutex<Vec<u8>>>,
+    stderr: Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+/// How much of each stream of `pg_ctl start` is kept.
+const OUTPUT_TAIL: usize = 64 * 1024;
+
+fn keep_tail(kept: &mut Vec<u8>, more: &[u8]) {
+    kept.extend_from_slice(more);
+    if kept.len() > OUTPUT_TAIL {
+        kept.drain(..kept.len() - OUTPUT_TAIL);
+    }
+}
+
+impl StartOutput {
+    /// Node's `r.stderr || r.stdout`, trimmed: `None` when both are empty.
+    fn text(&self) -> Option<String> {
+        let read = |stream: &std::sync::Mutex<Vec<u8>>| String::from_utf8_lossy(&stream.lock().expect("output")).trim().to_owned();
+        [read(&self.stderr), read(&self.stdout)].into_iter().find(|text| !text.is_empty())
+    }
 }
 
 /// Why the spawn lock was not taken.
@@ -563,7 +595,8 @@ impl PgCluster {
         .into();
         // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
         // postmaster outlives it. An exit before readiness is a start failure.
-        let mut started: Option<StartRun> = Some(spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?);
+        let (run, output) = spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?;
+        let mut started: Option<StartRun> = Some(run);
         let deadline = tokio::time::Instant::now() + START_DEADLINE;
         let mut early: Option<MemoryError> = None;
         loop {
@@ -595,10 +628,15 @@ impl PgCluster {
                 return Err(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")));
             }
             if tokio::time::Instant::now() >= deadline {
+                // Node's `startFailure` of a timed-out start (`process.mjs:459-467`): the output drained so far, then the server log.
                 let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-                return Err(Self { runtime, data_dir, port, lane, processes }
-                    .abandon(MemoryError::Runtime(format!("postgres did not become ready on port {port}: {}", log_text.trim())))
-                    .await);
+                let detail = [output.text().unwrap_or_default(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
+                    .into_iter()
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let detail = if detail.is_empty() { "(readiness probe timed out after 30s; no pg_ctl or postgres log output)".to_owned() } else { detail };
+                return Err(Self { runtime, data_dir, port, lane, processes }.abandon(MemoryError::Runtime(format!("pg_ctl start failed: {detail}"))).await);
             }
             // A stop does not end this wait (Node's `startAndWaitReady` takes none): a postmaster that is coming up has not written its pid file yet, so a
             // stop now would miss it. It is waited for (30 s at most) and the caller, which sees the stop, stops it.
