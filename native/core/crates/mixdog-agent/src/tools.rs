@@ -1194,6 +1194,10 @@ pub(crate) fn is_sleep_like(name: &str) -> bool {
     name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
 }
 #[cfg(test)]
+#[path = "tools_coerce_session_tests.rs"]
+mod coerce_session_tests;
+
+#[cfg(test)]
 mod tests {
     #[test]
     fn a_sleep_tool_with_any_prefix_grants_the_later_flush() {

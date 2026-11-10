@@ -214,7 +214,8 @@ fn tool_call_secrets_are_redacted_as_in_node() {
 
 #[test]
 fn arguments_are_coerced_to_the_schema_as_in_node() {
-    for case in golden()["coerce"].as_array().unwrap() {
+    // The session-tool cases go through the call executor (`tools_coerce_session_tests.rs`).
+    for case in golden()["coerce"].as_array().unwrap().iter().filter(|c| !c["name"].as_str().unwrap().starts_with("session tool ")) {
         let mut args = case["args"].clone();
         crate::coerce::coerce_args_to_schema(&mut args, &case["schema"]);
         assert_eq!(args, case["coerced"], "{}", case["name"]);
