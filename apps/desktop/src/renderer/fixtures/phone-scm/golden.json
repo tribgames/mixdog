@@ -2,6 +2,132 @@
   "note": "The relay frame Node (b6f10295a) sent the phone for each source-control call, with the desktop operations it invoked and what they returned. gh, winget, soffice.com and `git --version` are the scripted rules of gh-script.json (`world` is the state when the call ran).",
   "platform": "win32",
   "git": "git version 2.51.0.windows.1",
+  "pathRules": {
+    "windows": [
+      {
+        "spelling": "C:\\repo",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "\\repo",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "/repo",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "C:/repo",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "\\\\host\\share",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "//host/share",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "./repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "C:repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": " /repo ",
+        "absolute": false,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "../x",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "C:\\x",
+        "absolute": true,
+        "trimmedAbsolute": true
+      }
+    ],
+    "unix": [
+      {
+        "spelling": "C:\\repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "\\repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "/repo",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "C:/repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "\\\\host\\share",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "//host/share",
+        "absolute": true,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "./repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "C:repo",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": " /repo ",
+        "absolute": false,
+        "trimmedAbsolute": true
+      },
+      {
+        "spelling": "../x",
+        "absolute": false,
+        "trimmedAbsolute": false
+      },
+      {
+        "spelling": "C:\\x",
+        "absolute": false,
+        "trimmedAbsolute": false
+      }
+    ]
+  },
   "cases": [
     {
       "name": "gitStatus",
@@ -148,6 +274,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -162,6 +297,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -175,6 +319,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -187,6 +340,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -199,6 +361,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -366,6 +537,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -534,6 +714,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -699,6 +888,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -713,6 +911,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -726,6 +933,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -810,6 +1026,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -824,6 +1049,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 129
           }
@@ -837,6 +1071,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 129
           }
@@ -849,6 +1092,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -861,6 +1113,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -873,6 +1134,15 @@
             "--absolute-git-dir"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -930,6 +1200,15 @@
             "0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -943,6 +1222,15 @@
             "0123456789abcdef^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -954,6 +1242,15 @@
             "--disambiguate=0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -1007,6 +1304,15 @@
             "0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -1020,6 +1326,15 @@
             "0123456789abcdef^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -1031,6 +1346,15 @@
             "--disambiguate=0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -1132,6 +1456,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1149,6 +1482,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1207,6 +1549,15 @@
             "src/b.mjs"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1306,6 +1657,15 @@
             "src/b.mjs"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1513,6 +1873,15 @@
             "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1524,6 +1893,15 @@
             "@{u}..HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -1535,6 +1913,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1640,6 +2027,15 @@
             "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1651,6 +2047,15 @@
             "@{u}..HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -1662,6 +2067,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1749,6 +2163,15 @@
             "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1760,6 +2183,15 @@
             "@{u}..HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -1771,6 +2203,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1939,6 +2380,15 @@
             "195a88a14f217e42d8171d8186b9f64bde1e2828"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1955,6 +2405,15 @@
             "195a88a14f217e42d8171d8186b9f64bde1e2828"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -1971,6 +2430,15 @@
             "195a88a14f217e42d8171d8186b9f64bde1e2828"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2057,6 +2525,15 @@
             "195a88a"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2073,6 +2550,15 @@
             "195a88a"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2089,6 +2575,15 @@
             "195a88a"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2167,6 +2662,15 @@
             "0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -2183,6 +2687,15 @@
             "0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -2199,6 +2712,15 @@
             "0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -2258,6 +2780,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2335,6 +2866,15 @@
             "HEAD:a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2385,6 +2925,15 @@
             ":0:src/b.mjs"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2435,6 +2984,15 @@
             "195a88a14f217e42d8171d8186b9f64bde1e2828^:a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2485,6 +3043,15 @@
             "HEAD:nope.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -2627,6 +3194,15 @@
             "--no-renames"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2639,6 +3215,15 @@
             "refs/remotes/origin/HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -2653,6 +3238,15 @@
             "refs/remotes/origin/main"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -2667,6 +3261,15 @@
             "refs/remotes/origin/master"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -2681,6 +3284,15 @@
             "refs/heads/main"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2694,6 +3306,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2716,6 +3337,15 @@
             "src/b.mjs"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2832,6 +3462,15 @@
             "--no-renames"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2854,6 +3493,15 @@
             "src/b.mjs"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2933,6 +3581,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -2952,6 +3609,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3043,6 +3709,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3056,6 +3731,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3075,6 +3759,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3167,6 +3860,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3190,6 +3892,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3312,6 +4023,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3335,6 +4055,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3444,6 +4173,15 @@
             "src/b.mjs"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3456,6 +4194,15 @@
             "--branch"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3468,6 +4215,15 @@
             "--stat"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3481,6 +4237,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3494,6 +4259,15 @@
             "src/b.mjs"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3506,6 +4280,15 @@
             "--format=%s"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3518,6 +4301,15 @@
             "feature..HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3530,6 +4322,15 @@
             "--stat"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3543,6 +4344,20 @@
             "number,title,url,state,baseRefName"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -3620,6 +4435,15 @@
             "--branch"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3632,6 +4456,15 @@
             "--stat"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3644,6 +4477,15 @@
             "--format=%s"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3657,6 +4499,20 @@
             "number,title,url,state,baseRefName"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -3738,6 +4594,12 @@
             "user.name"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -3751,6 +4613,12 @@
             "user.email"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -3764,6 +4632,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -3836,6 +4710,12 @@
             "Phone Dev"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3849,6 +4729,12 @@
             "user.name"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3862,6 +4748,12 @@
             "user.email"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -3875,6 +4767,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -3947,6 +4845,12 @@
             "phone@example.invalid"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3960,6 +4864,12 @@
             "user.name"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3973,6 +4883,12 @@
             "user.email"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -3986,6 +4902,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -4058,6 +4980,12 @@
             "trunk"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4071,6 +4999,12 @@
             "user.name"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4084,6 +5018,12 @@
             "user.email"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4097,6 +5037,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4169,6 +5115,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4182,6 +5134,12 @@
             "user.name"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4195,6 +5153,12 @@
             "user.email"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4208,6 +5172,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -4280,6 +5250,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 5
           }
@@ -4293,6 +5269,12 @@
             "user.name"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4306,6 +5288,12 @@
             "user.email"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4319,6 +5307,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -4449,6 +5443,12 @@
             "user.name"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4462,6 +5462,12 @@
             "user.email"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4475,6 +5481,12 @@
             "init.defaultBranch"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -4522,6 +5534,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "git version 2.51.0.windows.1\n"
@@ -4576,6 +5594,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4682,6 +5709,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4695,6 +5731,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4770,6 +5815,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4819,6 +5873,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4867,6 +5930,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -4969,6 +6041,15 @@
             "Commit the staged b"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5020,6 +6101,15 @@
             "Nothing to commit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -5075,6 +6165,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5090,6 +6189,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5104,6 +6212,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5117,6 +6234,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5128,6 +6254,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5140,6 +6275,15 @@
             "commit.cleanup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -5153,6 +6297,15 @@
             "mixdog-hook-probe"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5165,6 +6318,15 @@
             "hooks"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5178,6 +6340,15 @@
             "HEAD^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5190,6 +6361,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5201,6 +6381,16 @@
             "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5215,6 +6405,16 @@
             ":(literal)a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5228,6 +6428,16 @@
             "pre-commit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5244,6 +6454,16 @@
             "message"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5259,6 +6479,16 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo\\.git\\COMMIT_EDITMSG"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5269,6 +6499,15 @@
             "stripspace"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5281,6 +6520,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5291,6 +6539,16 @@
             "write-tree"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5307,6 +6565,15 @@
             "0b2fa82c898d1f50b40704fcee21b16502b8f6ad"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5322,6 +6589,15 @@
             "commit.gpgsign"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5335,6 +6611,16 @@
             "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5350,6 +6636,15 @@
             "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5363,6 +6658,16 @@
             "post-commit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5375,6 +6680,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5389,6 +6703,16 @@
             ":(literal)a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-J8G23s\\refresh.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5401,6 +6725,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5485,6 +6818,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5500,6 +6842,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5514,6 +6865,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5527,6 +6887,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5540,6 +6909,15 @@
             ":(literal)a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5551,6 +6929,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5563,6 +6950,15 @@
             "commit.cleanup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -5575,6 +6971,15 @@
             "hooks"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5588,6 +6993,15 @@
             "HEAD^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5600,6 +7014,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5611,6 +7034,16 @@
             "00dab6403d3acfabf5f3c2a154eee203217f5d6b"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-bB9w73\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5625,6 +7058,16 @@
             ":(literal)a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-bB9w73\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5638,6 +7081,16 @@
             "pre-commit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-bB9w73\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5654,6 +7107,16 @@
             "message"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-bB9w73\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5669,6 +7132,16 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo\\.git\\COMMIT_EDITMSG"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-bB9w73\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5679,6 +7152,15 @@
             "stripspace"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5691,6 +7173,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5701,6 +7192,16 @@
             "write-tree"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_INDEX_FILE": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0f0e4c60ca6f5931\\mixdog-commit-4242-bB9w73\\commit.index",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5717,6 +7218,15 @@
             "0b2fa82c898d1f50b40704fcee21b16502b8f6ad"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5767,6 +7277,15 @@
             "Edit a through paths (amended)"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5815,6 +7334,15 @@
             "--no-edit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5888,6 +7416,15 @@
             "HEAD~1"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5940,6 +7477,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -5955,6 +7501,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6008,6 +7563,15 @@
             "scratch.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6061,6 +7625,15 @@
             "a.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6144,6 +7717,15 @@
             "-"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6200,6 +7782,15 @@
             "-"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6258,6 +7849,15 @@
             "-"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -6369,6 +7969,15 @@
             "6c0b81c871eddac63c6994726b196d8bf90227b0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6382,6 +7991,15 @@
             "6c0b81c871eddac63c6994726b196d8bf90227b0^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6394,6 +8012,15 @@
             "6c0b81c871eddac63c6994726b196d8bf90227b0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6451,6 +8078,15 @@
             "6c0b81c871eddac63c6994726b196d8bf90227b0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6464,6 +8100,15 @@
             "6c0b81c871eddac63c6994726b196d8bf90227b0^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6479,6 +8124,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6493,6 +8147,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6506,6 +8169,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6563,6 +8235,15 @@
             "6c0b81c871eddac63c6994726b196d8bf90227b0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6576,6 +8257,15 @@
             "6c0b81c871eddac63c6994726b196d8bf90227b0^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6591,6 +8281,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6605,6 +8304,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6618,6 +8326,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6705,6 +8422,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6718,6 +8444,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6733,6 +8468,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6747,6 +8491,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6760,6 +8513,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6815,6 +8577,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6828,6 +8599,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6840,6 +8620,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6891,6 +8680,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6904,6 +8702,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6918,6 +8725,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6930,6 +8746,15 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -6983,6 +8808,15 @@
             "0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -6996,6 +8830,15 @@
             "0123456789abcdef^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -7007,6 +8850,15 @@
             "--disambiguate=0123456789abcdef"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7058,6 +8910,15 @@
             "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7071,6 +8932,15 @@
             "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7086,6 +8956,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7100,6 +8979,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7113,6 +9001,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7127,6 +9024,15 @@
             "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7139,6 +9045,15 @@
             "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7192,6 +9107,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7205,6 +9129,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7220,6 +9153,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7234,6 +9176,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7247,6 +9198,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7261,6 +9221,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7273,6 +9242,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -7285,6 +9263,15 @@
             "--diff-filter=U"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7333,6 +9320,15 @@
             "--continue"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -7379,6 +9375,15 @@
             "--abort"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7502,6 +9507,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7515,6 +9529,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7530,6 +9553,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7544,6 +9576,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7557,6 +9598,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7571,6 +9621,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7583,6 +9642,15 @@
             "b96c1e980161d604540c27a8798a11f80cb31eb1"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -7595,6 +9663,15 @@
             "--diff-filter=U"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7641,6 +9718,15 @@
             "--continue"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7771,6 +9857,15 @@
             "refs/remotes"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7822,6 +9917,15 @@
             "topic"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7834,6 +9938,15 @@
             "topic2"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7847,6 +9960,15 @@
             "topic2"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7927,6 +10049,15 @@
             "topic2"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7939,6 +10070,15 @@
             "feature"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -7952,6 +10092,15 @@
             "feature"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -8001,6 +10150,15 @@
             "topic2"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8013,6 +10171,15 @@
             "topic2"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8064,6 +10231,15 @@
             "main"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8076,6 +10252,15 @@
             "main"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -8127,6 +10312,15 @@
             "unmerged"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8139,6 +10333,15 @@
             "unmerged"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -8190,6 +10393,15 @@
             "nope"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8202,6 +10414,15 @@
             "nope"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -8252,6 +10473,15 @@
             "refs/tags/v1.0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8266,6 +10496,15 @@
             "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8279,6 +10518,15 @@
             "e4efa63ad1cf7fab253ca3b5aa856e08539266fd^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8291,6 +10539,15 @@
             "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8343,6 +10600,15 @@
             "refs/tags/v1.0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8357,6 +10623,15 @@
             "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8370,6 +10645,15 @@
             "e4efa63ad1cf7fab253ca3b5aa856e08539266fd^{commit}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8382,6 +10666,15 @@
             "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -8457,6 +10750,15 @@
             "refs/tags/v1.0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8469,6 +10771,15 @@
             "v1.0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8519,6 +10830,15 @@
             "refs/tags/v1.0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8531,6 +10851,15 @@
             "v1.0"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -8641,6 +10970,15 @@
             "refs/remotes"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8692,6 +11030,15 @@
             "wip from phone"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8751,6 +11098,15 @@
             "--format=%gd%x00%s%x00%cr"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8799,6 +11155,15 @@
             "-u"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8848,6 +11213,15 @@
             "stash@{0}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -8899,6 +11273,15 @@
             "stash@{9}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -8971,6 +11354,15 @@
             "pop"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9019,6 +11411,15 @@
             "pop"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -9068,6 +11469,15 @@
             "stash@{0}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9119,6 +11529,15 @@
             "stash@{0}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -9166,6 +11585,15 @@
             "--format=%gd%x00%s%x00%cr"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9216,6 +11644,15 @@
             "@{u}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -9229,6 +11666,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -9275,6 +11721,15 @@
             "--prune"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9324,6 +11779,15 @@
             "--no-edit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -9373,6 +11837,15 @@
             "--no-edit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -9457,6 +11930,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9471,6 +11953,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9484,6 +11975,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9496,6 +11996,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9508,6 +12017,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9592,6 +12110,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9606,6 +12133,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9619,6 +12155,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9703,6 +12248,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9717,6 +12271,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9730,6 +12293,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9821,6 +12393,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9835,6 +12416,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9848,6 +12438,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9860,6 +12459,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9951,6 +12559,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9965,6 +12582,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9978,6 +12604,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -9990,6 +12625,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10002,6 +12646,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10086,6 +12739,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10100,6 +12762,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10113,6 +12784,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10125,6 +12805,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10180,6 +12869,15 @@
             "@{u}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 128
           }
@@ -10193,6 +12891,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10241,6 +12948,15 @@
             "@{u}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10251,6 +12967,15 @@
             "push"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10299,6 +13024,15 @@
             "@{u}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10309,6 +13043,15 @@
             "push"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10355,6 +13098,15 @@
             "--prune"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10439,6 +13191,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10453,6 +13214,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10466,6 +13236,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10478,6 +13257,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10525,6 +13313,15 @@
             "--no-edit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10575,6 +13372,15 @@
             "@{u}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10585,6 +13391,15 @@
             "push"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -10632,6 +13447,15 @@
             "--no-edit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10645,6 +13469,15 @@
             "@{u}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10655,6 +13488,15 @@
             "push"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10702,6 +13544,15 @@
             "--no-edit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10715,6 +13566,15 @@
             "@{u}"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10725,6 +13585,15 @@
             "push"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10774,6 +13643,15 @@
             "--no-edit"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1
           }
@@ -10820,6 +13698,15 @@
             "--abort"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -10929,6 +13816,12 @@
             "--silent"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -11081,6 +13974,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -11099,6 +14006,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -11117,6 +14038,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -11135,6 +14070,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -11183,6 +14132,12 @@
             "--silent"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -11235,6 +14190,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -11287,6 +14248,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stdout": "Found Package\nInstaller hash does not match\n",
@@ -11340,6 +14307,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
@@ -11398,6 +14371,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
@@ -11409,6 +14388,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "gh version 2.65.0 (2026-01-02)\nhttps://github.com/cli/cli/releases/tag/v2.65.0\n"
@@ -11424,6 +14409,12 @@
             "--active"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
@@ -11478,6 +14469,12 @@
             "--active"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
@@ -11523,6 +14520,12 @@
             "user"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "gh: To use GitHub CLI, run: gh auth login\n"
@@ -11571,6 +14574,12 @@
             "--active"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
@@ -11585,6 +14594,12 @@
             "github.com"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "not logged in to any hosts\n"
@@ -11635,6 +14650,12 @@
             "--silent"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "gh: Not Found (HTTP 404)\n"
@@ -11685,6 +14706,12 @@
             "--silent"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -11734,6 +14761,12 @@
             "--silent"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -11781,6 +14814,12 @@
             "--silent"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "error connecting to api.github.com\n"
@@ -11831,6 +14870,12 @@
             "--silent"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -11887,9 +14932,14 @@
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
           "env": {
-            "GH_PROMPT_DISABLED": "1",
-            "BROWSER": "cmd /c exit 0",
-            "GH_BROWSER": "cmd /c exit 0"
+            "set": {
+              "BROWSER": "cmd /c exit 0",
+              "GH_BROWSER": "cmd /c exit 0",
+              "GH_PROMPT_DISABLED": "1"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
           }
         }
       ],
@@ -12320,9 +15370,14 @@
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
           "env": {
-            "GH_PROMPT_DISABLED": "1",
-            "BROWSER": "cmd /c exit 0",
-            "GH_BROWSER": "cmd /c exit 0"
+            "set": {
+              "BROWSER": "cmd /c exit 0",
+              "GH_BROWSER": "cmd /c exit 0",
+              "GH_PROMPT_DISABLED": "1"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
           }
         }
       ],
@@ -12422,9 +15477,14 @@
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
           "env": {
-            "GH_PROMPT_DISABLED": "1",
-            "BROWSER": "cmd /c exit 0",
-            "GH_BROWSER": "cmd /c exit 0"
+            "set": {
+              "BROWSER": "cmd /c exit 0",
+              "GH_BROWSER": "cmd /c exit 0",
+              "GH_PROMPT_DISABLED": "1"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
           }
         }
       ],
@@ -12552,9 +15612,14 @@
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
           "env": {
-            "GH_PROMPT_DISABLED": "1",
-            "BROWSER": "cmd /c exit 0",
-            "GH_BROWSER": "cmd /c exit 0"
+            "set": {
+              "BROWSER": "cmd /c exit 0",
+              "GH_BROWSER": "cmd /c exit 0",
+              "GH_PROMPT_DISABLED": "1"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
           }
         }
       ],
@@ -12653,6 +15718,12 @@
             "--active"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "github.com\n  ✓ Logged in to github.com account octo-dev (keyring)\n  - Active account: true\n"
@@ -12704,6 +15775,12 @@
             "user"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "{\"login\":\"octo-dev\",\"id\":4242,\"name\":\"Octo Dev\",\"email\":null}\n"
@@ -12749,6 +15826,12 @@
             "user"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "error connecting to api.github.com\n"
@@ -12956,6 +16039,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "GraphQL: Could not resolve to a User with the login of 'copilot'.\n"
@@ -12974,6 +16071,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"SUCCESS\"},{\"state\":\"PENDING\"}]}]\n"
@@ -12992,6 +16103,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "[]\n"
@@ -13010,6 +16135,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[]},{\"number\":9,\"title\":\"Fix typo\",\"author\":{\"login\":\"bo\"},\"headRefName\":\"typo\",\"baseRefName\":\"main\",\"isDraft\":true,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/9\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"reviewDecision\":\"\",\"statusCheckRollup\":null}]\n"
@@ -13086,6 +16225,20 @@
             ".defaultBranchRef.name"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "main\n"
@@ -13189,6 +16342,20 @@
             "From the phone"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "https://github.com/octo/demo/pull/13\n"
@@ -13204,6 +16371,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "{\"number\":13,\"title\":\"Phone PR\",\"author\":{\"login\":\"octo-dev\"},\"headRefName\":\"phone\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/13\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"\",\"statusCheckRollup\":[]}\n"
@@ -13526,6 +16707,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup,body,additions,deletions,changedFiles,files,mergeable,mergeStateStatus,createdAt,labels,comments,reviews,reviewRequests"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"FAILURE\"}],\"body\":\"Retries the call.\",\"additions\":10,\"deletions\":2,\"changedFiles\":2,\"files\":[{\"path\":\"src/a.rs\",\"additions\":8,\"deletions\":1},{\"path\":\"\",\"additions\":1,\"deletions\":1}],\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"labels\":[{\"name\":\"bug\"},{\"name\":\"\"}],\"comments\":[{\"body\":\"Looks good\",\"author\":{\"login\":\"bo\"},\"createdAt\":\"2026-01-01T12:00:00Z\"},{\"body\":\"  \",\"author\":{\"login\":\"x\"},\"createdAt\":\"2026-01-01T13:00:00Z\"}],\"reviews\":[{\"state\":\"CHANGES_REQUESTED\",\"body\":\"Please add a test\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-01T14:00:00Z\"},{\"state\":\"COMMENTED\",\"body\":\"\",\"author\":{\"login\":\"cy\"},\"submittedAt\":\"2026-01-01T15:00:00Z\"},{\"state\":\"APPROVED\",\"body\":\"\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-02T01:00:00Z\"}],\"reviewRequests\":[{\"login\":\"dee\"}]}\n"
@@ -13720,6 +16915,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup,body,additions,deletions,changedFiles,files,mergeable,mergeStateStatus,createdAt,labels,comments,reviews,reviewRequests"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"FAILURE\"}],\"body\":\"Retries the call.\",\"additions\":10,\"deletions\":2,\"changedFiles\":2,\"files\":[{\"path\":\"src/a.rs\",\"additions\":8,\"deletions\":1},{\"path\":\"\",\"additions\":1,\"deletions\":1}],\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"labels\":[{\"name\":\"bug\"},{\"name\":\"\"}],\"comments\":[{\"body\":\"Looks good\",\"author\":{\"login\":\"bo\"},\"createdAt\":\"2026-01-01T12:00:00Z\"},{\"body\":\"  \",\"author\":{\"login\":\"x\"},\"createdAt\":\"2026-01-01T13:00:00Z\"}],\"reviews\":[{\"state\":\"CHANGES_REQUESTED\",\"body\":\"Please add a test\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-01T14:00:00Z\"},{\"state\":\"COMMENTED\",\"body\":\"\",\"author\":{\"login\":\"cy\"},\"submittedAt\":\"2026-01-01T15:00:00Z\"},{\"state\":\"APPROVED\",\"body\":\"\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-02T01:00:00Z\"}],\"reviewRequests\":[{\"login\":\"dee\"}]}\n"
@@ -13774,6 +16983,20 @@
             "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup,body,additions,deletions,changedFiles,files,mergeable,mergeStateStatus,createdAt,labels,comments,reviews,reviewRequests"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
@@ -13897,6 +17120,20 @@
             "12"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stderr": "Switched to branch 'retry'\n"
@@ -13949,6 +17186,20 @@
             "404"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
@@ -14038,6 +17289,20 @@
             "--merge"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "✓ Merged pull request octo/demo#12\n"
@@ -14091,6 +17356,20 @@
             "--squash"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "✓ Squashed and merged pull request octo/demo#12\n"
@@ -14185,6 +17464,20 @@
             "--merge"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
@@ -14235,6 +17528,20 @@
             "12"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n"
@@ -14287,6 +17594,20 @@
             "404"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
@@ -14425,6 +17746,20 @@
             "GET"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "[{\"number\":12,\"title\":\"Add retry\",\"state\":\"open\",\"user\":{\"login\":\"ada\"}}]\n"
@@ -14622,6 +17957,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "git version 2.51.0.windows.1\n"
@@ -14666,6 +18007,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -14685,6 +18032,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 1,
             "stdout": "Found Package\nInstaller hash does not match\n",
@@ -14730,6 +18083,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -14749,6 +18108,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
@@ -14760,6 +18125,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -14842,6 +18213,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -14861,6 +18238,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
@@ -14872,6 +18255,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "git version 2.51.0.windows.1\n"
@@ -14920,6 +18309,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -14970,6 +18365,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15014,6 +18415,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15033,6 +18440,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15077,6 +18490,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15096,6 +18515,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
@@ -15107,6 +18532,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15155,6 +18586,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15174,6 +18611,12 @@
             "--disable-interactivity"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
@@ -15185,6 +18628,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "LibreOffice 24.8.4.2 480(Build:2)\n"
@@ -15233,6 +18682,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "LibreOffice 24.8.4.2 480(Build:2)\n"
@@ -15322,6 +18777,12 @@
             "--version"
           ],
           "cwd": null,
+          "env": {
+            "set": {},
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0,
             "stdout": "LibreOffice 24.8.4.2 480(Build:2)\n"
@@ -15407,6 +18868,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15422,6 +18892,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15436,6 +18915,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15449,6 +18937,15 @@
             "-v"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15462,6 +18959,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15517,6 +19023,15 @@
             "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15576,6 +19091,15 @@
             "f.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": -1,
             "stderr": "ENOENT"
@@ -15634,6 +19158,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -15646,6 +19179,15 @@
             "HEAD"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -15663,6 +19205,15 @@
             "big.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "error": "EMAXBUFFER"
           }
@@ -15721,6 +19272,15 @@
             "--untracked-files=all"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "error": "ETIMEDOUT"
           }
@@ -15735,6 +19295,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -15748,6 +19317,15 @@
             "-z"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -15760,6 +19338,15 @@
             "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
           "reply": {
             "code": 0
           }
@@ -15816,6 +19403,100 @@
       }
     }
   ],
+  "ptyEnds": [
+    {
+      "argv": [
+        "auth",
+        "login",
+        "--hostname",
+        "github.com",
+        "--web"
+      ],
+      "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
+      "env": {
+        "set": {
+          "BROWSER": "cmd /c exit 0",
+          "GH_BROWSER": "cmd /c exit 0",
+          "GH_PROMPT_DISABLED": "1"
+        },
+        "remove": [
+          "NODE_ENV"
+        ]
+      },
+      "ended": {
+        "error": "cancelled"
+      }
+    },
+    {
+      "argv": [
+        "auth",
+        "login",
+        "--hostname",
+        "github.com",
+        "--web"
+      ],
+      "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
+      "env": {
+        "set": {
+          "BROWSER": "cmd /c exit 0",
+          "GH_BROWSER": "cmd /c exit 0",
+          "GH_PROMPT_DISABLED": "1"
+        },
+        "remove": [
+          "NODE_ENV"
+        ]
+      },
+      "ended": {
+        "code": 0
+      }
+    },
+    {
+      "argv": [
+        "auth",
+        "login",
+        "--hostname",
+        "github.com",
+        "--web"
+      ],
+      "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
+      "env": {
+        "set": {
+          "BROWSER": "cmd /c exit 0",
+          "GH_BROWSER": "cmd /c exit 0",
+          "GH_PROMPT_DISABLED": "1"
+        },
+        "remove": [
+          "NODE_ENV"
+        ]
+      },
+      "ended": {
+        "code": 1
+      }
+    },
+    {
+      "argv": [
+        "auth",
+        "login",
+        "--hostname",
+        "github.com",
+        "--web"
+      ],
+      "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\home",
+      "env": {
+        "set": {
+          "BROWSER": "cmd /c exit 0",
+          "GH_BROWSER": "cmd /c exit 0",
+          "GH_PROMPT_DISABLED": "1"
+        },
+        "remove": [
+          "NODE_ENV"
+        ]
+      },
+      "ended": {
+        "code": 1
+      }
+    }
+  ],
   "ordering": {
     "name": "read-behind-a-slow-write",
     "calls": [
@@ -15861,77 +19542,40 @@
     "heldStarts": [
       "gitStage"
     ],
-    "orders": [
-      [
-        {
-          "started": "gitStage",
-          "endedBefore": []
-        },
-        {
-          "started": "gitStatus",
-          "endedBefore": [
-            "gitStage"
-          ]
-        },
-        {
-          "started": "gitLog",
-          "endedBefore": [
-            "gitStage"
-          ]
-        },
-        {
-          "started": "gitUnstage",
-          "endedBefore": [
-            "gitStage",
-            "gitStatus",
-            "gitLog"
-          ]
-        },
-        {
-          "started": "gitDiff",
-          "endedBefore": [
-            "gitStage",
-            "gitStatus",
-            "gitLog",
-            "gitUnstage"
-          ]
-        }
-      ],
-      [
-        {
-          "started": "gitStage",
-          "endedBefore": []
-        },
-        {
-          "started": "gitStatus",
-          "endedBefore": [
-            "gitStage"
-          ]
-        },
-        {
-          "started": "gitLog",
-          "endedBefore": [
-            "gitStage"
-          ]
-        },
-        {
-          "started": "gitUnstage",
-          "endedBefore": [
-            "gitStage",
-            "gitStatus",
-            "gitLog"
-          ]
-        },
-        {
-          "started": "gitDiff",
-          "endedBefore": [
-            "gitStage",
-            "gitStatus",
-            "gitLog",
-            "gitUnstage"
-          ]
-        }
-      ]
+    "order": [
+      {
+        "started": "gitStage",
+        "endedBefore": []
+      },
+      {
+        "started": "gitStatus",
+        "endedBefore": [
+          "gitStage"
+        ]
+      },
+      {
+        "started": "gitLog",
+        "endedBefore": [
+          "gitStage"
+        ]
+      },
+      {
+        "started": "gitUnstage",
+        "endedBefore": [
+          "gitStage",
+          "gitStatus",
+          "gitLog"
+        ]
+      },
+      {
+        "started": "gitDiff",
+        "endedBefore": [
+          "gitStage",
+          "gitStatus",
+          "gitLog",
+          "gitUnstage"
+        ]
+      }
     ],
     "answers": [
       {

@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
@@ -316,14 +317,13 @@ pub async fn show(
     let metadata_args = ["show", "-s", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P", hash];
     let status_args = ["show", "--format=", "--name-status", "-z", "--find-renames", "--first-parent", hash];
     let numstat_args = ["show", "--format=", "--numstat", "-z", "--find-renames", "--first-parent", hash];
-    // Promise.all starts the three and leaves the others running when one fails: join!, the first failure in this order is reported.
-    let (metadata, status_raw, numstat_raw) = tokio::join!(
-        git.read(cancel, cwd, &metadata_args),
-        git.read(cancel, cwd, &status_args),
-        git.read(cancel, cwd, &numstat_args),
-    );
-    let (metadata, status_raw, numstat_raw) = (metadata?, status_raw?, numstat_raw?);
-    let mut fields = metadata.trim().split('\u{1f}');
+    // Promise.all (git-history.ts:298): the three start in this order; the first to fail in time is the failure reported, at once.
+    let read = |args: &[&str]| {
+        let (git, cancel, cwd) = (git.clone(), cancel.clone(), cwd.to_path_buf());
+        let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+        async move { git.read(&cancel, &cwd, &args.iter().map(String::as_str).collect::<Vec<_>>()).await }
+    };    let ((metadata, status_raw), numstat_raw) =
+        crate::promise_all::all2(crate::promise_all::all2(read(&metadata_args), read(&status_args)), read(&numstat_args)).await?;    let mut fields = metadata.trim().split('\u{1f}');
     let full_hash = fields.next().unwrap_or(hash).to_owned();
     let short_hash = fields
         .next()
@@ -411,7 +411,10 @@ pub async fn uncommitted_base(
 
 /// A patch for a file that is not tracked yet: every line added.
 pub fn untracked_patch(root: &Path, path: &str) -> String {
-    let Ok(bytes) = std::fs::read(root.join(path)) else {
+    // Node's `join(root, path)` appends: an absolute `path` names a place under the root (`C:\repo\C:\outside\x`), never outside it
+    // (`Path::join` would replace the root).
+    let under_root = PathBuf::from(format!("{}{}{}", root.display(), std::path::MAIN_SEPARATOR, path.trim_start_matches(['/', '\\'])));
+    let Ok(bytes) = std::fs::read(under_root) else {
         return String::new();
     };
     if bytes.is_empty() || bytes.contains(&0) {
@@ -535,5 +538,18 @@ mod tests {
             untracked_patch(dir.path(), "new.txt"),
             "diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod untracked_join_tests {
+    /// An absolute path is read under the root, as Node's `join` places it, never at the place it names.
+    #[test]
+    fn an_absolute_path_is_not_read_outside_the_root() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.txt");
+        std::fs::write(&secret, "outside\n").unwrap();
+        assert_eq!(super::untracked_patch(root.path(), &secret.to_string_lossy()), "");
     }
 }

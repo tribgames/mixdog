@@ -656,7 +656,7 @@ impl Repo {
             return Err(failure);
         }
         self.hook(&index_file, hooks, "post-commit", &[], true).await?;
-        self.refresh_committed_paths(&commit, &changed, &index_before).await?;
+        self.refresh_committed_paths(&commit, &changed, &index_before, &scratch.0).await?;
         let branch = git
             .outcome(&self.cancel, &root, &["symbolic-ref", "--short", "HEAD"], &RunOptions::default())
             .await?;
@@ -704,46 +704,119 @@ impl Repo {
         Ok(nul_records(&raw).map(str::to_owned).collect())
     }
 
-    /// Moves the user's index entries of the committed paths to the new commit. A path is
-    /// refreshed only while its entry still is what the commit was built from: anything staged
-    /// underneath meanwhile is left alone and reported, because overwriting it would silently
-    /// demote someone else's staged content to an unstaged change.
+    /// Moves the user's index entries of the committed paths to the new commit (refreshCommittedPaths,
+    /// git-commit-transaction.ts:1010): `index.lock` is created exclusively and held from the comparison to the publication, so a
+    /// stage another process makes in between is never read and overwritten. A path is refreshed only while its entry still is
+    /// what the commit was built from: anything staged underneath meanwhile is left alone and reported. The refresh is made on a
+    /// copy of the index, and the copy's bytes are written into the lock and renamed onto the index.
     async fn refresh_committed_paths(
         &self,
         commit: &str,
         changed: &[String],
         built_from: &HashMap<String, String>,
+        scratch: &Path,
     ) -> Result<(), ScmFailure> {
-        let current = self.index_snapshot().await?;
-        let (moved, refreshable): (Vec<&String>, Vec<&String>) = changed.iter().partition(|path| {
-            current.get(*path).map(String::as_str).unwrap_or("")
-                != built_from.get(*path).map(String::as_str).unwrap_or("")
-        });
-        if !refreshable.is_empty() {
-            let specs: Vec<String> = refreshable.iter().map(|path| literal(path)).collect();
-            let mut args = vec!["reset", "--quiet", commit, "--"];
-            args.extend(specs.iter().map(String::as_str));
-            if let Err(failure) = self.run(&args).await {
-                let short = &commit[..commit.len().min(7)];
-                let paths: Vec<String> = refreshable.iter().take(10).map(|p| (*p).clone()).collect();
-                let recovery: Vec<String> = paths.iter().map(|p| format!("\"{}\"", literal(p))).collect();
-                return Err(ScmFailure::refused(
-                    "INDEX_REFRESH_FAILED",
-                    format!(
-                        "Commit {short} was created, but the index entries for {} could not be refreshed: {failure}. Run \"git reset {short} -- {}\" to finish it{}",
-                        paths.join(", "),
-                        recovery.join(" "),
-                        if refreshable.len() > 10 { ", then the remaining paths the same way." } else { "." }
-                    ),
+        let short = &commit[..commit.len().min(7)];
+        let refresh_failure = |paths: &[&String], detail: String| {
+            let listed: Vec<String> = paths.iter().take(10).map(|p| (*p).clone()).collect();
+            let recovery: Vec<String> = listed.iter().map(|p| format!("\"{}\"", literal(p))).collect();
+            ScmFailure::refused(
+                "INDEX_REFRESH_FAILED",
+                format!(
+                    "Commit {short} was created, but the index entries for {} could not be refreshed: {detail}. Run \"git reset {short} -- {}\" to finish it{}",
+                    listed.join(", "),
+                    recovery.join(" "),
+                    if paths.len() > 10 { ", then the remaining paths the same way." } else { "." }
+                ),
+            )
+        };
+        let everything: Vec<&String> = changed.iter().collect();
+        let index_path = self.identity.git_dir.join("index");
+        let lock_path = self.identity.git_dir.join("index.lock");
+        let taking = lock_path.clone();
+        let created = on_lane(self.scm.lane, &self.cancel, move || {
+            std::fs::OpenOptions::new().write(true).create_new(true).open(&taking)
+        })
+        .await?;
+        let mut lock = match created {
+            Ok(file) => Some(file),
+            Err(error) => {
+                return Err(refresh_failure(
+                    &everything,
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        // Somebody else's lock: it is left exactly where it is.
+                        format!(
+                            "another Git process took \"{}\" while this commit was being made; wait for it to finish, or delete that file if no Git process is running",
+                            lock_path.display()
+                        )
+                    } else {
+                        format!("{} could not be created: {error}", lock_path.display())
+                    },
                 ));
             }
+        };
+        let mut published = false;
+        let outcome: Result<Vec<&String>, ScmFailure> = async {
+            // The lock is held from here on: nothing can reach the index between this read and the replace below.
+            let current = self.index_snapshot().await?;
+            let (moved, refreshable): (Vec<&String>, Vec<&String>) = changed.iter().partition(|path| {
+                current.get(*path).map(String::as_str).unwrap_or("") != built_from.get(*path).map(String::as_str).unwrap_or("")
+            });
+            if refreshable.is_empty() {
+                return Ok(moved);
+            }
+            let staging = scratch.join("refresh.index");
+            let (from, to) = (index_path.clone(), staging.clone());
+            let refreshed: Result<Vec<u8>, String> = async {
+                on_lane(self.scm.lane, &self.cancel, move || match std::fs::copy(&from, &to) {
+                    // A repository with no index file yet simply starts from an empty one.
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+                    other => other,
+                })
+                .await
+                .map_err(|failure| failure.to_string())?
+                .map_err(|error| error.to_string())?;
+                let specs: Vec<String> = refreshable.iter().map(|path| literal(path)).collect();
+                let mut args = vec!["reset", "--quiet", commit, "--"];
+                args.extend(specs.iter().map(String::as_str));
+                let options = RunOptions { index_file: Some(staging.clone()), ..RunOptions::default() };
+                self.scm.git.text(&self.cancel, self.root().map_err(|failure| failure.to_string())?, &args, &options).await.map_err(|failure| failure.to_string())?;
+                let read = staging.clone();
+                on_lane(self.scm.lane, &self.cancel, move || std::fs::read(read))
+                    .await
+                    .map_err(|failure| failure.to_string())?
+                    .map_err(|error| error.to_string())
+            }
+            .await;
+            let updated = refreshed.map_err(|detail| refresh_failure(&refreshable, detail))?;
+            // Every byte on disk and verified before anything is published.
+            let (mut file, target) = (lock.take().expect("the lock is held"), index_path.clone());
+            let source = lock_path.clone();
+            let wrote = on_lane(self.scm.lane, &self.cancel, move || -> std::io::Result<()> {
+                use std::io::Write;
+                file.write_all(&updated)?;
+                file.set_len(updated.len() as u64)?;
+                file.sync_all()?;
+                drop(file);
+                std::fs::rename(&source, &target)
+            })
+            .await?;
+            wrote.map_err(|error| refresh_failure(&refreshable, error.to_string()))?;
+            published = true;
+            Ok(moved)
         }
+        .await;
+        // Only ever the lock this call created: after the rename there is nothing of ours left.
+        if !published {
+            let gone = lock_path.clone();
+            let _ = on_lane(self.scm.lane, &self.cancel, move || std::fs::remove_file(gone)).await;
+        }
+        let moved = outcome?;
         if !moved.is_empty() {
             return Err(ScmFailure::refused(
                 "STAGED_UNDERNEATH",
                 format!(
-                    "Commit {} was created. {} was staged again while it was being committed, so that entry was left exactly as it is — nothing staged has been overwritten. Refresh Source Control to see the current state.",
-                    &commit[..commit.len().min(7)],
+                    "Commit {short} was created. {} was staged again while it was being committed, so that entry was left exactly as it is — nothing staged has been overwritten. Refresh Source Control to see the current state.",
                     moved.iter().take(10).map(|p| p.as_str()).collect::<Vec<_>>().join(", ")
                 ),
             ));
@@ -751,7 +824,6 @@ impl Repo {
         Ok(())
     }
 }
-
 fn not_in_repository(paths: &[String]) -> ScmFailure {
     ScmFailure::refused(
         "PATH_UNKNOWN",
@@ -816,10 +888,25 @@ mod tests {
     }
 }
 
-/// Windows spells a canonical path with a verbatim prefix; Node's realpath answers the plain drive spelling git also uses.
+/// Windows spells a canonical path with a verbatim prefix; Node's realpath answers the plain spelling git also uses (a drive path,
+/// or `\\server\share` for `\\?\UNC\server\share`): the one normalization of git_launch.
 fn plain_path(path: PathBuf) -> PathBuf {
-    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
-        _ => path,
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")).and_then(crate::git_launch::normalize_verbatim) {
+        Some(plain) => PathBuf::from(plain),
+        None => path,
+    }
+}
+
+#[cfg(test)]
+mod plain_path_tests {
+    use super::plain_path;
+    use std::path::PathBuf;
+
+    /// libuv's realpath words `\\?\UNC\server\share\r` as `\\server\share\r` and `\\?\C:\r` as `C:\r`; anything else stays.
+    #[test]
+    fn a_verbatim_path_is_spelled_as_libuv_spells_it() {
+        assert_eq!(plain_path(PathBuf::from(r"\\?\UNC\server\share\repo")), PathBuf::from(r"\\server\share\repo"));
+        assert_eq!(plain_path(PathBuf::from(r"\\?\C:\repo")), PathBuf::from(r"C:\repo"));
+        assert_eq!(plain_path(PathBuf::from(r"\\?\Volume{1}\repo")), PathBuf::from(r"\\?\Volume{1}\repo"));
     }
 }

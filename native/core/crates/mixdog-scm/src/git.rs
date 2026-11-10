@@ -40,8 +40,6 @@ pub struct RunOptions {
     pub index_file: Option<PathBuf>,
     /// Hooks are project-controlled code: they never see provider or cloud credentials.
     pub protect_hook: bool,
-    /// `GIT_ASKPASS` helper that records a credential request instead of answering it.
-    pub askpass: Option<PathBuf>,
     /// Variables set on top of the pinned environment (a commit identity).
     pub extra_env: Vec<(String, String)>,
     pub read_limit: bool,
@@ -50,6 +48,8 @@ pub struct RunOptions {
     pub time_limit: Option<Duration>,
     pub input: Option<Vec<u8>>,
     pub max_output: Option<u64>,
+    /// A dependency probe (Node's `cli-run.ts` `run`): the scrubbed child environment and nothing git-specific on top of it.
+    pub bare_env: bool,
 }
 
 impl RunOptions {
@@ -107,8 +107,13 @@ async fn launch_once(exec: &Exec, lane: MaintenanceIo, mut spec: ExecSpec, cance
             Some(launch) => launch,
             None => {
                 static FIRST_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+                // The resolution belongs to the PATH, not to a repository: every caller needs the same answer, so those that queued
+                // behind the first take it from the cache it filled instead of resolving again.
                 let _turn = FIRST_RESOLUTION.lock().await;
-                on_lane(lane, cancel, move || git_launch::launch_for(&base)).await?
+                match git_launch::launch_if_resolved(&base) {
+                    Some(launch) => launch,
+                    None => on_lane(lane, cancel, move || git_launch::launch_for(&base)).await?,
+                }
             }
         };
         apply_launch(&mut spec, launch);
@@ -154,30 +159,22 @@ impl Git {
     ) -> Result<ExecOutput, ScmFailure> {
         let mut spec = ExecSpec::new("git", cwd);
         spec.args = args.iter().map(|arg| (*arg).to_owned()).collect();
-        spec.env_set = vec![
-            ("GIT_TERMINAL_PROMPT".into(), "0".into()),
-            ("GIT_EDITOR".into(), "true".into()),
-            ("GIT_SEQUENCE_EDITOR".into(), "true".into()),
-        ];
-        match &options.index_file {
-            Some(index) => spec
-                .env_set
-                .push(("GIT_INDEX_FILE".into(), index.to_string_lossy().into_owned())),
-            None => spec.env_remove.push("GIT_INDEX_FILE".into()),
-        }
-        if options.protect_hook {
-            spec.env_remove.extend(provider_secret_names());
-        }
-        spec.env_set.extend(options.extra_env.iter().cloned());
-        if let Some(helper) = &options.askpass {
-            spec.env_set
-                .push(("GIT_ASKPASS".into(), helper.to_string_lossy().into_owned()));
-            spec.env_set
-                .push(("SSH_ASKPASS".into(), helper.to_string_lossy().into_owned()));
-            spec.env_set.push((
-                ASKPASS_MARK_ENV.into(),
-                askpass_mark(helper).to_string_lossy().into_owned(),
-            ));
+        if !options.bare_env {
+            spec.env_set = vec![
+                ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+                ("GIT_EDITOR".into(), "true".into()),
+                ("GIT_SEQUENCE_EDITOR".into(), "true".into()),
+            ];
+            match &options.index_file {
+                Some(index) => spec
+                    .env_set
+                    .push(("GIT_INDEX_FILE".into(), index.to_string_lossy().into_owned())),
+                None => spec.env_remove.push("GIT_INDEX_FILE".into()),
+            }
+            if options.protect_hook {
+                spec.env_remove.extend(provider_secret_names());
+            }
+            spec.env_set.extend(options.extra_env.iter().cloned());
         }
         spec.stdin = options.input.clone();
         spec.time_limit = options.time_limit.or(options.read_limit.then_some(GIT_READ_LIMIT));
@@ -220,29 +217,10 @@ impl Git {
         self.text(cancel, cwd, args, &RunOptions::read()).await
     }
 
-    /// A command that talks to a remote. Credentials are never prompted for: git is given a
-    /// helper that records that it was asked, so "authentication is required" is told by that
-    /// fact and not by reading git's message.
-    pub async fn remote(
-        &self,
-        cancel: &CancellationToken,
-        cwd: &Path,
-        args: &[&str],
-    ) -> Result<String, ScmFailure> {
-        let scratch = AskpassScratch::create()?;
-        let options = RunOptions {
-            askpass: Some(scratch.helper.clone()),
-            ..RunOptions::default()
-        };
-        match self.text(cancel, cwd, args, &options).await {
-            Err(ScmFailure::Command { .. }) if scratch.was_asked() => Err(ScmFailure::refused(
-                CODE_AUTH_REQUIRED,
-                AUTH_REQUIRED_TEXT,
-            )),
-            other => other,
-        }
+    /// A command that talks to a remote, with a failure Node words for the person (`readableRemoteError`, git-mutations.ts:221).
+    pub async fn remote(&self, cancel: &CancellationToken, cwd: &Path, args: &[&str]) -> Result<String, ScmFailure> {
+        self.text(cancel, cwd, args, &RunOptions::default()).await.map_err(readable_remote_error)
     }
-
     /// `true` when the command exits 0.
     pub async fn succeeds(
         &self,
@@ -260,62 +238,14 @@ impl Git {
 pub const CODE_AUTH_REQUIRED: &str = "GIT_AUTH_REQUIRED";
 pub const AUTH_REQUIRED_TEXT: &str =
     "Git authentication is required. Sign in with your Git credential helper and retry.";
-const ASKPASS_MARK_ENV: &str = "MIXDOG_ASKPASS_MARK";
-
-fn askpass_mark(helper: &Path) -> PathBuf {
-    helper.with_file_name("asked")
+/// Node's `readableRemoteError`: a failure whose text says authentication failed reads as one sentence, anything else keeps its text.
+pub fn readable_remote_error(failure: ScmFailure) -> ScmFailure {
+    let message = failure.to_string().to_lowercase();
+    let asks_for_credentials = ["authentication failed", "could not read username", "terminal prompts disabled", "permission denied", "publickey"]
+        .iter()
+        .any(|phrase| message.contains(phrase));
+    if asks_for_credentials { ScmFailure::refused(CODE_AUTH_REQUIRED, AUTH_REQUIRED_TEXT) } else { failure }
 }
-
-/// The askpass helper of one remote command and the marker it leaves when git asks for a
-/// credential. Removed when the command ends.
-struct AskpassScratch {
-    dir: PathBuf,
-    helper: PathBuf,
-}
-
-impl AskpassScratch {
-    fn create() -> Result<Self, ScmFailure> {
-        use std::sync::atomic::AtomicU64;
-        use std::sync::atomic::Ordering;
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "mixdog-askpass-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir)?;
-        let (name, body) = if cfg!(windows) {
-            (
-                "askpass.cmd",
-                format!("@echo off\r\necho asked> \"%{ASKPASS_MARK_ENV}%\"\r\nexit /b 1\r\n"),
-            )
-        } else {
-            (
-                "askpass.sh",
-                format!("#!/bin/sh\n: > \"${ASKPASS_MARK_ENV}\"\nexit 1\n"),
-            )
-        };
-        let helper = dir.join(name);
-        std::fs::write(&helper, body)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))?;
-        }
-        Ok(Self { dir, helper })
-    }
-
-    fn was_asked(&self) -> bool {
-        askpass_mark(&self.helper).exists()
-    }
-}
-
-impl Drop for AskpassScratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
 fn failure_text(output: &ExecOutput, args: &[&str]) -> String {
     let stderr = output.stderr_text();
     let tail = if stderr.len() > TAIL_BYTES {

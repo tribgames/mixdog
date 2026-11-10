@@ -316,12 +316,18 @@ pub async fn git_review(git: &Git, lane: MaintenanceIo, cancel: &CancellationTok
     };
     let root_path = Path::new(&root);
     // The merge-base read runs beside the status scan; an unborn HEAD drops it.
-    let (status, merge_base) = tokio::join!(biased; review_status(git, cancel, root_path), async {
-        if source == "uncommitted" { Ok(None) } else { resolve_merge_base(git, cancel, root_path).await.map(Some) }
-    });
-    let status = status?;
-    let merge_base = merge_base?;
-    let unborn = status.head.is_empty() || status.head == "(initial)";
+    // Promise.all (git-history.ts:534): the status scan and the merge-base read start in this order and the first failure in time wins.
+    let scan = {
+        let (git, cancel, root) = (git.clone(), cancel.clone(), root_path.to_path_buf());
+        async move { review_status(&git, &cancel, &root).await }
+    };
+    let merge = {
+        let (git, cancel, root, source) = (git.clone(), cancel.clone(), root_path.to_path_buf(), source.to_owned());
+        async move {
+            if source == "uncommitted" { Ok(None) } else { resolve_merge_base(&git, &cancel, &root).await.map(Some) }
+        }
+    };
+    let (status, merge_base) = crate::promise_all::all2(scan, merge).await?;    let unborn = status.head.is_empty() || status.head == "(initial)";
     let mut base = "HEAD".to_owned();
     let mut reference = "HEAD".to_owned();
     if unborn {
@@ -457,15 +463,16 @@ fn unmatchable_header_path(path: &str) -> bool {
     path.chars().any(|c| c == '"' || c == '\\' || c < '\u{20}')
 }
 
-/// `gitReviewDiffs(cwd, files, source)`: one `git diff` over every tracked path (split per file) plus file reads for the untracked
-/// ones. Paths that cannot be served in bulk come back in `omitted`.
-pub async fn git_review_diffs(git: &Git, cancel: &CancellationToken, cwd: &Path, files: &[Value], source: &str) -> Result<Value, ScmFailure> {
-    let root = cached_git_root(git, cancel, cwd).await?;
-    let root_path = Path::new(&root);
-    let mut patches: Vec<Value> = Vec::new();
-    let mut omitted: Vec<String> = Vec::new();
-    let mut tracked: Vec<String> = Vec::new();
-    let mut untracked: Vec<String> = Vec::new();
+/// What `gitReviewDiffs` reads in bulk: the tracked paths one `git diff` can name, the untracked ones read from disk, and the paths
+/// that cannot be served in bulk (a name git would quote, or past the command-line budget).
+struct BatchPlan {
+    tracked: Vec<String>,
+    untracked: Vec<String>,
+    omitted: Vec<String>,
+}
+
+fn plan_batch(files: &[Value]) -> BatchPlan {
+    let mut plan = BatchPlan { tracked: Vec::new(), untracked: Vec::new(), omitted: Vec::new() };
     let mut arg_chars = 0usize;
     // `new Map(files.map(...)).values()`: a repeated path counts once, at its first position, with its last entry.
     let mut unique: IndexMap<String, bool> = IndexMap::new();
@@ -475,16 +482,29 @@ pub async fn git_review_diffs(git: &Git, cancel: &CancellationToken, cwd: &Path,
     }
     for (path, is_untracked) in unique {
         if is_untracked {
-            untracked.push(path);
+            plan.untracked.push(path);
             continue;
         }
         arg_chars += utf16_len(&path) + 3;
         if unmatchable_header_path(&path) || arg_chars > REVIEW_BATCH_ARGS_CHARS {
-            omitted.push(path);
+            plan.omitted.push(path);
         } else {
-            tracked.push(path);
+            plan.tracked.push(path);
         }
     }
+    plan
+}
+
+/// How the one `git diff` over the tracked paths ended.
+enum TrackedRead {
+    Output(String),
+    TooLarge,
+}
+
+/// The answer of `gitReviewDiffs` from what was read: the single diff split back per path, the untracked patches, and the patch budget.
+fn assemble_batch(plan: BatchPlan, tracked_read: Option<TrackedRead>, mut untracked_patch_of: impl FnMut(&str) -> String) -> Value {
+    let BatchPlan { tracked, untracked, mut omitted } = plan;
+    let mut patches: Vec<Value> = Vec::new();
     let mut budget = REVIEW_BATCH_PATCH_CHARS;
     let mut accept = |path: String, patch: String, omitted: &mut Vec<String>| {
         let length = utf16_len(&patch);
@@ -495,22 +515,10 @@ pub async fn git_review_diffs(git: &Git, cancel: &CancellationToken, cwd: &Path,
         budget -= length;
         patches.push(json!({ "path": path, "patch": patch }));
     };
-    if !tracked.is_empty() {
-        let (_, reference) = resolve_review_ref(git, cancel, root_path, source).await?;
-        let mut args = vec!["-c", "core.quotePath=false", "--no-optional-locks", "--literal-pathspecs", "diff"];
-        args.extend(DISPLAY_DIFF_ARGS);
-        // Headers are matched back as `a/<path> b/<path>`: pin the prefixes against diff.noprefix and diff.mnemonicPrefix.
-        args.extend(["--src-prefix=a/", "--dst-prefix=b/", "--no-renames", &reference, "--"]);
-        args.extend(tracked.iter().map(String::as_str));
-        let output = match git.text(cancel, root_path, &args, &RunOptions::read()).await {
-            Ok(text) => Some(text),
-            Err(ScmFailure::OutputTooLarge { .. }) => {
-                omitted.extend(tracked.iter().cloned());
-                None
-            }
-            Err(other) => return Err(other),
-        };
-        if let Some(output) = output {
+    match tracked_read {
+        None => {}
+        Some(TrackedRead::TooLarge) => omitted.extend(tracked.iter().cloned()),
+        Some(TrackedRead::Output(output)) => {
             let by_header: HashMap<String, &String> = tracked.iter().map(|path| (format!("diff --git a/{path} b/{path}"), path)).collect();
             let mut chunks: HashMap<&String, String> = HashMap::new();
             let mut unmatched = false;
@@ -549,8 +557,85 @@ pub async fn git_review_diffs(git: &Git, cancel: &CancellationToken, cwd: &Path,
         }
     }
     for path in untracked {
-        let patch = untracked_patch(root_path, &path);
+        let patch = untracked_patch_of(&path);
         accept(path, patch, &mut omitted);
     }
-    Ok(json!({ "patches": patches, "omitted": omitted }))
+    json!({ "patches": patches, "omitted": omitted })
+}
+
+/// `gitReviewDiffs(cwd, files, source)`: one `git diff` over every tracked path (split per file) plus file reads for the untracked
+/// ones. Paths that cannot be served in bulk come back in `omitted`.
+pub async fn git_review_diffs(git: &Git, cancel: &CancellationToken, cwd: &Path, files: &[Value], source: &str) -> Result<Value, ScmFailure> {
+    let root = cached_git_root(git, cancel, cwd).await?;
+    let root_path = Path::new(&root);
+    let plan = plan_batch(files);
+    let tracked_read = if plan.tracked.is_empty() {
+        None
+    } else {
+        let (_, reference) = resolve_review_ref(git, cancel, root_path, source).await?;
+        let mut args = vec!["-c", "core.quotePath=false", "--no-optional-locks", "--literal-pathspecs", "diff"];
+        args.extend(DISPLAY_DIFF_ARGS);
+        // Headers are matched back as `a/<path> b/<path>`: pin the prefixes against diff.noprefix and diff.mnemonicPrefix.
+        args.extend(["--src-prefix=a/", "--dst-prefix=b/", "--no-renames", &reference, "--"]);
+        args.extend(plan.tracked.iter().map(String::as_str));
+        match git.text(cancel, root_path, &args, &RunOptions::read()).await {
+            Ok(text) => Some(TrackedRead::Output(text)),
+            Err(ScmFailure::OutputTooLarge { .. }) => Some(TrackedRead::TooLarge),
+            Err(other) => return Err(other),
+        }
+    };
+    Ok(assemble_batch(plan, tracked_read, |path| untracked_patch(root_path, path)))
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    /// Node's `gitReviewDiffs` answers (`fixtures/desktop/review-batch/record.mjs`, corpus.json), replayed with the patches Node read:
+    /// a quoted-header name, the command-line budget, the patch budget, duplicates, a path that no longer exists.
+    #[test]
+    fn review_batches_match_the_recorded_node_answers() {
+        let recorded: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/review-batch/corpus.json"))).unwrap();
+        // A patch Node recorded only by length is a chunk of that length: its header, then filler.
+        let patch_of = |path: &str| match &recorded["patchOf"][path] {
+            entry if entry["patch"].is_string() => entry["patch"].as_str().unwrap().to_owned(),
+            entry => {
+                let header = format!("diff --git a/{path} b/{path}\n");
+                let filler = (entry["length"].as_u64().unwrap_or(0) as usize).saturating_sub(header.len() + 1);
+                format!("{header}{}\n", "x".repeat(filler))
+            }
+        };
+        for case in recorded["cases"].as_array().unwrap() {
+            let label = case["label"].as_str().unwrap();
+            let files = case["files"].as_array().unwrap();
+            let plan = plan_batch(files);
+            // The one diff git prints for the tracked paths: the patches of the tracked paths, in the order they were named.
+            let output = (!plan.tracked.is_empty()).then(|| TrackedRead::Output(plan.tracked.iter().map(|path| patch_of(path)).collect::<String>()));
+            let got = assemble_batch(plan, output, patch_of);
+            let want = &case["answer"];
+            assert_eq!(got["omitted"], want["omitted"], "{label}");
+            let shape = |patches: &Value| -> Vec<(String, String)> {
+                patches
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{label}: patches must be an array"))
+                    .iter()
+                    .map(|p| (p["path"].as_str().unwrap().to_owned(), p["patch"].as_str().map_or_else(|| p["length"].to_string(), |t| t.to_owned())))
+                    .collect()
+            };
+            // Long patches are recorded by length: ours are `x` runs of that length.
+            let ours: Vec<(String, String)> = got["patches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| {
+                    let (path, patch) = (p["path"].as_str().unwrap(), p["patch"].as_str().unwrap());
+                    let recorded_long = want["patches"].as_array().unwrap().iter().any(|w| w["path"] == path && w["length"].is_number());
+                    (path.to_owned(), if recorded_long { patch.encode_utf16().count().to_string() } else { patch.to_owned() })
+                })
+                .collect();
+            assert_eq!(ours, shape(&want["patches"]), "{label}");
+        }
+        // No files: both arrays are empty, never null.
+        assert_eq!(assemble_batch(plan_batch(&[]), None, patch_of), json!({ "patches": [], "omitted": [] }));
+    }
 }

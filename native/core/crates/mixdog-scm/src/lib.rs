@@ -14,6 +14,7 @@ pub mod inspect;
 pub mod locks;
 pub mod mutate;
 pub mod phone_review;
+pub mod promise_all;
 pub mod repo;
 pub(crate) mod seam;
 pub mod service;

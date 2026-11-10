@@ -24,6 +24,22 @@ function bounded(promise, message) {
 }
 
 /**
+ * The environment a child gets, as what its starter set or removed on top of the environment `base` it inherits from: every name that
+ * is new or has another value, and every inherited name left out. A starter that passes no environment changes nothing. Names are
+ * compared as the platform does (case-insensitively on Windows).
+ */
+export function envDelta(env, base) {
+  const key = (name) => (process.platform === 'win32' ? name.toUpperCase() : name);
+  if (!env) return { set: {}, remove: [] };
+  const given = new Map(Object.entries(env).map(([name, value]) => [key(name), String(value)]));
+  const inherited = new Map(Object.entries(base).map(([name, value]) => [key(name), String(value)]));
+  const set = {};
+  for (const [name, value] of [...given].sort(([a], [b]) => (a < b ? -1 : 1))) if (inherited.get(name) !== value) set[name] = value;
+  const remove = [...inherited.keys()].filter((name) => !given.has(name)).sort();
+  return { set, remove };
+}
+
+/**
  * The rules of gh-script.json and the world they change: one engine answers both the Node host (execFile below) and the
  * executables the replay puts on a built mixdogd's PATH (serveShims below), so Node and the core see the same tools.
  * `answer` is null for a `git` the script does not cover (it runs for real).
@@ -44,7 +60,7 @@ export function createScriptEngine({ script, onSpawn }) {
     return rule.argv.length === argv.length;
   };
 
-  const answer = (tool, argv, cwd) => {
+  const answer = (tool, argv, cwd, env) => {
     const missing = tool === 'gh' && !world.ghInstalled;
     const rule = missing ? null : script.rules.find((candidate) => matches(candidate, tool, argv));
     if (!missing && !rule) {
@@ -54,7 +70,7 @@ export function createScriptEngine({ script, onSpawn }) {
     }
     const reply = missing ? { code: -1, stderr: 'ENOENT' } : (rule?.reply ?? { code: 1, stderr: 'unscripted' });
     Object.assign(world, rule?.set ?? {});
-    onSpawn({ tool, argv: clone(argv), cwd: cwd ?? null, reply: clone(reply) });
+    onSpawn({ tool, argv: clone(argv), cwd: cwd ?? null, env: envDelta(env, process.env), reply: clone(reply) });
     for (const listener of listeners) listener(tool, argv);
     return reply;
   };
@@ -93,7 +109,7 @@ export function installScriptedProcesses({ script, binDir, onSpawn }) {
       });
     }    const child = new EventEmitter();
     child.stdin = new PassThrough();
-    const reply = engine.answer(tool, argv, options?.cwd);
+    const reply = engine.answer(tool, argv, options?.cwd, options?.env);
     if (!reply) return realExecFile.call(this, file, argv, options, callback);
     // The callback arrives asynchronously, as a real child's exit does, with execFile's own error shape.
     Promise.resolve().then(() => {
@@ -131,24 +147,32 @@ export function scriptedPty({ onSpawn }) {
       spawn(file, argv, options) {
         const data = [];
         const exit = [];
+        // How the terminal child ended: the exit code the scenario gave it, or the kill the product asked for (first one counts).
+        const record = { ended: null };
         const pty = {
           onData: (listener) => data.push(listener),
           onExit: (listener) => exit.push(listener),
           kill: () => {
             pty.killed = true;
+            record.ended ??= { error: 'cancelled' };
           },
           killed: false,
         };
-        onSpawn({
+        const spawn = {
           tool: 'pty',
           argv: clone(argv),
           cwd: options?.cwd ?? null,
-          env: { GH_PROMPT_DISABLED: options?.env?.GH_PROMPT_DISABLED, BROWSER: options?.env?.BROWSER, GH_BROWSER: options?.env?.GH_BROWSER },
-        });
+          env: envDelta(options?.env, process.env),
+        };
+        onSpawn(spawn);
         spawned.push({
           pty,
+          record: { ...spawn, record },
           print: (text) => data.forEach((listener) => listener(text)),
-          exit: (exitCode) => exit.forEach((listener) => listener({ exitCode })),
+          exit: (exitCode) => {
+            record.ended ??= { code: exitCode };
+            exit.forEach((listener) => listener({ exitCode }));
+          },
         });
         return pty;
       },
@@ -198,7 +222,7 @@ export async function serveShims({ engine, onSpawn, shim, places }) {
       const [prompt, browser, ghBrowser] = lines.slice(3 + argc, 6 + argc).map(unhex);
       if (process.env.PHONE_SCM_VERBOSE) console.error('[shim]', tool, JSON.stringify(argv), cwd);
       if (tool === 'gh' && argv[0] === 'auth' && argv[1] === 'login') {
-        onSpawn({ tool: 'pty', argv, cwd, env: { GH_PROMPT_DISABLED: prompt, BROWSER: browser, GH_BROWSER: ghBrowser } });
+        onSpawn({ tool: 'pty', argv, cwd, env: { GH_PROMPT_DISABLED: prompt, BROWSER: browser, GH_BROWSER: ghBrowser } }); // the replay's own sighting; not compared
         flows.push({ print: (text) => socket.write(`O ${hex(text)}\n`), exit: (code) => socket.write(`X ${code}\n`) });
         for (const resolve of waiting.splice(0)) resolve();
         return;

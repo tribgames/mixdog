@@ -192,7 +192,7 @@ impl Scm {
 
     /// `refresh` looks again; otherwise the last probe answers, as Node's `resolveGit`.
     pub async fn git_cli_status(self: &Arc<Self>, cancel: &CancellationToken, refresh: bool) -> Result<Value, ScmFailure> {
-        let home = home_dir();
+        let home = process_dir();
         let known = {
             let mut probes = self.cli_probes.lock().expect("cli probes");
             if refresh {
@@ -203,7 +203,7 @@ impl Scm {
         let version = match known {
             Some(version) => version,
             None => {
-                let found = match self.git.run(cancel, &home, &["--version"]).await {
+                let found = match self.git.text(cancel, &home, &["--version"], &RunOptions { bare_env: true, read_limit: true, ..RunOptions::default() }).await {
                     Ok(out) => Some(out.trim().strip_prefix("git version ").unwrap_or("").split_whitespace().next().unwrap_or("").to_owned()),
                     Err(ScmFailure::Unavailable { .. }) => None,
                     Err(other) => return Err(other),
@@ -221,7 +221,7 @@ impl Scm {
 
     /// The global identity and default branch, empty where unset.
     pub async fn git_global_config(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let home = home_dir();
+        let home = process_dir();
         let read = |key: &'static str| {
             let git = self.git.clone();
             let home = home.clone();
@@ -229,7 +229,7 @@ impl Scm {
             async move {
                 // Exit 1 is "not set"; a git that cannot run reads as empty here, the save
                 // path reports the real error when the user acts.
-                git.outcome(&cancel, &home, &["config", "--global", "--get", key], &RunOptions::default())
+                git.outcome(&cancel, &home, &["config", "--global", "--get", key], &RunOptions { bare_env: true, ..RunOptions::default() })
                     .await
                     .ok()
                     .filter(|out| out.success())
@@ -251,12 +251,12 @@ impl Scm {
         if !matches!(key, "user.name" | "user.email" | "init.defaultBranch") {
             return Err(ScmFailure::invalid("key", "`user.name`, `user.email` or `init.defaultBranch`"));
         }
-        let home = home_dir();
+        let home = process_dir();
         let trimmed = value.trim();
         let outcome = if trimmed.is_empty() {
-            self.git.outcome(cancel, &home, &["config", "--global", "--unset", key], &RunOptions::default()).await?
+            self.git.outcome(cancel, &home, &["config", "--global", "--unset", key], &RunOptions { bare_env: true, ..RunOptions::default() }).await?
         } else {
-            self.git.outcome(cancel, &home, &["config", "--global", key, trimmed], &RunOptions::default()).await?
+            self.git.outcome(cancel, &home, &["config", "--global", key, trimmed], &RunOptions { bare_env: true, ..RunOptions::default() }).await?
         };
         // Unsetting an already-unset key exits 5 (or 1): that outcome is the requested state.
         let unset_ok = trimmed.is_empty() && matches!(outcome.code, Some(1 | 5));
@@ -283,7 +283,12 @@ impl Scm {
     }
 }
 
-/// The user's home folder, where global git config and `gh` are read from.
+/// The folder Node's dependency probes run in: they pass no `cwd`, so a child inherits the process's own.
+pub fn process_dir() -> std::path::PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| home_dir())
+}
+
+/// The user's home folder, where the sign-in terminal starts.
 pub fn home_dir() -> std::path::PathBuf {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))

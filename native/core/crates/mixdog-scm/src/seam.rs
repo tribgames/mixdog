@@ -187,19 +187,30 @@ pub(crate) struct Attempt {
 }
 
 /// The attempt is being made now: told to the replay at this moment, so attempts issued side by side are in the order they were issued.
-pub(crate) fn attempt_begin(program: &str, args: &[String], pty: bool) -> Attempt {
+pub(crate) fn attempt_begin(
+    program: &str,
+    args: &[String],
+    pty: bool,
+    cwd: &std::path::Path,
+    env_set: &[(String, String)],
+    env_remove: &[String],
+) -> Attempt {
     #[cfg(debug_assertions)]
     {
         let seq = if debug::enabled() { debug::next_seq() } else { 0 };
         let child = serde_json::json!({ "program": program, "args": args, "pty": pty });
         if debug::enabled() {
-            debug::emit(&serde_json::json!({ "event": "begin", "seq": seq, "program": program, "args": args, "pty": pty }));
+            // The directory the child starts in and the variables the request sets or removes on top of the inherited ones.
+            debug::emit(&serde_json::json!({
+                "event": "begin", "seq": seq, "program": program, "args": args, "pty": pty,
+                "cwd": cwd.to_string_lossy(), "envSet": env_set, "envRemove": env_remove,
+            }));
         }
         Attempt { seq, started: std::sync::atomic::AtomicBool::new(false), child }
     }
     #[cfg(not(debug_assertions))]
     {
-        let _ = (program, args, pty);
+        let _ = (program, args, pty, cwd, env_set, env_remove);
         Attempt {}
     }
 }

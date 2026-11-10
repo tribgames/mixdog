@@ -41,6 +41,13 @@ pub struct ExecSpec {
     pub max_output: u64,
 }
 
+/// Node's `childEnvironment` (env-scrub.mjs `scrubRuntimeRootVars`): the host's own identity never reaches a child.
+pub fn child_env_removed() -> Vec<String> {
+    ["MIXDOG_ROOT", "NODE_ENV", "MIXDOG_DAEMON_HOST", "MIXDOG_WORKER_MODE", "MIXDOG_DAEMON_SPAWNED_FOR", "MIXDOG_SUPERVISOR_PID", "MIXDOG_SERVER_PID", "ELECTRON_RUN_AS_NODE"]
+        .map(String::from)
+        .to_vec()
+}
+
 impl ExecSpec {
     pub fn new(program: impl Into<String>, cwd: impl Into<PathBuf>) -> Self {
         Self {
@@ -48,7 +55,8 @@ impl ExecSpec {
             args: Vec::new(),
             cwd: cwd.into(),
             env_set: Vec::new(),
-            env_remove: Vec::new(),
+            // Node's `childEnvironment` (env-scrub.mjs `scrubRuntimeRootVars`): the host's own identity never reaches a child.
+            env_remove: child_env_removed(),
             stdin: None,
             time_limit: None,
             max_output: DEFAULT_MAX_OUTPUT,
@@ -111,7 +119,7 @@ impl Exec {
     ) -> Result<ExecOutput, ScmFailure> {
         let cwd = AbsPath::new(&spec.cwd)
             .ok_or_else(|| ScmFailure::invalid("cwd", "an absolute directory"))?;
-        let attempt = crate::seam::attempt_begin(&spec.program, &spec.args, false);
+        let attempt = crate::seam::attempt_begin(&spec.program, &spec.args, false, &spec.cwd, &spec.env_set, &spec.env_remove);
         let result = self.run_attempt(spec, cwd, cancel, &attempt).await;
         attempt.done(&match &result {
             Ok(out) => crate::seam::Ended::Code(out.code),
