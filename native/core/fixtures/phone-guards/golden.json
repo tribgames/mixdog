@@ -1,0 +1,1352 @@
+{
+  "note": "Node host frames to a paired phone for the browser and capability calls a relay connection is refused or narrowed on, and the visualize panes it renders as pages; each with what the table forwarded.",
+  "scenarios": {
+    "browser": [
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          "s1",
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "control"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "control",
+            "args": [
+              "s1",
+              {
+                "type": "back"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          " s1 ",
+          {
+            "type": "reload"
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "control"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "control",
+            "args": [
+              "s1",
+              {
+                "type": "reload"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          42,
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id must be a string."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          null,
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id must be a string."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          "",
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id is invalid."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          "   ",
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id is invalid."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          "bad id",
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id is invalid."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          "../s1",
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id is invalid."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "control"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "control",
+            "args": [
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              {
+                "type": "back"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          {
+            "type": "back"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id is invalid."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteControl",
+        "params": [
+          42,
+          {
+            "type": "bogus"
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "session id must be a string."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "browserRemoteTabOpen",
+        "params": [
+          "https://example.test/"
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "tabOpen"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "tabOpen",
+            "args": [
+              "https://example.test/"
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserRemoteTabClose",
+        "params": [
+          "main-browser-1"
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "release"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "release",
+            "args": [
+              "main-browser-1"
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserReleasePage",
+        "params": [
+          "main-browser-1"
+        ],
+        "frame": {
+          "ok": true,
+          "value": null
+        },
+        "forwarded": [
+          {
+            "method": "release",
+            "args": [
+              "main-browser-1"
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserHistorySearch",
+        "params": [
+          "query"
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "history"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "history",
+            "args": [
+              "query"
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserCredentialSuggestions",
+        "params": [
+          "s1"
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "credentialSuggestions"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "credentialSuggestions",
+            "args": [
+              "s1"
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserCredentialFill",
+        "params": [
+          "s1",
+          "aaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "credentialFill"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "credentialFill",
+            "args": [
+              "s1",
+              "aaaaaaaaaaaaaaaaaaaaaaaa"
+            ]
+          }
+        ]
+      },
+      {
+        "method": "browserProfileImportSources",
+        "params": [],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "importSources"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "importSources",
+            "args": []
+          }
+        ]
+      },
+      {
+        "method": "browserProfileImportStart",
+        "params": [
+          {
+            "jobId": "job-12345",
+            "sourceId": "chrome",
+            "profileId": "Default",
+            "items": [
+              "history"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "forwarded": "importStart"
+          }
+        },
+        "forwarded": [
+          {
+            "method": "importStart",
+            "args": [
+              {
+                "jobId": "job-12345",
+                "sourceId": "chrome",
+                "profileId": "Default",
+                "items": [
+                  "history"
+                ],
+                "administratorApproved": false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "navigate",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: navigate"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "snapshot",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: snapshot"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "click",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: click"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "type",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: type"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "evaluate",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: evaluate"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "saved_login_admit",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: saved_login_admit"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "saved_login_value",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: saved_login_value"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "saved_login_check",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: saved_login_check"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "saved_login_type",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: saved_login_type"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "saved_login_release",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: saved_login_release"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "secret_precheck",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: secret_precheck"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "secret_fill",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: secret_fill"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "begin_turn",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: begin_turn"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "finish_turn",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: finish_turn"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "control",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: control"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "stream",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: stream"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "tabsWatch",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: tabsWatch"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "webrtcSignal",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: webrtcSignal"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "screenAccess",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: screenAccess"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "constructor",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: constructor"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "",
+        "params": [
+          {
+            "session_id": "s1",
+            "turn_id": 1
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "unknown method: (none)"
+        },
+        "forwarded": []
+      }
+    ],
+    "capability": [
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "resolveMediaFile",
+            "args": [
+              "asset-1"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability resolveMediaFile is not available over remote access."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "listImportableConversations",
+            "args": [
+              {
+                "source": "codex"
+              }
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability listImportableConversations is not available over remote access."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "getConversationImportJobs",
+            "args": []
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability getConversationImportJobs is not available over remote access."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "registerConversationImportFile",
+            "args": [
+              {
+                "source": "claude",
+                "path": "C:\\x\\a.jsonl"
+              }
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability registerConversationImportFile is not available over remote access."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "startConversationImport",
+            "args": [
+              {
+                "requestId": "r1",
+                "selection": {
+                  "ids": [
+                    "a"
+                  ]
+                }
+              }
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability startConversationImport is not available over remote access."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "cancelConversationImport",
+            "args": [
+              {
+                "jobId": "j1"
+              }
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability cancelConversationImport is not available over remote access."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "recordAgentApprovalAudit",
+            "args": [
+              "alpha",
+              "email",
+              "allow"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability recordAgentApprovalAudit is not available over remote access."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentPermission",
+            "args": [
+              "alpha",
+              "email",
+              "allow"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "setAgentPermission cannot create a standing allow over remote access; use the desktop."
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentPermission",
+            "args": [
+              "alpha",
+              "email",
+              "ask"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setAgentPermission"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setAgentPermission",
+            "args": [
+              "alpha",
+              "email",
+              "ask",
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentPermission",
+            "args": [
+              "alpha",
+              "email",
+              "block"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setAgentPermission"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setAgentPermission",
+            "args": [
+              "alpha",
+              "email",
+              "block",
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentPermission",
+            "args": [
+              "alpha",
+              "email",
+              "Allow"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setAgentPermission"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setAgentPermission",
+            "args": [
+              "alpha",
+              "email",
+              "Allow",
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setDeveloperOption",
+            "args": [
+              "allowAllActions",
+              true
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "setDeveloperOption cannot turn on Allow all actions over remote access; use the desktop.",
+          "errorCode": "REMOTE_DESKTOP_ONLY"
+        },
+        "forwarded": []
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setDeveloperOption",
+            "args": [
+              "allowAllActions",
+              false
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setDeveloperOption"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setDeveloperOption",
+            "args": [
+              "allowAllActions",
+              false
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setDeveloperOption",
+            "args": [
+              "otherOption",
+              true
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setDeveloperOption"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setDeveloperOption",
+            "args": [
+              "otherOption",
+              true
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentConnectors",
+            "args": [
+              "alpha",
+              {
+                "off": []
+              }
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setAgentConnectors"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setAgentConnectors",
+            "args": [
+              "alpha",
+              {
+                "off": []
+              },
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentConnectorEnabled",
+            "args": [
+              "alpha",
+              "gmail",
+              true
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setAgentConnectorEnabled"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setAgentConnectorEnabled",
+            "args": [
+              "alpha",
+              "gmail",
+              true,
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentConnectorToolPermission",
+            "args": [
+              "alpha",
+              "gmail",
+              "send_email",
+              "auto"
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setAgentConnectorToolPermission"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setAgentConnectorToolPermission",
+            "args": [
+              "alpha",
+              "gmail",
+              "send_email",
+              "auto",
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setProjectConnectorEnabled",
+            "args": [
+              "C:\\p",
+              "gmail",
+              true
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "setProjectConnectorEnabled"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "setProjectConnectorEnabled",
+            "args": [
+              "C:\\p",
+              "gmail",
+              true,
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "saveAgentDefinition",
+            "args": [
+              {
+                "id": "alpha",
+                "name": "Alpha",
+                "body": "x"
+              }
+            ]
+          }
+        ],
+        "frame": {
+          "ok": true,
+          "value": {
+            "value": {
+              "ran": "saveAgentDefinition"
+            }
+          }
+        },
+        "forwarded": [
+          {
+            "capability": "saveAgentDefinition",
+            "args": [
+              {
+                "id": "alpha",
+                "name": "Alpha",
+                "body": "x"
+              },
+              {
+                "noWiden": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "method": "invokeCapability",
+        "params": [
+          {
+            "capability": "setAgentConnectorEnabled",
+            "args": [
+              "alpha",
+              "gmail",
+              true,
+              {
+                "noWiden": false
+              }
+            ]
+          }
+        ],
+        "frame": {
+          "ok": false,
+          "error": "capability setAgentConnectorEnabled received an invalid number of arguments."
+        },
+        "forwarded": []
+      }
+    ],
+    "visualize": {
+      "snapshot": [
+        {
+          "sessionId": "s1",
+          "tabs": [
+            {
+              "id": "t1",
+              "label": "Tab",
+              "remoteLabel": "Tab",
+              "revision": 1,
+              "cwd": "D:\\mixdog-build\\tmp\\w23-phone-guards\\cwd",
+              "panes": [
+                {
+                  "kind": "pdf",
+                  "label": "pdf",
+                  "target": "D:\\mixdog-build\\tmp\\w23-phone-guards\\cwd\\report.pdf",
+                  "path": "D:\\mixdog-build\\tmp\\w23-phone-guards\\cwd\\report.pdf",
+                  "remoteTarget": "pdf"
+                },
+                {
+                  "kind": "html",
+                  "label": "html",
+                  "target": "D:\\mixdog-build\\tmp\\w23-phone-guards\\cwd\\page.html",
+                  "path": "D:\\mixdog-build\\tmp\\w23-phone-guards\\cwd\\page.html",
+                  "remoteTarget": "html"
+                },
+                {
+                  "kind": "document",
+                  "label": "document",
+                  "target": "D:\\mixdog-build\\tmp\\w23-phone-guards\\kept\\notes.docx",
+                  "path": "D:\\mixdog-build\\tmp\\w23-phone-guards\\kept\\notes.docx",
+                  "remoteTarget": "document",
+                  "root": "D:\\mixdog-build\\tmp\\w23-phone-guards\\kept",
+                  "version": 1
+                },
+                {
+                  "kind": "image",
+                  "label": "image",
+                  "target": "D:\\mixdog-build\\tmp\\w23-phone-guards\\cwd\\img.png",
+                  "path": "D:\\mixdog-build\\tmp\\w23-phone-guards\\cwd\\img.png",
+                  "remoteTarget": "image"
+                }
+              ]
+            }
+          ],
+          "active": "t1"
+        }
+      ],
+      "steps": [
+        {
+          "method": "visualizePanePages",
+          "params": [
+            "s1",
+            "t1",
+            0,
+            {
+              "pages": [
+                1
+              ]
+            }
+          ],
+          "frame": {
+            "ok": true,
+            "value": {
+              "pageCount": 1,
+              "pages": []
+            }
+          },
+          "forwarded": [
+            {
+              "operation": "documentPreviewPagesIn",
+              "bytes": "report pdf bytes",
+              "options": {
+                "pages": [
+                  1
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "method": "visualizePanePages",
+          "params": [
+            "s1",
+            "t1",
+            1,
+            {
+              "pages": [
+                1
+              ]
+            }
+          ],
+          "frame": {
+            "ok": false,
+            "error": "Only PDF and Office panes have pages."
+          },
+          "forwarded": []
+        },
+        {
+          "method": "visualizePanePages",
+          "params": [
+            "s1",
+            "t1",
+            2,
+            {
+              "pages": [
+                1
+              ]
+            }
+          ],
+          "frame": {
+            "ok": true,
+            "value": {
+              "pageCount": 1,
+              "pages": []
+            }
+          },
+          "forwarded": [
+            {
+              "operation": "documentPreviewPagesIn",
+              "bytes": "kept docx bytes",
+              "options": {
+                "pages": [
+                  1
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "method": "visualizePanePages",
+          "params": [
+            "s1",
+            "t1",
+            3,
+            {
+              "pages": [
+                1
+              ]
+            }
+          ],
+          "frame": {
+            "ok": false,
+            "error": "Only PDF and Office panes have pages."
+          },
+          "forwarded": []
+        },
+        {
+          "method": "visualizePanePages",
+          "params": [
+            "s1",
+            "t1",
+            4,
+            {
+              "pages": [
+                1
+              ]
+            }
+          ],
+          "frame": {
+            "ok": false,
+            "error": "This visualize pane is closed."
+          },
+          "forwarded": []
+        }
+      ]
+    }
+  }
+}

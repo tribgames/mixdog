@@ -552,6 +552,49 @@ impl WorkspaceService {
         Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
     }
 
+    /// A paired phone's file named by its path (an editor backup, a document preview), held to what Node's host let a phone
+    /// name (`remoteFileTarget`, `remote-file-preview.ts`): a file this device holds a live one-file grant for, or an entry of a
+    /// registered project confined to it. The registered projects are the catalog's; the grants are this connection's device
+    /// table in the grant store (`set_phone_grants`). A refusal is Node's answer for a file named without a token:
+    /// `PROJECT_UNAVAILABLE` "Project is not available." for a folder that is no project, "Path is outside the project." (no code)
+    /// for an entry beyond it. The token's own refusals stay with `projectFs/entryPath`, which redeems a token.
+    pub async fn relay_file(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<PathBuf, CoreError> {
+        self.relay_target(req, root, rel).await.map_err(|error| self.map_error(req, error))
+    }
+
+    async fn relay_target(&self, req: &CoreRequest, root: &str, rel: &str) -> WsResult<PathBuf> {
+        if let (Some(grants), mixdog_core_api::call::Caller::Connection(id)) = (self.phone_grants.get(), &req.ctx.caller)
+            && let Some(credential) = (grants.credential_of)(*id).filter(|credential| !credential.is_empty())
+            && let Ok(base) = std::path::absolute(root)
+        {
+            let file = crate::pathguard::lexical(&base.join(rel));
+            if grants.store.holds(&credential, id.0, &file).await? {
+                return Ok(file);
+            }
+        }
+        let project = self.catalog.resolve(root).await?;
+        project_entry_path(&project, rel).map_err(|error| if crate::pathguard::is_beyond_project(&error) { WsError::plain(error.message) } else { error })
+    }
+
+    /// An editor backup of a relay connection: [`Self::relay_file`] for a file named by its absolute path alone. The
+    /// deepest registered project that holds it names the project and the entry (Node's phone named them), else the file's
+    /// own folder is the folder named. Other origins name any absolute path, as the desktop's own editor did.
+    async fn relay_backup(&self, req: &CoreRequest, source: &str) -> WsResult<()> {
+        if req.ctx.origin != mixdog_protocol::Origin::Relay {
+            return Ok(());
+        }
+        let projects: Vec<String> = self.catalog.list().await?.into_iter().map(|row| row.path).collect();
+        let file = Path::new(source);
+        let (root, rel) = match crate::grants::owning_project(&projects, file) {
+            Some((project, rel)) => (project.to_owned(), rel),
+            None => (
+                file.parent().map(|parent| parent.to_string_lossy().into_owned()).unwrap_or_default(),
+                file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+            ),
+        };
+        self.relay_target(req, &root, &rel).await.map(drop)
+    }
+
     fn owner(req: &CoreRequest) -> String {
         match &req.ctx.caller {
             mixdog_core_api::call::Caller::Connection(id) => id.to_string(),
@@ -1049,16 +1092,19 @@ impl WorkspaceService {
             }
             "projectFs/backup/read" => {
                 let (backups, source) = (self.backups.clone(), s(params, "sourcePath")?.to_owned());
+                self.relay_backup(req, &source).await?;
                 value(run_fallible(self.lanes.interactive, &cancel, move || backups.read(&source)).await?)
             }
             "projectFs/backup/write" => {
                 let (backups, source) = (self.backups.clone(), s(params, "sourcePath")?.to_owned());
+                self.relay_backup(req, &source).await?;
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let _claim = self.paths.acquire(vec![self.backups.path_of(&source)?]).await;
                 value(run_fallible(self.lanes.durability, &cancel, move || backups.write(&source, &content, &expected)).await?)
             }
             "projectFs/backup/delete" => {
                 let (backups, source) = (self.backups.clone(), s(params, "sourcePath")?.to_owned());
+                self.relay_backup(req, &source).await?;
                 let _claim = self.paths.acquire(vec![self.backups.path_of(&source)?]).await;
                 run_fallible(self.lanes.durability, &cancel, move || backups.delete(&source)).await?;
                 value(json!({}))

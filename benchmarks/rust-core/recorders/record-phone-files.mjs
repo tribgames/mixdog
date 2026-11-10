@@ -7,7 +7,7 @@
 // is recorded whole.
 //
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
-//        benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a with node_modules>
+//        benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a with node_modules> [--only main|relay]
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -130,6 +130,16 @@ async function record(make) {
   return { ...trace, finalTree: treeOf(world.root, (rel) => rel.startsWith('userdata')), userdata, registry };
 }
 
+const SCRIPTS = { main: filesScript, relay: filesRelayScript };
+const ONLY = args.get('only') ?? null;
+if (ONLY) {
+  // One scenario, printed: the committed fixture is the full run's.
+  if (!SCRIPTS[ONLY]) throw new Error(`no scenario ${ONLY}; one of ${Object.keys(SCRIPTS).join(', ')}`);
+  const text = `${JSON.stringify((await record(SCRIPTS[ONLY])).steps, null, 2)}\n`;
+  // The stream's own completion callback, which also carries its error.
+  await new Promise((written, failed) => process.stdout.write(text, (error) => (error ? failed(error) : written())));
+  process.exit(0);
+}
 const scenarios = { main: await record(filesScript), relay: await record(filesRelayScript) };
 const out = stageSet(FIXTURES);
 writeJson(join(out, 'golden.json'), {
