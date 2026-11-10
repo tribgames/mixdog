@@ -2091,6 +2091,94 @@
       "awaitClose": true
     },
     {
+      "id": "openai-reconnect-after-drop",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1290-7000-8000-000000000026",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        {
+          "events": [
+            {
+              "type": "response.created",
+              "response": {
+                "id": "resp_parity_26a",
+                "model": "gpt-6.1-sol"
+              }
+            }
+          ],
+          "then": "reset"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_parity_26",
+              "model": "gpt-6.1-sol"
+            }
+          },
+          {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": ""
+            }
+          },
+          {
+            "type": "response.function_call_arguments.done",
+            "output_index": 0,
+            "item_id": "fc_parity_1",
+            "arguments": "{\"file_path\":\"parity.txt\"}"
+          },
+          {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+              "type": "function_call",
+              "id": "fc_parity_1",
+              "call_id": "call_parity_1",
+              "name": "read",
+              "arguments": "{\"file_path\":\"parity.txt\"}",
+              "status": "completed"
+            }
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_parity_26",
+              "model": "gpt-6.1-sol",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 10,
+                "total_tokens": 110
+              },
+              "output": [
+                {
+                  "type": "function_call",
+                  "id": "fc_parity_1",
+                  "call_id": "call_parity_1",
+                  "name": "read",
+                  "arguments": "{\"file_path\":\"parity.txt\"}",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        ]
+      ],
+      "registryRetry": true
+    },
+    {
       "id": "anthropic-oauth-first-turn",
       "provider": "anthropic-oauth",
       "expectError": true,
