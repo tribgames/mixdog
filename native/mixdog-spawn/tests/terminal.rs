@@ -383,13 +383,22 @@ async fn terminal_commands_behave_like_the_node_twin() {
 enum Ev {
     Activity(String, Option<ActivityState>),
     Owner(SizeOwnerChange),
+    Forgotten(String),
 }
 
 #[derive(Default)]
 struct Events {
     log: Mutex<Vec<Ev>>,
     changed: Condvar,
+    /// Woken by each event, for the waits that run on a runtime thread (`announced`).
+    logged: tokio::sync::Notify,
+    /// A test's hold on the next announcement that a disposed tab's claims were forgotten: the announcement says it is in hand and
+    /// returns once the gate opens, as a slow consumer would.
+    hold_forgotten: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
+
+/// How long a wait for an event of the product may take before it is a failure that names what was awaited.
+const EVENT_DEADLINE: Duration = Duration::from_secs(60);
 
 impl Events {
     fn all(&self) -> Vec<Ev> {
@@ -416,24 +425,66 @@ impl Events {
             .collect()
     }
 
-    fn wait_for(&self, _what: &str, predicate: impl Fn(&[Ev]) -> bool) {
+    fn wait_for(&self, what: &str, predicate: impl Fn(&[Ev]) -> bool) {
+        let started = std::time::Instant::now();
         let mut log = self.log.lock().unwrap();
         while !predicate(&log) {
-            log = self.changed.wait(log).unwrap();
+            let left = EVENT_DEADLINE.checked_sub(started.elapsed()).unwrap_or_else(|| panic!("no event within {EVENT_DEADLINE:?} for: {what}"));
+            let (next, timeout) = self.changed.wait_timeout(log, left).unwrap();
+            log = next;
+            assert!(!timeout.timed_out() || predicate(&log), "no event within {EVENT_DEADLINE:?} for: {what}");
         }
     }
 
+    /// Returns once `ready` holds for the events logged, woken by each event (no polling). The deadline fails a wait that never ends.
+    async fn announced(&self, what: &str, ready: impl Fn(&[Ev]) -> bool) {
+        let waited = tokio::time::timeout(EVENT_DEADLINE, async {
+            loop {
+                let logged = self.logged.notified();
+                tokio::pin!(logged);
+                // Registered before the check, so an event between check and await still wakes it.
+                logged.as_mut().enable();
+                if ready(&self.log.lock().unwrap()) {
+                    return;
+                }
+                logged.await;
+            }
+        })
+        .await;
+        assert!(waited.is_ok(), "no event within {EVENT_DEADLINE:?} for: {what}");
+    }
+
+    /// Holds the next forgotten-claims announcement. Returns the receiver that says it is in hand and the sender that opens the gate.
+    fn hold_next_forgotten(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (open_tx, open_rx) = std::sync::mpsc::channel();
+        *self.hold_forgotten.lock().unwrap() = Some((held_tx, open_rx));
+        (held_rx, open_tx)
+    }
 }
 
 impl TerminalEvents for Events {
     fn activity(&self, id: &str, state: Option<ActivityState>) {
         self.log.lock().unwrap().push(Ev::Activity(id.to_owned(), state));
         self.changed.notify_all();
+        self.logged.notify_waiters();
     }
 
     fn size_owner(&self, change: &SizeOwnerChange) {
         self.log.lock().unwrap().push(Ev::Owner(change.clone()));
         self.changed.notify_all();
+        self.logged.notify_waiters();
+    }
+
+    fn size_claims_forgotten(&self, id: &str) {
+        let hold = self.hold_forgotten.lock().unwrap().take();
+        if let Some((held, open)) = hold {
+            held.send(()).expect("the test waits for the held announcement");
+            open.recv_timeout(Duration::from_secs(10)).expect("the test never opened the gate on the held announcement");
+        }
+        self.log.lock().unwrap().push(Ev::Forgotten(id.to_owned()));
+        self.changed.notify_all();
+        self.logged.notify_waiters();
     }
 }
 
@@ -526,11 +577,12 @@ impl Rig {
         }
     }
 
+    /// Returns once the tab's replay holds `needle`. The replay has no event of its own to wait on, so it is read again every 25 ms; the
+    /// deadline turns a text that never comes into a failure that names it.
     fn wait_text(&self, id: &str, needle: &str) {
-        loop {
-            if self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)) {
-                return;
-            }
+        let started = std::time::Instant::now();
+        while !self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)) {
+            assert!(started.elapsed() < EVENT_DEADLINE, "{id}: {needle:?} never appeared in the replay within {EVENT_DEADLINE:?}");
             std::thread::sleep(Duration::from_millis(25));
         }
     }
@@ -607,16 +659,48 @@ async fn size_owner_follows_claims_not_focus() {
 
     // Disposing kills the shell, and draining its feed to the exit event is the barrier: the
     // process has ended, so nothing that belongs to the tab can still be pending. The claims go
-    // with the tab, and the clock was never read again.
+    // with the tab without an owner event (Node's `forgetSizeClaims` emits none), and the clock was never read again.
     rig.tabs.dispose(id);
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(id)).await;
     assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
     assert_eq!(rig.tabs.size_owner(id), None);
-    let mut released = owners;
-    released.push((String::new(), 0, 0));
     let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
-    assert_eq!(after, released);
+    assert_eq!(after, owners, "a disposal announces no owner change");
+    assert_eq!(rig.events.all().last(), Some(&Ev::Forgotten(id.to_owned())), "and tells its consumer the claims are forgotten");
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
+}
+
+/// Node forgets a disposed tab's claims synchronously (terminal-manager.ts:549) and announces nothing. Here the announcement that the
+/// claims are forgotten is made under the claims lock, so a claim that arrives meanwhile is queued behind it and its owner event follows
+/// the forgetting; made after the lock, the claim's event came first and the forgetting wiped the owner it had just announced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_claim_made_while_a_disposal_is_announced_is_not_undone_by_it() {
+    let rig = rig("forget-gate").await;
+    rig.tabs.ensure(Some("term_gate"), rig.request()).await.unwrap();
+    rig.tabs.resize("term_gate", 50, 20, "A");
+    let (held, open) = rig.events.hold_next_forgotten();
+    let tabs = Arc::clone(&rig.tabs);
+    let disposing = std::thread::spawn(move || tabs.dispose("term_gate"));
+    held.recv_timeout(Duration::from_secs(10)).expect("the disposal never announced the forgetting of the claims");
+    let tabs = Arc::clone(&rig.tabs);
+    let (claimed, claim_done) = std::sync::mpsc::channel();
+    let claiming = std::thread::spawn(move || {
+        tabs.resize("term_gate", 60, 25, "B");
+        claimed.send(()).unwrap();
+    });
+    // A claim that gets through while the announcement is in hand is not queued behind it. The bounded wait names what it checks.
+    assert!(
+        claim_done.recv_timeout(Duration::from_secs(2)).is_err(),
+        "a claim was applied while the disposal's announcement was held: it is not ordered behind it"
+    );
+    open.send(()).unwrap();
+    disposing.join().unwrap();
+    claim_done.recv_timeout(Duration::from_secs(10)).expect("the claim was never applied after the announcement was let go");
+    claiming.join().unwrap();
+    let ours: Vec<Ev> = rig.events.all().into_iter().filter(|e| matches!(e, Ev::Forgotten(id) if id == "term_gate") || matches!(e, Ev::Owner(c) if c.id == "term_gate")).collect();
+    let owner = |owner: &str, cols, rows| Ev::Owner(SizeOwnerChange { id: "term_gate".into(), cols, rows, owner: owner.into() });
+    assert_eq!(ours, vec![owner("A", 50, 20), Ev::Forgotten("term_gate".into()), owner("B", 60, 25)], "the claim follows the forgetting");
+    rig.tabs.dispose_all();
 }
 
 /// A claim that is not renewed lapses after `SIZE_OWNER_LEASE` (30 s) and the PTY is fitted to the
@@ -635,11 +719,14 @@ async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
     // A's lease ended at 30 s, B renewed at 20 s: B still owns and A is gone.
     assert_eq!(held(&rig.tabs), Some(("B".to_owned(), 61, 26)));
     tokio::time::advance(std::time::Duration::from_secs(11)).await;
-    // The lapse is announced as the release event, which the advance has run by the time it returns: nothing waits on the clock here.
-    assert!(
-        rig.events.owners(id).iter().any(|c| c.owner.is_empty() && c.cols == 0),
-        "the 30 s lease lapsed and announced the release"
-    );
+    // The ticker's callback only hands the lapse to a task it spawns, so `advance` returning does not say the lapse has run: the
+    // release event the task announces does. The wait is on that event; with the clock paused, a task that never announces leaves the
+    // runtime idle, the clock then jumps to the wait's deadline, and the test fails naming the event instead of hanging.
+    rig.events.announced(
+        "the 30 s lease lapsed and announced the release",
+        |log| log.iter().any(|e| matches!(e, Ev::Owner(c) if c.id == id && c.owner.is_empty() && c.cols == 0)),
+    )
+    .await;
     assert_eq!(held(&rig.tabs), None, "B's lease ended 30 s after its renewal");
     let owners: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
     assert_eq!(owners, vec![("A".into(), 50, 20), ("B".into(), 60, 25), ("B".into(), 61, 26), (String::new(), 0, 0)]);

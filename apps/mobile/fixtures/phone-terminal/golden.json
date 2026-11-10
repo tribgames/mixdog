@@ -236,6 +236,20 @@
         }
       },
       {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "\u001b[?9001h\u001b[?1004h"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25h"
+        }
+      },
+      {
         "push": "activity",
         "event": {
           "id": "term_ph2a",
@@ -256,6 +270,20 @@
         "fire": "termWrite"
       },
       {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "\u001b[?25l"
+        }
+      },
+      {
         "push": "activity",
         "event": {
           "id": "term_ph2a",
@@ -263,10 +291,24 @@
         }
       },
       {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_DONE    \r\n\u001b[?25h"
+        }
+      },
+      {
         "push": "activity",
         "event": {
           "id": "term_ph2a",
           "state": "finished"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "\u001b[mMIXDOG_PH2_DONE\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
         }
       },
       {
@@ -450,6 +492,20 @@
         "event": {
           "id": "term_ph2a",
           "state": "finished"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "\u001b[8;30;100t\u001b[?25l\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> \u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_DONE\u001b[K\u001b[m\r\nMIXDOG_PH2_DONE\u001b[K\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> \u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\u001b[K\u001b[m\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[4;1H\u001b[?25h"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2a",
+          "data": "MIXDOG_PH2_SETTLE_1\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
         }
       },
       {
@@ -847,6 +903,20 @@
         }
       },
       {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2b",
+          "data": "\u001b[?9001h\u001b[?1004h"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2b",
+          "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25h"
+        }
+      },
+      {
         "push": "activity",
         "event": {
           "id": "term_ph2b",
@@ -996,6 +1066,20 @@
           true
         ],
         "value": null
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2b",
+          "data": "\u001b[8;200;2tPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \r\n  \u001b[21;2H\u001b[?9001l\u001b[?1004l"
+        }
+      },
+      {
+        "push": "termData",
+        "event": {
+          "id": "term_ph2b",
+          "data": "\r\n[process exited with code -1073741510]\r\n"
+        }
       },
       {
         "push": "folder",
@@ -1267,6 +1351,20 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "\u001b[?9001h\u001b[?1004h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25h"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l1",
@@ -1299,6 +1397,27 @@
               },
               "rows": []
             }
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?9001h\u001b[?1004h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25h"
           }
         },
         {
@@ -1337,6 +1456,27 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "\u001b[?9001h\u001b[?1004h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25h"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l4",
@@ -1369,6 +1509,27 @@
               },
               "rows": []
             }
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[?9001h\u001b[?1004h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25h"
           }
         },
         {
@@ -1407,10 +1568,86 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "\u001b[?9001h\u001b[?1004h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25h"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l6",
             "state": "idle"
+          }
+        },
+        {
+          "fire": "termResize"
+        },
+        {
+          "push": "sizeOwner",
+          "event": {
+            "id": "term_ph2_none",
+            "cols": 90,
+            "rows": 28,
+            "own": true
+          }
+        },
+        {
+          "call": "termDispose",
+          "params": [
+            "term_ph2_none"
+          ],
+          "value": null
+        },
+        {
+          "fire": "termResize"
+        },
+        {
+          "push": "sizeOwner",
+          "event": {
+            "id": "term_ph2_none",
+            "cols": 91,
+            "rows": 29,
+            "own": false
+          }
+        },
+        {
+          "fire": "termResize"
+        },
+        {
+          "push": "sizeOwner",
+          "event": {
+            "id": "term_ph2_none",
+            "cols": 90,
+            "rows": 28,
+            "own": true
+          }
+        },
+        {
+          "fire": "termResize"
+        },
+        {
+          "push": "sizeOwner",
+          "event": {
+            "id": "term_ph2_none",
+            "cols": 0,
+            "rows": 0,
+            "own": false
           }
         },
         {
@@ -1516,6 +1753,76 @@
           "fire": "termWrite"
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "\u001b[?25l\u001b[8;30;100t\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[1;42H\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?25l\u001b[8;31;101t\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[1;42H\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "\u001b[?25l\u001b[8;32;102t\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[1;42H\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[?25l\u001b[8;34;104t\u001b[HPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[1;42H\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "\u001b[?25l\u001b[8;33;103t\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[H\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?25l"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[93mWr\u001b[97m\u001b[2m\u001b[3mite-Output MIXDOG_PH2_SETTLE_1"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[m"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[93m\u001b[1;42HWri\u001b[97m\u001b[2m\u001b[3mte-Output MIXDOG_PH2_SETTLE_1\u001b[1;45H\u001b[?25h"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l2",
@@ -1523,10 +1830,38 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?25l\u001b[m\u001b[93m\u001b[1;42HWrite\u001b[97m\u001b[2m\u001b[3m-Output MIXDOG_PH2_SETTLE_1\u001b[1;47H\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?25l\u001b[m\u001b[93m\u001b[1;42HWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n\u001b[?25h"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l2",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
           }
         },
         {
@@ -1663,10 +1998,24 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[?25l"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l2",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l2",
+            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_2\u001b[m\r\nMIXDOG_PH2_SETTLE_2\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> \u001b[?25h"
           }
         },
         {
@@ -1853,6 +2202,13 @@
           "fire": "termWrite"
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "\u001b[?25l"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l1",
@@ -1860,10 +2216,31 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l1",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l1",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
           }
         },
         {
@@ -2085,6 +2462,13 @@
           "fire": "termWrite"
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "\u001b[?25l"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l4",
@@ -2092,10 +2476,31 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n\u001b[?25h"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l4",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l4",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
           }
         },
         {
@@ -2222,6 +2627,13 @@
           "fire": "termWrite"
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[?25l"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l5",
@@ -2229,10 +2641,31 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n\u001b[?25h"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l5",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\n"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l5",
+            "data": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
           }
         },
         {
@@ -2354,6 +2787,13 @@
           "fire": "termWrite"
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "\u001b[?25l"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l6",
@@ -2361,10 +2801,24 @@
           }
         },
         {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "\u001b[93mWrite-Output \u001b[37mMIXDOG_PH2_SETTLE_1\r\n\u001b[?25h"
+          }
+        },
+        {
           "push": "activity",
           "event": {
             "id": "term_ph2_l6",
             "state": "finished"
+          }
+        },
+        {
+          "push": "termData",
+          "event": {
+            "id": "term_ph2_l6",
+            "data": "\u001b[mMIXDOG_PH2_SETTLE_1\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> "
           }
         },
         {

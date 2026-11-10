@@ -62,8 +62,10 @@ pub struct TerminalServiceConfig {
 /// A change of tab state, queued by the tabs (under their lock) for the section worker.
 enum Change {
     Activity(String, Option<ActivityState>),
-    /// A tab's size owner changed (cleared when its claims ended or it was disposed).
+    /// A tab's size owner changed (cleared when its last claim ended).
     Owner(SizeOwnerChange),
+    /// A disposed tab's claims were dropped: what is held for the id goes without an owner event.
+    Forgotten(String),
     Tabs,
     /// Answered once every change queued before it is published: a reply that must not overtake the events its call caused.
     Barrier(tokio::sync::oneshot::Sender<()>),
@@ -80,6 +82,10 @@ impl TerminalEvents for Events {
 
     fn size_owner(&self, change: &SizeOwnerChange) {
         let _ = self.changes.send(Change::Owner(change.clone()));
+    }
+
+    fn size_claims_forgotten(&self, id: &str) {
+        let _ = self.changes.send(Change::Forgotten(id.to_owned()));
     }
 }
 
@@ -115,8 +121,10 @@ async fn publish_sections(
 ) {
     // Tabs with a known activity, in creation order (Node's `activitySnapshot` walks its tab map).
     let mut activity: Vec<(u64, String, &'static str)> = Vec::new();
-    // The owner of each tab's size as the changes announced it; claims belong to the id, not the process.
-    let mut owners: HashMap<String, SizeOwner> = HashMap::new();
+    // The owner of each id's size as the changes announced it; claims belong to the id, not the process, so an id with no tab has
+    // one too (Node announces a claim whether or not a PTY exists). `None` is a release announced and not yet published: it is
+    // published once, as the row of that id with a null owner, and dropped after.
+    let mut owners: HashMap<String, Option<SizeOwner>> = HashMap::new();
     while let Some(change) = changes.recv().await {
         let (mut activity_changed, mut tabs_changed) = (false, false);
         match change {
@@ -141,15 +149,13 @@ async fn publish_sections(
                 activity_changed = activity.len() != before;
             }
             Change::Owner(change) => {
-                if change.owner.is_empty() {
-                    owners.remove(&change.id);
-                } else {
-                    owners.insert(
-                        change.id,
-                        SizeOwner { cols: change.cols, rows: change.rows, owner: change.owner },
-                    );
-                }
+                let owner = (!change.owner.is_empty()).then(|| SizeOwner { cols: change.cols, rows: change.rows, owner: change.owner });
+                owners.insert(change.id, owner);
                 tabs_changed = true;
+            }
+            Change::Forgotten(id) => {
+                owners.remove(&id);
+                continue;
             }
             Change::Tabs => tabs_changed = true,
             Change::Barrier(published) => {
@@ -163,8 +169,8 @@ async fn publish_sections(
             publisher.publish(SectionName::TerminalActivity, None, section_bytes(&Value::Object(object)));
         }
         if tabs_changed {
-            let list: Vec<Value> = tabs
-                .list_tabs()
+            let listed = tabs.list_tabs();
+            let mut list: Vec<Value> = listed
                 .iter()
                 .map(|tab| {
                     json!({
@@ -172,11 +178,18 @@ async fn publish_sections(
                         "shell": tab.shell,
                         "running": tab.running,
                         "cwd": tab.cwd,
-                        "sizeOwner": owners.get(&tab.id).map(owner_json),
+                        "sizeOwner": owners.get(&tab.id).and_then(Option::as_ref).map(owner_json),
                     })
                 })
                 .collect();
+            // An id with an owner and no tab: a row of its own (`tab: false`) so the phone hears its claim and release.
+            let mut bare: Vec<&String> = owners.keys().filter(|id| !listed.iter().any(|tab| &tab.id == *id)).collect();
+            bare.sort();
+            list.extend(bare.into_iter().map(|id| {
+                json!({ "id": id, "tab": false, "running": false, "sizeOwner": owners[id].as_ref().map(owner_json) })
+            }));
             publisher.publish(SectionName::TerminalTabs, None, section_bytes(&Value::Array(list)));
+            owners.retain(|_, owner| owner.is_some());
         }
     }
 }

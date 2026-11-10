@@ -109,6 +109,9 @@ pub trait TerminalEvents: Send + Sync {
     /// `None` = unknown (no integration, or the shell exited).
     fn activity(&self, id: &str, state: Option<ActivityState>);
     fn size_owner(&self, change: &SizeOwnerChange);
+    /// The tab's size claims were dropped by its disposal. Node announces no owner change for that (`forgetSizeClaims`), so this
+    /// is no `size_owner` event: it only lets a consumer that holds the owners forget them, in the order of the other changes.
+    fn size_claims_forgotten(&self, id: &str);
 }
 
 pub struct TerminalConfig {
@@ -648,11 +651,12 @@ impl Claims {
         self.apply_size(id, cols, rows);
     }
 
-    /// The tab was disposed: its claims go with it. Node announces nothing here; the cleared owner
-    /// below only lets the section worker drop what it holds for the id (the tab itself is already
-    /// gone from the list).
+    /// The tab was disposed: its claims go with it, and no owner change is announced (Node's `forgetSizeClaims`,
+    /// terminal-manager.ts:490, emits nothing). The consumer is told under the claims lock, so a claim made right
+    /// after is queued behind it and is not undone by it.
     fn forget(&self, id: &str) {
-        let Some(list) = self.lock().remove(id) else {
+        let mut map = self.lock();
+        let Some(list) = map.remove(id) else {
             return;
         };
         for claim in list {
@@ -660,12 +664,7 @@ impl Claims {
                 let _ = lease.cancel();
             }
         }
-        self.events.size_owner(&SizeOwnerChange {
-            id: id.to_owned(),
-            cols: 0,
-            rows: 0,
-            owner: String::new(),
-        });
+        self.events.size_claims_forgotten(id);
     }
 }
 
@@ -1279,6 +1278,7 @@ mod lock_order {
     impl TerminalEvents for Quiet {
         fn activity(&self, _: &str, _: Option<ActivityState>) {}
         fn size_owner(&self, _: &SizeOwnerChange) {}
+        fn size_claims_forgotten(&self, _: &str) {}
     }
 
     /// F30: with `cursor_floors` held by the test, a dispose and a respawn of one tab id both
@@ -1354,6 +1354,7 @@ mod bounded_waits {
     impl TerminalEvents for Quiet {
         fn activity(&self, _: &str, _: Option<ActivityState>) {}
         fn size_owner(&self, _: &SizeOwnerChange) {}
+        fn size_claims_forgotten(&self, _: &str) {}
     }
 
     fn tabs_with(config: ProcessConfig) -> (Arc<TerminalTabs>, LocalProcessManager) {

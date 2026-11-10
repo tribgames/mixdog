@@ -32,10 +32,17 @@ async function startCore() {
   // The working directory is the recording's root: a path without a drive resolves onto its drive, as it did for Node's recorder.
   const child = spawn(BIN, ['serve'], { cwd: ROOT, env, stdio: 'ignore', windowsHide: true });
   // The core publishes its discovery record when it serves (a debug core first migrates its stores): the wait is on that file's change.
-  const record = await untilFile(join(CORE_ROOT, 'runtime'), child, (dir) => {
-    const found = JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'));
-    return found.core?.state === 'serving' && found.core.rpc?.port ? found : null;
-  }, 'the core to publish its serving discovery record (daemon.json)', CORE_START_DEADLINE_MS);
+  let record;
+  try {
+    record = await untilFile(join(CORE_ROOT, 'runtime'), child, (dir) => {
+      const found = JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'));
+      return found.core?.state === 'serving' && found.core.rpc?.port ? found : null;
+    }, 'the core to publish its serving discovery record (daemon.json)', CORE_START_DEADLINE_MS);
+  } catch (error) {
+    // The core is running by now: a start that fails ends it before the failure is reported.
+    await stopCore({ child }).catch((left) => console.error(left.message));
+    throw error;
+  }
   return { child, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
 }
 
@@ -76,12 +83,9 @@ async function openClock(core) {
   return openClockSocket(port);
 }
 
-async function main() {
+async function run(core) {
   const repo = new URL('../../../../', import.meta.url);
   const script = terminalScript(ROOT);
-  rmSync(ROOT, { recursive: true, force: true });
-  for (const dir of [script.cwd, script.watched]) mkdirSync(dir, { recursive: true });
-  const core = await startCore();
 
   // The relay end: every frame the phone sends goes to the core, every frame the core sends goes to the phone, each direction in order.
   let socket = null;
@@ -98,7 +102,7 @@ async function main() {
     onFrame(current, frame, log) {
       leg = current;
       if (frame.method === 'initialize') initializeParams ??= frame.params;
-      opened ??= new Promise((resolve, reject) => {
+      opened ??= bounded(new Promise((resolve, reject) => {
         const ws = new WebSocket(core.url, { headers: { Authorization: `Bearer ${core.token}` }, perMessageDeflate: false });
         ws.once('open', () => resolve(ws));
         ws.once('error', reject);
@@ -111,7 +115,7 @@ async function main() {
           }
           down = down.then(() => leg.toPhone(value)).then(() => log({ ev: 'core-frame' }));
         });
-      });
+      }), "the phone's WebSocket to the core to open");
       if (process.env.DEBUG_FRAMES && /feed\/|terminal/.test(frame.method ?? '')) console.error('>>', JSON.stringify(frame).slice(0, 300));
       up = up.then(async () => {
         socket ??= await opened;
@@ -154,6 +158,7 @@ async function main() {
   const lanes = {
     terminal: () => [
       api.subscribeTermData((event) => {
+        events.order.push({ push: 'termData', event: { id: event.id, data: event.data } });
         events.output[event.id] = (events.output[event.id] ?? '') + event.data;
         changed();
       }),
@@ -169,13 +174,16 @@ async function main() {
   const peerSend = (frame) => {
     peer ??= (async () => {
       const ws = new WebSocket(core.url, { headers: { Authorization: `Bearer ${core.token}` }, perMessageDeflate: false });
-      await new Promise((resolve, reject) => {
-        ws.once('error', reject);
-        ws.on('message', (data) => {
-          if (JSON.parse(data.toString('utf8')).id === 1) resolve();
-        });
-        ws.once('open', () => ws.send(JSON.stringify({ id: 1, method: 'initialize', params: initializeParams })));
-      });
+      await bounded(
+        new Promise((resolve, reject) => {
+          ws.once('error', reject);
+          ws.on('message', (data) => {
+            if (JSON.parse(data.toString('utf8')).id === 1) resolve();
+          });
+          ws.once('open', () => ws.send(JSON.stringify({ id: 1, method: 'initialize', params: initializeParams })));
+        }),
+        "the second connection to open and the core to answer its initialize"
+      );
       ws.send(JSON.stringify({ method: 'initialized' }));
       return ws;
     })();
@@ -237,7 +245,6 @@ async function main() {
       }),
     events: () => events,
   };
-  let failed = false;
   try {
     const trace = JSON.parse(JSON.stringify(await play(script, driver)));
     for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
@@ -245,13 +252,27 @@ async function main() {
     const claims = await play(sizeClaimScript(ROOT), driver);
     trace.claims = JSON.parse(JSON.stringify(claims));
     process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
-  } catch (error) {
-    failed = true;
-    throw error;
   } finally {
     for (const stop of off) stop();
     void peer?.then((ws) => ws.close());
     clock?.socket.destroy();
+  }
+}
+
+/** The core is ended whatever happens after it started: a setup that fails, a script that fails, a finished run. */
+async function main() {
+  // The recording's root is the core's working directory, so it is made before the core starts.
+  const script = terminalScript(ROOT);
+  rmSync(ROOT, { recursive: true, force: true });
+  for (const dir of [script.cwd, script.watched]) mkdirSync(dir, { recursive: true });
+  const core = await startCore();
+  let failed = false;
+  try {
+    await run(core);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
     // A teardown that fails is reported unless the run already failed: its error is the one that explains.
     await stopCore(core).catch((error) => {
       if (!failed) throw error;

@@ -20,6 +20,18 @@ test("an activity end moved from before the dispose answer to after it is a diff
   assert.throws(() => compareTraces(moved, golden), /entry/);
 });
 
+test('output chunks are cut by time in Node, so a different cut passes and a tab that streamed nothing does not', () => {
+  const recut = copy();
+  const first = recut.order.findIndex((entry) => entry.push === 'termData');
+  assert.ok(first >= 0, 'the recording holds the output as the relay sent it');
+  const { id, data } = recut.order[first].event;
+  recut.order.splice(first, 1, { push: 'termData', event: { id, data: data.slice(0, 1) } }, { push: 'termData', event: { id, data: data.slice(1) } });
+  compareTraces(recut, golden);
+  const silent = copy();
+  silent.order = silent.order.filter((entry) => !(entry.push === 'termData' && entry.event.id === id));
+  assert.throws(() => compareTraces(silent, golden), /streamed output/);
+});
+
 test('a screen checkpoint between the first and the last differs when its text differs', () => {
   const checkpoints = golden.claims.order.filter((entry) => entry.screen);
   assert.ok(checkpoints.length > 5, 'the timeline holds a checkpoint at every settle, not only the last snapshot');

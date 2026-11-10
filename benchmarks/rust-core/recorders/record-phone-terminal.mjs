@@ -10,8 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
-import { mock } from 'node:test';
-import { play, record, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
+import { callEntry, play, record, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
@@ -25,6 +24,14 @@ const WAIT_MS = 60_000;
 // A touched file's content changes with every touch (what the watcher reports is the change, not the time).
 let touches = 0;
 const RECORDING_MS = 15 * 60_000;
+/** The recording's ConPTY shells are children of the child: the whole tree ends. A pid that no longer exists is fine (taskkill answers 128 for it);
+ *  any other status, or a killer that does not finish in 30 s, is a tree left running. */
+function endTree(child) {
+  const ended = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
+  if (ended.error || (ended.status !== 0 && ended.status !== 128)) {
+    throw new Error(`taskkill did not end the recording's process tree (pid ${child.pid}) within 30000 ms (status ${ended.status}): ${ended.error?.message ?? 'it failed'}`);
+  }
+}
 const args = parseArgs();
 const tree = resolveTree(args);
 
@@ -58,13 +65,21 @@ if (!args.has('child')) {
       realClearTimeout(deadline);
       reject(new Error(`recording failed (${status}):\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`));
     });
-  }).finally(() => {
-    // The recording's ConPTY shells are children of the child: the whole tree ends, and a child that already exited is not an error.
-    const ended = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
-    if (ended.error) {
-      throw new Error(`taskkill did not end the recording's process tree (pid ${child.pid}) within 30000 ms: ${ended.error.message}`);
+  }).then(
+    (value) => {
+      endTree(child);
+      return value;
+    },
+    (failure) => {
+      // The recording's own failure is the one that explains; a tree left running is reported beside it.
+      try {
+        endTree(child);
+      } catch (left) {
+        console.error(left.message);
+      }
+      throw failure;
     }
-  });
+  );
   const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
@@ -93,11 +108,44 @@ process.chdir(ROOT);
 const { createDesktopOperations } = await importFrom(tree, 'apps/desktop/src/main/desktop-operations.ts');
 const { createRemoteMethods, executeRemoteFrame } = await importFrom(tree, 'apps/desktop/src/main/remote-methods.ts');
 const { createRelayPushLanes } = await importFrom(tree, 'apps/desktop/src/main/remote-relay-push-lanes.ts');
+const { createRelayEncryptedDelivery } = await importFrom(tree, 'apps/desktop/src/main/remote-relay-delivery.ts');
 const { remoteTerminalRun, TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } = await importFrom(tree, 'apps/desktop/src/shared/terminal-command.ts');
 
-// The phone's connection as the relay holds it: its lanes decide which pushes it reads.
-const state = { lanes: new Set(), channel: {} };
+// The size-claim leases are Node timers of exactly 30 s (terminal-manager.ts SIZE_OWNER_LEASE_MS); they run on a virtual clock the script steps,
+// and every other timer (the relay's 16 ms output buffer, the shells') stays real.
+const LEASE_MS = 30_000;
+const virtual = { on: false, now: 0, timers: new Set() };
+const realTimers = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
+globalThis.setTimeout = function (fn, ms, ...rest) {
+  if (!virtual.on || ms !== LEASE_MS) return realTimers.setTimeout(fn, ms, ...rest);
+  const timer = { due: virtual.now + ms, run: () => fn(...rest), unref: () => timer, ref: () => timer, hasRef: () => true };
+  virtual.timers.add(timer);
+  return timer;
+};
+globalThis.clearTimeout = (timer) => (virtual.timers.delete(timer) ? undefined : realTimers.clearTimeout(timer));
+const tickVirtual = (ms) => {
+  virtual.now += ms;
+  for (;;) {
+    const due = [...virtual.timers].filter((timer) => timer.due <= virtual.now).sort((a, b) => a.due - b.due)[0];
+    if (!due) return;
+    virtual.timers.delete(due);
+    due.run();
+  }
+};
+
+// The phone's connection as the relay holds it: its lanes decide which pushes it reads. Every frame for the phone leaves through the relay's
+// own `sendEncryptedFrame` (remote-relay-delivery.ts), whose transport records it: replies, terminal data and every other push in the one
+// order they were sent.
+const sentFrames = [];
+const transportOf = (connection) => ({
+  async send(payload) {
+    if (connection === CONNECTION) sentFrames.push(payload);
+    return 1;
+  },
+});
+const state = { lanes: new Set(), channel: {}, transport: transportOf(CONNECTION) };
 const clients = new Map([[CONNECTION, state]]);
+const registry = { clients, get: (id) => clients.get(id), close: () => {} };
 const events = { activity: [], sizeOwner: [], folder: [], run: [], order: [], output: {} };
 const waiting = new Set();
 const changed = () => {
@@ -122,20 +170,27 @@ const pushes = {
     if (request) record(events, 'run', request);
   },
 };
-const lanes = createRelayPushLanes({
-  clients,
-  broadcastEncrypted(frame, _droppable, include) {
-    for (const client of clients.values()) {
-      if (include && !include(client)) continue;
-      pushes[frame.event](frame.payload);
-    }
-    changed();
-  },
-  subscribeDesktopEvents: (listener) => {
-    desktopListeners.add(listener);
-    return () => desktopListeners.delete(listener);
-  },
-});
+// The terminal's output reaches the page through the relay's own 16 ms buffer, in chunks whose boundaries are timing; the page's text is
+// what they concatenate to.
+pushes.termData = (payload) => {
+  const id = String(payload.id || '');
+  const data = String(payload.data ?? '');
+  events.order.push({ push: 'termData', event: { id, data } });
+  events.output[id] = (events.output[id] ?? '') + data;
+};
+// A frame as the relay's transport took it: a reply (`id`, `ok`) answers the call that sent it; anything else is a push the page's listener hears.
+const calls = new Map();
+const received = () => {
+  for (const frame of sentFrames.splice(0)) {
+    if ('ok' in frame && 'id' in frame) {
+      const { name, params } = calls.get(frame.id);
+      calls.delete(frame.id);
+      events.order.push(callEntry(name, params, frame.ok ? { value: frame.value ?? null } : { error: frame.error }));
+    } else pushes[frame.event](frame.payload);
+  }
+  changed();
+};
+const delivery = createRelayEncryptedDelivery({ clients: registry, relayBinaryFrames: () => false, relayFrameLimit: () => Infinity, sendRawAndWait: async () => {}, byteMeter: { record: () => null } });
 const emit = (event) => {
   for (const listener of [...desktopListeners]) listener(event);
 };
@@ -148,6 +203,18 @@ const operations = createDesktopOperations({
   loadConfig: async () => ({}),
   emit,
 });
+const lanes = createRelayPushLanes({
+  clients,
+  broadcastEncrypted(frame, droppable, include) {
+    delivery.broadcastEncrypted(frame, droppable, include);
+    received();
+  },
+  subscribeDesktopEvents: (listener) => {
+    desktopListeners.add(listener);
+    return () => desktopListeners.delete(listener);
+  },
+  subscribeTerminalData: (listener) => operations.subscribeTerminalData(listener),
+});
 // The relay's data push goes through its own 16 ms buffer; the text the page gets is the output as it was written.
 // A disposed tab's shell is killed and its exit text arrives a moment later; a marker it wrote before dying makes Node push a late activity
 // event for it, so the first script's tabs must have exited before the second script turns the lane on again.
@@ -158,9 +225,6 @@ operations.subscribeTerminalData((event) => {
     exited.add(event.id);
     changed();
   }
-  if (!state.lanes.has('terminal')) return;
-  events.output[event.id] = (events.output[event.id] ?? '') + event.data;
-  changed();
 });
 const methodsOf = (connection) =>
   createRemoteMethods(
@@ -175,20 +239,26 @@ let frameId = 0;
 const driver = {
   async call(name, params) {
     if (name === 'termEnsure' && typeof params[0] === 'string') ensured.add(params[0]);
-    const response = await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: name, params }));
+    const id = ++frameId;
+    calls.set(id, { name, params });
+    const response = await executeRemoteFrame(methods, JSON.stringify({ id, method: name, params }));
+    // The relay's own send of the answer (remote-relay-client-calls.ts), which is where the reply is recorded.
+    await delivery.sendEncryptedFrame(CONNECTION, response);
+    received();
     if (!response.ok) throw new Error(response.error);
     return response.value;
   },
+  recordsReplies: true,
   fire(name, params, from) {
     void executeRemoteFrame(from === 'other' ? otherMethods : methods, JSON.stringify({ method: name, params }));
   },
   // The leases are Node timers; the virtual clock holds them from here and `advance` moves it.
   clock() {
-    mock.timers.enable({ apis: ['setTimeout'] });
-    clients.set(OTHER, { lanes: new Set(), channel: {} });
+    virtual.on = true;
+    clients.set(OTHER, { lanes: new Set(), channel: {}, transport: transportOf(OTHER) });
   },
   advance(ms) {
-    mock.timers.tick(ms);
+    tickVirtual(ms);
   },
   close(who) {
     if (who === 'other') clients.delete(OTHER);
@@ -231,9 +301,7 @@ for (const list of Object.values(events)) if (Array.isArray(list)) list.length =
 events.output = {};
 const claimScript = sizeClaimScript(ROOT);
 const claimTrace = await play(claimScript, driver);
-// The tabs' disposals hold timers on the virtual clock; run them so every shell is ended before the clock is released.
-mock.timers.runAll();
-mock.timers.reset();
+virtual.on = false;
 trace.claims = JSON.parse(JSON.stringify(claimTrace));
 await operations.dispose();
 lanes.dispose();
