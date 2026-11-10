@@ -17,12 +17,20 @@ default-filter = '''not (
 # they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
 [test-groups]
 migration-crash-matrix = { max-threads = 1 }
+# The sixteen recorded-directory crash replays are sync-bound like the matrices: four at once took 37-64 s each
+# (2026-11-10), and with the merge check's eight test threads the eight that started together were all killed at
+# 120 s. Four at a time, whatever the run's thread count; the other threads run the rest of the suite.
+migration-recorded = { max-threads = 4 }
 pg-cluster = { max-threads = 1 }
 tag-gates = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'package(mixdog-migrate) & (test(=desktop_profile::tests::the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
 test-group = 'migration-crash-matrix'
+
+[[profile.default.overrides]]
+filter = 'package(mixdog-migrate) & binary(it) & test(/^recorded_145::every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_/)'
+test-group = 'migration-recorded'
 
 # The four migration crash matrices are fsync-bound: each passed in 84-95 s with its temp dirs on an idle drive and
 # was killed at the default 120 s in five of five workspace runs on 2026-11-10 with them on the build drive, which
