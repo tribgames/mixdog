@@ -44,7 +44,9 @@ pub(crate) enum Ctl {
     /// `turn/steer`: the queued prompt is prioritized (front of the queue, priority `now`, a drain kicked), and the
     /// entries pushed into the active run's steer queue are taken.
     Prioritize { queued: QueuedId },
-    Decide(Decision),
+    /// A decision on a server request. `arbitrated`, when given, is answered once the actor took it (`true`: it resolved the
+    /// request) or found the request resolved or resolving (`false`), or with why it is not a valid decision.
+    Decide(Decision, Option<tokio::sync::oneshot::Sender<Result<bool, CoreError>>>),
     RunEnded { turn: TurnId, outcome: RunOutcome },
     /// The user's "Retry storage" (SM §8 `PendingRollback`).
     RetryStorage,
@@ -442,7 +444,23 @@ impl ControlCell {
         if !decidable {
             return Ok(());
         }
-        self.send(Ctl::Decide(decision))
+        self.send(Ctl::Decide(decision, None))
+    }
+
+    /// A decision whose caller is told whether it won (Node's `resolveToolApprovalForSession`: the answer serialized per session,
+    /// `result.approved === true` for the one that resolved the request, `session-host-lifecycle.ts:1086-1102`): `true` once the
+    /// actor resolved the request with it, `false` when the request is not decidable or another decision took it first.
+    pub async fn decide_arbitrated(&self, decision: Decision) -> Result<bool, CoreError> {
+        let decidable = mixdog_core_base::approvals::parse_id(&decision.request)
+            .is_some_and(|aid| self.approvals.load().contains(&aid.0));
+        if !decidable {
+            return Ok(false);
+        }
+        let (arbitrated, outcome) = tokio::sync::oneshot::channel();
+        self.send(Ctl::Decide(decision, Some(arbitrated)))?;
+        outcome.await.map_err(|_| CoreError::ThreadClosing {
+            thread_id: self.thread.clone(),
+        })?
     }
 
     pub fn publish_run(&self, run: Option<Arc<ActiveRun>>) {

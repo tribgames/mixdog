@@ -1,6 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "BrowserStreamAckParams": {
+      "description": "`browser/streamAck` (phone → core notification, Node's `browserRemoteStreamAck([sessionId, seq])`): the phone painted the `browser/frame` of `seq`, so its next (newest) frame of the session may go out.",
+      "properties": {
+        "seq": {
+          "format": "double",
+          "type": "number"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "ClientActivityParams": {
       "description": "`client/activity`: sent on user input, at most once per 60 s (client-side rate).",
       "properties": {
@@ -22,6 +39,21 @@
       },
       "required": [
         "line"
+      ],
+      "type": "object"
+    },
+    "HostBrowserFrameParams": {
+      "description": "`host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType: \"image/jpeg\"}`, no `data`), the picture is the next X17 frame of the session's stream on the same connection, and the core sends the frame once it has the picture; a frame without `image` carries facts only.",
+      "properties": {
+        "frame": true,
+        "tabId": {
+          "description": "The session, as in `host/browser/viewFrames`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "frame",
+        "tabId"
       ],
       "type": "object"
     },
@@ -1202,6 +1234,44 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserPageParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A viewed browser page's frame facts; a picture announced in them follows as the next X17 frame of the stream.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserFrameParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The phone painted a JPEG-view frame (`browser/frame`): its next one may go out.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/streamAck"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserStreamAckParams"
         }
       },
       "required": [

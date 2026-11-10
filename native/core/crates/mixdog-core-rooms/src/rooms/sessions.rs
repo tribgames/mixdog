@@ -16,8 +16,10 @@ use serde_json::{Map, Value, json};
 use super::RoomError;
 use super::home::{HomePlan, HomePorts, Presence};
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use super::records::{RoomStore, Rooms};
-use super::service::{KnownAgent, RoomHost, RoomRunner, route_params};
+use super::ready::RoomsReady;
+use super::records::{Left, RoomStore, Rooms};
+use super::service::{KnownAgent, ListingEnd, RoomHost, RoomRunner, join, route_params};
+use mixdog_rt::CancellationToken;
 
 /// The agent definitions the rooms module needs (files owned by the agent service).
 #[async_trait]
@@ -68,6 +70,8 @@ pub struct SessionHomePorts<S: RoomStore> {
     room_host: Arc<dyn RoomHost>,
     /// What is owed to a member who left a room ends with it (`cancelOwedTo`).
     runner: Arc<dyn RoomRunner>,
+    /// The rooms' first load, which a member forgotten awaits first (`agent-rooms.ts:341`).
+    ready: Arc<RoomsReady>,
 }
 
 impl<S: RoomStore> SessionHomePorts<S> {
@@ -77,8 +81,55 @@ impl<S: RoomStore> SessionHomePorts<S> {
         rooms: Arc<Rooms<S>>,
         room_host: Arc<dyn RoomHost>,
         runner: Arc<dyn RoomRunner>,
+        ready: Arc<RoomsReady>,
     ) -> Self {
-        Self { catalog, sessions, rooms, room_host, runner }
+        Self { catalog, sessions, rooms, room_host, runner, ready }
+    }
+
+    /// Node's `pruneDeleted` (`agent-room-membership.ts:64-76`), which the rooms' first load runs (`agent-rooms.ts:353-361`
+    /// `ready`, [`RoomsReady`]): members whose definition is proven deleted leave every room, saved; the catalog is republished
+    /// and their room conversations are deleted; those that could not be are logged (the load does not fail on them). A failed
+    /// save fails the load, the members already gone from the live records ([`Rooms::prune_members`]).
+    pub async fn prune_deleted(&self, log: &(dyn Fn(&str) + Send + Sync)) -> Result<(), RoomError> {
+        let mut ids: Vec<String> = Vec::new();
+        for room in self.rooms.list().await? {
+            for id in room.config.members {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+        }
+        if !ids.iter().any(|id| id != MIXY_AGENT_ID) {
+            return Ok(());
+        }
+        // An unknown or failed check proves nothing (`.catch(() => null)`).
+        let Ok(presence) = self.catalog.presence(&ids).await else { return Ok(()) };
+        let deleted: Vec<String> = ids.into_iter().filter(|id| presence.get(id) == Some(&Presence::Deleted)).collect();
+        let left = self.rooms.prune_members(&deleted).await?;
+        if left.is_empty() {
+            return Ok(());
+        }
+        let failed = self.leave(&left).await?;
+        if failed > 0 {
+            log(&format!("{failed} conversations of members who left their rooms could not be deleted"));
+        }
+        Ok(())
+    }
+
+    /// Members that left their rooms (`dropMembers`, saved): what was owed to them ends, the catalog is republished and their room
+    /// conversations are deleted; how many could not be. No client waits on it (`forgetMember`, `agent-rooms.ts:345-346`;
+    /// `pruneDeleted`, `agent-room-membership.ts:72-74`): the deletions follow the start at once, and the first joins the listing
+    /// in flight (`session-host-lifecycle.ts:527`, `session-host.ts:790`).
+    async fn leave(&self, left: &[Left]) -> Result<usize, RoomError> {
+        // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
+        for gone in left {
+            self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
+        }
+        let publish = CancellationToken::new();
+        let listing = self.room_host.republish_catalog(&publish).await?;
+        let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
+        join(&publish, listing).await;
+        Ok(self.room_host.delete_sessions(&sessions).await)
     }
 }
 
@@ -147,17 +198,12 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
     /// A bot proven deleted leaves every room, saved, and its room conversations are deleted as a
     /// room's are on removal.
     async fn forget_room_member(&self, agent_id: &str) -> Result<(), RoomError> {
+        self.ready.ready().await?;
         let left = self.rooms.drop_members(&[agent_id.to_owned()]).await?;
         if left.is_empty() {
             return Ok(());
         }
-        // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
-        for gone in &left {
-            self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
-        }
-        self.room_host.republish_catalog().await?;
-        let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
-        let failed = self.room_host.delete_sessions(&sessions).await;
+        let failed = self.leave(&left).await?;
         if failed > 0 {
             return Err(RoomError::Port(format!(
                 "The member left its rooms, but {failed} of its conversations could not be deleted."
@@ -188,8 +234,10 @@ pub struct SessionRoomHost {
     republish: Republish,
 }
 
-/// A catalog publish that ends when the catalog is published, or says why it was not.
-pub type Republish = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RoomError>> + Send>> + Send + Sync>;
+/// A catalog publish that ends when the catalog is published, or says why it was not; or, before the catalog is loaded, starts
+/// the background listing, whose rows go out once the given token is cancelled, and answers its end.
+pub type Republish =
+    Arc<dyn Fn(CancellationToken) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<ListingEnd>, RoomError>> + Send>> + Send + Sync>;
 
 impl SessionRoomHost {
     pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, republish: Republish) -> Self {
@@ -237,8 +285,8 @@ impl RoomHost for SessionRoomHost {
         failed
     }
 
-    async fn republish_catalog(&self) -> Result<(), RoomError> {
-        (self.republish)().await
+    async fn republish_catalog(&self, publish: &CancellationToken) -> Result<Option<ListingEnd>, RoomError> {
+        (self.republish)(publish.clone()).await
     }
 
     /// As an agent home's reset: the archive mark is written before the copy exists, so the copy never lists as a live chat.
@@ -331,8 +379,8 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        async fn republish_catalog(&self) -> Result<(), RoomError> {
-            Ok(())
+        async fn republish_catalog(&self, _: &CancellationToken) -> Result<Option<ListingEnd>, RoomError> {
+            Ok(None)
         }
         async fn start_over(&self, _: &str) -> Result<Option<String>, RoomError> {
             Ok(None)
@@ -401,7 +449,7 @@ mod tests {
 
     fn ports(spy: Arc<Spy>) -> SessionHomePorts<Mem> {
         let rooms = Arc::new(Rooms::new(Mem(Default::default())));
-        SessionHomePorts::new(Arc::new(Catalog), spy, rooms, Arc::new(NoHost), Arc::new(NoRun::default()))
+        SessionHomePorts::new(Arc::new(Catalog), spy, rooms, Arc::new(NoHost), Arc::new(NoRun::default()), RoomsReady::prepared())
     }
 
     /// A deleted bot leaves every room it was in, and what was owed to it ends in each.
@@ -414,7 +462,7 @@ mod tests {
         rooms.create(&input(&["ops", "bench"]), "room02", 2).await.unwrap();
         rooms.create(&input(&["gh", "bench"]), "room03", 3).await.unwrap();
         let runner = Arc::new(NoRun::default());
-        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), Arc::new(NoHost), runner.clone());
+        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), Arc::new(NoHost), runner.clone(), RoomsReady::prepared());
         ports.forget_room_member("gh").await.unwrap();
         assert_eq!(
             *runner.0.lock().unwrap(),
@@ -503,7 +551,7 @@ mod tests {
     #[tokio::test]
     async fn a_room_reset_archives_the_log_and_empties_a_member_keeping_nothing() {
         let clears = Arc::new(Clears::default());
-        let host = SessionRoomHost::new(Arc::new(Catalog), clears.clone(), Arc::new(|| Box::pin(async { Ok(()) })));
+        let host = SessionRoomHost::new(Arc::new(Catalog), clears.clone(), Arc::new(|_| Box::pin(async { Ok(None) })));
         let archived = host.start_over("room_log").await.unwrap().expect("the log had a conversation to keep");
         assert!(archived.starts_with("sess_"));
         assert_eq!(clears.0.lock().unwrap()[0], ("room_log".to_owned(), archived.clone()));
@@ -514,7 +562,7 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_sessions_counts_the_failures() {
-        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|| Box::pin(async { Ok(()) })));
+        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|_| Box::pin(async { Ok(None) })));
         assert_eq!(host.delete_sessions(&["a".into(), "bad".into(), "b".into()]).await, 1);
     }
 }

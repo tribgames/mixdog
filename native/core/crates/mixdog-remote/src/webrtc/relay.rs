@@ -36,8 +36,11 @@ pub trait RelayDeps: Send + Sync {
     fn awaiting_fit(&self, client: &str, session: &str) -> bool;
     /// The whole-PC screen source is allowed for the connection that delivered the signal.
     async fn screen_authorized(&self, client: &str, origin: Origin) -> bool;
-    /// Withhold (false) or resume (true) that client's JPEG images of the session.
+    /// Withhold (false) or resume (true) that client's JPEG images of the session. Called with the relay's state locked, so what it
+    /// must send waits for [`RelayDeps::released`].
     fn set_images(&self, client: &str, session: &str, enabled: bool);
+    /// The relay released its state after a step that may have called `set_images`: what that queued may go out now.
+    fn released(&self) {}
     async fn resolve_ice_servers(&self) -> Result<Vec<IceServer>, String>;
     /// To the viewer host: a phone signal (a `ready` with the ICE servers).
     async fn forward(&self, client: &str, signal: &ClientSignal, ice_servers: Option<&[IceServer]>, origin: Origin) -> Result<(), String>;
@@ -102,6 +105,7 @@ impl<D: RelayDeps> Relay<D> {
             && entry.owner == Owner::Channel
         {
             self.deps.set_images(client, session, true);
+            self.deps.released();
         }
     }
 
@@ -136,6 +140,8 @@ impl<D: RelayDeps> Relay<D> {
         if settled {
             state.ownership.remove(&owner_key);
         }
+        drop(state);
+        self.deps.released();
         Ok(signal)
     }
 
@@ -247,6 +253,7 @@ impl<D: RelayDeps> Relay<D> {
             }
             DesktopSignal::Geometry { .. } | DesktopSignal::Candidate { .. } => {}
         }
+        self.deps.released();
         self.deps.send(client, json!({ "event": SIGNAL_EVENT, "payload": signal.to_json() })).await
     }
 
