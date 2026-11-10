@@ -217,6 +217,14 @@ pub(crate) fn request_identity(thread: &ThreadId, header: &Header, turn: Option<
     wire_thread(wire.unwrap_or_else(|| thread.clone()), turn)
 }
 
+/// The identity fields of a request's options, shared by the turn's assembly and the parity test: Node's
+/// `codexSessionId`, thread and cache key are all the stored wire identity (`cache-strategy.mjs:312`).
+pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::RequestOptions, thread: &ThreadId, header: &Header, turn: Option<mixdog_core_api::ids::TurnId>) {
+    let identity = request_identity(thread, header, turn);
+    options.session_id = Some(identity.id.to_string());
+    options.thread = Some(identity);
+}
+
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
         Self { services }
@@ -304,13 +312,12 @@ impl HostRunParts {
             },
         );
         let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
-        options.session_id = Some(thread.as_str().to_owned());
+        apply_identity(&mut options, thread, header, source.turn);
         options.effort = Some(text(header, "effort").to_owned()).filter(|e| !e.is_empty());
         options.fast = header.get("fast").and_then(Value::as_bool) == Some(true);
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
         options.model_max_output_tokens = settings.model_max_output_tokens;
-        options.thread = Some(request_identity(thread, header, source.turn));
         options.provider_state = source.provider_state;
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
     }
