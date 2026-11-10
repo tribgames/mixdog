@@ -1,0 +1,68 @@
+{
+  "scenarios": [
+    {
+      "name": "recall then memoryControl while the spawn lock is held by another live process",
+      "requests": [
+        {
+          "action": "recall",
+          "args": [
+            "build target",
+            {}
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          }
+        },
+        {
+          "action": "memoryControl",
+          "args": [
+            {
+              "action": "status"
+            }
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "recall then memoryControl when the runtime install fails",
+      "requests": [
+        {
+          "action": "recall",
+          "args": [
+            "build target",
+            {}
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          }
+        },
+        {
+          "action": "memoryControl",
+          "args": [
+            {
+              "action": "status"
+            }
+          ],
+          "answer": {
+            "status": 200,
+            "body": {
+              "error": "memory runtime did not become ready"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
