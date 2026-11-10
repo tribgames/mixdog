@@ -76,8 +76,8 @@ fn start_in(dir: &Path, probe: &Arc<Probe>, recovery_wait: Duration, lock_wait: 
     let (dir, probe, cancel) = (dir.to_owned(), probe.clone(), cancel.clone());
     tokio::spawn(async move {
         let lane = mixdog_rt::testing::tokens().durability_io;
-        let start = Start { health: probe, recovery_wait, lock_wait };
-        PgCluster::ensure(PgRuntime::new(dir.join("no-runtime")), &dir, 55_900, lane, Processes::for_tests(), &cancel, &start).await
+        let start = Start { health: probe, recovery_wait, lock_wait, before_spawn: None };
+        PgCluster::ensure(PgRuntime::new(dir.join("no-runtime")), &dir, 55_900, lane, Processes::for_tests(), &cancel, &start, &|| true).await
     })
 }
 

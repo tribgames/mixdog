@@ -195,9 +195,31 @@ type Flight = futures::future::Shared<BoxFuture<'static, std::result::Result<(),
 #[derive(Default)]
 struct Opening {
     stopped: bool,
-    /// The opening task's outcome, shared by every use that arrived while it runs; forgotten when it settles, so the next use after a failure starts a new
-    /// one (Node's `createSharedAbortable` hands one promise to all callers and forgets it when it settles, `supervisor.mjs:659-665`).
-    flight: Option<Flight>,
+    /// The opening task's outcome, shared by every use that arrived while it runs, under the number of its opening; forgotten when that task ends by
+    /// any way, a panic included, so the next use starts a new one (Node's `createSharedAbortable` hands one promise to all callers and forgets it
+    /// whenever it settles, `supervisor.mjs:659-665`).
+    flight: Option<(u64, Flight)>,
+    /// Openings launched so far: the number of the next one.
+    launched: u64,
+    /// The opening in flight has begun starting a postmaster (admitted before any stop): a stop waits for it past its 6 s, so the postmaster is stopped
+    /// before the stop returns.
+    starting: bool,
+}
+
+/// Forgets its opening when the opening task ends, however it ends.
+struct Settled {
+    stack: Arc<MemoryStack>,
+    number: u64,
+}
+
+impl Drop for Settled {
+    fn drop(&mut self) {
+        let mut opening = self.stack.opening.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if opening.flight.as_ref().is_some_and(|(number, _)| *number == self.number) {
+            opening.flight = None;
+            opening.starting = false;
+        }
+    }
 }
 
 /// A memory runtime. Like Node's (`registerMemoryRuntimeLazy`, `daemon.mjs:202`) it costs nothing at construction:
@@ -351,10 +373,12 @@ impl MemoryStack {
                 return Ok(opened);
             }
             match &opening.flight {
-                Some(flight) => flight.clone(),
+                Some((_, flight)) => flight.clone(),
                 None => {
-                    let flight = self.launch()?;
-                    opening.flight = Some(flight.clone());
+                    opening.launched += 1;
+                    let number = opening.launched;
+                    let flight = self.launch(number)?;
+                    opening.flight = Some((number, flight.clone()));
                     flight
                 }
             }
@@ -365,11 +389,24 @@ impl MemoryStack {
     }
 
     /// Starts the opening as a task of its own: it runs to its end whatever its callers do (Node's shared promise does), and `stop` cancels and joins it.
-    fn launch(&self) -> Result<Flight> {
+    fn launch(&self, number: u64) -> Result<Flight> {
         use futures::FutureExt as _;
         let me = self.me.upgrade().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?;
-        let task = mixdog_rt::spawn("services.memory.open", TaskClass::Work, async move { me.run_opening().await });
+        let task = mixdog_rt::spawn("services.memory.open", TaskClass::Work, async move {
+            let _settled = Settled { stack: me.clone(), number };
+            me.run_opening().await
+        });
         Ok(async move { task.await.unwrap_or_else(|error| Err(format!("the memory opening ended: {error}"))) }.boxed().shared())
+    }
+
+    /// The last check before a postmaster starts, made under the lock a stop takes: refused once the stop began; admitted, the stop waits for it.
+    fn admit_start(&self) -> bool {
+        let mut opening = self.opening.lock().expect("opening");
+        if opening.stopped {
+            return false;
+        }
+        opening.starting = true;
+        true
     }
 
     /// The opening task: opens, then publishes the result and starts the background work, unless a stop began meanwhile; then it releases what it opened
@@ -377,8 +414,7 @@ impl MemoryStack {
     async fn run_opening(self: Arc<Self>) -> std::result::Result<(), String> {
         let outcome = self.open().await;
         let late = {
-            let mut opening = self.opening.lock().expect("opening");
-            opening.flight = None;
+            let opening = self.opening.lock().expect("opening");
             match outcome {
                 Err(error) => return Err(error.message()),
                 Ok(opened) if opening.stopped => opened,
@@ -412,7 +448,7 @@ impl MemoryStack {
             PgRuntimeSource::Install(install) => install(self.cancel.clone()).await?,
         };
         let dims = self.until_stopped(resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref())).await?;
-        let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), &self.data_dir, DEFAULT_PORT, self.lane, self.processes.clone(), &self.cancel, &self.start).await?;
+        let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), &self.data_dir, DEFAULT_PORT, self.lane, self.processes.clone(), &self.cancel, &self.start, &|| self.admit_start()).await?;
         // The postmaster is up: a failure from here to the end of the opening stops it (Node's boot error goes through `shutdown`, whose memory stop ends
         // PostgreSQL, `daemon.mjs:1347,377,383`), as `stop` does: a secondary process leaves the shared one running.
         let (memory_db, search_db) = release_on_failure(
@@ -566,13 +602,19 @@ impl MemoryStack {
         let flight = {
             let mut opening = self.opening.lock().expect("opening");
             opening.stopped = true;
-            opening.flight.clone()
+            opening.flight.as_ref().map(|(_, flight)| flight.clone())
         };
         self.cancel.cancel();
         // The opening task is joined for at most `OPENING_JOIN` (`stopOwnedPgForShutdown`'s race, `supervisor.mjs:790-800`): it was cancelled, so it normally
-        // ends at once, and one that does not goes on alone as Node's does: it publishes nothing after this point and stops what it opened itself.
-        if let Some(flight) = flight {
-            let _ = tokio::time::timeout(OPENING_JOIN, flight).await;
+        // ends at once, and one that does not goes on alone as Node's does: it publishes nothing after this point and stops what it opened itself. One that
+        // was already starting a postmaster when the stop began is waited for to its end (its start is bounded by the 30 s readiness wait, its stop by
+        // `STOP_SECONDS`): Node leaves such a postmaster to its synchronous exit hook (`supervisor.mjs:832-845`) or to the next start, and the core stops it
+        // before the stop returns, so the process never exits with it running unowned.
+        if let Some(flight) = flight
+            && tokio::time::timeout(OPENING_JOIN, flight.clone()).await.is_err()
+            && self.opening.lock().expect("opening").starting
+        {
+            let _ = flight.await;
         }
         let opened = self.opened.get();
         let background = self.background.lock().expect("background").take();

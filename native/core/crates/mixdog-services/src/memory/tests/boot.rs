@@ -332,6 +332,75 @@ async fn an_opening_that_ends_after_the_stop_gave_up_starts_nothing() {
     assert!(!dir.path().join("pgdata").exists(), "the abandoned opening began no cluster step");
 }
 
+/// An opening whose task panics is forgotten like one that failed (Node forgets its shared ensure whenever it settles, `supervisor.mjs:659-665`): the next
+/// use starts a new opening instead of getting the same failure for good.
+#[tokio::test]
+async fn an_opening_that_panics_is_forgotten_and_the_next_use_opens_again() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (install, installs, _entered) = install_of(|nth, _| {
+        Box::pin(async move {
+            assert!(nth != 1, "the first install panics");
+            Err(MemoryError::Runtime("the download failed".to_owned()))
+        })
+    });
+    let stack = stack_over(dir.path(), PgRuntimeSource::Install(install)).await;
+    let first = message(awaiting("the use whose opening panics", stack.db().client()).await);
+    let second = message(awaiting("the next use", stack.db().client()).await);
+    stack.stop().await.expect("stop");
+    assert!(first.contains("panicked"), "{first}");
+    assert_eq!(second, "postgres runtime: the download failed");
+    assert_eq!(installs.load(Ordering::SeqCst), 2, "the next use ran a new opening");
+}
+
+/// A postmaster start admitted before the stop began (its last check passed, `pg_ctl start` not yet spawned) is waited for past the stop's 6 s: the stop
+/// returns only once the start has ended (here it fails for want of a runtime; a postmaster it starts is stopped by the opening before it ends), so the
+/// process never exits with a postmaster coming up that nobody owns. The start is held between its admission and the spawn; the clock is moved past 6 s
+/// while it is held.
+#[tokio::test(start_paused = true)]
+async fn a_stop_waits_for_a_postmaster_start_admitted_before_it() {
+    struct Silent;
+    impl crate::memory::pg::cluster::Health for Silent {
+        fn healthy(&self, _port: u16) -> futures::future::BoxFuture<'static, bool> {
+            Box::pin(async { false })
+        }
+    }
+    let dir = tempfile::tempdir().expect("dir");
+    std::fs::create_dir_all(dir.path().join("pgdata")).expect("pgdata");
+    std::fs::write(dir.path().join("pgdata").join("PG_VERSION"), "16\n").expect("version");
+    let (admitted, mut admissions) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let (release, held) = tokio::sync::oneshot::channel::<()>();
+    let held = Arc::new(std::sync::Mutex::new(Some(held)));
+    let before_spawn: Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync> = Arc::new(move || {
+        let _ = admitted.send(());
+        let held = held.lock().expect("held").take().expect("one start");
+        Box::pin(async move {
+            let _ = held.await;
+        })
+    });
+    let start = crate::memory::pg::cluster::Start { health: Arc::new(Silent), recovery_wait: std::time::Duration::ZERO, lock_wait: std::time::Duration::ZERO, before_spawn: Some(before_spawn) };
+    let stack = MemoryStack::start_with(boot_over(dir.path(), PgRuntimeSource::Dir(dir.path().join("runtime"))), start).await.expect("built");
+    let db = stack.db();
+    let using = tokio::spawn(async move { db.client().await.map(drop) });
+    awaiting_for(std::time::Duration::from_secs(10), "the start to be admitted", admissions.recv()).await.expect("admitted");
+    let mut stopping = Box::pin(stack.stop());
+    let waiting = futures::poll!(&mut stopping).is_pending();
+    tokio::time::advance(std::time::Duration::from_secs(6)).await;
+    let at_the_give_up = match futures::poll!(&mut stopping) {
+        std::task::Poll::Pending => None,
+        std::task::Poll::Ready(stopped) => Some(stopped),
+    };
+    let held_past_the_give_up = at_the_give_up.is_none();
+    release.send(()).expect("the start waits at the gate");
+    let stopped = match at_the_give_up {
+        Some(stopped) => stopped,
+        None => awaiting("the stop once the start ended", stopping).await,
+    };
+    let used = awaiting("the use of the opening", using).await.unwrap();
+    assert!(waiting && held_past_the_give_up, "the stop waits for the admitted start past its 6 s");
+    stopped.expect("stop");
+    assert!(message(used).contains("pg_ctl"), "the admitted start went on to pg_ctl");
+}
+
 /// The spawn lock is Node's file, `<profile>/pg-spawn.lock` beside the cluster (`supervisor.mjs:618`), so the two exclude each other: while a holder (as a Node
 /// process would) has it, a use whose start does not wait is refused before the cluster is touched; once it is released, the next use goes on to `initdb`.
 #[tokio::test]
@@ -349,7 +418,7 @@ async fn the_spawn_lock_is_nodes_file_beside_the_cluster() {
         let _ = taken.send(outcome);
     });
     awaiting("the holder to take the spawn lock", held).await.unwrap().expect("the lock is taken");
-    let start = crate::memory::pg::cluster::Start { health: Arc::new(Silent), recovery_wait: std::time::Duration::ZERO, lock_wait: std::time::Duration::ZERO };
+    let start = crate::memory::pg::cluster::Start { health: Arc::new(Silent), recovery_wait: std::time::Duration::ZERO, lock_wait: std::time::Duration::ZERO, before_spawn: None };
     let stack = MemoryStack::start_with(boot_over(dir.path(), PgRuntimeSource::Dir(dir.path().join("runtime"))), start).await.expect("built");
     let refused = message(awaiting("the use while Node's lock is held", stack.db().client()).await);
     hold.release_and_wait();
