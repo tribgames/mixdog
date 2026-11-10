@@ -35,6 +35,22 @@ impl ToolSurfaceStatus for LateToolSurface {
             None => Err(CoreError::CapabilityUnavailable { capability: "tool surface".into(), detail: "the session layer is not up yet".into() }),
         }
     }
+
+    async fn peek(&self, thread: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
+        match self.0.get() {
+            Some(surface) => surface.peek(thread).await,
+            None => Err(CoreError::CapabilityUnavailable { capability: "tool surface".into(), detail: "the session layer is not up yet".into() }),
+        }
+    }
+
+    /// `tools/toolsStatus` with `snapshot` reaches the surface through this cell, so it forwards the request
+    /// build; the trait's default would answer every snapshot with `invalidParams`.
+    async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<serde_json::Value, CoreError> {
+        match self.0.get() {
+            Some(surface) => surface.request_snapshot(thread, user_message).await,
+            None => Err(CoreError::CapabilityUnavailable { capability: "tool surface".into(), detail: "the session layer is not up yet".into() }),
+        }
+    }
 }
 
 impl Bound for LateToolSurface {
@@ -59,6 +75,19 @@ mod tests {
         async fn surface(&self, _: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
             Ok(StatusSurface { listed: vec!["read".to_owned()], ..StatusSurface::default() })
         }
+
+        async fn request_snapshot(&self, thread: &ThreadId, _user_message: Option<&str>) -> Result<serde_json::Value, CoreError> {
+            Ok(serde_json::json!({ "thread": thread.to_string() }))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_request_snapshot_reaches_the_bound_surface() {
+        let late = LateToolSurface::default();
+        let thread = ThreadId::from("t1");
+        assert!(matches!(late.request_snapshot(&thread, None).await, Err(CoreError::CapabilityUnavailable { .. })));
+        late.bind(Arc::new(Listing)).ok().unwrap();
+        assert_eq!(late.request_snapshot(&thread, None).await.unwrap(), serde_json::json!({ "thread": "t1" }));
     }
 
     #[tokio::test]

@@ -1,0 +1,497 @@
+{
+  "t0": 1800000000000,
+  "cases": [
+    {
+      "name": "both-want-a-refresh",
+      "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
+      "lock": null,
+      "hold": null,
+      "kills": [],
+      "replies": [
+        {
+          "afterMs": 1000,
+          "status": 200,
+          "body": "{\"access_token\":\"a1\",\"refresh_token\":\"r1\",\"expires_in\":3600}"
+        }
+      ],
+      "callers": [
+        {
+          "at": 0,
+          "proc": "A",
+          "force": false
+        },
+        {
+          "at": 0,
+          "proc": "B",
+          "force": false
+        }
+      ],
+      "events": [
+        {
+          "at": 0,
+          "kind": "request",
+          "proc": "A",
+          "url": "https://auth.x.ai/oauth2/token",
+          "body": "grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=r0"
+        },
+        {
+          "at": 37,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 37
+        },
+        {
+          "at": 112,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 75
+        },
+        {
+          "at": 249,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 137
+        },
+        {
+          "at": 486,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 723,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 960,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1000,
+          "kind": "result",
+          "proc": "A",
+          "caller": 0,
+          "token": "a1"
+        },
+        {
+          "at": 1197,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1197,
+          "kind": "result",
+          "proc": "B",
+          "caller": 1,
+          "token": "a1"
+        }
+      ],
+      "fileAfter": "{\n  \"access_token\": \"a1\",\n  \"refresh_token\": \"r1\",\n  \"expires_at\": 1800003601000,\n  \"token_endpoint\": \"https://auth.x.ai/oauth2/token\"\n}\n",
+      "entries": [
+        "grok-oauth.json"
+      ],
+      "unusedReplies": 0
+    },
+    {
+      "name": "the-holder-is-killed-while-holding",
+      "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
+      "lock": null,
+      "hold": "A",
+      "kills": [
+        {
+          "at": 500,
+          "proc": "A"
+        }
+      ],
+      "replies": [
+        {
+          "afterMs": 1000,
+          "status": 200,
+          "body": "{\"access_token\":\"a1\",\"refresh_token\":\"r1\",\"expires_in\":3600}"
+        }
+      ],
+      "callers": [
+        {
+          "at": 0,
+          "proc": "A",
+          "force": false
+        },
+        {
+          "at": 0,
+          "proc": "B",
+          "force": false
+        }
+      ],
+      "events": [
+        {
+          "at": 0,
+          "kind": "request",
+          "proc": "A",
+          "url": "https://auth.x.ai/oauth2/token",
+          "body": "grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=r0"
+        },
+        {
+          "at": 37,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 37
+        },
+        {
+          "at": 112,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 75
+        },
+        {
+          "at": 249,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 137
+        },
+        {
+          "at": 486,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 500,
+          "kind": "killed",
+          "proc": "A"
+        },
+        {
+          "at": 723,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 723,
+          "kind": "request",
+          "proc": "B",
+          "url": "https://auth.x.ai/oauth2/token",
+          "body": "grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=r0"
+        },
+        {
+          "at": 1723,
+          "kind": "result",
+          "proc": "B",
+          "caller": 1,
+          "token": "a1"
+        }
+      ],
+      "fileAfter": "{\n  \"access_token\": \"a1\",\n  \"refresh_token\": \"r1\",\n  \"expires_at\": 1800003601723,\n  \"token_endpoint\": \"https://auth.x.ai/oauth2/token\"\n}\n",
+      "entries": [
+        "grok-oauth.json"
+      ],
+      "unusedReplies": 0
+    },
+    {
+      "name": "a-lease-left-by-a-process-that-no-longer-exists",
+      "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
+      "lock": {
+        "kind": "exited"
+      },
+      "hold": null,
+      "kills": [],
+      "replies": [
+        {
+          "afterMs": 1000,
+          "status": 200,
+          "body": "{\"access_token\":\"a1\",\"refresh_token\":\"r1\",\"expires_in\":3600}"
+        }
+      ],
+      "callers": [
+        {
+          "at": 0,
+          "proc": "A",
+          "force": false
+        },
+        {
+          "at": 0,
+          "proc": "B",
+          "force": false
+        }
+      ],
+      "events": [
+        {
+          "at": 0,
+          "kind": "request",
+          "proc": "A",
+          "url": "https://auth.x.ai/oauth2/token",
+          "body": "grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=r0"
+        },
+        {
+          "at": 37,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 37
+        },
+        {
+          "at": 112,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 75
+        },
+        {
+          "at": 249,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 137
+        },
+        {
+          "at": 486,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 723,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 960,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1000,
+          "kind": "result",
+          "proc": "A",
+          "caller": 0,
+          "token": "a1"
+        },
+        {
+          "at": 1197,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1197,
+          "kind": "result",
+          "proc": "B",
+          "caller": 1,
+          "token": "a1"
+        }
+      ],
+      "fileAfter": "{\n  \"access_token\": \"a1\",\n  \"refresh_token\": \"r1\",\n  \"expires_at\": 1800003601000,\n  \"token_endpoint\": \"https://auth.x.ai/oauth2/token\"\n}\n",
+      "entries": [
+        "grok-oauth.json"
+      ],
+      "unusedReplies": 0
+    },
+    {
+      "name": "an-ownerless-lease-younger-than-the-stale-age",
+      "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
+      "lock": {
+        "kind": "ownerless",
+        "ageMs": 119999
+      },
+      "hold": null,
+      "kills": [],
+      "replies": [
+        {
+          "afterMs": 1000,
+          "status": 200,
+          "body": "{\"access_token\":\"a1\",\"refresh_token\":\"r1\",\"expires_in\":3600}"
+        }
+      ],
+      "callers": [
+        {
+          "at": 0,
+          "proc": "A",
+          "force": false
+        },
+        {
+          "at": 0,
+          "proc": "B",
+          "force": false
+        }
+      ],
+      "events": [
+        {
+          "at": 37,
+          "kind": "wait",
+          "proc": "A",
+          "ms": 37
+        },
+        {
+          "at": 37,
+          "kind": "request",
+          "proc": "A",
+          "url": "https://auth.x.ai/oauth2/token",
+          "body": "grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=r0"
+        },
+        {
+          "at": 37,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 37
+        },
+        {
+          "at": 112,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 75
+        },
+        {
+          "at": 249,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 137
+        },
+        {
+          "at": 486,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 723,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 960,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1037,
+          "kind": "result",
+          "proc": "A",
+          "caller": 0,
+          "token": "a1"
+        },
+        {
+          "at": 1197,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1197,
+          "kind": "result",
+          "proc": "B",
+          "caller": 1,
+          "token": "a1"
+        }
+      ],
+      "fileAfter": "{\n  \"access_token\": \"a1\",\n  \"refresh_token\": \"r1\",\n  \"expires_at\": 1800003601037,\n  \"token_endpoint\": \"https://auth.x.ai/oauth2/token\"\n}\n",
+      "entries": [
+        "grok-oauth.json"
+      ],
+      "unusedReplies": 0
+    },
+    {
+      "name": "an-ownerless-lease-as-old-as-the-stale-age",
+      "file": "{\"access_token\":\"a0\",\"refresh_token\":\"r0\",\"expires_at\":1800000001000,\"token_endpoint\":\"https://auth.x.ai/oauth2/token\"}",
+      "lock": {
+        "kind": "ownerless",
+        "ageMs": 120000
+      },
+      "hold": null,
+      "kills": [],
+      "replies": [
+        {
+          "afterMs": 1000,
+          "status": 200,
+          "body": "{\"access_token\":\"a1\",\"refresh_token\":\"r1\",\"expires_in\":3600}"
+        }
+      ],
+      "callers": [
+        {
+          "at": 0,
+          "proc": "A",
+          "force": false
+        },
+        {
+          "at": 0,
+          "proc": "B",
+          "force": false
+        }
+      ],
+      "events": [
+        {
+          "at": 0,
+          "kind": "request",
+          "proc": "A",
+          "url": "https://auth.x.ai/oauth2/token",
+          "body": "grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=r0"
+        },
+        {
+          "at": 37,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 37
+        },
+        {
+          "at": 112,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 75
+        },
+        {
+          "at": 249,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 137
+        },
+        {
+          "at": 486,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 723,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 960,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1000,
+          "kind": "result",
+          "proc": "A",
+          "caller": 0,
+          "token": "a1"
+        },
+        {
+          "at": 1197,
+          "kind": "wait",
+          "proc": "B",
+          "ms": 237
+        },
+        {
+          "at": 1197,
+          "kind": "result",
+          "proc": "B",
+          "caller": 1,
+          "token": "a1"
+        }
+      ],
+      "fileAfter": "{\n  \"access_token\": \"a1\",\n  \"refresh_token\": \"r1\",\n  \"expires_at\": 1800003601000,\n  \"token_endpoint\": \"https://auth.x.ai/oauth2/token\"\n}\n",
+      "entries": [
+        "grok-oauth.json"
+      ],
+      "unusedReplies": 0
+    }
+  ]
+}

@@ -89,6 +89,18 @@ pub trait ToolSurfaceStatus: Send + Sync {
     /// The surface of `thread` (or of the current thread when none is named). An empty thread
     /// is first brought to the settings, so the list is what its first turn sends.
     async fn surface(&self, thread: Option<&ThreadId>) -> Result<StatusSurface, CoreError>;
+
+    /// The surface `thread` holds now, read without changing the session (no reconcile).
+    async fn peek(&self, thread: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
+        self.surface(thread).await
+    }
+
+    /// The provider request `thread`'s next send would carry (`tools/toolsStatus` with `snapshot`): the
+    /// surface's tool documents, the request's system texts and tools, and the body its route's codec
+    /// encodes. A surface that cannot build requests refuses.
+    async fn request_snapshot(&self, _thread: &ThreadId, _user_message: Option<&str>) -> Result<Value, CoreError> {
+        Err(invalid("snapshot", "a surface that builds the thread's provider request"))
+    }
 }
 
 pub struct ToolsService {
@@ -106,9 +118,20 @@ impl DomainService for ToolsService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
             "tools/toolsStatus" => {
-                let (thread, query) = parse_params(&req.params)?;
-                let surface = self.surfaces.surface(thread.as_ref()).await?;
-                Ok(Reply::Value(tools_status(&surface, &query)))
+                let (thread, query, snapshot, user_message) = parse_params(&req.params)?;
+                // A snapshot hands out the whole system prompt and request; Node has no counterpart reachable from another
+                // device, so only a client on this machine may ask for one.
+                if (snapshot || user_message.is_some()) && req.ctx.origin != mixdog_protocol::Origin::Local {
+                    return Err(CoreError::PermissionDenied { method: "tools/toolsStatus".into(), origin: req.ctx.origin });
+                }
+                // A snapshot is a read: it must not bring an empty thread to the current settings.
+                let surface = if snapshot { self.surfaces.peek(thread.as_ref()).await? } else { self.surfaces.surface(thread.as_ref()).await? };
+                let mut status = tools_status(&surface, &query);
+                if snapshot {
+                    let thread = thread.ok_or_else(|| invalid("threadId", "a thread for a snapshot"))?;
+                    status["requestSnapshot"] = self.surfaces.request_snapshot(&thread, user_message.as_deref()).await?;
+                }
+                Ok(Reply::Value(status))
             }
             _ => Err(invalid("method", "tools/*")),
         }
@@ -127,14 +150,19 @@ fn invalid(path: &str, expected: &str) -> CoreError {
     CoreError::InvalidParams { path: path.into(), expected: expected.into() }
 }
 
-fn parse_params(params: &Value) -> Result<(Option<ThreadId>, String), CoreError> {
+fn parse_params(params: &Value) -> Result<(Option<ThreadId>, String, bool, Option<String>), CoreError> {
     let optional_string = |key: &str| match params.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => Ok(Some(s.clone())),
         Some(_) => Err(invalid(key, "string")),
     };
+    let snapshot = match params.get("snapshot") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(_) => return Err(invalid("snapshot", "boolean")),
+    };
     let thread = optional_string("threadId")?.map(ThreadId::from);
-    Ok((thread, optional_string("query")?.unwrap_or_default()))
+    Ok((thread, optional_string("query")?.unwrap_or_default(), snapshot, optional_string("snapshotUserMessage")?))
 }
 
 fn clean(value: &str) -> &str {
@@ -307,5 +335,89 @@ mod tests {
         assert_eq!(value["activeCount"], 1);
         assert!(service.call(request("tools/other", json!({}))).await.is_err());
         assert!(service.call(request("tools/toolsStatus", json!({"query": 3}))).await.is_err());
+    }
+
+    /// A surface that builds the thread's provider request.
+    struct Requests(StatusSurface);
+
+    #[async_trait]
+    impl ToolSurfaceStatus for Requests {
+        async fn surface(&self, _: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
+            Ok(self.0.clone())
+        }
+        async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, CoreError> {
+            Ok(json!({ "thread": thread.as_str(), "userMessage": user_message }))
+        }
+    }
+
+    /// A surface whose `surface` stands for the reconcile (it changes the session) and refuses here.
+    struct Reconciles;
+
+    #[async_trait]
+    impl ToolSurfaceStatus for Reconciles {
+        async fn surface(&self, _: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
+            Err(invalid("surface", "a read that does not reconcile"))
+        }
+        async fn peek(&self, _: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
+            Ok(StatusSurface::default())
+        }
+        async fn request_snapshot(&self, thread: &ThreadId, _: Option<&str>) -> Result<Value, CoreError> {
+            Ok(json!({ "thread": thread.as_str() }))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_reads_the_surface_without_the_reconcile() {
+        use mixdog_core_api::call::CallContext;
+        let service = ToolsService::new(Arc::new(Reconciles));
+        let request = CoreRequest { method: Method("tools/toolsStatus"), params: json!({"threadId": "t1", "snapshot": true}), op: None, ctx: CallContext::internal("test") };
+        assert!(service.call(request).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_call_adds_the_threads_provider_request_to_the_readout() {
+        use mixdog_core_api::call::CallContext;
+        let surface = StatusSurface { mode: "lead".into(), catalog: vec![StatusTool { name: "read".into(), description: "Read".into(), ..StatusTool::default() }], active: vec!["read".into()], discovered: vec![], listed: vec![] };
+        let request = |params: Value| CoreRequest { method: Method("tools/toolsStatus"), params, op: None, ctx: CallContext::internal("test") };
+        let service = ToolsService::new(Arc::new(Requests(surface.clone())));
+        let Ok(Reply::Value(value)) = service.call(request(json!({"threadId": "t1", "snapshot": true}))).await else { panic!("reply") };
+        let mut want = tools_status(&surface, "");
+        want["requestSnapshot"] = json!({ "thread": "t1", "userMessage": null });
+        assert_eq!(value, want);
+        let Ok(Reply::Value(said)) = service.call(request(json!({"threadId": "t1", "snapshot": true, "snapshotUserMessage": "hi"}))).await else { panic!("reply") };
+        assert_eq!(said["requestSnapshot"], json!({ "thread": "t1", "userMessage": "hi" }));
+        assert_eq!(value["requestSnapshot"]["userMessage"], Value::Null, "no message is no message");
+        let Ok(Reply::Value(plain)) = service.call(request(json!({"threadId": "t1", "snapshot": false}))).await else { panic!("reply") };
+        assert_eq!(plain, tools_status(&surface, ""), "without the flag the readout is Node's alone");
+        assert!(service.call(request(json!({"snapshot": true}))).await.is_err(), "a request is a thread's");
+        assert!(service.call(request(json!({"threadId": "t1", "snapshot": "yes"}))).await.is_err());
+        let plain_surface = ToolsService::new(Arc::new(Fixed(surface)));
+        assert!(plain_surface.call(request(json!({"threadId": "t1", "snapshot": true}))).await.is_err(), "a surface without requests refuses");
+    }
+
+    /// Only a client on this machine is given a snapshot; an SSH-forwarded or relayed one is refused, and keeps the plain readout.
+    #[tokio::test]
+    async fn a_snapshot_is_given_to_a_local_client_only() {
+        use mixdog_core_api::call::CallContext;
+        use mixdog_core_api::ids::ConnectionId;
+        use mixdog_protocol::Origin;
+        let surface = StatusSurface { mode: "lead".into(), ..StatusSurface::default() };
+        let service = ToolsService::new(Arc::new(Requests(surface)));
+        let from = |origin: Origin, params: Value| CoreRequest {
+            method: Method("tools/toolsStatus"),
+            params,
+            op: None,
+            ctx: CallContext::connection(ConnectionId(1), origin, Default::default()),
+        };
+        for (origin, given) in [(Origin::Local, true), (Origin::Ssh, false), (Origin::Relay, false)] {
+            for params in [json!({"threadId": "t1", "snapshot": true}), json!({"threadId": "t1", "snapshotUserMessage": "hi"})] {
+                match service.call(from(origin, params.clone())).await {
+                    Ok(_) => assert!(given, "{origin:?} was given {params}"),
+                    Err(CoreError::PermissionDenied { origin: refused, .. }) => assert!(!given && refused == origin, "{origin:?} refused {params}"),
+                    Err(other) => panic!("{origin:?} {params}: {other:?}"),
+                }
+            }
+            assert!(service.call(from(origin, json!({"threadId": "t1"}))).await.is_ok(), "{origin:?}: the plain readout");
+        }
     }
 }

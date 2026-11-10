@@ -67,7 +67,8 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
                 rpc_code: Some(code),
                 data: data.map(|d| scrub_json(server, d)),
             },
-            server.scrub(&format!("MCP error {code}: {reason}")),
+            // The SDK's `McpError` text, thrown, which Node's executor answers `Error: <message>` (`execute-call.mjs:69`).
+            server.scrub(&format!("Error: MCP error {code}: {reason}")),
         ),
         CallError::Reported(reported) => ToolError::new(
             ToolErrorCode::McpError {
@@ -278,5 +279,34 @@ impl Tool for McpFeatureTool {
             .await
             .map_err(|error| tool_error(&server, error))?;
         Ok(ToolOutput { parts: vec![ToolPart::Json(value)], ..ToolOutput::default() })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::McpIo;
+    use crate::McpServerConfig;
+    use crate::result::OutputPolicy;
+    use crate::result::Spiller;
+
+    /// A JSON-RPC error a server answers a call with reaches the model as Node's did: the scenario `MCP tool failures` of
+    /// `fixtures/tool-failures/golden.json` (`record-tool-failures.mjs`), whose server `fx` answers `boom` with code -32603 and the
+    /// message `server exploded`; Node's model was sent the text recorded there for that call.
+    #[test]
+    fn a_server_error_reads_as_nodes_thrown_call() {
+        let golden: JsonValue = serde_json::from_str(include_str!("../../../fixtures/tool-failures/golden.json")).unwrap();
+        let scenario = golden["scenarios"].as_array().unwrap().iter().position(|s| s["name"] == "MCP tool failures").unwrap();
+        let calls = golden["scenarios"][scenario]["replies"][0]["calls"].as_array().unwrap();
+        let boom = calls.iter().position(|call| call["name"] == "mcp__fx__boom").unwrap();
+        let node = golden["results"][scenario]["toolMessages"][0][boom].as_str().unwrap();
+        let io = || {
+            let tokens = mixdog_rt::testing::tokens();
+            McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }
+        };
+        let config = McpServerConfig::from_entry("fx", &json!({ "command": "node" }), &Default::default()).unwrap();
+        let server = McpServer::new(config, io(), Spiller::new(std::env::temp_dir(), io().durability), OutputPolicy::default(), None);
+        let error = tool_error(&server, CallError::Rpc(RpcError::Server { code: -32603, message: "server exploded".into(), data: None }));
+        assert_eq!(error.message_for_model, node);
     }
 }

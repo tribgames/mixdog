@@ -95,6 +95,8 @@ use crate::providers::openai::config::WireContext;
 use crate::providers::openai::oauth::OpenAiOAuth;
 use crate::transport::BidiOpen;
 use crate::transport::HttpSend;
+use crate::transport::preconnect::Preconnect;
+use crate::transport::preconnect::Setting;
 use crate::transport::WsDial;
 
 /// What the host supplies to every adapter.
@@ -518,7 +520,23 @@ impl DefaultProviderBuilder {
         }
         let session = Arc::new(OAuthSession::new(self.file(name)?, http.clone()));
         let enterprise = session.stored().await.map(|s| s.is_enterprise()).unwrap_or(false);
-        Ok(adapter(AnthropicAdapter::oauth(config, http, session, enterprise, self.env.gzip_lane)))
+        Ok(adapter(
+            AnthropicAdapter::oauth(config, http, session, enterprise, self.env.gzip_lane)
+                .with_settings(self.settings())
+                .with_preconnect(self.preconnect()),
+        ))
+    }
+
+    /// The process settings the wire reads, from the process's request context.
+    fn settings(&self) -> Setting {
+        let context = self.env.openai_context.clone();
+        Arc::new(move |name| context.var(name))
+    }
+
+    /// The socket warm-up of the providers that run one, on the process's request clock and settings.
+    fn preconnect(&self) -> Preconnect {
+        let clock = self.env.openai_context.clone();
+        Preconnect::new(self.env.http.clone(), Arc::new(move || clock.now_unix_ms()), self.settings())
     }
 
     fn build_openai(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -626,10 +644,12 @@ impl DefaultProviderBuilder {
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
+        // A key that cannot be read fails the build; the key itself is read at each request and again after a 401.
+        self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
         Ok(adapter(
-            google::gemini(key, self.env.http.clone(), self.env.google_traits.clone())
-                .with_listing_lookup(self.env.listing.clone()),
+            google::gemini_keyed(self.key_source(name, cfg), self.env.http.clone(), self.env.google_traits.clone())
+                .with_listing_lookup(self.env.listing.clone())
+                .with_preconnect(self.preconnect()),
         ))
     }
 
@@ -1018,7 +1038,7 @@ impl DefaultProviderBuilder {
             "xai" | "deepseek" | "openrouter" | "mimo-oauth" | "command-code-oauth" | "muse-code-oauth"
             | "opencode-go-oauth" => self.build_compat(name, cfg).await,
             "grok-oauth" => {
-                let credential = Arc::new(GrokCredential::new(self.env.http.clone(), self.file(name)?));
+                let credential = Arc::new(GrokCredential::new(self.env.http.clone(), self.file(name)?).with_pace(self.env.pace.clone()));
                 let retry = CompatProfile::xai().retry_policy();
                 Ok(adapter(grok::adapter(
                     self.env.http.clone(),
@@ -1026,6 +1046,7 @@ impl DefaultProviderBuilder {
                     self.env.grok_client_version.clone(),
                     retry,
                     self.env.listing.clone(),
+                    self.env.client_versions.clone(),
                 )))
             }
             "cursor-oauth" | "cursor-api" => self.build_cursor(name, cfg).await,

@@ -19,7 +19,6 @@ use mixdog_mcp::result::OutputPolicy;
 use mixdog_rt::LaneTokens;
 use mixdog_tools::policy::ConnectorPermissions;
 use mixdog_tools::policy::FileGrantStore;
-use mixdog_tools::policy::PreToolHook;
 use mixdog_tools::policy::ToolPolicy;
 
 /// The tool policy over the on-disk grant store (`<data>/human-gate`) and the connector policy.
@@ -32,15 +31,14 @@ pub struct PolicyParts {
     pub connector_policy: Arc<ConnectorPolicy>,
 }
 
-/// `hook` is the PreToolUse hook every call passes before its gate (Node's tool-gate.mjs asks the hook bus first).
-pub fn build_policy(tokens: &LaneTokens, data_dir: &Path, hook: Arc<dyn PreToolHook>) -> PolicyParts {
+pub fn build_policy(tokens: &LaneTokens, data_dir: &Path) -> PolicyParts {
     let grants = FileGrantStore::new(data_dir.join("human-gate"), tokens.interactive_io, tokens.durability_io);
     let connector_policy = ConnectorPolicy::new(
         data_dir.to_path_buf(),
         PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io },
     );
     let connectors: Arc<dyn ConnectorPermissions> = connector_policy.clone();
-    PolicyParts { policy: Arc::new(ToolPolicy::new(grants.clone(), connectors.clone()).with_hook(hook)), connectors, grants, connector_policy }
+    PolicyParts { policy: Arc::new(ToolPolicy::new(grants.clone(), connectors.clone())), connectors, grants, connector_policy }
 }
 
 /// The one MCP hub and the hook bus that dispatches through it. Tool-result artifacts land under
@@ -90,19 +88,8 @@ mod tests {
         let tokens = mixdog_rt::testing::tokens();
         let mcp = build_mcp(&tokens, dir.path(), Arc::new(MockProcessManager::default()), crate::domain_seams::hook_status::HookEventLog::new(dir.path().to_path_buf()));
         assert!(Arc::strong_count(&mcp.hub) >= 2, "the hook bus dispatches through the hub");
-        let policy = build_policy(&tokens, dir.path(), no_hook());
+        let policy = build_policy(&tokens, dir.path());
         assert!(Arc::strong_count(&policy.connectors) >= 2, "the policy holds the same connector policy");
-    }
-
-    struct NoHook;
-    #[async_trait::async_trait]
-    impl PreToolHook for NoHook {
-        async fn pre_tool(&self, _call: &mixdog_tools::policy::HookCall<'_>) -> Result<Option<mixdog_tools::policy::HookDecision>, mixdog_tools::policy::HookFailure> {
-            Ok(None)
-        }
-    }
-    fn no_hook() -> Arc<dyn PreToolHook> {
-        Arc::new(NoHook)
     }
 
     struct NoTools;
@@ -112,8 +99,8 @@ mod tests {
         }
     }
 
-    /// A legacy rule in `<data>/hooks.json` that asks before a read is asked about by the policy the daemon builds over its
-    /// hook bus, as Node's tool gate asks the hook bus before every call (hook-bus/tool-gate.mjs `decisionFromRule`).
+    /// A legacy rule in `<data>/hooks.json` that asks before a read is asked about by the policy over the hook bus, composed as
+    /// `compose_flip.rs` composes it, as Node's tool gate asks the hook bus before every call (hook-bus/tool-gate.mjs `decisionFromRule`).
     #[tokio::test]
     async fn a_hook_rule_that_asks_puts_the_call_to_the_person() {
         let dir = tempfile::tempdir().unwrap();
@@ -121,7 +108,8 @@ mod tests {
         std::fs::write(dir.path().join("hooks.json"), r#"[{"tool":"read","match":"asked.json","action":"ask"}]"#).unwrap();
         let mcp = build_mcp(&tokens, dir.path(), Arc::new(MockProcessManager::default()), crate::domain_seams::hook_status::HookEventLog::new(dir.path().to_path_buf()));
         let hook = mixdog_mcp::pre_tool::BusPreToolHook::new(mcp.hook_bus, Arc::new(|_: &mixdog_protocol::ThreadId| mixdog_mcp::hook_bus::HookCommon::default()));
-        let policy = build_policy(&tokens, dir.path(), Arc::new(hook)).policy;
+        let parts = build_policy(&tokens, dir.path());
+        let policy = ToolPolicy::new(parts.grants, parts.connectors).with_hook(Arc::new(hook));
         let gate = mixdog_core_api::domain::mock::MockApprovalGate::default();
         let grants = mixdog_tools::policy::SessionGrants::default();
         let _ = policy

@@ -7,7 +7,8 @@
 //! deleted), so the hint has no sender: the same re-read is a push of the rows when the rows differ from the last published ones.
 //! What can move the rows is what Node's mutations ended in:
 //! - `invalidateProviderCaches` (the readiness' invalidation, after every credential, provider or catalog change): the rows are
-//!   read again, loading the catalog;
+//!   read again, loading the catalog. Not the one a settled startup catalog refresh makes (`provider-readiness.mjs:159-167`): no
+//!   hint follows it, so it publishes nothing ([`FeedToldDrop`]);
 //! - a stored config change (`setModelPreferences` of a built-in provider only reloads the config, and the rows are hydrated with
 //!   the saved settings at read time): the rows are read again when they were loaded;
 //!
@@ -56,6 +57,24 @@ use tokio::sync::watch;
 
 use super::model_list::ModelListService;
 use crate::domains::ai_account::account::SectionPush;
+
+/// The readiness' invalidation with the feed: `drop` drops the caches every invalidation drops, and the feed is told of each
+/// invalidation but the one a settled startup catalog refresh makes.
+pub struct FeedToldDrop {
+    pub drop: Arc<dyn Fn() + Send + Sync>,
+    pub feed: Arc<ModelCatalogFeed>,
+}
+
+impl mixdog_ai::catalog::CacheDrop for FeedToldDrop {
+    fn drop_caches(&self) {
+        (self.drop)();
+        self.feed.invalidated();
+    }
+
+    fn drop_caches_after_refresh(&self) {
+        (self.drop)();
+    }
+}
 
 pub struct ModelCatalogFeed {
     models: Arc<ModelListService>,

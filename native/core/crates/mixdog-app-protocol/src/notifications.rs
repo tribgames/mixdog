@@ -27,6 +27,8 @@ use crate::v2::host::ModelProxyCancelParams;
 use crate::v2::host::ModelProxyRunEventParams;
 use crate::v2::host::RemotePointerParams;
 use crate::v2::host::UiOpenRequestedParams;
+use crate::v2::config::UiProviderModelsChangedParams;
+use crate::v2::config::UiSettingsChangedParams;
 use crate::v2::thread::*;
 
 /// `error`: a connection-scoped failure, or a thread error with `willRetry`.
@@ -92,6 +94,15 @@ pub struct SearchCompletedParams {
 pub struct ProcessOutputDeltaParams {
     pub process_handle: ProcessHandle,
     pub bytes_b64: String,
+    /// A terminal relay frame whose cut fell inside a non-BMP character (Node's frames are cut in UTF-16 units): the lone low surrogate
+    /// that comes before the bytes' text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub lead_unit: Option<u16>,
+    /// The lone high surrogate that comes after the bytes' text, for the same cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub tail_unit: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,6 +188,11 @@ crate::notification_definitions! {
     Warning => "warning" (WarningParams) @app,
     ConfigWarning => "configWarning" (WarningParams) @app,
     UiOpenRequested => "ui/openRequested" (UiOpenRequestedParams) @app,
+    /// Node's `settings-changed` event: settings pages re-read (a writer's announcement, a notification store write, or a
+    /// change of the config outside `desktop`).
+    UiSettingsChanged => "ui/settings/changed" (UiSettingsChangedParams) @app,
+    /// Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.
+    UiProviderModelsChanged => "ui/providerModels/changed" (UiProviderModelsChangedParams) @app,
     RemotePointer => "remote/pointer" (RemotePointerParams) @app,
     /// Draining: what still runs and the token that authorizes an abort (`lifecycle-remote.md` §5.1).
     CoreDrain => "core/drain" (CoreDrainParams) @app,
@@ -234,10 +250,16 @@ pub struct TerminalInputParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TerminalResizeParams {
     pub tab_id: TerminalTabId,
     pub cols: u16,
     pub rows: u16,
+    /// A phone showing the terminal claims the PTY size (Node's `termResize` `phoneOwner`): the
+    /// claim holds for 30 s unless renewed, the newest claim owns, and zero columns or rows with
+    /// `claim` release it. Without `claim` the resize is ignored while any claim stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -260,7 +282,7 @@ pub enum ClientNotification {
     #[serde(rename = "terminal/input")]
     #[cfg_attr(feature = "codegen", ts(rename = "terminal/input"))]
     TerminalInput(TerminalInputParams),
-    /// Ignored unless the sender owns the PTY size.
+    /// Ignored while a phone's claim stands, unless the sender claims (`claim`).
     #[serde(rename = "terminal/resize")]
     #[cfg_attr(feature = "codegen", ts(rename = "terminal/resize"))]
     TerminalResize(TerminalResizeParams),

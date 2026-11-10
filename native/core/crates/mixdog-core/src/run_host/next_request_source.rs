@@ -71,6 +71,26 @@ impl NextRequestSource {
         })
     }
 
+    /// The provider request the thread's next send would carry, as `tools/toolsStatus` with `snapshot` reads it
+    /// ([`super::request_snapshot::snapshot`]). Node has no such call; the request it builds without sending is
+    /// `nextMainRequest` (`session/side-question.mjs:64-99`), which composes nothing: `null` for a thread with no user
+    /// conversation, an agent's or one whose provider is not available, otherwise the stored header and transcript as
+    /// they are (no turn-start reconcile, no tail reminder), with the boundary's tool snapshot. So is this: it reads the
+    /// live header, surface and rows and writes nothing. `user_message`, which Node has no counterpart of, is appended
+    /// to the rebuilt transcript.
+    pub async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, String> {
+        let (directory, parts) = self.bound.get().ok_or("the session directory is not bound")?;
+        let directory = directory.upgrade().ok_or("the session directory is gone")?;
+        let handle = directory.handle(thread).ok_or_else(|| format!("thread {} is not loaded", thread.as_str()))?;
+        let header = handle.live_header().header();
+        let surface = handle.surface().borrow().clone();
+        let prior = directory.model_context(thread).read().await.map_err(|_| "the thread's rows could not be read".to_owned())?;
+        match parts.snapshot_request(thread, &header, &surface, prior, user_message).await {
+            Some((provider, request)) => super::request_snapshot::snapshot(&header, &*provider, &request),
+            None => Ok(Value::Null),
+        }
+    }
+
     /// The tail reminder text for `thread` and `model` from the thread's live header, read now:
     /// its response language and role are the session's as they are at this moment
     /// (`withTailReminder` reads the session object at each send).
@@ -110,6 +130,13 @@ pub fn last_sent_of(mut request: ModelRequest, header: &Header) -> Option<(Model
     }
     request.messages.truncate(end);
     Some((request, sent_at as u64))
+}
+
+#[async_trait]
+impl mixdog_core_ports::ports::tools_status::RequestSnapshots for NextRequestSource {
+    async fn snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, mixdog_core_api::CoreError> {
+        self.request_snapshot(thread, user_message).await.map_err(|reason| mixdog_core_base::support::failed("tools", reason))
+    }
 }
 
 #[async_trait]

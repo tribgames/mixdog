@@ -1,10 +1,9 @@
 # RL §13 bans. Owner: WP-RT; WP-INTEGRATE owns the workspace wiring.
 #
-# Clippy reads one config for the whole workspace. A crate that is the sanctioned home of a
-# banned item (mixdog-spawn for process spawning, mixdog-store::sqlite for rusqlite, the
-# blocking-lane bodies for std::fs) opts out with a scoped
-# `#[allow(clippy::disallowed_methods, reason = "...")]` / `disallowed_types`, never a
-# crate-wide allow.
+# Clippy reads the clippy.toml nearest the crate and does not merge, so a crate that is the sanctioned
+# home of a banned item carries its own clippy.toml restating every other ban here (mixdog-fsio for
+# std::fs and Path I/O, mixdog-testkit for test fixtures). Everything else goes through mixdog-fsio;
+# a source-level #[allow] for these bans is not accepted. Keep those two files in step with this one.
 #
 # Blocking filesystem or sleep work belongs in a job on a lane token (mixdog-rt), never on
 # RT-C/RT-W; async code gets time from tokio::time.

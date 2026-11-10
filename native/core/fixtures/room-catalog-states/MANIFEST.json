@@ -1,44 +1,401 @@
 {
   "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --harness <real-turn-harness dir>",
+  "coreDifferences": {
+    "differences": [
+      {
+        "scenario": "loaded-reset-listing-first",
+        "step": "reset",
+        "part": "after the answer",
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node's store refresh, held until after the answer, lists the reset log's row read after the reset's later writes and publishes it then; the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point before the answer)"
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "compareWith": "loaded-reset-refresh-in-io"
+      },
+      {
+        "scenario": "not-loaded-large",
+        "step": "update-rounds",
+        "part": "after the answer",
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
+        "reason": "Node hands the client one catalog of the 51 room logs; the core sends one frame per row of the listing.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:483 (thread/summary/updated, every row of a whole listing, changed or not)"
+        ],
+        "node": [
+          "catalog [<room log 0>, <room log 1>, <room log 2>, <room log 3>, <room log 4>, <room log 5>, <room log 6>, <room log 7>, <room log 8>, <room log 9>, <room log 10>, <room log 11>, <room log 12>, <room log 13>, <room log 14>, <room log 15>, <room log 16>, <room log 17>, <room log 18>, <room log 19>, <room log 20>, <room log 21>, <room log 22>, <room log 23>, <room log 24>, <room log 25>, <room log 26>, <room log 27>, <room log 28>, <room log 29>, <room log 30>, <room log 31>, <room log 32>, <room log 33>, <room log 34>, <room log 35>, <room log 36>, <room log 37>, <room log 38>, <room log 39>, <room log 40>, <room log 41>, <room log 42>, <room log 43>, <room log 44>, <room log 45>, <room log 46>, <room log 47>, <room log 48>, <room log 49>, <room log 50>]"
+        ],
+        "core": [
+          {
+            "frame": "thread/summary/updated <room log 0>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 1>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 2>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 3>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 4>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 5>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 6>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 7>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 8>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 9>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 10>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 11>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 12>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 13>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 14>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 15>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 16>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 17>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 18>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 19>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 20>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 21>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 22>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 23>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 24>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 25>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 26>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 27>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 28>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 29>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 30>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 31>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 32>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 33>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 34>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 35>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 36>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 37>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 38>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 39>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 40>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 41>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 42>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 43>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 44>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 45>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 46>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 47>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 48>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 49>",
+            "publication": 0
+          },
+          {
+            "frame": "thread/summary/updated <room log 50>",
+            "publication": 0
+          }
+        ]
+      },
+      {
+        "scenario": "loaded",
+        "step": "reset",
+        "part": "before the answer",
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "reason": "Forced orders (MANIFEST forcedOrders.loaded): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), Node's last of them is the stored row the client then holds, which the core's one publication also leaves held. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
+        ],
+        "node": [
+          "catalog [<room log 0>]",
+          "catalog [<room log 0>]"
+        ],
+        "compareWith": "loaded-reset-refresh-in-io"
+      },
+      {
+        "scenario": "loaded-reset-listing-first",
+        "step": "reset",
+        "part": "before the answer",
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), the two differing in the row's form or room fields. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
+        ],
+        "node": [
+          "catalog [<room log 0>]",
+          "catalog [<room log 0>]"
+        ],
+        "compareWith": "loaded-reset-refresh-in-io"
+      },
+      {
+        "scenario": "loaded-reset-listing-first",
+        "step": "forget-member",
+        "part": "before the answer",
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "reason": "Follows this scenario's reset: Node's client holds the row from the reset's later publication (its stored form), which the forget-member room call's catalog republishes; the core's client holds the row of its one reset publication. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
+        "rust": [
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
+        ],
+        "node": [
+          "catalog [<room log 0>]"
+        ],
+        "compareWith": "loaded-reset-refresh-in-io"
+      }
+    ]
+  },
   "exact": true,
-  "fileCount": 6,
+  "fileCount": 12,
   "files": [
     {
-      "bytes": 6749,
+      "bytes": 4841,
       "path": "loaded-failing.json",
-      "sha256": "6b2229966fe54d5efd8438e51a8cc265e078e33a7a1f560b9873b3f8c2626001"
+      "sha256": "8654112a9b603e6fb42a66605bbacddccf18079f52b3b026190eba1eb358da18"
     },
     {
-      "bytes": 3428,
+      "bytes": 2288,
       "path": "loaded-reconnect.json",
-      "sha256": "707b2a33aa2846a4f17d608bc76541cf283cca4d7e8ab4b6a20a0f8a168da013"
+      "sha256": "9c9927559e7a86dd71938eacf3ea506f730fef5d4cd6f5792c99a869cd88705b"
     },
     {
-      "bytes": 15970,
+      "bytes": 10065,
+      "path": "loaded-reset-listing-first.json",
+      "sha256": "e806880385972a19413d7c89a79508e02a6a5465c66b8e77ca57f50d1445f079"
+    },
+    {
+      "bytes": 7440,
+      "path": "loaded-reset-refresh-in-io.json",
+      "sha256": "60a2583f93f8a11d3243861f7ea512486a8afb8b0c7901a023b38b2dda03c391"
+    },
+    {
+      "bytes": 8681,
       "path": "loaded.json",
-      "sha256": "fa309b55bde898eae96b0e8b8ff61e43fd5db583112c8bbad783a5f2ae85d4cf"
+      "sha256": "0bef847ac3734a61c5fac01ab21c28890db9135e69a58197cadab1ade7642197"
     },
     {
-      "bytes": 1509,
+      "bytes": 1593,
       "path": "not-loaded-failing.json",
-      "sha256": "e16c1a13f5b96307aba2ce4343370c7f91874bfd0bef28e023e205eefb92ea84"
+      "sha256": "4004c39c25bd3d105cd4107dfe003e866cd99657428ec7d2cdfa2f1bf8af82c1"
     },
     {
-      "bytes": 78408,
+      "bytes": 78492,
       "path": "not-loaded-large.json",
-      "sha256": "c500a2c7744aa533c2171d8993fa8e59bb0492256c01f4804e4746f1e246ff37"
+      "sha256": "fd57c9781ae040b76ce429af0faeecf58dea816e7298719b146471a84754dd0d"
     },
     {
-      "bytes": 6248,
+      "bytes": 3888,
       "path": "not-loaded.json",
-      "sha256": "0eb7d16c9bb51f24437a9f66b634a3e50a98ff5efa7bb36b3c3f8be3c6118498"
+      "sha256": "04d57f0d11362783399b02a8b1244f8bf9160a5e801637cf79a5c321c4aaa53d"
+    },
+    {
+      "bytes": 6211,
+      "path": "prune-failed-then-update.json",
+      "sha256": "836b134abc044fc378799a41aa5672ec3f031ceaa8db5f1328f1f66aa17ed1f9"
+    },
+    {
+      "bytes": 5488,
+      "path": "prune-failed.json",
+      "sha256": "cf69528cb65c5fce53917b9f76767c270506a18cfb8f2c178be46697265a7494"
+    },
+    {
+      "bytes": 5648,
+      "path": "prune-held.json",
+      "sha256": "00bfb0dd939b5d4e9ea719755f8b8c7ddec9296a42d638e3703c3c82fef5f359"
+    },
+    {
+      "bytes": 6979,
+      "path": "pruned-at-load.json",
+      "sha256": "3996defe7bdab88fe3fd132ae96103ae3d35860345620ba333fbbb56b1c61d59"
     }
   ],
+  "forcedOrders": {
+    "loaded": {
+      "resetListings": {
+        "how": "the reset's own listing is held at its daemon call until the room call's catalog is published and the store watcher has reported the cleared log",
+        "order": "room-call-first"
+      },
+      "resetRefresh": {
+        "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
+        "order": "after-answer"
+      }
+    },
+    "loaded-reset-listing-first": {
+      "resetListings": {
+        "how": "the room records' save is held until the reset's own listing has ended; that listing is held at its daemon call until the store watcher has reported the cleared log",
+        "order": "listing-first"
+      },
+      "resetRefresh": {
+        "how": "the store refresh's start is gated from the reset's start until its answer is recorded",
+        "order": "after-answer"
+      }
+    },
+    "loaded-reset-refresh-in-io": {
+      "resetListings": {
+        "how": "the reset's own listing is held at its daemon call until the room call's catalog is published and the store watcher has reported the cleared log",
+        "order": "room-call-first"
+      },
+      "resetRefresh": {
+        "how": "the reset is held at its first member check (daemon I/O) until the reset's own listing and then the store refresh have run to their end",
+        "order": "in-io"
+      }
+    }
+  },
   "harness": {
     "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
     "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
     "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8"
   },
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/room-catalog-core-differences.json",
+      "sha256": "cb5ca4723029a4f1085760528442568ac72a4adb4b5c20decbf996cde330f78c"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -57,14 +414,21 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
+  "recorderSha256": "1477665925a836d5975ba12446a7f853cd5cd429c944a98be4384e5c7ecf61f7",
   "scenarios": [
     "loaded",
+    "loaded-reset-refresh-in-io",
+    "loaded-reset-listing-first",
     "loaded-reconnect",
     "not-loaded",
     "not-loaded-failing",
     "loaded-failing",
-    "not-loaded-large"
+    "not-loaded-large",
+    "pruned-at-load",
+    "prune-held",
+    "prune-failed-then-update",
+    "prune-failed"
   ],
   "set": "room-catalog-states",
-  "totalBytes": 112312
+  "totalBytes": 141614
 }

@@ -117,6 +117,11 @@ jobs:
           MIXDOG_EDIT_NATIVE_BIN: ${{ github.workspace }}/native/mixdog-patch/target/x86_64-unknown-linux-gnu/release/mixdog-patch
         run: node scripts/native-edit-wire-test.mjs
 
+      # K1 replacement of the wire step above: the same edit and patch bytes through the Rust core's own patch tool
+      # (mixdog-tools fs goldens recorded from the Node tool), once the Node wire step is removed.
+      - name: Rust core patch bytes
+        run: node scripts/rust-core/k1-lanes.mjs patch-bytes
+
       - name: Stage tested Linux x64 asset
         shell: bash
         run: |

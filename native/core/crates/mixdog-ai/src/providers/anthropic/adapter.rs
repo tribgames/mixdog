@@ -3,8 +3,8 @@
 //! the initial response, decided on the status alone before a stream exists:
 //! one credential refresh after a 401/403. A body is compressed exactly when
 //! Node compresses it (official messages URL, at least 8 KiB), waiting for
-//! lane room rather than ever skipping it; a rejected gzip body is the
-//! provider's error. The adapter also lists the route's models
+//! lane room rather than ever skipping it; a gzip body refused with 400/415 is
+//! sent once more plain, as Node's `sendWithCompression` does. The adapter also lists the route's models
 //! ([`ModelListing`]): one GET, no retry, no cache, no fallback list.
 //!
 //! The HTTP exchange is the shared [`HttpSend`] seam of `transport::http`.
@@ -14,6 +14,8 @@ use crate::transport::deadlines::ANTHROPIC_MODELS;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use flate2::Compression;
@@ -42,12 +44,17 @@ use mixdog_rt::CpuBulk;
 use mixdog_rt::LaneToken;
 use tokio_util::sync::CancellationToken;
 
+use crate::claude_floors;
+use crate::claude_floors::Feature;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
+use crate::transport::preconnect::Preconnect;
+use crate::transport::preconnect::Setting;
 
 use crate::warmer::send::{Post, WarmContext, send_cache_warm};
 use crate::warmer::stream::{WarmFailure, WarmUsage};
+use super::before_output::BeforeOutput;
 use super::fast_mode::CapacityError;
 use super::fast_mode;
 use super::betas::BetaFeatures;
@@ -56,7 +63,17 @@ use super::codec::ANTHROPIC_VERSION;
 use super::codec::AnthropicCodec;
 use super::codec::AnthropicConfig;
 use super::codec::Flavor;
+use super::codec::Plain;
+use super::codec::beta_names;
 use super::codec::layer_extra_headers;
+use super::codec::threaded;
+use super::threads;
+use super::threads::Directive;
+use super::threads::Mode;
+use super::threads::Plan;
+use super::threads::PlanInput;
+use super::threads::ThreadSession;
+use serde_json::Value;
 use super::models::AnthropicModel;
 use super::models::listing_url;
 use super::models::parse_listing;
@@ -72,6 +89,16 @@ fn gzip_failure(cause: &dyn std::fmt::Display) -> ProviderError {
 
 /// Request bodies at least this large are sent gzip-encoded.
 const GZIP_MIN_BYTES: usize = 8 * 1024;
+
+/// `anthropicGzipLatch` (`request-compression.mjs:29`): set once a compressed body refused with 400/415 was accepted
+/// plain; from then on no Anthropic body of this process is compressed.
+static GZIP_LATCHED: AtomicBool = AtomicBool::new(false);
+
+/// `anthropicGzipLatch.reset()` (`request-compression.mjs:23-25`), which only Node's tests call.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_gzip_latch() {
+    GZIP_LATCHED.store(false, Ordering::SeqCst);
+}
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -108,10 +135,20 @@ impl Credentials {
         }
     }
 
+    /// The account a thread belongs to (`threadAccountKey`): the key itself for an API key, the credential file
+    /// for a subscription.
+    fn thread_account(&self, provider: &str, base_url: &str, secret: &Secret) -> String {
+        match self {
+            Self::ApiKey(_) => threads::account_key(provider, &[base_url, &secret.0]),
+            Self::OAuth(session) => threads::account_key(provider, &[&session.account()]),
+        }
+    }
+
     fn header(&self, secret: &Secret) -> (String, String) {
         match self {
             Self::ApiKey(_) => ("x-api-key".to_owned(), secret.0.clone()),
-            Self::OAuth(_) => ("authorization".to_owned(), format!("Bearer {}", secret.0)),
+            // `postMessages` (`gzip-post.mjs:19`): the first header, spelled `Authorization`.
+            Self::OAuth(_) => ("Authorization".to_owned(), format!("Bearer {}", secret.0)),
         }
     }
 
@@ -137,9 +174,24 @@ pub struct AnthropicAdapter {
     http: Arc<dyn HttpSend>,
     credentials: Credentials,
     gzip_lane: CpuBulk,
+    /// The subscription route's socket warm-up (`preconnect('https://api.anthropic.com')`).
+    preconnect: Option<Preconnect>,
+    /// The process settings the request reads (Node's `process.env`).
+    settings: Setting,
 }
 
+/// The origin the subscription route warms (`anthropic-oauth.mjs:352`, `:535`), whatever its base URL.
+const ANTHROPIC_ORIGIN: &str = "https://api.anthropic.com";
+
 impl AnthropicAdapter {
+    /// Warms the messages API now, as the subscription provider's constructor does (`anthropic-oauth.mjs:352`), and
+    /// again before each send (`_sendOnce`, `anthropic-oauth.mjs:535`).
+    pub fn with_preconnect(mut self, preconnect: Preconnect) -> Self {
+        preconnect.warm(ANTHROPIC_ORIGIN);
+        self.preconnect = Some(preconnect);
+        self
+    }
+
     pub fn api_key(
         config: AnthropicConfig,
         http: Arc<dyn HttpSend>,
@@ -179,7 +231,15 @@ impl AnthropicAdapter {
             http,
             credentials,
             gzip_lane,
+            preconnect: None,
+            settings: Arc::new(|name| std::env::var(name).ok()),
         }
+    }
+
+    /// The process settings read from `settings` instead of the process environment.
+    pub fn with_settings(mut self, settings: Setting) -> Self {
+        self.settings = settings;
+        self
     }
 
     fn request_with(&self, wire: &WireRequest, secret: &Secret) -> WireRequest {
@@ -187,7 +247,10 @@ impl AnthropicAdapter {
         // A configured extra header of the credential's name already replaced it.
         let (name, value) = self.credentials.header(secret);
         if !request.headers.iter().any(|h| h.0.eq_ignore_ascii_case(&name)) {
-            request.headers.push((name, value));
+            match self.credentials {
+                Credentials::OAuth(_) => request.headers.insert(0, (name, value)),
+                Credentials::ApiKey(_) => request.headers.push((name, value)),
+            }
         }
         request
     }
@@ -213,16 +276,43 @@ impl AnthropicAdapter {
             .map_err(|e| gzip_failure(&e))
     }
 
-    /// One POST. Node gzips exactly the official-URL bodies of at least
-    /// `GZIP_MIN_BYTES`; a rejected gzip body is the provider's error, never
-    /// resent plain.
+    /// One POST, compressed as `sendWithCompression` compresses it (`request-compression.mjs:75-82`): official-URL
+    /// bodies of at least `GZIP_MIN_BYTES` that carry no `content-encoding`, unless the process latch or
+    /// `MIXDOG_ANTHROPIC_REQ_GZIP=0` turned compression off; a compression failure sends the body plain. A 400/415 to
+    /// the compressed body is drained and the same request sent once plain; when that plain send succeeds,
+    /// compression is off for the rest of the process.
     async fn post(&self, wire: &WireRequest, secret: &Secret) -> Result<HttpResponse, ProviderError> {
-        let mut request = self.request_with(wire, secret);
-        if self.codec.config().is_official_messages_url() && wire.body.len() >= GZIP_MIN_BYTES {
-            request.body = self.gzip(&wire.body).await?;
-            request.headers.push(("content-encoding".to_owned(), "gzip".to_owned()));
+        let request = self.request_with(wire, secret);
+        let eligible = self.codec.config().is_official_messages_url()
+            && wire.body.len() >= GZIP_MIN_BYTES
+            && !GZIP_LATCHED.load(Ordering::SeqCst)
+            && (self.settings)("MIXDOG_ANTHROPIC_REQ_GZIP").as_deref() != Some("0")
+            && !request.headers.iter().any(|h| h.0.eq_ignore_ascii_case("content-encoding"));
+        if !eligible {
+            return self.http.send(request, MODEL_STREAM).await;
         }
-        self.http.send(request, MODEL_STREAM).await
+        let Ok(packed) = self.gzip(&wire.body).await else {
+            return self.http.send(request, MODEL_STREAM).await;
+        };
+        let mut compressed = request.clone();
+        compressed.body = packed;
+        // `withContentEncoding` appends it after the request's own headers, spelled `Content-Encoding`
+        // (`request-compression.mjs:46`).
+        compressed.headers.push(("Content-Encoding".to_owned(), "gzip".to_owned()));
+        let response = self.http.send(compressed, MODEL_STREAM).await?;
+        if !matches!(response.status, 400 | 415) {
+            return Ok(response);
+        }
+        // Drained best-effort before the plain resend (`resendIfEncodingRejected`), which goes out on the same turn of
+        // Node's event loop and so finds the refusal's socket still busy.
+        let held = response.read_all_held().await.ok();
+        let retry = self.http.send(request, MODEL_STREAM).await;
+        drop(held);
+        let retry = retry?;
+        if retry.is_success() {
+            GZIP_LATCHED.store(true, Ordering::SeqCst);
+        }
+        Ok(retry)
     }
 
     /// The body to replay at standard speed after `rejected` refused the fast request `body`, when
@@ -246,6 +336,39 @@ impl AnthropicAdapter {
         }
         parsed.shift_remove("speed");
         serde_json::to_vec(&parsed).ok()
+    }
+
+    /// Whether `rejected` refused a version-floor feature of the request (`anthropicCapabilityReplay`): the feature is
+    /// then switched off for the model on this route and the request is to be encoded again, once per feature and
+    /// attempt. Nothing has streamed yet.
+    fn floor_rejected(&self, request: &ModelRequest, status: Option<u16>, text: &str, replayed: &mut Vec<Feature>) -> bool {
+        let Some(feature) = claude_floors::rejection(status, text) else { return false };
+        if replayed.contains(&feature) {
+            return false;
+        }
+        replayed.push(feature);
+        claude_floors::mark_unsupported(feature, self.codec.flavor().provider_name(), &request.model);
+        true
+    }
+
+    /// The thread plan of a request, when it threads at all: a create, a continue of the conversation's stored
+    /// response, or unthreaded.
+    fn plan(&self, request: &ModelRequest, plain: &Plain, secret: &Secret, directive: Option<Directive>) -> Option<Plan> {
+        let scope = self.codec.thread_scope(request)?;
+        let body: Value = serde_json::from_slice(&plain.wire.body).ok()?;
+        let config = self.codec.config();
+        let provider = self.codec.flavor().provider_name();
+        Some(config.threads.plan(PlanInput {
+            provider,
+            scope,
+            body: &body,
+            betas: &beta_names(&plain.wire),
+            account: &self.credentials.thread_account(provider, &config.base_url, secret),
+            cache_ttls: &self.codec.cache_ttls(request),
+            now: super::oauth::now_ms(),
+            directive,
+            send_group: request.options.send_group.as_deref(),
+        }))
     }
 
     async fn failure(&self, response: HttpResponse) -> ProviderError {
@@ -328,7 +451,8 @@ impl CacheWarmSend for AnthropicAdapter {
         cancel: &CancellationToken,
         on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
     ) -> Result<WarmUsage, WarmFailure> {
-        let wire = self.codec.encode(&cache_warm_request(request)).map_err(|e| WarmFailure::new(e.message))?;
+        // A warm never threads: Node builds its body with the plain request builder.
+        let wire = self.codec.encode_plain(&cache_warm_request(request)).map_err(|e| WarmFailure::new(e.message))?.wire;
         let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
         let post: Post<'_> = Box::new(move || {
             Box::pin(async move {
@@ -379,39 +503,78 @@ impl ProviderAdapter for AnthropicAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let mut wire = self.codec.encode(&request)?;
+        if let Some(preconnect) = &self.preconnect {
+            preconnect.warm(ANTHROPIC_ORIGIN);
+        }
+        let mut plain = self.codec.encode_plain(&request)?;
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;
-        let mut speed_dropped = false;
-        loop {
-            let response = self.post(&wire, &secret).await?;
-            if (200..300).contains(&response.status) {
-                return Ok(Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request))));
-            }
-            let rejected = response.read_all().await?;
-            // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
-            // capacity: the cooldown is recorded, `speed` is dropped and the request replayed once
-            // at once, instead of waiting out a window only the fast pool owns.
-            if !speed_dropped
-                && let Some(standard) = self.after_fast_refusal(&wire.body, &rejected)
-            {
-                wire.body = standard;
-                speed_dropped = true;
-                continue;
-            }
-            let mut err = self.codec.classify(&rejected);
-            if !refreshed && self.credentials.refreshable(err.status) {
-                refreshed = true;
-                if let Some(next) = self.credentials.after_rejection(&secret).await? {
-                    secret = next;
+        let mut directive = None;
+        let mut floor_replays = Vec::new();
+        // A threaded request the API refuses over its thread is planned again, as a create or unthreaded.
+        'plan: loop {
+            let mut plan = self.plan(&request, &plain, &secret, directive);
+            let mut wire = match &plan {
+                Some(plan) if plan.mode != Mode::None => threaded(&plain.wire, &plan.body, &plan.betas),
+                _ => plain.wire.clone(),
+            };
+            let mut speed_dropped = false;
+            loop {
+                let response = self.post(&wire, &secret).await?;
+                if (200..300).contains(&response.status) {
+                    let thread = plan.as_mut().and_then(Plan::take_session);
+                    let stream = Box::new(AnthropicStream::new(response.body, self.codec.decoder(&request)).with_thread(thread));
+                    // OAuth replays only a rejected initial response (`_resendAfterRejection`).
+                    if self.codec.flavor() != Flavor::ApiKey {
+                        return Ok(stream);
+                    }
+                    let opened = BeforeOutput::read(stream).await;
+                    if let Some(err) = opened.failure()
+                        && self.floor_rejected(&request, err.status, &err.message, &mut floor_replays)
+                    {
+                        // A fresh send (`withAnthropicCapabilityFallback`): its thread is planned again, with no directive.
+                        directive = None;
+                        plain = self.codec.encode_plain(&request)?;
+                        continue 'plan;
+                    }
+                    return Ok(Box::new(opened));
+                }
+                let rejected = response.read_all().await?;
+                // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
+                // capacity: the cooldown is recorded, `speed` is dropped and the request replayed once
+                // at once, instead of waiting out a window only the fast pool owns.
+                if !speed_dropped
+                    && let Some(standard) = self.after_fast_refusal(&wire.body, &rejected)
+                {
+                    wire.body = standard;
+                    speed_dropped = true;
                     continue;
                 }
+                if self.floor_rejected(&request, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays) {
+                    directive = None;
+                    plain = self.codec.encode_plain(&request)?;
+                    continue 'plan;
+                }
+                let mut err = self.codec.classify(&rejected);
+                if !refreshed && self.credentials.refreshable(err.status) {
+                    refreshed = true;
+                    if let Some(next) = self.credentials.after_rejection(&secret).await? {
+                        secret = next;
+                        continue;
+                    }
+                }
+                if refreshed && err.status == Some(401) && err.kind == ErrorKind::Auth {
+                    // The grant was refreshed and is still refused.
+                    err.reauth_required = true;
+                }
+                let refusal = String::from_utf8_lossy(&rejected.body);
+                if let Some(next) = plan.as_ref().and_then(|plan| plan.classify(rejected.status.unwrap_or(0), &refusal)) {
+                    directive = Some(next);
+                    plain = self.codec.encode_plain(&request)?;
+                    continue 'plan;
+                }
+                return Err(err);
             }
-            if refreshed && err.status == Some(401) && err.kind == ErrorKind::Auth {
-                // The grant was refreshed and is still refused.
-                err.reauth_required = true;
-            }
-            return Err(err);
         }
     }
 }
@@ -427,6 +590,9 @@ struct AnthropicStream {
     failed: Option<ProviderError>,
     /// The last usage report handed to the consumer, carried by a later error.
     last_usage: Option<Usage>,
+    /// A threaded send's hold on its conversation; dropped with the stream (or on failure), which gives the
+    /// conversation back.
+    thread: Option<ThreadSession>,
 }
 
 impl AnthropicStream {
@@ -437,6 +603,19 @@ impl AnthropicStream {
             queue: VecDeque::new(),
             failed: None,
             last_usage: None,
+            thread: None,
+        }
+    }
+
+    fn with_thread(mut self, thread: Option<ThreadSession>) -> Self {
+        self.thread = thread;
+        self
+    }
+
+    /// The response ended: the thread records it when the API confirmed storing it.
+    fn complete_thread(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            thread.complete(self.body.take());
         }
     }
 
@@ -451,7 +630,13 @@ impl AnthropicStream {
 
     fn fail(&mut self, mut err: ProviderError) {
         self.body = None;
-        err.partial_usage = self.last_usage.clone().map(Box::new);
+        self.thread = None;
+        // Node carries a turn's partial usage on a stream that was cut (a read failure, a stall, a truncation:
+        // anthropic-sse-turn/turn-outcome.mjs `partialFields`), not on an error the provider sent in the stream
+        // (`_anthropicSseError`, anthropic-sse.mjs:138), whose usage no ledger sees.
+        if err.transport.is_some() {
+            err.partial_usage = self.last_usage.clone().map(Box::new);
+        }
         self.failed = Some(err);
     }
 }
@@ -474,17 +659,24 @@ impl ModelStream for AnthropicStream {
                 return None;
             }
             match body.next().await {
-                Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
-                    Ok(events) => {
-                        self.enqueue(events);
-                        // An error held back behind this chunk's events
-                        // surfaces now, not when the next chunk arrives.
-                        if let Err(err) = self.decoder.feed(&[]) {
-                            self.fail(err);
-                        }
+                Some(Ok(chunk)) => {
+                    if let Some(thread) = self.thread.as_mut() {
+                        thread.feed(&chunk);
                     }
-                    Err(err) => self.fail(err),
-                },
+                    match self.decoder.feed(&chunk) {
+                        Ok(events) => {
+                            self.enqueue(events);
+                            // An error held back behind this chunk's events
+                            // surfaces now, not when the next chunk arrives.
+                            if let Err(err) = self.decoder.feed(&[]) {
+                                self.fail(err);
+                            } else if self.decoder.terminal_seen() {
+                                self.complete_thread();
+                            }
+                        }
+                        Err(err) => self.fail(err),
+                    }
+                }
                 Some(Err(fault)) => {
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
                     err.exposure = self.decoder.exposure();
@@ -493,7 +685,10 @@ impl ModelStream for AnthropicStream {
                 None => {
                     self.body = None;
                     match self.decoder.finish() {
-                        Ok(events) => self.enqueue(events),
+                        Ok(events) => {
+                            self.enqueue(events);
+                            self.complete_thread();
+                        }
                         Err(err) => self.fail(err),
                     }
                 }

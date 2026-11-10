@@ -36,7 +36,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use super::live_turn::LiveTurnPublisher;
-use super::watchdog::Watchdog;
+use super::watchdog::{StallSite, Watchdog, registration_id, stall_abort_ctx};
+use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::watchdog::{is_watchdog_abort, resolve_policy, AgentKind, Overrides};
 use super::message_row::{message_of, row_of};
 use mixdog_core_run::run_host::progress::ProgressPublisher;
@@ -141,6 +142,8 @@ pub struct Assembled {
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
+    /// Where the turn's failed tool calls are recorded (`history/tool-failures.jsonl`).
+    pub failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
     /// The attachment blob reader, for the display facts of a user row (a pasted text's body).
     pub blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// The guard state that outlives one ask (the session record).
@@ -846,14 +849,18 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
     }
 
     async fn snapshot(&self, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
-        let native: Vec<Value> = messages.iter().filter_map(|m| m.message.native_tool_search.clone()).collect();
-        self.parts.request_snapshot(&self.thread, tools, native).await.map_err(|error| error.message)
+        self.parts.request_snapshot(&self.thread, tools, native_searches(messages)).await.map_err(|error| error.message)
     }
 
     async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
         let rows = messages.iter().map(super::message_row::row_of).collect();
         self.parts.migrate_exposure(&self.thread, rows).await.map_err(|error| error.message)
     }
+}
+
+/// The native tool-search records of a transcript, which the request boundary's tool snapshot reads its references from.
+pub(crate) fn native_searches(messages: &[AgentMessage]) -> Vec<Value> {
+    messages.iter().filter_map(|m| m.message.native_tool_search.clone()).collect()
 }
 
 /// `session.messages`: the system blocks the session's requests lead with, then its stored conversation rows.
@@ -946,7 +953,7 @@ async fn drive(
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
@@ -1079,7 +1086,16 @@ async fn drive(
         let kind = AgentKind { name: agent, hidden: config.hidden_agent, stall_cap_idle_seconds: parts.stall_cap_idle_seconds(agent) };
         let policy = resolve_policy(kind, overrides, &|name: &str| std::env::var(name).ok());
         let (reaper, reaped_thread) = (parts.clone(), thread.clone());
-        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move || reaper.reap_turn_shells(&reaped_thread, asked_at))
+        // The worker-turn registry's stop (`abortOnTimeout`, `agent-watchdog-registry.mjs:30-33`): the reap is armed, then the stop is
+        // recorded with what the sweep judged, then the abort.
+        let (stall_log, stall_agent, site) = (failures.clone(), agent.map(str::to_owned), StallSite::Registry { registration_id: registration_id() });
+        let anchor_ts = clock.now_ms();
+        Watchdog::arm(true, policy, signal.clone(), clock.clone(), move |now| watched.borrow().snapshot(now), move |snapshot: &Snapshot, message: &str, now: i64| {
+            reaper.reap_turn_shells(&reaped_thread, asked_at);
+            if let Some(log) = stall_log {
+                log.stall_abort(stall_abort_ctx(reaped_thread.as_str(), stall_agent.as_deref(), &site, &policy, anchor_ts, snapshot, message, now));
+            }
+        })
     } else {
         None
     };
@@ -1146,6 +1162,7 @@ async fn drive(
         step_judge,
         artifacts,
         images,
+        failures,
     };
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
@@ -1429,6 +1446,7 @@ mod tests {
                 step_judge: None,
                 artifacts: None,
                 images: None,
+                failures: None,
                 blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })
@@ -1507,6 +1525,73 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's
+    /// stage notice, the run host's shown event, the session's live row and the frame the thread's feed publishes (the
+    /// feed desktop and phone both follow). The message and tone are the Node recording's, and the row is the one the
+    /// real TUI/desktop notice surface made of it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_providers_notice_reaches_the_threads_clients_as_the_row_node_showed() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/gemini.json")).expect("the Gemini recording");
+        let send = &recorded["scenarios"].as_array().unwrap().iter().find(|s| s["id"] == "pro25.boundary-at").expect("the redirect scenario")["sends"][0];
+        let (notice, row) = (&send["notices"][0], &send["noticeRows"][0]);
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::Notice { message: notice["message"].as_str().unwrap().to_owned(), warn: notice["tone"] == "warn" },
+                StreamEvent::TextDelta("hello".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        // Woken by each step of the thread's actor; the frame is searched for before waiting.
+        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+            let stepped = handle.stepped().notified();
+            tokio::pin!(stepped);
+            stepped.as_mut().enable();
+            let found = rig.feeds.frames(id.as_str()).into_iter().find_map(|(_, _, params)| {
+                let text = row["text"].as_str().unwrap();
+                // The row's text and tone sit in the item's `meta`; its `kind` is on the item that holds them.
+                let mut stack = vec![(params, Value::Null)];
+                while let Some((value, kind)) = stack.pop() {
+                    match value {
+                        Value::Object(mut map) if map.get("text").and_then(Value::as_str) == Some(text) => {
+                            map.entry("kind").or_insert(kind);
+                            return Some(Value::Object(map));
+                        }
+                        Value::Object(map) => {
+                            let kind = map.get("kind").cloned().unwrap_or(kind);
+                            stack.extend(map.into_iter().map(|(_, v)| (v, kind.clone())));
+                        }
+                        Value::Array(all) => stack.extend(all.into_iter().map(|v| (v, kind.clone()))),
+                        _ => {}
+                    }
+                }
+                None
+            });
+            if let Some(found) = found {
+                break found;
+            }
+            stepped.await;
+        } })
+        .await
+        .expect("the thread's feed never published the provider's notice within 30 s");
+        assert_eq!((shown["kind"].clone(), shown["text"].clone(), shown["tone"].clone()), (row["kind"].clone(), row["text"].clone(), row["tone"].clone()), "{shown}");
     }
 
     /// A turn is assembled from the header the settings reconcile returns, not the one it started
@@ -1964,7 +2049,7 @@ mod tests {
 
     // ---- the real assembly -------------------------------------------------------------------------
 
-    struct OneProvider(Arc<Scripted>);
+    struct OneProvider(Arc<dyn ProviderAdapter>);
 
     #[async_trait]
     impl mixdog_ai::registry::providers::ProviderBuilder for OneProvider {
@@ -2201,28 +2286,32 @@ mod tests {
         Arc::new(Echo(spec))
     }
 
-    /// The done-when turn: `TurnPath::new` over test implementations of the missing owner traits, a
-    /// scripted provider behind the accounted registry, a tool call, the stored rows and the ledger row.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_turn_runs_through_the_turn_path() {
-        let provider = Arc::new(Scripted {
-            id: ProviderId::from("scripted"),
-            policy: RetryPolicy::codex_default(),
-            keepalive: KeepaliveSchedule::SPEC,
-            codec: MockCodec,
-            script: Mutex::new(VecDeque::from([
-                vec![
-                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
-                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
-                ],
-                vec![StreamEvent::TextDelta("listed".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-                // The side question's answer, then the answer after the saved request was forgotten.
-                vec![StreamEvent::TextDelta(" it listed the path ".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-                vec![StreamEvent::TextDelta("rebuilt".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-            ])),
-            requests: Mutex::new(Vec::new()),
-            fail_first: std::sync::atomic::AtomicBool::new(false),
-        });
+    /// Notes every thread the assembly asks where its approvals go.
+    #[derive(Default)]
+    struct AskedFor(Mutex<Vec<String>>);
+    impl crate::run_host::run_approvals::RunApprovals for AskedFor {
+        fn gate_for(&self, thread: &ThreadId, own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
+            lock(&self.0).push(thread.as_str().to_owned());
+            own
+        }
+    }
+
+    /// The composition of a turn: TurnPath::new over test implementations of the missing owner traits and the scripted
+    /// provider behind the accounted registry.
+    struct World {
+        workspace: tempfile::TempDir,
+        rig: Rig,
+        ledger: Arc<Ledger>,
+        asked: Arc<AskedFor>,
+        store: Arc<super::super::side_question_store::SideQuestionStore>,
+        next: Arc<super::super::next_request_source::NextRequestSource>,
+        path: super::super::turn_path::TurnPath,
+        directory: Arc<SessionDirectory>,
+        /// The live settings a turn start brings the thread to ([`LiveSettings`]).
+        settings: Arc<Mutex<serde_json::Map<String, Value>>>,
+    }
+
+    async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
@@ -2249,15 +2338,6 @@ mod tests {
         let next = super::super::next_request_source::NextRequestSource::new();
         let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
         let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
-        /// Notes every thread the assembly asks where its approvals go.
-        #[derive(Default)]
-        struct AskedFor(Mutex<Vec<String>>);
-        impl crate::run_host::run_approvals::RunApprovals for AskedFor {
-            fn gate_for(&self, thread: &ThreadId, own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
-                lock(&self.0).push(thread.as_str().to_owned());
-                own
-            }
-        }
         let asked = Arc::new(AskedFor::default());
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
@@ -2273,7 +2353,7 @@ mod tests {
                 facts: compaction.attachment_facts.clone(),
                 clock: clock.clone(),
             },
-            next,
+            next: next.clone(),
             files: Arc::new(MockFileService::default()),
             processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
@@ -2337,15 +2417,56 @@ mod tests {
         let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
         path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
         let directory = path.directory.clone();
-        // The settings host the composition binds: here one that leaves the thread's header as it is.
-        struct AsIs(Arc<SessionDirectory>);
-        #[async_trait]
-        impl super::super::turn_settings::TurnSettings for AsIs {
-            async fn reconcile(&self, thread: &ThreadId, _: bool) -> Result<mixdog_store::schema::record::Header, String> {
-                mixdog_core_ports::ports::threads::ThreadState::header(&mixdog_core_session::session::thread_state::SessionThreads::new(self.0.clone()), thread).await.map_err(|error| format!("{error:?}"))
-            }
+        // The settings host the composition binds: here one whose live settings are one key, `responseLanguage`, that a
+        // turn start writes into the header when it moved (`settings`, empty: nothing moved).
+        let settings = Arc::new(Mutex::new(serde_json::Map::new()));
+        assert!(path.turn_settings.bind(Arc::new(LiveSettings(directory.clone(), settings.clone()))).is_ok());
+        World { workspace, rig, ledger, asked, store, next, path, directory, settings }
+    }
+
+    /// The test settings host: a turn start brings the header to `.1`, the settings as they stand now.
+    struct LiveSettings(Arc<SessionDirectory>, Arc<Mutex<serde_json::Map<String, Value>>>);
+
+    impl LiveSettings {
+        fn threads(&self) -> mixdog_core_session::session::thread_state::SessionThreads {
+            mixdog_core_session::session::thread_state::SessionThreads::new(self.0.clone())
         }
-        assert!(path.turn_settings.bind(Arc::new(AsIs(directory.clone()))).is_ok());
+    }
+
+    #[async_trait]
+    impl super::super::turn_settings::TurnSettings for LiveSettings {
+        async fn reconcile(&self, thread: &ThreadId, _: bool) -> Result<mixdog_store::schema::record::Header, String> {
+            use mixdog_core_ports::ports::threads::ThreadState;
+            let set = lock(&self.1).clone();
+            if !set.is_empty() {
+                self.threads().patch_header(thread, set, Vec::new()).await.map_err(|error| format!("{error:?}"))?;
+            }
+            self.threads().header(thread).await.map_err(|error| format!("{error:?}"))
+        }
+    }
+    /// The done-when turn: `TurnPath::new` over test implementations of the missing owner traits, a
+    /// scripted provider behind the accounted registry, a tool call, the stored rows and the ledger row.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_runs_through_the_turn_path() {
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                ],
+                vec![StreamEvent::TextDelta("listed".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                // The side question's answer, then the answer after the saved request was forgotten.
+                vec![StreamEvent::TextDelta(" it listed the path ".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![StreamEvent::TextDelta("rebuilt".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+            ])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let World { workspace, rig, ledger, asked, store, directory, .. } = turn_world(provider.clone()).await;
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
@@ -2408,5 +2529,244 @@ mod tests {
         let fork = requests.last().expect("the rebuilt fork");
         assert_eq!(fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User]);
         assert_eq!((fork.model.as_str(), fork.options.session_id.as_deref()), ("m", Some(id.as_str())));
+    }
+
+    /// A provider that hands each request it is asked to send to `sent` and answers with a text. Its codec is Grok's, so
+    /// the body of a request is what a Grok turn puts on the wire.
+    struct Handing {
+        id: ProviderId,
+        policy: RetryPolicy,
+        keepalive: KeepaliveSchedule,
+        codec: Arc<dyn WireCodec>,
+        sent: tokio::sync::mpsc::UnboundedSender<Arc<ModelRequest>>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for Handing {
+        fn id(&self) -> &ProviderId {
+            &self.id
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            &*self.codec
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            &self.policy
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            &self.keepalive
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.sent.send(request).expect("the test is listening");
+            Ok(Box::new(Steps(
+                VecDeque::from([StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]),
+            )))
+        }
+    }
+
+    /// The surface host of the daemon reduced to what a `tools/toolsStatus` call touches: the mode, and the reconcile,
+    /// which brings an empty thread to the current settings by writing its header.
+    struct Reconciling(Arc<SessionDirectory>);
+
+    #[async_trait]
+    impl mixdog_core_ports::ports::tools_status::SurfaceHost for Reconciling {
+        fn mode(&self, _: Option<&mixdog_store::schema::record::Header>) -> String {
+            "lead".into()
+        }
+        async fn preview(&self) -> Result<mixdog_tools::orch::status::StatusSurface, mixdog_core_api::CoreError> {
+            Ok(mixdog_tools::orch::status::StatusSurface::default())
+        }
+        async fn reconcile_empty(&self, thread: &ThreadId) -> Result<(), mixdog_core_api::CoreError> {
+            use mixdog_core_ports::ports::threads::ThreadState;
+            let set = json!({ "settingsReconciledAt": 1 }).as_object().unwrap().clone();
+            mixdog_core_session::session::thread_state::SessionThreads::new(self.0.clone())
+                .patch_header(thread, set, Vec::new())
+                .await
+                .map_err(|_| mixdog_core_api::CoreError::ThreadNotFound { thread_id: thread.clone() })
+        }
+    }
+
+    /// The production `tools/toolsStatus` service over the world's threads and its request source.
+    fn tools_status(world: &World) -> mixdog_tools::orch::status::ToolsService {
+        let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(world.directory.clone()));
+        let surface = mixdog_core_ports::ports::tools_status::SessionToolStatus::new(threads, Arc::new(Reconciling(world.directory.clone()))).with_snapshots(world.next.clone());
+        mixdog_tools::orch::status::ToolsService::new(Arc::new(surface))
+    }
+
+    async fn snapshot_call(service: &mixdog_tools::orch::status::ToolsService, thread: &ThreadId, message: &str) -> Value {
+        use mixdog_core_api::DomainService;
+        let call = CoreRequest { method: Method("tools/toolsStatus"), params: json!({ "threadId": thread, "snapshot": true, "snapshotUserMessage": message }), op: None, ctx: CallContext::internal("test") };
+        let Ok(Reply::Value(status)) = service.call(call).await else { panic!("tools/toolsStatus answers a value") };
+        status
+    }
+
+    async fn started_thread(world: &World, header: Value) -> (ThreadId, Arc<mixdog_core_session::session::SessionHandle>) {
+        let reply = world.directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": world.workspace.path() }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = world.directory.handle(&id).expect("loaded");
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": header }), op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("route");
+        (id, handle)
+    }
+
+    fn handing() -> (Arc<Handing>, tokio::sync::mpsc::UnboundedReceiver<Arc<ModelRequest>>) {
+        let (sent, heard) = tokio::sync::mpsc::unbounded_channel();
+        let provider = Arc::new(Handing { id: ProviderId::from("scripted"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, codec: mixdog_ai::providers::grok::codec("1.0.70"), sent });
+        (provider, heard)
+    }
+
+    /// The snapshot taken now, and the request the thread's next turn (`op`, prompt `go`) then hands the provider,
+    /// encoded the same way.
+    async fn snapshot_then_turn(
+        world: &World,
+        provider: &Arc<Handing>,
+        heard: &mut tokio::sync::mpsc::UnboundedReceiver<Arc<ModelRequest>>,
+        id: &ThreadId,
+        handle: &Arc<mixdog_core_session::session::SessionHandle>,
+        op: &str,
+    ) -> (Value, Value) {
+        let status = snapshot_call(&tools_status(world), id, "go").await;
+        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "go" } }), op)).await.expect("turn/start");
+        let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+        assert_eq!(started["kind"], "started", "{op}");
+        let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
+            .await
+            .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request turn {op} hands the provider"))
+            .expect("the provider is alive");
+        let handed = super::super::request_snapshot::snapshot(&handle.live_header().header(), &**provider, &sent).expect("the sent request encodes");
+        (status["requestSnapshot"].clone(), handed)
+    }
+
+    /// Waits until `count` runs of the thread have completed in the store and the last turn's settlement is over: the
+    /// coverage stamp is written before the Goal settlement comes back (`JobDone::GoalSettled`), and a turn started
+    /// while the actor is still busy settling is queued. `covered_before` is the stamp before the turn started.
+    async fn settled_turns(world: &World, id: &ThreadId, handle: &Arc<mixdog_core_session::session::SessionHandle>, count: usize, covered_before: Option<Value>) {
+        let done = || world.rig.store.records(id).into_iter().filter(|(_, record)| matches!(record, Record::Run(run) if run.phase == mixdog_store::schema::record::RunPhase::Completed)).count();
+        let covered = || handle.header_snapshot().get("turnCoverage").cloned();
+        eventually_on_awaiting(
+            || format!("{count} completed runs of {}, the changed turnCoverage stamp and an idle actor", id.as_str()),
+            &[&world.rig.store.committed, handle.stepped()],
+            || (done() >= count && covered() != covered_before && !handle.turn_busy()).then_some(()),
+        )
+        .await;
+    }
+
+    /// A thread with history: the snapshot is `nextMainRequest`'s, the stored header and transcript as they are with the
+    /// asked user message after them, so for a thread whose settings did not move since (and a model whose rules give no
+    /// tail reminder) it is the request the next turn sends. Taking it stores nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_snapshot_of_a_thread_with_history_is_its_next_request() {
+        let (provider, mut heard) = handing();
+        let world = turn_world(provider.clone()).await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
+        let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
+        let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
+        settled_turns(&world, &id, &handle, 1, covered_before).await;
+        let before = stored_state(&world, &id, &handle);
+        let first = snapshot_call(&tools_status(&world), &id, "go").await;
+        assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
+        let (snapshot, handed) = snapshot_then_turn(&world, &provider, &mut heard, &id, &handle, "op-2").await;
+        assert!(snapshot.is_object(), "a thread with a conversation has a request");
+        assert_eq!(first["requestSnapshot"], snapshot, "two snapshots of the same thread differ");
+        assert_eq!(snapshot, handed, "the snapshot is not the request the next turn handed the provider");
+    }
+
+    /// The whole of what is stored for a thread and its session directory, as Debug text: every record of the store (header,
+    /// transcript items, ends), the live header, the accounting rows, and every file under the workspace with its bytes.
+    fn stored_state(world: &World, id: &ThreadId, handle: &Arc<mixdog_core_session::session::SessionHandle>) -> String {
+        fn files(dir: &std::path::Path, out: &mut Vec<String>) {
+            let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+            entries.sort();
+            for path in entries {
+                if path.is_dir() {
+                    files(&path, out);
+                } else {
+                    out.push(format!("{}={:?}", path.display(), std::fs::read(&path).unwrap()));
+                }
+            }
+        }
+        let mut on_disk = Vec::new();
+        files(world.workspace.path(), &mut on_disk);
+        format!("{:#?}\n{:#?}\n{:#?}\n{:#?}", world.rig.store.records(id), handle.live_header().header(), lock(&world.ledger.0), on_disk)
+    }
+
+    // An inline module's path is resolved from `src/run_host/factory/tests/`.
+    #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
+    mod tests_manifest;
+
+    /// Node's `nextMainRequest` over the cases `snapshot_effects/record.mjs` recorded (no user conversation, a transcript,
+    /// each again after a new ignored directory and after the skill catalog was invalidated): it is null without a user
+    /// conversation, otherwise the stored transcript as it is (its iteration 1), and it writes, lists and probes nothing.
+    /// The core's snapshot request for a thread without a conversation and for one whose transcript is the recorded one
+    /// (a turn `hi` answered `ok`): null where Node's is, the same conversation messages where Node has them, and the
+    /// thread's stored state untouched by the call. The core's snapshot path holds no prompt composition, probe or skill
+    /// catalog to touch (`HostRunParts::snapshot_request` builds from the header and the rows).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_snapshot_answers_where_nodes_next_main_request_answers() {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+        let set = repo_root.join("native/core/fixtures/request-snapshot-effects");
+        tests_manifest::verify_dir(&repo_root, &set, "native/core/crates/mixdog-core/src/run_host/snapshot_effects/record.mjs");
+        let node: Value = serde_json::from_slice(&std::fs::read(set.join("node-recorded.json")).unwrap()).unwrap();
+        let (provider, mut heard) = handing();
+        let world = turn_world(provider.clone()).await;
+        let (empty, empty_handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
+        let (talked, talked_handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
+        let covered_before = talked_handle.header_snapshot().get("turnCoverage").cloned();
+        let started = talked_handle.request(request("turn/start", json!({ "threadId": talked, "opId": "op-1", "input": { "prompt": "hi" } }), "op-1")).await.expect("turn/start");
+        assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
+        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
+        settled_turns(&world, &talked, &talked_handle, 1, covered_before).await;
+        let (directory, parts) = world.next.bound().expect("bound");
+        let directory = directory.upgrade().expect("directory");
+        for case in node["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!((case["fsCalls"].clone(), case["gitRequested"].clone()), (json!([]), json!([])), "{name}: Node's call did something");
+            let (id, handle) = if case["request"].is_null() { (&empty, &empty_handle) } else { (&talked, &talked_handle) };
+            let before = stored_state(&world, id, handle);
+            let status = snapshot_call(&tools_status(&world), id, "").await;
+            assert_eq!(stored_state(&world, id, handle), before, "{name}: the snapshot call wrote to the stored thread");
+            let prior = directory.model_context(id).read().await.expect("rows");
+            let built = parts.snapshot_request(id, &handle.live_header().header(), &handle.surface().borrow().clone(), prior, None).await;
+            match (&case["request"], built) {
+                (Value::Null, None) => assert_eq!(status["requestSnapshot"], Value::Null, "{name}"),
+                (request, Some((_, built))) if !request.is_null() => {
+                    let conversation = |messages: Vec<(String, String)>| messages.into_iter().filter(|(role, _)| role != "system").collect::<Vec<_>>();
+                    let nodes = request["messages"].as_array().unwrap().iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m["content"].as_str().unwrap().to_owned())).collect();
+                    let text = |content: &mixdog_core_api::domain::provider::Content| match content {
+                        mixdog_core_api::domain::provider::Content::Text(text) => text.clone(),
+                        mixdog_core_api::domain::provider::Content::Parts(parts) => parts
+                            .iter()
+                            .filter_map(|part| match part {
+                                mixdog_core_api::domain::provider::ContentPart::Text(text, _) => Some(text.as_str()),
+                                _ => None,
+                            })
+                            .collect(),
+                    };
+                    let cores = built.messages.iter().map(|m| (format!("{:?}", m.role).to_lowercase(), text(&m.content))).collect();
+                    assert_eq!(conversation(cores), conversation(nodes), "{name}: the conversation of the request");
+                    assert_eq!(request["iteration"], json!(built.options.iteration), "{name}: the iteration");
+                    assert!(status["requestSnapshot"].is_object(), "{name}");
+                }
+                (request, built) => panic!("{name}: Node {request}, the core {:?}", built.map(|(_, r)| r.messages.len())),
+            }
+        }
+    }
+
+    /// `nextMainRequest` is null for a session with no user conversation (`side-question.mjs:67`), so is the snapshot:
+    /// nothing is composed for it, and the thread's whole stored state (records, live header, accounting, files) is the
+    /// same after the call as before it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_thread_with_no_conversation_has_no_snapshot_and_the_call_stores_nothing() {
+        let (provider, _heard) = handing();
+        let world = turn_world(provider).await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
+        let before = stored_state(&world, &id, &handle);
+        let status = snapshot_call(&tools_status(&world), &id, "go").await;
+        assert_eq!(status["requestSnapshot"], Value::Null, "Node's nextMainRequest is null without a user conversation");
+        assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
     }
 }

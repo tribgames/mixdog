@@ -1,0 +1,69 @@
+{
+  "command": "node benchmarks/rust-core/recorders/model-lists/record.mjs --tree <tree> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 262987,
+      "path": "node-model-lists.json",
+      "sha256": "a450abd7ebb15075c68c9ddbaafcdd7067f071ec9bad2397b7ca523e4427c33b"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/scenarios.json",
+      "sha256": "80bebf5f0d14fb69ca5e3bd7394b8b13baeb369f226edf00ac025678c08cbce9"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/seeds.json",
+      "sha256": "d891bf6e01768d2fa51b564ab8bc7c15e82392da14c440497f7606e5ac193093"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/child.mjs",
+      "sha256": "47333c438ac3e5cd50784e24cdd49a6833d8d5b5ae2b410364148424c120988e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/offline.mjs",
+      "sha256": "a6ded042fb37015f5961463c82cdd5def017cdbdf3de66d9f0478b61c05585aa"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/hold.mjs",
+      "sha256": "7d04e30317291cf75b4781fa5d5ed73f8b5d359157ea9a24254cd53f70d2d51f"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/model-lists/hold-hooks.mjs",
+      "sha256": "a2c34060493308f8c10c413cad15e8e79f6cca75f839f09f0ed28865393ca0fb"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+    "exact": true,
+    "files": 9142,
+    "refComparison": {
+      "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/model-lists/record.mjs",
+  "recorderSha256": "4834daf281e18a140177938f1beb345ddc9aaa3dfe33310a8c4eac13c4c34ed9",
+  "set": "model-lists",
+  "totalBytes": 262987,
+  "webSearchReadOrderings": [
+    "The web-search read after the full read picks its rows by state alone: it syncs the catalog revision (src/session-runtime/provider-models/web-search-catalog.mjs:112; a moved revision drops both caches, provider-models/model-meta.mjs:18-29), then answers cached web-search rows (:117, none before this first web-search read), else the full-catalog rows (:122), else quick rows (:129).",
+    "After the full read (which awaited the shared load, so the full-catalog cache is filled) only three events change that state, in this order: (1) the statusline-usage warm-up applies a config with the OAuth provider enabled and the revision moves (src/runtime/agent/orchestrator/providers/registry.mjs:312); (2) the catalog refresh it started (src/session-runtime/provider-readiness.mjs:149) completes: the revision moves (registry.mjs:717) and, in the same promise chain with no macrotask between, the caches are dropped and the re-warm started (provider-readiness.mjs:160-171); (3) the re-warm adopts its rows (src/session-runtime/provider-models.mjs:107-114).",
+    "A read is an IPC request (a macrotask), so it lands in one of the four windows those events bound and nowhere else: before (1) -> *-before-statusline-warm-up (full-catalog rows); between (1) and (2) -> *-after-statusline-warm-up-moved-catalog-revision (quick rows); between (2) and (3) -> *-after-catalog-refresh-completed-while-rewarm-loads (quick rows); after (3) -> *-after-catalog-refresh-completed-and-rewarmed (the re-warm's full-catalog rows). These four are all the orderings Node allows for this read.",
+    "Each window is pinned by an event barrier: the warm-up held at its start (hold.mjs), the refresh request held at the endpoint (record.mjs), the re-warm's load held at its start (hold.mjs __mixdogRecorderLoadHold), and the boot-profile marks past a log offset (child.mjs)."
+  ]
+}

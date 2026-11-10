@@ -583,6 +583,19 @@ impl ProviderAdmin {
         Ok(json!({ "provider": "openai", "type": "usage-auth", "authenticated": true }))
     }
 
+    /// `account/refreshProviderSetup` with `renewCredential`: the host preflight's forced refresh of the provider's
+    /// current account token (`preflightAnthropicOAuthCredentials`). The new expiry reaches the caller through the
+    /// `providerSetup` section.
+    pub async fn renew_provider_credential(&self, provider: &str, minimum_validity_ms: u64) -> Result<(), Failure> {
+        Self::require_local()?;
+        let id = mixdog_js::js_trim(provider).to_owned();
+        let Some(oauth) = self.oauth(&id) else { return Err(Failure::type_error(format!("Unknown OAuth provider: {id}"))) };
+        let account = self.current_account_id(&id).await?;
+        oauth.renew(&account, minimum_validity_ms).await.map_err(Failure::error)?;
+        self.refresh.after_credential_change();
+        Ok(())
+    }
+
     pub async fn forget_provider_auth(&self, provider: &str, requested: Option<&str>) -> Result<Value, Failure> {
         let result = self.forget_inner(provider, requested).await?;
         self.refresh.after_credential_change();

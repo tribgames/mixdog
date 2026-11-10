@@ -155,13 +155,28 @@ impl Repo {
         Ok(output.success() && !output.stdout_text().trim().is_empty())
     }
 
-    fn inside_worktree(&self, path: &str) -> Result<bool, ScmFailure> {
-        let root = self.root()?;
-        let absolute = root.join(path);
-        // Only the lexical shape: `..` was refused at the door.
-        Ok(absolute.starts_with(root) && absolute.exists())
+    /// `existsInsideWorktree`: asks git for the work-tree root each time (git-commit-transaction.ts), and answers whether `path`
+    /// lies under it and exists. A git that cannot name a root is "not inside".
+    async fn inside_worktree(&self, path: &str) -> Result<bool, ScmFailure> {
+        let root = match self.scm.git.run(&self.cancel, &self.cwd, &["rev-parse", "--show-toplevel"]).await {
+            Ok(text) => text.trim().to_owned(),
+            Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+            Err(_) => String::new(),
+        };
+        if root.is_empty() {
+            return Ok(false);
+        }
+        let absolute: std::path::PathBuf = self.cwd.join(path).components().collect();
+        let comparable_text = |text: &str| {
+            let normalized = text.replace('\\', "/");
+            if cfg!(windows) { normalized.to_lowercase() } else { normalized }
+        };
+        let prefix = format!("{}/", comparable_text(&root).trim_end_matches('/'));
+        if !comparable_text(&absolute.to_string_lossy()).starts_with(&prefix) {
+            return Ok(false);
+        }
+        Ok(absolute.exists())
     }
-
     /// Commits `paths` with `message`; the result is git's one-line summary.
     pub async fn commit_paths(&self, message: &str, paths: &[String]) -> Result<String, ScmFailure> {
         if message.trim().is_empty() {
@@ -174,11 +189,36 @@ impl Repo {
         for path in &requested {
             assert_commit_path(path)?;
         }
+        // git reports the worktree by its real path, so the selection is resolved from the real cwd too
+        // (`realpath(resolve(cwd))`, git-commit-transaction.ts:1288); a spelling the OS resolves differently would place every
+        // selected file outside the repository. An unresolvable cwd stays as given, as Node's `.catch`.
+        let place = self.cwd.clone();
+        let real = on_lane(self.scm.lane, &self.cancel, move || std::fs::canonicalize(&place).ok().map(plain_path)).await?;
+        let at = Repo { cwd: real.unwrap_or_else(|| self.cwd.clone()), ..self.clone() };
+        at.commit_paths_at(message, paths).await
+    }
+
+    async fn commit_paths_at(&self, message: &str, paths: &[String]) -> Result<String, ScmFailure> {
+        let requested: Vec<&String> = paths.iter().filter(|path| !path.is_empty()).collect();
+        // repositoryIdentity: the repository is asked who it is before anything else is read.
+        let identity = self
+            .scm
+            .git
+            .outcome(&self.cancel, &self.cwd, &["rev-parse", "--absolute-git-dir", "--show-toplevel"], &RunOptions::default())
+            .await;
+        let named = identity.as_ref().is_ok_and(|out| {
+            let text = out.stdout_text();
+            let mut lines = text.lines().map(str::trim);
+            out.success() && lines.next().is_some_and(|line| !line.is_empty()) && lines.next().is_some_and(|line| !line.is_empty())
+        });
+        if !named {
+            return Err(ScmFailure::git("This folder is not a Git repository."));
+        }
         let _scope = self.write_scope().await?;
         let specs = self.resolve_selection(&requested).await?;
         let mut addable = Vec::new();
         for spec in &specs {
-            if self.inside_worktree(spec)? || self.in_head(spec).await? {
+            if self.inside_worktree(spec).await? || self.in_head(spec).await? {
                 addable.push(spec.clone());
             } else if !self.in_index(spec).await? {
                 return Err(not_in_repository(&[spec.clone()]));
@@ -190,17 +230,13 @@ impl Repo {
     /// Lines the caller's input up against the repository's own path list instead of
     /// rewriting the string, and refuses what matches nothing or more than one entry.
     async fn resolve_selection(&self, requested: &[&String]) -> Result<Vec<String>, ScmFailure> {
-        let scan = self
-            .scm
-            .inspector
-            .scan(self.scm.lane, {
-                self.touched();
-                self.repo_ref()?
-            })
-            .await
-            .map_err(crate::mutate::scm_error)?;
+        self.touched();
+        let status = crate::inspect::status::node_status(&self.scm.git, self.scm.lane, &self.cancel, &self.cwd, false, false).await?;
+        if !status.repository {
+            return Err(ScmFailure::git("This folder is not a Git repository."));
+        }
         let mut entries: HashMap<&str, &GitFileEntry> = HashMap::new();
-        for file in &scan.json.files {
+        for file in &status.files {
             entries.insert(&file.path, file);
             if let Some(old) = &file.old_path {
                 entries.insert(old, file);
@@ -236,7 +272,7 @@ impl Repo {
                     }
                 }
             }
-            if matched.is_empty() && self.inside_worktree(raw)? {
+            if matched.is_empty() && self.inside_worktree(raw).await? {
                 matched = (*raw).clone();
             }
             if matched.is_empty() {
@@ -268,12 +304,12 @@ impl Repo {
                 format!("Resolve the conflict in {} before committing it.", listed(&conflicted)),
             ));
         }
-        if !scan.json.operation.is_empty() {
+        if !status.operation.is_empty() {
             return Err(ScmFailure::refused(
                 "OPERATION_IN_PROGRESS",
                 format!(
                     "A {} is in progress. Continue or abort it before committing files.",
-                    scan.json.operation
+                    status.operation
                 ),
             ));
         }
@@ -328,6 +364,38 @@ impl Repo {
             )),
             Err(other) => Err(other),
         }
+    }
+
+    /// `hookRunnerAvailable`: whether this git has `git hook run`, probed once per process with a hook name that cannot exist (so
+    /// the probe runs nothing of the repository's). Only a definitive answer is kept: any other failure is a fault, asked again.
+    async fn hook_runner_available(&self) -> Result<bool, ScmFailure> {
+        static SUPPORT: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+        if let Some(known) = *SUPPORT.lock().unwrap_or_else(|e| e.into_inner()) {
+            return Ok(known);
+        }
+        let options = RunOptions { protect_hook: true, ..RunOptions::default() };
+        let git = &self.scm.git;
+        let options = &options;
+        let probe = |extra: Option<&'static str>| async move {
+            let mut argv = vec!["hook", "run", "--ignore-missing"];
+            argv.extend(extra);
+            argv.push("mixdog-hook-probe");
+            git.text(&self.cancel, self.root()?, &argv, options).await
+        };
+        let mut answer = probe(None).await;
+        if let Err(failure) = &answer {
+            let text = failure.to_string().to_lowercase();
+            if text.contains("allow-unknown-hook-name") || text.contains("unknown hook event") {
+                answer = probe(Some("--allow-unknown-hook-name")).await;
+            }
+        }
+        let supported = match answer {
+            Ok(_) => true,
+            Err(failure) if failure.to_string().to_lowercase().contains("'hook' is not a git command") => false,
+            Err(failure) => return Err(ScmFailure::git(format!("Could not check whether Git can run commit hooks: {}", failure.to_string().trim()))),
+        };
+        *SUPPORT.lock().unwrap_or_else(|e| e.into_inner()) = Some(supported);
+        Ok(supported)
     }
 
     /// Which commit hooks this repository defines (`core.hooksPath` aware).
@@ -432,11 +500,18 @@ impl Repo {
                 ));
             }
         }
+        // Hooks decide this commit, so their availability is settled before anything is built.
+        let hooks = self.hook_runner_available().await?;
         let present = self.present_hooks().await?;
+        if !hooks && !present.is_empty() {
+            return Err(ScmFailure::git(format!(
+                "This Git cannot run commit hooks (git hook run needs Git 2.36 or newer), and this repository defines {}. Update Git, or remove the hook, then commit again.",
+                present.join(", ")
+            )));
+        }
         // Only a repository that defines a hook running before the commit is watched for index
         // writes; without one, an entry that changes meanwhile belongs to somebody else.
-        let watched = present.iter().any(|name| *name != "post-commit");
-        let hooks = !present.is_empty();
+        let watched = hooks && present.iter().any(|name| *name != "post-commit");
         let head = {
             let found = self
                 .scm
@@ -477,8 +552,9 @@ impl Repo {
         self.hook(&index_file, hooks, "pre-commit", &[], false).await?;
         let edited = self.message_through_hooks(&index_file, hooks, message).await?;
         let cleaned = self.clean_message(&cleanup, &edited).await?;
+        // indexAfterHooks is read whether or not the repository is watched; only the comparison depends on it.
+        let after = self.index_snapshot().await?;
         if watched {
-            let after = self.index_snapshot().await?;
             let touched: Vec<String> = after
                 .iter()
                 .filter(|(path, entry)| index_before.get(*path) != Some(entry))
@@ -580,7 +656,7 @@ impl Repo {
             return Err(failure);
         }
         self.hook(&index_file, hooks, "post-commit", &[], true).await?;
-        self.refresh_committed_paths(&commit, &changed, &index_before).await?;
+        self.refresh_committed_paths(&commit, &changed, &index_before, &scratch.0).await?;
         let branch = git
             .outcome(&self.cancel, &root, &["symbolic-ref", "--short", "HEAD"], &RunOptions::default())
             .await?;
@@ -628,46 +704,122 @@ impl Repo {
         Ok(nul_records(&raw).map(str::to_owned).collect())
     }
 
-    /// Moves the user's index entries of the committed paths to the new commit. A path is
-    /// refreshed only while its entry still is what the commit was built from: anything staged
-    /// underneath meanwhile is left alone and reported, because overwriting it would silently
-    /// demote someone else's staged content to an unstaged change.
+    /// Moves the user's index entries of the committed paths to the new commit (refreshCommittedPaths,
+    /// git-commit-transaction.ts:1010): `index.lock` is created exclusively and held from the comparison to the publication, so a
+    /// stage another process makes in between is never read and overwritten. A path is refreshed only while its entry still is
+    /// what the commit was built from: anything staged underneath meanwhile is left alone and reported. The refresh is made on a
+    /// copy of the index, and the copy's bytes are written into the lock and renamed onto the index.
     async fn refresh_committed_paths(
         &self,
         commit: &str,
         changed: &[String],
         built_from: &HashMap<String, String>,
+        scratch: &Path,
     ) -> Result<(), ScmFailure> {
-        let current = self.index_snapshot().await?;
-        let (moved, refreshable): (Vec<&String>, Vec<&String>) = changed.iter().partition(|path| {
-            current.get(*path).map(String::as_str).unwrap_or("")
-                != built_from.get(*path).map(String::as_str).unwrap_or("")
-        });
-        if !refreshable.is_empty() {
-            let specs: Vec<String> = refreshable.iter().map(|path| literal(path)).collect();
-            let mut args = vec!["reset", "--quiet", commit, "--"];
-            args.extend(specs.iter().map(String::as_str));
-            if let Err(failure) = self.run(&args).await {
-                let short = &commit[..commit.len().min(7)];
-                let paths: Vec<String> = refreshable.iter().take(10).map(|p| (*p).clone()).collect();
-                let recovery: Vec<String> = paths.iter().map(|p| format!("\"{}\"", literal(p))).collect();
-                return Err(ScmFailure::refused(
-                    "INDEX_REFRESH_FAILED",
-                    format!(
-                        "Commit {short} was created, but the index entries for {} could not be refreshed: {failure}. Run \"git reset {short} -- {}\" to finish it{}",
-                        paths.join(", "),
-                        recovery.join(" "),
-                        if refreshable.len() > 10 { ", then the remaining paths the same way." } else { "." }
-                    ),
+        let short = &commit[..commit.len().min(7)];
+        let refresh_failure = |paths: &[&String], detail: String| {
+            let listed: Vec<String> = paths.iter().take(10).map(|p| (*p).clone()).collect();
+            let recovery: Vec<String> = listed.iter().map(|p| format!("\"{}\"", literal(p))).collect();
+            ScmFailure::refused(
+                "INDEX_REFRESH_FAILED",
+                format!(
+                    "Commit {short} was created, but the index entries for {} could not be refreshed: {detail}. Run \"git reset {short} -- {}\" to finish it{}",
+                    listed.join(", "),
+                    recovery.join(" "),
+                    if paths.len() > 10 { ", then the remaining paths the same way." } else { "." }
+                ),
+            )
+        };
+        let everything: Vec<&String> = changed.iter().collect();
+        let index_path = self.identity.git_dir.join("index");
+        let lock_path = self.identity.git_dir.join("index.lock");
+        let taking = lock_path.clone();
+        let created = on_lane(self.scm.lane, &self.cancel, move || {
+            std::fs::OpenOptions::new().write(true).create_new(true).open(&taking)
+        })
+        .await?;
+        let mut lock = match created {
+            Ok(file) => Some(file),
+            Err(error) => {
+                return Err(refresh_failure(
+                    &everything,
+                    if error.kind() == std::io::ErrorKind::AlreadyExists {
+                        // Somebody else's lock: it is left exactly where it is.
+                        format!(
+                            "another Git process took \"{}\" while this commit was being made; wait for it to finish, or delete that file if no Git process is running",
+                            lock_path.display()
+                        )
+                    } else {
+                        format!("{} could not be created: {error}", lock_path.display())
+                    },
                 ));
             }
+        };
+        let mut published = false;
+        let outcome: Result<Vec<&String>, ScmFailure> = async {
+            // The lock is held from here on: nothing can reach the index between this read and the replace below.
+            let current = self.index_snapshot().await?;
+            let (moved, refreshable): (Vec<&String>, Vec<&String>) = changed.iter().partition(|path| {
+                current.get(*path).map(String::as_str).unwrap_or("") != built_from.get(*path).map(String::as_str).unwrap_or("")
+            });
+            if refreshable.is_empty() {
+                return Ok(moved);
+            }
+            let staging = scratch.join("refresh.index");
+            let (from, to) = (index_path.clone(), staging.clone());
+            let refreshed: Result<Vec<u8>, String> = async {
+                on_lane(self.scm.lane, &self.cancel, move || match std::fs::copy(&from, &to) {
+                    // A repository with no index file yet simply starts from an empty one.
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
+                    other => other,
+                })
+                .await
+                .map_err(|failure| failure.to_string())?
+                .map_err(|error| error.to_string())?;
+                let specs: Vec<String> = refreshable.iter().map(|path| literal(path)).collect();
+                let mut args = vec!["reset", "--quiet", commit, "--"];
+                args.extend(specs.iter().map(String::as_str));
+                let options = RunOptions { index_file: Some(staging.clone()), ..RunOptions::default() };
+                self.scm.git.text(&self.cancel, self.root().map_err(|failure| failure.to_string())?, &args, &options).await.map_err(|failure| failure.to_string())?;
+                // Node's commitRefreshProbe.betweenReadAndReplace (git-commit-transaction.ts): the window in which the lock is held.
+                #[cfg(test)]
+                commit_gate::between_read_and_replace(&self.identity.git_dir).await;
+                let read = staging.clone();
+                on_lane(self.scm.lane, &self.cancel, move || std::fs::read(read))
+                    .await
+                    .map_err(|failure| failure.to_string())?
+                    .map_err(|error| error.to_string())
+            }
+            .await;
+            let updated = refreshed.map_err(|detail| refresh_failure(&refreshable, detail))?;
+            // Every byte on disk and verified before anything is published.
+            let (mut file, target) = (lock.take().expect("the lock is held"), index_path.clone());
+            let source = lock_path.clone();
+            let wrote = on_lane(self.scm.lane, &self.cancel, move || -> std::io::Result<()> {
+                use std::io::Write;
+                file.write_all(&updated)?;
+                file.set_len(updated.len() as u64)?;
+                file.sync_all()?;
+                drop(file);
+                std::fs::rename(&source, &target)
+            })
+            .await?;
+            wrote.map_err(|error| refresh_failure(&refreshable, error.to_string()))?;
+            published = true;
+            Ok(moved)
         }
+        .await;
+        // Only ever the lock this call created: after the rename there is nothing of ours left.
+        if !published {
+            let gone = lock_path.clone();
+            let _ = on_lane(self.scm.lane, &self.cancel, move || std::fs::remove_file(gone)).await;
+        }
+        let moved = outcome?;
         if !moved.is_empty() {
             return Err(ScmFailure::refused(
                 "STAGED_UNDERNEATH",
                 format!(
-                    "Commit {} was created. {} was staged again while it was being committed, so that entry was left exactly as it is — nothing staged has been overwritten. Refresh Source Control to see the current state.",
-                    &commit[..commit.len().min(7)],
+                    "Commit {short} was created. {} was staged again while it was being committed, so that entry was left exactly as it is — nothing staged has been overwritten. Refresh Source Control to see the current state.",
                     moved.iter().take(10).map(|p| p.as_str()).collect::<Vec<_>>().join(", ")
                 ),
             ));
@@ -675,7 +827,6 @@ impl Repo {
         Ok(())
     }
 }
-
 fn not_in_repository(paths: &[String]) -> ScmFailure {
     ScmFailure::refused(
         "PATH_UNKNOWN",
@@ -737,5 +888,55 @@ mod tests {
         let path = first.0.clone();
         drop(first);
         assert!(!path.exists());
+    }
+}
+
+/// Windows spells a canonical path with a verbatim prefix; Node's realpath answers the plain spelling git also uses (a drive path,
+/// or `\\server\share` for `\\?\UNC\server\share`): the one normalization of git_launch.
+fn plain_path(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")).and_then(crate::git_launch::normalize_verbatim) {
+        Some(plain) => PathBuf::from(plain),
+        None => path,
+    }
+}
+
+/// Test-only stand-in for Node's `commitRefreshProbe.betweenReadAndReplace`: the refresh stops here, lock held, until released.
+#[cfg(test)]
+pub(crate) mod commit_gate {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::Notify;
+
+    type Gate = (Arc<Notify>, Arc<Notify>);
+    static GATES: Mutex<Option<HashMap<PathBuf, Gate>>> = Mutex::new(None);
+
+    /// Arms the gate of one repository's git directory: `(reached, release)`.
+    pub(crate) fn arm(git_dir: &Path) -> Gate {
+        let gate: Gate = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        GATES.lock().unwrap().get_or_insert_with(HashMap::new).insert(git_dir.to_path_buf(), gate.clone());
+        gate
+    }
+
+    pub(super) async fn between_read_and_replace(git_dir: &Path) {
+        let gate = GATES.lock().unwrap().as_mut().and_then(|gates| gates.remove(git_dir));
+        if let Some((reached, release)) = gate {
+            reached.notify_one();
+            release.notified().await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod plain_path_tests {
+    use super::plain_path;
+    use std::path::PathBuf;
+
+    /// libuv's realpath words `\\?\UNC\server\share\r` as `\\server\share\r` and `\\?\C:\r` as `C:\r`; anything else stays.
+    #[test]
+    fn a_verbatim_path_is_spelled_as_libuv_spells_it() {
+        assert_eq!(plain_path(PathBuf::from(r"\\?\UNC\server\share\repo")), PathBuf::from(r"\\server\share\repo"));
+        assert_eq!(plain_path(PathBuf::from(r"\\?\C:\repo")), PathBuf::from(r"C:\repo"));
+        assert_eq!(plain_path(PathBuf::from(r"\\?\Volume{1}\repo")), PathBuf::from(r"\\?\Volume{1}\repo"));
     }
 }

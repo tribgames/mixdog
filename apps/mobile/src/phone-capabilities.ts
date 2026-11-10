@@ -32,7 +32,8 @@ export function peerFlagsOf(capabilities: ServerCapabilities): PeerFlags {
     peerBrowserParity: capabilities.browser.state === 'available',
     peerBrowserDrive: false,
     peerBrowserSessionTabs: false,
-    peerTermSizeOwner: false,
+    // The core serves Node's size-owner claim model (`terminal/resize` with `claim`, `own` per connection).
+    peerTermSizeOwner: true,
     peerHostDirectories: false,
     peerUsageRequests: false,
     peerProjectRecovery: false,

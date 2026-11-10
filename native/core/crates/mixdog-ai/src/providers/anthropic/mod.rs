@@ -7,6 +7,7 @@
 //! event or the consumer dropping it.
 
 mod adapter;
+mod before_output;
 mod betas;
 mod body;
 mod caps;
@@ -19,6 +20,8 @@ mod lowering;
 mod models;
 pub mod oauth;
 mod policy;
+mod reminders;
+mod threads;
 
 #[cfg(test)]
 mod effort_tests;
@@ -36,6 +39,8 @@ mod native_search_tests;
 mod shared_prefix_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) mod wire_tests;
 
 pub use adapter::AnthropicAdapter;
 pub use adapter::ApiKeySource;
@@ -56,3 +61,13 @@ pub use models::Tier;
 pub use oauth::AnthropicLogin;
 pub use oauth::OAuthSession;
 pub use oauth::StoredOAuth;
+
+/// The Anthropic module state a send leaves in the process (the gzip latch, the message threads, the fast-mode cooldown
+/// and disabled reason), as a new process has it.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_process_state() {
+    adapter::reset_gzip_latch();
+    threads::reset_process();
+    // `clearFastModeCooldown()` puts back `anthropic-fast-mode.mjs:40-41`'s initial values, cooldown 0 and reason null.
+    fast_mode::process().clear();
+}

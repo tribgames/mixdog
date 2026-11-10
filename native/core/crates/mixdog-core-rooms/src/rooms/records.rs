@@ -124,7 +124,7 @@ pub struct Rooms<S: RoomStore> {
     store: S,
     listeners: Mutex<Vec<RoomsChanged>>,
     // The one room writer: a mutation loads, changes and saves on this chain, in arrival order.
-    // Reads of the live records pass through it too, briefly.
+    // Reads of the live records pass through it only for the first load.
     writer: Arc<SerialChain>,
     // The live records; locked only to swap or clone the handle, never across an await.
     doc: Mutex<Option<Arc<RoomDoc>>>,
@@ -153,21 +153,33 @@ impl<S: RoomStore> Rooms<S> {
         Ok(doc)
     }
 
-    /// Run `change` on a copy of the records and persist it; the copy replaces the live records
-    /// only when the save succeeds. A `change` that leaves the records equal writes nothing.
+    /// Run `change` on a copy of the records and persist it. The copy is the live records while it is saved, as Node changes its
+    /// records and then awaits `persist` (a listing meanwhile reads the change); a failed save takes it back. A `change` that
+    /// leaves the records equal writes nothing.
     async fn write<T>(&self, change: impl FnOnce(&mut RoomDoc) -> Result<T, RoomError>) -> Result<T, RoomError> {
+        self.write_with(change, false).await
+    }
+
+    /// [`Self::write`]; with `keep_unsaved`, a change whose save failed stays in the live records (Node's records keep a change
+    /// whose `persist` rejected), and the next save writes it.
+    async fn write_with<T>(&self, change: impl FnOnce(&mut RoomDoc) -> Result<T, RoomError>, keep_unsaved: bool) -> Result<T, RoomError> {
         let _turn = self.writer.acquire().await;
         let live = self.loaded().await?;
         let mut next = RoomDoc::clone(&live);
         let result = change(&mut next)?;
         if next != *live {
-            self.store.save(&next).await?;
-            let saved = Arc::new(next);
-            self.set_live(saved.clone());
-            let told: Vec<RoomsChanged> = self.listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            for listener in told {
-                listener(&saved);
+            let next = Arc::new(next);
+            self.set_live(next.clone());
+            let saved = self.store.save(&next).await;
+            if saved.is_err() && !keep_unsaved {
+                self.set_live(live);
+            } else {
+                let told: Vec<RoomsChanged> = self.listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                for listener in told {
+                    listener(&next);
+                }
             }
+            saved?;
         }
         Ok(result)
     }
@@ -193,7 +205,11 @@ impl<S: RoomStore> Rooms<S> {
         .await
     }
 
+    /// The live records as they are, a write's save in flight or not (Node's `records.rooms()`); the first load waits its turn.
     async fn read<T>(&self, view: impl FnOnce(&RoomDoc) -> T) -> Result<T, RoomError> {
+        if let Some(live) = self.live() {
+            return Ok(view(&live));
+        }
         let _turn = self.writer.acquire().await;
         Ok(view(&*self.loaded().await?))
     }
@@ -256,25 +272,14 @@ impl<S: RoomStore> Rooms<S> {
 
     /// `agent_ids` out of every room's members; Mixy is never removed. Who left which room.
     pub async fn drop_members(&self, agent_ids: &[String]) -> Result<Vec<Left>, RoomError> {
-        self.write(|doc| {
-            let mut left = Vec::new();
-            for room in doc.values_mut() {
-                let gone: Vec<String> = room
-                    .config
-                    .members
-                    .iter()
-                    .filter(|id| id.as_str() != MIXY_AGENT_ID && agent_ids.contains(id))
-                    .cloned()
-                    .collect();
-                if gone.is_empty() {
-                    continue;
-                }
-                remove_from_room(room, &gone);
-                left.extend(gone.into_iter().map(|agent_id| Left { room_id: room.id.clone(), agent_id }));
-            }
-            Ok(left)
-        })
-        .await
+        self.write(|doc| Ok(drop_from(doc, agent_ids))).await
+    }
+
+    /// `dropMembers` then `persist` of `pruneDeleted` (`agent-room-membership.ts:69-71`): [`Self::drop_members`], except that a
+    /// failed save leaves the members gone from the live records, as Node's do (recorded: `fixtures/room-catalog-states`,
+    /// `prune-failed`); the next save writes it.
+    pub async fn prune_members(&self, agent_ids: &[String]) -> Result<Vec<Left>, RoomError> {
+        self.write_with(|doc| Ok(drop_from(doc, agent_ids)), true).await
     }
 
     /// "대화 초기화": the room keeps its id, members and limits; cursors and the last line restart.
@@ -329,6 +334,21 @@ impl<S: RoomStore> Rooms<S> {
 
 fn no_room() -> RoomError {
     RoomError::NotFound("This room no longer exists.".into())
+}
+
+/// `agent_ids` out of every room's members; Mixy is never removed. Who left which room.
+fn drop_from(doc: &mut RoomDoc, agent_ids: &[String]) -> Vec<Left> {
+    let mut left = Vec::new();
+    for room in doc.values_mut() {
+        let gone: Vec<String> =
+            room.config.members.iter().filter(|id| id.as_str() != MIXY_AGENT_ID && agent_ids.contains(id)).cloned().collect();
+        if gone.is_empty() {
+            continue;
+        }
+        remove_from_room(room, &gone);
+        left.extend(gone.into_iter().map(|agent_id| Left { room_id: room.id.clone(), agent_id }));
+    }
+    left
 }
 
 #[cfg(test)]
