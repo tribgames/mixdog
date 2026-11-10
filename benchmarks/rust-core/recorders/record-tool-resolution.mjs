@@ -209,6 +209,35 @@ add('hidden worker with allowlist, bridge route', { kind: 'worker', agent: 'expl
 add('hidden worker with an empty allowlist', { kind: 'worker', agent: 'cycle1-agent', provider: 'anthropic', model: 'claude-opus-4-6', schemaAllowedTools: [] });
 add('worker, feature gates off, native', { kind: 'worker', provider: 'anthropic', model: 'claude-opus-4-6', featureDenied: ['web_search', 'web_fetch', 'memory', 'recall', 'git', 'github'] });
 add('worker, feature gates off, bridge route', { kind: 'worker', provider: 'xai', model: 'grok-4', featureDenied: ['web_search', 'web_fetch', 'memory', 'recall', 'git', 'github'] });
+// The grid of what Node distinguishes: every tool profile x provider family x lead mode, and every family's workers (the
+// plain one and the hidden role with an allowlist). The cases above are the readable anchors; a combination one of them
+// already recorded is not recorded twice.
+{
+  const FAMILIES = [['anthropic', 'claude-opus-4-6'], ['openai', 'gpt-5'], ['xai', 'grok-4'], ['gemini', 'gemini-3-pro']];
+  const PROFILES = {
+    interactive: {},
+    headless: { schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() },
+    heartbeat: { schemaAllowedTools: [...HEARTBEAT_MODEL_TOOL_NAMES] },
+  };
+  const shape = ({ kind = 'lead', provider, model, mode = 'full', agent = null, schemaAllowedTools = null, callerDisallowed = [], featureDenied = [], toolProfile = 'interactive' }) =>
+    json({ kind, provider, model, mode, agent, schemaAllowedTools, callerDisallowed, featureDenied, toolProfile });
+  const recorded = new Set(cases.map((c) => shape(c.input)));
+  const addNew = (name, input) => {
+    if (!recorded.has(shape(input))) {
+      recorded.add(shape(input));
+      add(name, input);
+    }
+  };
+  for (const [profile, extra] of Object.entries(PROFILES)) {
+    for (const [provider, model] of FAMILIES) {
+      for (const mode of ['full', 'readonly']) addNew(`grid: lead ${mode}, ${profile} profile, ${provider}`, { provider, model, mode, toolProfile: profile, ...extra });
+    }
+  }
+  for (const [provider, model] of FAMILIES) {
+    addNew(`grid: worker, ${provider}`, { kind: 'worker', provider, model });
+    addNew(`grid: hidden worker with allowlist, ${provider}`, { kind: 'worker', agent: 'explore-agent', provider, model, schemaAllowedTools: ['grep', 'read', 'glob', 'todo'] });
+  }
+}
 // MCP tools connected (registered by the first of these, so they come last).
 add('lead with MCP tools, native', { provider: 'anthropic', model: 'claude-opus-4-6', mcpConnected: true });
 add('lead with MCP tools, bridge route', { provider: 'xai', model: 'grok-4', mcpConnected: true });

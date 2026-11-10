@@ -5,6 +5,10 @@
 
 use crate::transport::deadlines::GROK_DISCOVERY;
 use crate::transport::deadlines::TOKEN_GROK;
+use crate::transport::link::Exchange;
+use crate::transport::link::Redirect;
+use crate::transport::link::Surface;
+use mixdog_rt::Liveness;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -47,6 +51,11 @@ pub const DISCOVERY_URL: &str = "https://auth.x.ai/.well-known/openid-configurat
 pub const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 pub const REAUTH_GUIDANCE: &str = "open /providers in mixdog to sign in again";
 const OPERATION: &str = "[grok-oauth] token exchange";
+/// The warm-up HEAD: `undici.request(origin, { method: 'HEAD', signal: AbortSignal.timeout(10_000) })`, which follows no
+/// redirect and whose failure is swallowed (`shared/llm/http-agent.mjs:496-527`).
+const PRECONNECT: Exchange = Exchange::new(Liveness::unary(std::time::Duration::from_secs(10)), Redirect::Manual, Surface::FetchSignal);
+/// `MIXDOG_LLM_KEEPALIVE_MS` (60 s) less 10 s: how long a warmed origin is not warmed again (`_preconnectTtlMs`).
+const PRECONNECT_TTL_MS: u64 = 50_000;
 
 /// `grok-oauth.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -56,7 +65,8 @@ pub struct StoredTokens {
     /// Milliseconds since the Unix epoch; 0 when unknown.
     #[serde(default)]
     pub expires_at: u64,
-    #[serde(default)]
+    /// Node stores `null` for an endpoint it has not learned (`saveTokens`); that reads as none.
+    #[serde(default, deserialize_with = "null_as_default")]
     pub token_endpoint: String,
     #[serde(default)]
     pub user_id: String,
@@ -66,6 +76,10 @@ pub struct StoredTokens {
     pub principal_id: String,
     #[serde(default)]
     pub email: String,
+}
+
+fn null_as_default<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 impl StoredTokens {
@@ -236,6 +250,8 @@ pub struct GrokCredential {
     http: Arc<dyn HttpSend>,
     file: CredentialFile,
     current: ArcSwapOption<StoredTokens>,
+    /// When the proxy origin was last warmed (`_preconnectedAt`); cleared when the warm-up fails.
+    warmed_at: Arc<std::sync::Mutex<Option<u64>>>,
 }
 
 fn storage_error(message: &str) -> ProviderError {
@@ -257,7 +273,39 @@ impl GrokCredential {
             http,
             file,
             current: ArcSwapOption::empty(),
+            warmed_at: Arc::default(),
         }
+    }
+
+    /// `preconnect(PROXY_BASE_URL)` (`grok-oauth.mjs:243-249`, `:383-387`): before a turn, a fire-and-forget HEAD lands a
+    /// kept-alive socket, once per [`PRECONNECT_TTL_MS`]. Any failure only clears the stamp.
+    fn preconnect(&self) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        let now = now_ms();
+        {
+            let mut warmed = self.warmed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if warmed.is_some_and(|last| now.saturating_sub(last) < PRECONNECT_TTL_MS) {
+                return;
+            }
+            *warmed = Some(now);
+        }
+        let (http, warmed_at) = (self.http.clone(), self.warmed_at.clone());
+        runtime.spawn(async move {
+            let head = WireRequest {
+                transport: TransportKind::Http1,
+                method: "HEAD".to_owned(),
+                url: format!("{}/", super::PROXY_ORIGIN),
+                headers: Vec::new(),
+                body: Vec::new(),
+            };
+            let warmed = match http.send(head, PRECONNECT).await {
+                Ok(response) => response.read_all().await.is_ok(),
+                Err(_) => false,
+            };
+            if !warmed {
+                *warmed_at.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+            }
+        });
     }
 
     /// The identity header value for the signed-in user, once a turn loaded it.
@@ -311,6 +359,7 @@ impl GrokCredential {
 #[async_trait]
 impl Credential for GrokCredential {
     async fn header(&self, force_refresh: bool) -> Result<Option<(String, String)>, ProviderError> {
+        self.preconnect();
         let mut tokens = self.tokens().await?;
         if force_refresh || tokens.needs_refresh(now_ms()) {
             // The file may hold a newer generation than this process knows.

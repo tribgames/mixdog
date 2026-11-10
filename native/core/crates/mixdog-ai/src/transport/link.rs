@@ -269,6 +269,17 @@ impl ReqwestLink {
         })
     }
 
+    /// The link with its client built from `tweak(link_builder)`: a test pins hosts to a loopback server and trusts its
+    /// certificate there, and everything else about the client is the production one.
+    #[cfg(test)]
+    pub(crate) fn with_builder(
+        schedule: &KeepaliveSchedule,
+        http2_only: bool,
+        tweak: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+    ) -> Result<Self, reqwest::Error> {
+        Ok(Self { clients: Clients::Fixed(tweak(link_builder(schedule, http2_only)).build()?) })
+    }
+
     /// Every request follows the network proxy policy: it asks the route of
     /// its origin and rides the client of that route (direct, or one proxy); a
     /// change of the setting retires the clients, so no pooled connection

@@ -11,7 +11,11 @@ pub mod auth;
 pub mod listing;
 mod tool_schema;
 #[cfg(test)]
+mod fixture_manifest;
+#[cfg(test)]
 mod listing_tests;
+#[cfg(test)]
+mod wire_server;
 #[cfg(test)]
 mod wire_tests;
 
@@ -42,6 +46,8 @@ use crate::providers::compat::responses::CompatResponsesCodec;
 
 pub const PROVIDER_ID: &str = "grok-oauth";
 pub const PROXY_BASE_URL: &str = "https://cli-chat-proxy.grok.com/v1";
+/// The origin of [`PROXY_BASE_URL`], the one the CLI warms.
+const PROXY_ORIGIN: &str = "https://cli-chat-proxy.grok.com";
 /// The xAI catalog: release dates and the public SKUs. The proxy serves
 /// inference and its own catalog; the two are merged by the listing.
 pub const INFERENCE_BASE_URL: &str = "https://api.x.ai/v1";
@@ -90,13 +96,13 @@ pub fn sdk_headers_for(platform: &str, arch: &str, runtime_version: &str) -> Vec
         other => format!("other:{other}"),
     };
     [
+        ("x-stainless-retry-count", "0".to_owned()),
         ("x-stainless-lang", "js".to_owned()),
         ("x-stainless-package-version", SDK_PACKAGE_VERSION.to_owned()),
         ("x-stainless-os", os),
         ("x-stainless-arch", arch),
         ("x-stainless-runtime", "node".to_owned()),
         ("x-stainless-runtime-version", runtime_version.to_owned()),
-        ("x-stainless-retry-count", "0".to_owned()),
     ]
     .into_iter()
     .map(|(name, value)| (name.to_owned(), value))
@@ -121,10 +127,10 @@ pub struct GrokRewriter {
     pub client_version: crate::client_versions::Live,
     /// The signed-in user's id once a turn loaded it (`x-grok-user-id`).
     pub user_id: Arc<dyn Fn() -> Option<String> + Send + Sync>,
-    /// `x-grok-req-id` of a request; a fresh UUID, replaced only by a test that needs the recorded one.
-    pub request_id: fn() -> String,
     /// The platform headers of the Node client this host stands in for (sdk_headers).
     pub sdk_headers: Vec<(String, String)>,
+    /// Which models take a reasoning effort when no roster row says (_grokModelSupportsEffort).
+    pub effort_rule: Arc<dyn self::listing::XaiEffortRule>,
 }
 
 impl Rewriter for GrokRewriter {
@@ -133,14 +139,14 @@ impl Rewriter for GrokRewriter {
         // The Node client sends the SDK's `accept: application/json` even for a streamed request.
         wire.headers.retain(|(name, _)| !name.eq_ignore_ascii_case("accept"));
         wire.headers.push(("accept".to_owned(), "application/json".to_owned()));
-        wire.headers.extend(identity_headers(&self.client_version.get()));
         wire.headers.extend(self.sdk_headers.iter().cloned());
+        wire.headers.extend(identity_headers(&self.client_version.get()));
         let mut add = |name: &str, value: String| wire.headers.push((name.to_owned(), value));
         // The session id is Mixdog's own; no Grok conversation id is made up.
         if let Some(session) = opts.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             add("x-grok-session-id", session.to_owned());
         }
-        add("x-grok-req-id", (self.request_id)());
+        add("x-grok-req-id", random_uuid());
         if !request.model.is_empty() {
             add("x-grok-model-override", request.model.clone());
         }
@@ -148,8 +154,15 @@ impl Rewriter for GrokRewriter {
         if let Some(user) = (self.user_id)() {
             add("x-grok-user-id", user);
         }
-        if let Some(body) = tool_schema::flatten_body(&wire.body) {
-            wire.body = body;
+        if let Ok(mut body) = serde_json::from_slice::<serde_json::Value>(&wire.body) {
+            let mut changed = tool_schema::flatten_tools(&mut body);
+            // `send`: a model that takes no effort is sent none, whatever the session pinned (the service 400s on one).
+            if !listing::id_takes_effort(&*self.effort_rule, &request.model, false) {
+                changed |= body.as_object_mut().and_then(|map| map.shift_remove("reasoning")).is_some();
+            }
+            if changed && let Ok(bytes) = serde_json::to_vec(&body) {
+                wire.body = bytes;
+            }
         }
         Ok(wire)
     }
@@ -182,8 +195,8 @@ pub fn adapter(
             let credential = credential.clone();
             Arc::new(move || credential.user_id())
         },
-        request_id: random_uuid,
         sdk_headers: sdk_headers(),
+        effort_rule: Arc::new(SeedEffortRule),
     };
     let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec(&client_version.get()), rewriter));
     let listing = GrokListing::new(

@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 132195,
+      "bytes": 167761,
       "path": "golden.json",
-      "sha256": "06af847f58ed233dca4c3b995be920b64debb57bccce9e73b7d9685f46835080"
+      "sha256": "dd3d3018b6c4124c5fd86c57608701c42de53a641c1cdc70d5eaced6665ea07f"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
   "set": "tool-resolution",
-  "totalBytes": 132195
+  "totalBytes": 167761
 }

@@ -1,0 +1,36 @@
+{
+  "command": "node native/core/crates/mixdog-ai/src/providers/grok/tool_schema/record.mjs --tree <b6f10295a export>",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 98441,
+      "path": "inputs.json",
+      "sha256": "2033fe9c410d0350269b31c88129c2c2ab97e5bc5ccfadd895b07f28690e81b1"
+    },
+    {
+      "bytes": 103667,
+      "path": "node-recorded.json",
+      "sha256": "ef34e56168653880bf8c0dc08e4647e2ee2232df569e0476699e461d0b0a7feb"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "native/core/crates/mixdog-ai/src/providers/grok/tool_schema/record.mjs",
+  "set": "grok-tool-schema",
+  "totalBytes": 202108
+}
