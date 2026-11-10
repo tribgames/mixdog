@@ -277,6 +277,16 @@
       ],
       "type": "object"
     },
+    "BrowserFrameParams": {
+      "description": "The `browser/frame` push (Node's `browserRemoteFrame` event): one frame of a session the phone streams (`DesktopRemoteBrowserStreamFrame`: `sessionId`, `seq`, `documentId`, the page facts and, unless withheld, `image` `{mimeType, data}` as base64). At most one is unacknowledged per subscription; the newest frame goes next, after the phone's `browser/streamAck` or 1.5 s.",
+      "properties": {
+        "frame": true
+      },
+      "required": [
+        "frame"
+      ],
+      "type": "object"
+    },
     "BrowserWebrtcSignalParams": {
       "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
       "properties": {
@@ -585,13 +595,13 @@
       "type": "string"
     },
     "HostBrowserViewFramesParams": {
-      "description": "First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).",
+      "description": "A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off` (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).",
       "properties": {
         "on": {
           "type": "boolean"
         },
         "request": {
-          "description": "Phone stream request (fit, quality) as today's take-over request."
+          "description": "The largest `{maxWidth, maxHeight, fit?}` of the session's subscribers (Node's `largest`, `remote-browser-streams.ts`); `null` with `on: false`."
         },
         "streamId": {
           "description": "The X17 `streamId` the host stamps on this tab's frames.",
@@ -6195,6 +6205,25 @@
         },
         "params": {
           "$ref": "#/definitions/BrowserWebrtcSignalParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserFrameParams"
         }
       },
       "required": [

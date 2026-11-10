@@ -9,6 +9,10 @@
 //! Page input, resizes and the video limit reach the desktop's browser through
 //! `host/browser/command{action:"input"}` and `host/browser/liveControl`; the displays through
 //! `host/screen/displays`.
+//!
+//! The subscriptions behind `browser/stream` and the JPEG view of a phone without WebRTC (`browser/frame`, acknowledged by
+//! `browser/streamAck`) are Node's relay pacing (`live_view_streams`): the host's frame facts (`host/browser/frame`) take the
+//! picture of the X17 frame that follows them.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -29,8 +33,10 @@ use base64::Engine;
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use mixdog_app_protocol::media::MediaFrameHeader;
+use mixdog_app_protocol::v2::host::BrowserStreamAckParams;
 use mixdog_app_protocol::v2::host::BrowserStreamParams;
 use mixdog_app_protocol::v2::host::BrowserWebrtcSignalParams;
+use mixdog_app_protocol::v2::host::HostBrowserFrameParams;
 use mixdog_app_protocol::v2::host::HostBrowserPageParams;
 use mixdog_app_protocol::v2::host::HostBrowserViewFramesParams;
 use mixdog_app_server::HostMedia;
@@ -77,6 +83,12 @@ use serde_json::Value;
 use serde_json::json;
 
 use crate::connection_close::ConnectionOwner;
+use crate::live_view_streams::BrowserStreams;
+use crate::live_view_streams::Clock;
+use crate::live_view_streams::StreamsDeps;
+use crate::live_view_streams::SystemClock;
+use crate::live_view_streams::normalize_stream_options;
+use crate::live_view_streams::required_session_id;
 
 const SESSION_PREFIX: &str = "browser:";
 
@@ -121,9 +133,12 @@ type Page = (Option<String>, Option<Geometry>);
 struct State {
     /// What each streamed session shows now (`host/browser/page`).
     pages: HashMap<String, Page>,
-    /// Which sessions each connection streams.
-    subscriptions: HashSet<(u64, String)>,
     streams: HashMap<String, Arc<Stream>>,
+    /// Per session, the host's frame facts whose picture is the next X17 frame of its stream (`host/browser/frame`).
+    awaiting_picture: HashMap<String, Value>,
+    /// Connections that closed while subscribed: Node's `isLive` is false for them, so the next frame or the lapse drops
+    /// their subscriptions (`remote-browser-streams.ts` `publish`).
+    closed: HashSet<u64>,
     timers: HashMap<u64, tokio::task::JoinHandle<()>>,
     next_stream: u32,
 }
@@ -138,6 +153,7 @@ struct Inner {
     state: Mutex<State>,
     relay: OnceLock<Arc<Relay<RelayAdapter>>>,
     host: OnceLock<LiveHost>,
+    streams: OnceLock<Arc<BrowserStreams>>,
     timer_seq: AtomicU64,
 }
 
@@ -173,53 +189,61 @@ impl Inner {
         self.host.get().expect("the live view is built with its host")
     }
 
+    fn streams(&self) -> &Arc<BrowserStreams> {
+        self.streams.get().expect("the live view is built with its streams")
+    }
+
     fn subscribed(&self, connection: u64, session: &str) -> bool {
-        lock(&self.state).subscriptions.contains(&(connection, session.to_owned()))
+        self.streams().subscribed(&connection.to_string(), session)
     }
 
-    /// A connection starts streaming `session`; the first one makes the host send pictures.
-    fn start_stream(self: &Arc<Self>, connection: u64, session: &str, request: Option<Value>) {
-        let created = {
-            let mut state = lock(&self.state);
-            state.subscriptions.insert((connection, session.to_owned()));
-            if state.streams.contains_key(session) {
-                None
-            } else {
-                state.next_stream += 1;
-                let stream_id = state.next_stream;
-                let (sink, feed) = frame_feed(FrameSourceKind::BrowserView { tab_id: session.to_owned() });
-                let shared = SharedSource::start(Box::new(feed));
-                state.streams.insert(session.to_owned(), Arc::new(Stream { stream_id, sink: Mutex::new(sink), shared }));
-                Some(stream_id)
-            }
-        };
-        if let Some(stream_id) = created {
-            self.media.bind(stream_id, Arc::new(LiveViewFeed { inner: Arc::downgrade(self), session: session.to_owned() }));
-            self.view_frames(session, stream_id, true, request.unwrap_or(Value::Null));
-        }
-    }
-
-    /// A connection stops streaming `session` (or left); the last one stops the host's pictures.
-    fn stop_stream(&self, connection: u64, session: &str) {
-        let (was_subscribed, ended) = {
-            let mut state = lock(&self.state);
-            let was = state.subscriptions.remove(&(connection, session.to_owned()));
-            let ended = if state.subscriptions.iter().any(|(_, held)| held == session) {
-                None
-            } else {
+    /// The streams' request to the desktop (Node's `browserRemote('stream', [sessionId, options])`): the session's stream starts
+    /// with its first subscriber, every change sends the largest options, and the last subscriber's end stops the host's pictures.
+    fn stream_request(self: &Arc<Self>, session: &str, options: Option<Value>) {
+        let Some(options) = options else {
+            let ended = {
+                let mut state = lock(&self.state);
                 state.pages.remove(session);
+                state.awaiting_picture.remove(session);
                 state.streams.remove(session)
             };
-            (was, ended)
-        };
-        if !was_subscribed {
+            if let Some(stream) = ended {
+                self.media.unbind(stream.stream_id);
+                stream.shared.stop();
+                self.view_frames(session, stream.stream_id, false, Value::Null);
+            }
             return;
+        };
+        let (stream_id, created) = {
+            let mut state = lock(&self.state);
+            match state.streams.get(session) {
+                Some(stream) => (stream.stream_id, false),
+                None => {
+                    state.next_stream += 1;
+                    let stream_id = state.next_stream;
+                    let (sink, feed) = frame_feed(FrameSourceKind::BrowserView { tab_id: session.to_owned() });
+                    let shared = SharedSource::start(Box::new(feed));
+                    state.streams.insert(session.to_owned(), Arc::new(Stream { stream_id, sink: Mutex::new(sink), shared }));
+                    (stream_id, true)
+                }
+            }
+        };
+        if created {
+            self.media.bind(stream_id, Arc::new(LiveViewFeed { inner: Arc::downgrade(self), session: session.to_owned() }));
         }
-        self.relay().viewer_left(&connection.to_string(), session);
-        if let Some(stream) = ended {
-            self.media.unbind(stream.stream_id);
-            stream.shared.stop();
-            self.view_frames(session, stream.stream_id, false, Value::Null);
+        self.view_frames(session, stream_id, true, options);
+    }
+
+    /// The host's facts of a frame: published at once, or, when they announce a picture, with the X17 frame that follows.
+    fn frame_facts(&self, params: HostBrowserFrameParams) {
+        if params.frame.get("image").is_some_and(|image| !image.is_null()) {
+            // Only a viewed session has a stream for its picture to arrive on.
+            let mut state = lock(&self.state);
+            if state.streams.contains_key(&params.tab_id) {
+                state.awaiting_picture.insert(params.tab_id, params.frame);
+            }
+        } else {
+            self.streams().publish(params.frame);
         }
     }
 
@@ -233,10 +257,21 @@ impl Inner {
 
     /// A picture of the session's stream: counted against the page it shows, then the newest one.
     fn picture(&self, session: &str, width: u16, height: u16, jpeg: Bytes) {
-        let (document_id, generation) = match lock(&self.state).pages.get(session) {
-            Some((document_id, Some(geometry))) if geometry.pixel_width == u64::from(width) && geometry.pixel_height == u64::from(height) => (document_id.clone(), geometry.generation),
-            _ => (None, 0),
+        let (document_id, generation, facts) = {
+            let mut state = lock(&self.state);
+            let facts = state.awaiting_picture.remove(session);
+            match state.pages.get(session) {
+                Some((document_id, Some(geometry))) if geometry.pixel_width == u64::from(width) && geometry.pixel_height == u64::from(height) => (document_id.clone(), geometry.generation, facts),
+                _ => (None, 0, facts),
+            }
         };
+        // The JPEG view's frame: the facts the host sent before this picture, with the picture as Node's base64 `image.data`.
+        if let Some(mut frame) = facts {
+            if let Some(image) = frame.get_mut("image").and_then(Value::as_object_mut) {
+                image.insert("data".to_owned(), Value::String(base64::engine::general_purpose::STANDARD.encode(&jpeg)));
+            }
+            self.streams().publish(frame);
+        }
         self.host().frame(&source_key(session), Picture { document_id, generation, data: jpeg });
     }
 
@@ -286,9 +321,8 @@ impl RelayDeps for RelayAdapter {
         }
     }
 
-    fn awaiting_fit(&self, _client: &str, _session: &str) -> bool {
-        // A take-over's fitted first picture is the JPEG view's rule; the core has no JPEG view to wait on.
-        false
+    fn awaiting_fit(&self, client: &str, session: &str) -> bool {
+        self.0.upgrade().is_some_and(|inner| inner.streams().awaiting_fit(client, session))
     }
 
     async fn screen_authorized(&self, client: &str, _origin: Origin) -> bool {
@@ -298,7 +332,11 @@ impl RelayDeps for RelayAdapter {
         }
     }
 
-    fn set_images(&self, _client: &str, _session: &str, _enabled: bool) {}
+    fn set_images(&self, client: &str, session: &str, enabled: bool) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.streams().set_images(client, session, enabled);
+        }
+    }
 
     async fn resolve_ice_servers(&self) -> Result<Vec<IceServer>, String> {
         let inner = self.0.upgrade().ok_or("the live view stopped.")?;
@@ -328,6 +366,42 @@ impl RelayDeps for RelayAdapter {
             .notifier
             .notify(connection, Method("browser/webrtcSignal"), json!({ "signal": payload["payload"] }))
             .map_err(|error| format!("{error:?}"))
+    }
+}
+
+/// The streams' view of the connection table, the phones and the desktop (`remote-relay.ts:360-367`).
+struct StreamsAdapter(Weak<Inner>);
+
+impl StreamsDeps for StreamsAdapter {
+    fn is_live(&self, client: &str) -> bool {
+        match (self.0.upgrade(), client_connection(client)) {
+            (Some(inner), Some(connection)) => !lock(&inner.state).closed.contains(&connection.0),
+            _ => false,
+        }
+    }
+
+    fn send(&self, client: &str, frame: Value) {
+        let (Some(inner), Some(connection)) = (self.0.upgrade(), client_connection(client)) else { return };
+        // Node's push is droppable and its failure ignored.
+        if let Err(error) = inner.notifier.notify(connection, Method("browser/frame"), json!({ "frame": frame })) {
+            tracing::debug!(?error, client, "a browser/frame push was not delivered");
+        }
+    }
+
+    fn request(&self, session: &str, options: Option<Value>) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.stream_request(session, options);
+        }
+    }
+
+    fn on_drop(&self, client: &str, session: &str) {
+        let Some(inner) = self.0.upgrade() else { return };
+        inner.relay().viewer_left(client, session);
+        if let Some(connection) = client_connection(client)
+            && !inner.streams().subscribes_any(client)
+        {
+            lock(&inner.state).closed.remove(&connection.0);
+        }
     }
 }
 
@@ -592,6 +666,19 @@ impl LiveViewService {
         peers: Arc<dyn Peers>,
         access: Arc<dyn ScreenAccess>,
     ) -> Self {
+        Self::with_clock(host_channel, notifier, media, runtime, peers, access, SystemClock::new())
+    }
+
+    /// With the clock the phones' subscriptions lapse and their frames are resent by.
+    pub fn with_clock(
+        host_channel: Arc<dyn HostChannel>,
+        notifier: Arc<dyn mixdog_core_api::ConnectionNotifier>,
+        media: Arc<HostMedia>,
+        runtime: Arc<RemoteRuntime>,
+        peers: Arc<dyn Peers>,
+        access: Arc<dyn ScreenAccess>,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         let inner = Arc::new(Inner {
             host_channel,
             notifier,
@@ -602,9 +689,11 @@ impl LiveViewService {
             state: Mutex::default(),
             relay: OnceLock::new(),
             host: OnceLock::new(),
+            streams: OnceLock::new(),
             timer_seq: AtomicU64::new(0),
         });
         let weak = Arc::downgrade(&inner);
+        let _ = inner.streams.set(BrowserStreams::new(Arc::new(StreamsAdapter(weak.clone())), clock));
         let _ = inner.relay.set(Arc::new(Relay::new(RelayAdapter(weak.clone()))));
         let _ = inner.host.set(LiveHost::new(Arc::new(LiveEnv(weak))));
         Self { inner }
@@ -614,7 +703,7 @@ impl LiveViewService {
 #[async_trait]
 impl DomainService for LiveViewService {
     fn methods(&self) -> &'static [&'static str] {
-        &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page"]
+        &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page", "host/browser/frame", "browser/streamAck"]
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
@@ -624,15 +713,15 @@ impl DomainService for LiveViewService {
         let invalid = |error: serde_json::Error| CoreError::InvalidParams { path: "params".into(), expected: error.to_string().into() };
         let client = connection.0.to_string();
         match req.method.as_str() {
+            // `remote-relay-client-calls.ts:241-260`: the session id, then the options; `on: false` is Node's `null` options.
             "browser/stream" => {
                 let params: BrowserStreamParams = serde_json::from_value(req.params).map_err(invalid)?;
-                if params.session_id.is_empty() {
-                    return Err(CoreError::InvalidParams { path: "sessionId".into(), expected: "a session id".into() });
-                }
+                let session = required_session_id(&params.session_id).map_err(domain_error)?;
+                let streams = self.inner.streams();
                 if params.on {
-                    self.inner.start_stream(connection.0, &params.session_id, params.request);
+                    streams.subscribe(&client, &session, normalize_stream_options(params.request.as_ref()).map_err(domain_error)?);
                 } else {
-                    self.inner.stop_stream(connection.0, &params.session_id);
+                    streams.unsubscribe(&client, &session);
                 }
                 Ok(Reply::Value(json!({})))
             }
@@ -651,24 +740,39 @@ impl DomainService for LiveViewService {
         }
     }
 
-    fn notify(&self, method: Method, params: Value, _from: ConnectionId) -> Admit {
-        if method.as_str() == "host/browser/page"
-            && let Ok(page) = serde_json::from_value::<HostBrowserPageParams>(params)
-        {
-            self.inner.page_changed(page);
+    fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
+        match method.as_str() {
+            "host/browser/page" => {
+                if let Ok(page) = serde_json::from_value::<HostBrowserPageParams>(params) {
+                    self.inner.page_changed(page);
+                }
+            }
+            "host/browser/frame" => {
+                if let Ok(frame) = serde_json::from_value::<HostBrowserFrameParams>(params) {
+                    self.inner.frame_facts(frame);
+                }
+            }
+            // `remote-relay-client-calls.ts:403-409`: anything but a string session and a number seq is ignored.
+            "browser/streamAck" => {
+                if let Ok(ack) = serde_json::from_value::<BrowserStreamAckParams>(params) {
+                    self.inner.streams().acknowledge(&from.0.to_string(), &ack.session_id, ack.seq);
+                }
+            }
+            _ => {}
         }
         Admit::Accepted
     }
 }
 
 impl ConnectionOwner for LiveViewService {
-    /// The connection's streams end, and its viewers with them.
+    /// Node keeps a departed phone's subscriptions until the next frame of their session finds it gone, or they lapse
+    /// (`isLive`, `remote-relay.ts:361`); its screen `ready`s still resolving are cancelled now.
     fn connection_closed(&self, connection: ConnectionId) {
-        let sessions: Vec<String> = lock(&self.inner.state).subscriptions.iter().filter(|(held, _)| *held == connection.0).map(|(_, session)| session.clone()).collect();
-        for session in sessions {
-            self.inner.stop_stream(connection.0, &session);
+        let client = connection.0.to_string();
+        if self.inner.streams().subscribes_any(&client) {
+            lock(&self.inner.state).closed.insert(connection.0);
         }
-        self.inner.relay().connection_removed(&connection.0.to_string());
+        self.inner.relay().connection_removed(&client);
     }
 }
 
@@ -709,6 +813,11 @@ mod tests {
 
     const HOST: &str = include_str!("../../../fixtures/live-view-host/host.json");
 
+    /// A phone's stream options in the host scenarios (Node's host recording starts from a streamed page, whatever its size).
+    fn stream_options() -> Value {
+        json!({ "maxWidth": 1170, "maxHeight": 2532 })
+    }
+
     struct Desktop(Mutex<Vec<(String, Value)>>);
 
     #[async_trait]
@@ -735,7 +844,7 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Scripted {
+    pub(super) struct Scripted {
         log: Mutex<Vec<Value>>,
         logged: tokio::sync::Notify,
         events: Mutex<HashMap<String, Box<dyn Fn(SenderEvent) + Send + Sync>>>,
@@ -816,7 +925,7 @@ mod tests {
         fn wake_at(&mut self, _: u64) {}
     }
 
-    fn runtime(dir: &std::path::Path) -> Arc<RemoteRuntime> {
+    pub(super) fn runtime(dir: &std::path::Path) -> Arc<RemoteRuntime> {
         Arc::new(RemoteRuntime::new(
             RuntimeConfig {
                 dir: dir.to_path_buf(),
@@ -886,11 +995,14 @@ mod tests {
         let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(PairedScreenAccess::new(Arc::new(|_| None), Arc::new(|_| false))));
         let session = "sess_1";
         for connection in [1, 2] {
-            service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true }))).await.unwrap();
+            service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true, "request": stream_options() }))).await.unwrap();
         }
+        // Node tells the desktop at every subscription (`remote-browser-streams.ts` `subscribe`), each time with the session's stream.
         let started = lock(&desktop.0).clone();
-        assert_eq!(started.len(), 1, "{name}: the first stream asks the host for pictures once");
-        assert_eq!((started[0].0.as_str(), &started[0].1["tabId"], &started[0].1["on"]), ("host/browser/viewFrames", &json!(session), &json!(true)));
+        assert_eq!(started.len(), 2, "{name}: one view request per subscription");
+        for (method, params) in &started {
+            assert_eq!((method.as_str(), &params["tabId"], &params["on"], &params["streamId"]), ("host/browser/viewFrames", &json!(session), &json!(true), &json!(1)));
+        }
         let mut states: Vec<String> = Vec::new();
         for (number, (step, want)) in scenario["steps"].as_array().unwrap().iter().zip(scenario["recorded"].as_array().unwrap()).enumerate() {
             let what = format!("{name} step {number} {}", step["op"]);
@@ -919,7 +1031,7 @@ mod tests {
                     let connection = connection_of(step["client"].as_str().unwrap());
                     service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": false }))).await.unwrap();
                     // The phone streams again (the second connection keeps the stream alive meanwhile).
-                    service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true }))).await.unwrap();
+                    service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true, "request": stream_options() }))).await.unwrap();
                 }
                 "frame" => {
                     let geometry = &step["picture"]["geometry"];
@@ -985,3 +1097,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "live_view_streams_replay.rs"]
+mod streams_replay;

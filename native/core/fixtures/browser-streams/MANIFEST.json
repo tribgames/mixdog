@@ -1,0 +1,86 @@
+{
+  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-browser-streams.mjs --tree <tree>",
+  "exact": true,
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 108511,
+      "path": "streams.json",
+      "sha256": "7d49e612f299624eb8ce3e40c1f0967ed5b1e59c9a469f1834c5614095d00146"
+    }
+  ],
+  "inputs": {
+    "clients": [
+      "phone_A",
+      "phone_B",
+      "phone_C"
+    ],
+    "clockStart": 1924992000000,
+    "file": "streams.json",
+    "scenarios": [
+      {
+        "name": "the options and the session id are checked as Node checks them",
+        "steps": 30
+      },
+      {
+        "name": "a subscription lapses 4 s after its last renewal",
+        "steps": 19
+      },
+      {
+        "name": "the largest options of the subscribers go to the desktop as they come and go",
+        "steps": 15
+      },
+      {
+        "name": "a take-over is fitted once and shown no picture until its fitted one",
+        "steps": 23
+      },
+      {
+        "name": "one frame in flight: the newest goes next, after its ack",
+        "steps": 18
+      },
+      {
+        "name": "a frame not acknowledged goes again after 1.5 s",
+        "steps": 15
+      },
+      {
+        "name": "a subscriber joining mid-stream gets the newest frame",
+        "steps": 12
+      },
+      {
+        "name": "the view goes to WebRTC and comes back",
+        "steps": 29
+      },
+      {
+        "name": "a phone that left is dropped at the next frame or its lapse",
+        "steps": 11
+      }
+    ],
+    "sessions": [
+      "sess_1",
+      "sess_2"
+    ]
+  },
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "productCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "recorder": "benchmarks/rust-core/recorders/record-browser-streams.mjs",
+  "recorderSha256": "326e607137ce8de7842729f68a508f60003457bb74d7e446c23a3da0b6ee1bff",
+  "set": "browser-streams",
+  "totalBytes": 108511
+}
