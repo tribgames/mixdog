@@ -136,6 +136,7 @@ export const BACKEND_INSTALLERS = [
   'native/core/crates/mixdog-rt/tests/submit_wait.rs',
   'native/core/crates/mixdog-rt/tests/ticker.rs',
   'native/core/crates/mixdog-services/src/tidy/process.rs',
+  'native/core/crates/mixdog-store/src/store_tests.rs',
 ];
 
 const REPO = resolve(CORE, '../..');
