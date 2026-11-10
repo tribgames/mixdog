@@ -29,7 +29,7 @@ let touches = 0;
 const RECORDING_MS = 15 * 60_000;
 // What the comparison takes a PowerShell disposal pair out on.
 const DISPOSAL_PAIR_EVIDENCE =
-  'The comparison (remote-protocol-terminal-compare.mjs) takes a running/null pair after a dispose answer out only on the PowerShell tabs of its allow-list and only where the runs in runs.json vary at that disposal: some run has the pair there and some does not, and the trace must then have one of the runs\' values (absent, or present at the same entries), held together with its other choices (consistentPlaces). Where every run has it at the same entries the trace must too; where none has it the trace may not. The mechanism (PSConsoleHostReadLine C marker against the console close) is why only those tabs are allowed; the recorded variance is what each exemption rests on.';
+  'The comparison (remote-protocol-terminal-compare.mjs) takes a running/null pair after a dispose answer out only on the PowerShell tabs of its allow-list and only where the runs in runs.json vary at that disposal: some run has the pair there and some does not, and the trace must then have one of the runs\' values (absent, or present at the same entries). Where every run has it at the same entries the trace must too; where none has it the trace may not. The mechanism (PSConsoleHostReadLine C marker against the console close) is why only those tabs are allowed; the recorded variance is what each exemption rests on.';
 // What the scripted framing recording proves for the replay's one exempted order (an output frame against its own activity change), and
 // what it does not.
 const FRAMING_PROOF =

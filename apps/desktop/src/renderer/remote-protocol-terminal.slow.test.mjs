@@ -19,12 +19,11 @@ test('phone terminal adapter replays the Node recording over a real core', async
   assert.ok(child.status === 0 && at >= 0, `scenario failed (${child.status}):\n${child.stdout.slice(-1500)}\n${child.stderr.slice(-3000)}`);
   const got = JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
   if (process.env.PHONE_TERMINAL_KEEP_TRACE) writeFileSync(process.env.PHONE_TERMINAL_KEEP_TRACE, JSON.stringify(got)); // for looking at a difference
-  const { exemptions, sets, bytes } = await compareTraces(got, runs);
-  // What the pass rests on: every unit left to one of Node's values, every pair compared as one place, and per tab and stretch whether
-  // the output's bytes were one Node run's or only its states were.
+  const { exemptions, bytes } = await compareTraces(got, runs);
+  // What the pass rests on: every unit and order left to one of Node's values, and per tab and command whether the output's bytes were
+  // one Node run's or only its screen was.
   console.log(`exemptions (${exemptions.length}):\n  ${exemptions.join('\n  ')}`);
-  console.log(`activity changes compared with their own frame as one place (${sets.length}):\n  ${sets.join('\n  ')}`);
-  const exact = bytes.filter((stretch) => stretch.exact).length;
-  console.log(`output per tab and stretch (${bytes.length}): ${exact} with a Node run's bytes exactly, ${bytes.length - exact} passed on states only`);
-  for (const { part, tab, where, exact: same } of bytes) console.log(`  ${part}: ${tab} ${where}: ${same ? "a Node run's bytes" : 'states only'}`);
+  const exact = bytes.filter((command) => command.exact).length;
+  console.log(`output per tab and command (${bytes.length}): ${exact} with a Node run's bytes exactly, ${bytes.length - exact} passed on the screen only`);
+  for (const { part, tab, where, exact: same } of bytes) console.log(`  ${part}: ${tab} ${where}: ${same ? "a Node run's bytes" : 'screen only'}`);
 });
