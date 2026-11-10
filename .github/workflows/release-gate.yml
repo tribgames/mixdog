@@ -882,8 +882,10 @@ jobs:
       # The scripts start every cargo/mixdogd child through this helper (it ends the child's whole tree, whatever exits first).
       - name: Build the process-tree helper
         run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
+      - name: Unit tests of the process-tree helper
+        run: cargo test --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
       - name: Unit tests of the lane scripts
-        run: node --test scripts/rust-core/k1-lanes.test.mjs scripts/rust-core/process-tree.test.mjs benchmarks/token-lang/measure-exec.test.mjs
+        run: node --test scripts/rust-core/k1-lanes.test.mjs scripts/rust-core/process-tree.test.mjs scripts/rust-core/tree-helper.test.mjs benchmarks/token-lang/measure-exec.test.mjs
       - name: Run the lanes
         env:
           CARGO_BUILD_JOBS: "3"
@@ -944,8 +946,10 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
       - name: Build the process-tree helper
         run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
+      - name: Unit tests of the process-tree helper
+        run: cargo test --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
       - name: Unit tests of the lane scripts (the POSIX process-group and mark sweep run here)
-        run: node --test scripts/rust-core/k1-lanes.test.mjs scripts/rust-core/process-tree.test.mjs benchmarks/token-lang/measure-exec.test.mjs
+        run: node --test scripts/rust-core/k1-lanes.test.mjs scripts/rust-core/process-tree.test.mjs scripts/rust-core/tree-helper.test.mjs benchmarks/token-lang/measure-exec.test.mjs
       - name: Run the lanes
         env:
           CARGO_BUILD_JOBS: "3"
@@ -976,8 +980,10 @@ jobs:
       # Windows run to be equivalent; the process-tree helper has a Windows implementation of its own (a job object), tested here.
       - name: Build the process-tree helper
         run: cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
+      - name: Unit tests of the process-tree helper
+        run: cargo test --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
       - name: Process-tree helper on Windows
-        run: node --test scripts/rust-core/process-tree.test.mjs
+        run: node --test scripts/rust-core/process-tree.test.mjs scripts/rust-core/tree-helper.test.mjs
       - name: Advisory file locks (replaces the Windows advisory-lock suites)
         env:
           CARGO_BUILD_JOBS: "3"

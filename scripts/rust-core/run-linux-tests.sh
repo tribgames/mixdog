@@ -19,5 +19,5 @@ docker run --rm --memory 2g -v "$repo:/repo:ro" "$image" sh -c '
   cargo build --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
   cargo test --release --locked --manifest-path scripts/rust-core/tree-helper/Cargo.toml
   export MIXDOG_TREE_HELPER=$CARGO_TARGET_DIR/release/treerun
-  node --test --test-concurrency=1 scripts/rust-core/process-tree.test.mjs
+  node --test --test-concurrency=1 scripts/rust-core/process-tree.test.mjs scripts/rust-core/tree-helper.test.mjs
 '
