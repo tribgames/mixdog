@@ -793,7 +793,14 @@ for (const [name, args, method, params, result] of NOTIFICATIONS) {
 
 test('the notification operations are the spec map clientNotification rows', () => {
   const wanted = operations.filter((row) => row.target.kind === 'clientNotification').map((row) => row.name);
-  assert.deepEqual([...NOTIFICATION_DESKTOP_OPERATIONS].sort(), wanted.sort());
+  // `browserRemoteFrame` (`host/browser/frame`) is sent by the host role, whose X17 picture must follow it on the host connection
+  // (host/browser-view.ts; host.test.mjs holds the frames it sends); the lane refuses it.
+  assert.deepEqual([...NOTIFICATION_DESKTOP_OPERATIONS, 'browserRemoteFrame'].sort(), wanted.sort());
+  assert.equal(
+    operations.find((row) => row.name === 'browserRemoteFrame').target.target,
+    'host/browser/frame'
+  );
+  assert.throws(() => routeDesktopOperation('browserRemoteFrame', [{}]), { code: 'unknownMethod' });
 });
 
 test('termEnsure leaves sizeOwner out when the core says null and keeps an owner', async () => {

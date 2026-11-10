@@ -394,7 +394,8 @@ export const IGNORED_DESKTOP_OPERATIONS: readonly string[] = ['publishBrowserApp
 
 /** Deleted or core-internal; no caller exists on a core connection. Calling one is a bug and is refused. */
 export const DELETED_DESKTOP_OPERATIONS: Readonly<Record<string, string>> = {
-  browserRemoteFrame: 'paint frames are X17 media frames on the host connection (host/browser-view.ts)',
+  browserRemoteFrame:
+    'the host role sends it: host/browser/frame, then the picture as an X17 media frame on the host connection (host/browser-view.ts)',
   browserRemoteResolve: 'the host role answers the core\'s host/* requests itself (host/connection.ts)',
   browserRemoteWebrtcSignal: 'WebRTC runs in mixdog-remote (SPEC R36)',
   gitPathspecChanges: 'no caller (DS 17.2)',
