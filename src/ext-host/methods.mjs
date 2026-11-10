@@ -240,6 +240,11 @@ export const handlers = {
   'media.pdfText': mediaPdfText,
   'media.pdfCounts': mediaPdfCounts,
   'office.run': officeRun,
+  'office.sweepJournals': async (ctx) => {
+    const { listOfficeJournals } = await import('../runtime/office/core/journal.mjs');
+    await listOfficeJournals(ctx.params.dataDir);
+    return { value: null };
+  },
   'pdf.inspect': pdfInspect,
   'pdf.render': pdfRender,
   'pdf.ocr': pdfOcr,

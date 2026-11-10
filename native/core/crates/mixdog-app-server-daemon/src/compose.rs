@@ -773,6 +773,8 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
 
 #[cfg(test)]
 mod review_restart_tests;
+#[cfg(test)]
+mod office_startup_tests;
 
 #[cfg(test)]
 mod tests {
