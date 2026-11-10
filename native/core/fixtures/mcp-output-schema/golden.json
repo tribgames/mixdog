@@ -1,0 +1,542 @@
+{
+  "domain": "mcp-output-schema",
+  "recorder": "benchmarks/rust-core/recorders/record-mcp-output-schema.mjs",
+  "cases": [
+    {
+      "name": "results checked against the output schema",
+      "tools": [
+        {
+          "name": "typed",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "email": {
+                "type": "string",
+                "format": "email"
+              },
+              "kind": {
+                "enum": [
+                  "a",
+                  "b"
+                ]
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "count"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "plain",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "name": "either",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "anyOf": [
+              {
+                "required": [
+                  "a"
+                ]
+              },
+              {
+                "required": [
+                  "b"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "local",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "$ref": "#/$defs/item"
+              }
+            },
+            "$defs": {
+              "item": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "typed": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"count\":2}"
+              }
+            ],
+            "structuredContent": {
+              "count": 2
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "count": "x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "plain"
+              }
+            ]
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "boom"
+              }
+            ],
+            "isError": true
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "{}"
+              }
+            ],
+            "structuredContent": {}
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "extra"
+              }
+            ],
+            "structuredContent": {
+              "count": 1,
+              "extra": true
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "many"
+              }
+            ],
+            "structuredContent": {
+              "tags": [
+                "a",
+                1,
+                "c"
+              ],
+              "kind": "c",
+              "email": "nope",
+              "count": "x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "error with structure"
+              }
+            ],
+            "structuredContent": {
+              "count": "y"
+            },
+            "isError": true
+          }
+        ],
+        "plain": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "free"
+              }
+            ],
+            "structuredContent": {
+              "anything": 1
+            }
+          }
+        ],
+        "either": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ],
+            "structuredContent": {
+              "b": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "c"
+              }
+            ],
+            "structuredContent": {
+              "c": 1
+            }
+          }
+        ],
+        "local": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ],
+            "structuredContent": {
+              "item": "x"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "bad"
+              }
+            ],
+            "structuredContent": {
+              "item": 3
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "typed",
+          "i": 0,
+          "output": "{\"count\":2}"
+        },
+        {
+          "tool": "typed",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/count must be number"
+        },
+        {
+          "tool": "typed",
+          "i": 2,
+          "output": "Error: MCP error -32600: Tool typed has an output schema but did not return structured content"
+        },
+        {
+          "tool": "typed",
+          "i": 3,
+          "output": "Error: boom"
+        },
+        {
+          "tool": "typed",
+          "i": 4,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data must have required property 'count'"
+        },
+        {
+          "tool": "typed",
+          "i": 5,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data must NOT have additional properties"
+        },
+        {
+          "tool": "typed",
+          "i": 6,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/count must be number, data/email must match format \"email\", data/kind must be equal to one of the allowed values, data/tags must NOT have more than 2 items, data/tags/1 must be string"
+        },
+        {
+          "tool": "typed",
+          "i": 7,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/count must be number"
+        },
+        {
+          "tool": "plain",
+          "i": 0,
+          "output": "free"
+        },
+        {
+          "tool": "either",
+          "i": 0,
+          "output": "b"
+        },
+        {
+          "tool": "either",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data must have required property 'a', data must have required property 'b', data must match a schema in anyOf"
+        },
+        {
+          "tool": "local",
+          "i": 0,
+          "output": "ok"
+        },
+        {
+          "tool": "local",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/item must be string"
+        }
+      ]
+    },
+    {
+      "name": "schemas with $id resolve in listing order; a repeated $id keeps the first",
+      "tools": [
+        {
+          "name": "base",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/base.json",
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "n"
+            ]
+          }
+        },
+        {
+          "name": "uses",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "inner": {
+                "$ref": "https://example.test/base.json"
+              }
+            },
+            "required": [
+              "inner"
+            ]
+          }
+        },
+        {
+          "name": "dup",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/base.json",
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "base": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "3"
+              }
+            ],
+            "structuredContent": {
+              "n": 3
+            }
+          }
+        ],
+        "uses": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "1"
+              }
+            ],
+            "structuredContent": {
+              "inner": {
+                "n": 1
+              }
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ],
+            "structuredContent": {
+              "inner": {
+                "n": "x"
+              }
+            }
+          }
+        ],
+        "dup": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "text"
+              }
+            ],
+            "structuredContent": {
+              "n": "text"
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "2"
+              }
+            ],
+            "structuredContent": {
+              "n": 2
+            }
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "uses",
+          "i": 0,
+          "output": "1"
+        },
+        {
+          "tool": "uses",
+          "i": 1,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/inner/n must be number"
+        },
+        {
+          "tool": "dup",
+          "i": 0,
+          "output": "Error: MCP error -32602: Structured content does not match the tool's output schema: data/n must be number"
+        },
+        {
+          "tool": "dup",
+          "i": 1,
+          "output": "2"
+        },
+        {
+          "tool": "base",
+          "i": 0,
+          "output": "3"
+        }
+      ]
+    },
+    {
+      "name": "a reference to an $id listed later fails the listing",
+      "tools": [
+        {
+          "name": "early",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "inner": {
+                "$ref": "https://example.test/late.json"
+              }
+            }
+          }
+        },
+        {
+          "name": "late",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "$id": "https://example.test/late.json",
+            "type": "object"
+          }
+        }
+      ],
+      "results": {},
+      "connect": "can't resolve reference https://example.test/late.json from id #",
+      "outputs": []
+    }
+  ]
+}
