@@ -460,7 +460,8 @@ impl super::NewThreadRoute for HeldSeat {
 /// A shutdown while the session's creation has written its record and not returned (Node: `client.create` pending, its daemon
 /// having made the session) ends the attempt before the `try` that refuses (session-host-lifecycle.ts:824-835): the receipt stays
 /// `reserved` at its address, unmarked. The caller gets no answer; the retry after the restart opens the session there and starts
-/// the task in it, as the recorded `retry-after-created` does: one task, one prompt, at the derived address.
+/// the task in it, as the recorded `retry-after-created` does: one task, one prompt, at the derived address. The draft names no
+/// route: a draft's route is Node's `setRoute`, awaited after `client.create` returned (see the quit tests below).
 #[tokio::test(start_paused = true)]
 async fn shutdown_while_the_creation_has_not_returned_keeps_the_reservation() {
     whole("shutdown_while_the_creation_has_not_returned_keeps_the_reservation", |step| async move {
@@ -472,7 +473,7 @@ async fn shutdown_while_the_creation_has_not_returned_keeps_the_reservation() {
     let deps = Arc::new(deps);
     let receipts = deps.new_tasks.clone();
     let directory = SessionDirectory::new(deps);
-    let caller = submit(&directory, "op-1", "sub-q", "write the report", REFUSED_ROUTE());
+    let caller = submit(&directory, "op-1", "sub-q", "write the report", json!({}));
     tokio::pin!(caller);
     step.at("the creation reaching its held seat");
     tokio::select! {
@@ -493,7 +494,7 @@ async fn shutdown_while_the_creation_has_not_returned_keeps_the_reservation() {
     deps.new_route = Arc::new(HeldSeat { entered: Arc::default(), release: Arc::new(tokio::sync::Semaphore::new(0)), held: true.into() });
     let restarted = SessionDirectory::new(Arc::new(deps));
     step.at("the retry's answer after the restart");
-    let retry = submit(&restarted, "op-2", "sub-q", "write the report", REFUSED_ROUTE()).await.expect("retry");
+    let retry = submit(&restarted, "op-2", "sub-q", "write the report", json!({})).await.expect("retry");
     assert_eq!(retry, derived("sub-q"), "the retry starts the task in the session at the reserved address");
     assert_eq!(stored(&rig, "sub-q").expect("receipt").phase(), Phase::Accepted);
     assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
@@ -524,26 +525,77 @@ impl super::NewThreadPlace for HeldPlace {
     }
 }
 
-/// A shutdown inside the draft step (the worktree being entered, after the session was created and `configured` written) ends the
-/// attempt as Node's quit does there: the disposed client fails the worktree's call inside the `try`, and `createNewTask` refuses
-/// the attempt (`if (unsent) await request.reset()`, session-host-lifecycle.ts:955): the receipt is marked refused on a fresh
-/// address. The caller gets no answer; the retry after the restart starts the task on the refusal's address, as the recorded
-/// `refusal-then-same-content` does.
-#[tokio::test(start_paused = true)]
-async fn shutdown_inside_the_draft_step_refuses_the_attempt_as_nodes_quit() {
-    whole("shutdown_inside_the_draft_step_refuses_the_attempt_as_nodes_quit", |step| async move {
+/// What Node recorded for a quit scenario (golden.json, `quit-*`): after the quit, the receipt and the sessions; after the retry,
+/// its address, the receipt and the sessions. A receipt is its file's JSON less `signature`, the hash of the content, which here is
+/// the test's own (the replay compares the content Node sent, signature included).
+fn recorded_quit(scenario: &str) -> Value {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/new-task-dedupe/golden.json")).expect("golden");
+    let recorded = &golden["scenarios"][scenario]["recorded"];
+    let receipt = |step: &Value| {
+        let files = step["receipts"].as_object().expect("the receipts");
+        assert_eq!(files.len(), 1, "one receipt");
+        unsigned(files.values().next().and_then(Value::as_str).expect("a receipt's text"))
+    };
+    json!({
+        "quit": { "receipt": receipt(&recorded[0]), "sessions": recorded[0]["sessions"] },
+        "retry": { "address": recorded[1]["reply"]["sessionId"], "receipt": receipt(&recorded[1]), "sessions": recorded[1]["sessions"] },
+    })
+}
+
+fn unsigned(text: &str) -> Value {
+    let mut receipt: Value = serde_json::from_str(text).expect("a receipt");
+    receipt.as_object_mut().expect("an object").remove("signature");
+    receipt
+}
+
+/// The core's addresses in the recording's terms: the derived one kept, every other numbered `<fresh:N>` by first appearance.
+#[derive(Default)]
+struct Names(Vec<String>);
+
+impl Names {
+    fn of(&mut self, id: &str, address: &str) -> String {
+        if address == derived(id) {
+            return address.to_owned();
+        }
+        if !self.0.iter().any(|seen| seen == address) {
+            self.0.push(address.to_owned());
+        }
+        format!("<fresh:{}>", self.0.iter().position(|seen| seen == address).expect("named") + 1)
+    }
+}
+
+/// The core's state in the recording's terms: the receipt of `id` (less its signature, its address named) and every session the
+/// directory stores among `addresses`, with its prompts (at most the one this test's tasks send) and whether it is still only reserved.
+async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &mut Names, addresses: &[String]) -> (Value, Value) {
+    let mut receipt = unsigned(&String::from_utf8(std::fs::read(receipt_path(rig, id)).expect("the receipt")).expect("text"));
+    let address = receipt["sessionId"].as_str().expect("an address").to_owned();
+    receipt["sessionId"] = Value::String(names.of(id, &address));
+    let mut sessions = serde_json::Map::new();
+    for address in addresses {
+        let thread = mixdog_core_api::ids::ThreadId::from(address.clone());
+        if directory.try_stored_header(&thread).await.expect("read").is_some() {
+            let prompts = usize::from(directory.holds_user_conversation(&thread).await.expect("rows"));
+            sessions.insert(names.of(id, address), json!({ "prompts": prompts, "reserved": prompts == 0 }));
+        }
+    }
+    (receipt, Value::Object(sessions))
+}
+
+/// A quit while the attempt awaits a call of its draft step (`quit-in-set-route`: the draft's route, which the core adopts inside its
+/// creation call; `quit-in-request-worktree`: the draft's worktree): the call is held, the directory shuts down, and the receipt, the
+/// sessions and the retry after the restart are what Node recorded: refused on a fresh address (session-host-lifecycle.ts:955, the
+/// call failing inside the `try` while unsent), no session left, and the retry's task on that address with its one prompt. The caller in
+/// flight gets no answer.
+async fn quit_inside(step: Steps, scenario: &str, id: &str, draft: fn() -> Value, held: impl FnOnce(&mut super::SessionDeps, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>)) {
     let rig = Rig::new();
     let runs = counting(&rig);
     let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
     let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_place = Arc::new(HeldPlace { entered: entered.clone(), release: release.clone(), held: false.into() });
-    let deps = Arc::new(deps);
-    let receipts = deps.new_tasks.clone();
-    let directory = SessionDirectory::new(deps);
-    let worktree = || json!({ "worktree": {} });
-    let caller = submit(&directory, "op-1", "sub-k", "write the report", worktree());
+    held(&mut deps, entered.clone(), release.clone());
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let caller = submit(&directory, "op-1", id, "write the report", draft());
     tokio::pin!(caller);
-    step.at("the attempt reaching its held worktree");
+    step.at("the attempt reaching its held call");
     tokio::select! {
         () = entered.notified() => {}
         answered = &mut caller => panic!("answered while held: {answered:?}"),
@@ -553,16 +605,39 @@ async fn shutdown_inside_the_draft_step_refuses_the_attempt_as_nodes_quit() {
     release.add_permits(1);
     let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
     assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
-    let mark = stored(&rig, "sub-k").expect("receipt");
-    assert!(mark.refused() && mark.phase() == Phase::Reserved, "the attempt was refused: {:?}", (mark.phase(), mark.refused()));
-    assert_ne!(mark.session_id(), derived("sub-k"), "the refused reservation is not resumed");
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("reserved+refused".to_owned(), true)]);
+    let node = recorded_quit(scenario);
+    let mut names = Names::default();
+    let fresh = stored(&rig, id).expect("receipt").session_id().to_owned();
+    let addresses = [derived(id), fresh];
+    let (receipt, sessions) = core_state(&rig, &directory, id, &mut names, &addresses).await;
+    assert_eq!(json!({ "receipt": receipt, "sessions": sessions }), node["quit"], "after the quit");
     let (restarted, _) = directory_over(&rig);
     step.at("the retry's answer after the restart");
-    let retry = submit(&restarted, "op-2", "sub-k", "write the report", worktree()).await.expect("retry");
-    assert_eq!(retry, mark.session_id(), "the retry starts on the refusal's address");
+    let retry = submit(&restarted, "op-2", id, "write the report", draft()).await.expect("retry");
+    let address = names.of(id, &retry);
+    let (receipt, sessions) = core_state(&rig, &restarted, id, &mut names, &addresses).await;
+    assert_eq!(json!({ "address": address, "receipt": receipt, "sessions": sessions }), node["retry"], "after the retry");
     assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
-    assert_eq!(restarted.loaded_ids().len(), 1, "one task");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded() {
+    whole("a_quit_inside_the_draft_route_refuses_the_attempt_as_node_recorded", |step| async move {
+        quit_inside(step, "quit-in-set-route", "s-quit-route", REFUSED_ROUTE, |deps, entered, release| {
+            deps.new_route = Arc::new(HeldRoute { entered, release, held: false.into() });
+        })
+        .await;
+    })
+    .await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded() {
+    whole("a_quit_inside_the_draft_worktree_refuses_the_attempt_as_node_recorded", |step| async move {
+        quit_inside(step, "quit-in-request-worktree", "s-quit-worktree", || json!({ "worktree": { "fromDefault": true } }), |deps, entered, release| {
+            deps.new_place = Arc::new(HeldPlace { entered, release, held: false.into() });
+        })
+        .await;
     })
     .await;
 }

@@ -6,6 +6,8 @@
 //   together    several submits started at once (their replies in the order they were started)
 //   crash       a submit whose process ends at a gate (`at`: reserved | created | configured | submitted), then the process restarts over
 //               the same data directory; its reply is the lost one
+//   quit        a submit held inside a call of its draft step (`at`: setRoute | requestWorktree) while the app quits, then the process
+//               restarts over the same data directory; nobody receives its reply
 //   restart     the process ends cleanly and starts again over the same data directory
 //   seed        a file written into the receipts folder before the next step (`receipt`: a file's name is sha256(id))
 //   obstruct    a directory in place of an id's receipt file, so reading it is an I/O error
@@ -19,10 +21,17 @@ export const CONTENTS = {
     options: { displayText: 'write the quarterly report' },
     draft: { route: { provider: 'no-such-provider', model: 'no-such-model' } },
   },
+  // The settings' default worktree choice in a folder that is no git repository: provisioning is refused there and the task runs in its folder.
+  worktree: {
+    prompt: 'write the quarterly report',
+    options: { displayText: 'write the quarterly report' },
+    draft: { route: { provider: 'openai', model: 'gpt-5' }, worktree: { fromDefault: true } },
+  },
 };
 
 const submit = (id, content) => ({ op: 'submit', id, content });
 const crash = (id, content, at) => ({ op: 'crash', id, content, at });
+const quit = (id, content, at) => ({ op: 'quit', id, content, at });
 
 /** Bytes written into the receipts folder as the file of an id, for the corrupt-receipt scenarios. */
 /** A step's reply as the caller received it, the same way on both sides: an answer whole with `ok: true`, a rejection as its message and every own
@@ -75,7 +84,7 @@ export const COMPARISON = {
   translated: {
     'recorded[].step': 'the step the replay drives (scenarios.mjs), the same list the recording ran',
     'recorded[].reply':
-      "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`), as received on both sides (`asReceived`): an answer is compared with `thread.id` as `sessionId` and `accepted: true` (the core answers only a started task, Node's `accepted` answer), less the paths of `coreNotCompared`; a rejection is its message and every own field of the error on both sides; a crash step's reply is `{crashed: at}` on both sides",
+      "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`), as received on both sides (`asReceived`): an answer is compared with `thread.id` as `sessionId` and `accepted: true` (the core answers only a started task, Node's `accepted` answer), less the paths of `coreNotCompared`; a rejection is its message and every own field of the error on both sides; a crash step's reply is `{crashed: at}` on both sides; a quit step's reply is `{quit: at}` on both sides: nobody receives it (Node's quit detaches the callers' carriers before the host is disposed, index.ts:1662-1664; the core closes its connections before its directory shuts down), and the core's call is checked to end unanswered",
     'recorded[].receipts': 'the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1), as the recorder reads them',
     'recorded[].sessions':
       "every thread `thread/list` lists, with `prompts` = its `userMessage` items (`thread/items/list`) and `reserved` = no prompt yet (Node's daemon model sets `reserved` false exactly when it records a prompt, leg.mjs `submit`, and removes a reserved session without one on `unsubscribe`)",
@@ -95,6 +104,10 @@ export const SCENARIOS = [
   { name: 'retry-after-created', steps: [crash('s-created', 'c1', 'created'), submit('s-created', 'c1')] },
   { name: 'retry-after-configured', steps: [crash('s-configured', 'c1', 'configured'), submit('s-configured', 'c1')] },
   { name: 'retry-after-submitted', steps: [crash('s-submitted', 'c1', 'submitted'), submit('s-submitted', 'c1')] },
+  // The app quits while the attempt awaits a call of its draft step (after `client.create` returned, inside the `try`): the call fails
+  // with the disposed client and the attempt is refused (a fresh address); the retry after the restart goes there.
+  { name: 'quit-in-set-route', steps: [quit('s-quit-route', 'c1', 'setRoute'), submit('s-quit-route', 'c1')] },
+  { name: 'quit-in-request-worktree', steps: [quit('s-quit-worktree', 'worktree', 'requestWorktree'), submit('s-quit-worktree', 'worktree')] },
   { name: 'retry-after-accepted', steps: [submit('s-accepted', 'c1'), submit('s-accepted', 'c1'), { op: 'restart' }, submit('s-accepted', 'c1')] },
   // Other content under a used id.
   { name: 'changed-content-after-accepted', steps: [submit('s-changed', 'c1'), submit('s-changed', 'c2'), submit('s-changed', 'c1')] },
