@@ -275,6 +275,12 @@ async fn glob_answers_absolute_patterns_as_node_does() {
     replay_fs_search("glob-absolute").await;
 }
 
+/// gaps-tools item 8: a notebook read is Node's extractor's answer, not the raw JSON.
+#[tokio::test]
+async fn read_answers_a_notebook_as_node_does() {
+    replay_fs_search("read-ipynb").await;
+}
+
 /// gaps-tools item 6: several content patterns are independent greps, one section each.
 #[tokio::test]
 async fn grep_answers_several_patterns_as_node_does() {

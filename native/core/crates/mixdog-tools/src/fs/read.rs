@@ -39,6 +39,7 @@ use super::search::glob_files;
 
 const READ_SPEC: &str = include_str!("specs/read.json");
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+const IPYNB_RANGE_REFUSAL: &str = "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access";
 /// Node's inline-view cap, the refusal when there is no resizer (`MAX_IMAGE_BYTES`).
 const IMAGE_MAX_BYTES: usize = 3_750_000;
 /// The hard API ceiling on an inline image's base64 length (`API_IMAGE_MAX_BASE64_SIZE`).
@@ -1226,9 +1227,14 @@ impl ReadTool {
             }
             _ => {}
         }
+        // A notebook goes to Node's extractor ahead of every cache (`readMediaFile`), and every public
+        // read reaches it with a window, which the extractor refuses (`extractIpynbText`).
+        if is_notebook(&stat, raw) {
+            return Ok(Body::text(IPYNB_RANGE_REFUSAL));
+        }
         let key_path = fwd(abs.as_path());
         let version = FileVersion::of(&stat);
-        let scope = self.state.as_ref().map(|_| scope_of(ctx));
+        let scope =self.state.as_ref().map(|_| scope_of(ctx));
         let cacheable = stat.len <= CACHEABLE_BYTES;
         // A file this session has just edited, and read before the edit, is not sent again.
         if let (Some(state), Some(v), false, true) = (&self.state, version, mode.suppress(), cacheable) {
@@ -1752,6 +1758,11 @@ fn image_metadata(image: &ResizedImage, source: &str) -> String {
     }
     format!("[Image: {}]", parts.join(", "))
 }
+/// A regular file named `.ipynb` (any case, as Node lowercases `extname`).
+fn is_notebook(stat: &mixdog_core_api::domain::fs::FileStat, raw: &str) -> bool {
+    stat.kind == EntryKind::File && Path::new(raw.trim()).extension().is_some_and(|x| x.eq_ignore_ascii_case("ipynb"))
+}
+
 /// The extension-pool method a file needs: PDF and OOXML by magic bytes, or by
 /// the declared extension when the container itself is damaged.
 fn document_method(bytes: &[u8], raw: &str) -> Option<&'static str> {
