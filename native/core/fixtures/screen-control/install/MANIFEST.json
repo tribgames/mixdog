@@ -40,7 +40,7 @@
     "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
   },
   "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
-  "libSha256": "df30cfea6d1ec4218b1670d673285f8eb2738556726665ab0df78d21a56c46b1",
+  "libSha256": "0a1ae13debb18c68ef5d7d32880a127f7f4e5bf60e7d7a475596b351872842f3",
   "node": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",

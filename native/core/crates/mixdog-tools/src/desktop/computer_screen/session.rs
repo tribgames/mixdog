@@ -1157,9 +1157,6 @@ impl Inner {
         let inner = self.arc();
         Box::pin(async move {
             let started = started.await;
-            // `ensureHost` is an async function: its end reaches the start one microtask later, behind an answer
-            // that came in with it (the service start of the install-state check).
-            next_turn().await;
             if let Err(error) = started {
                 if inner.state().running {
                     inner.stop("error".to_string(), None).await;
@@ -1437,9 +1434,6 @@ impl Inner {
         }
         Box::pin(async move {
             let _ = receiver.await;
-            // Node's `stopDeadlinePassed().then(…)`: the reaction runs one turn after the deadline, so a host stop
-            // that ended by then still counts as ended in time.
-            next_turn().await;
         })
     }
 
