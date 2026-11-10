@@ -8,6 +8,7 @@
   "cases": [
     {
       "name": "running-no-output",
+      "id": "sess_desktop_d2c04c0896aeec8749cd973042144b6761981ce09af2b6d338a2742656064640",
       "stop": {},
       "node": {
         "reply": {
@@ -21,11 +22,26 @@
             "sub-running-no-output"
           ]
         },
-        "promptKept": false
+        "items": [],
+        "row": {
+          "id": "sess_desktop_d2c04c0896aeec8749cd973042144b6761981ce09af2b6d338a2742656064640",
+          "preview": "",
+          "title": "HOLD-EMPTY write the file",
+          "updatedAt": 1794278132521,
+          "activityAt": 1794278132521,
+          "messageCount": 0,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794278131757
+        }
       }
     },
     {
       "name": "running-with-output",
+      "id": "sess_desktop_9f6264bc6fb4944b5c7478aa202608f876ca9c30f5f177d2523e2a88f928359a",
       "stop": {},
       "node": {
         "reply": {
@@ -37,11 +53,74 @@
           "discardPastedTexts": null,
           "restoredSubmissionIds": []
         },
-        "promptKept": true
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-with-output",
+            "text": "HOLD-TEXT write the file",
+            "at": 1794278132678,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_2eea5c400a454bfb9fa1b53528c2bd7e",
+            "device": "DESKTOP-IBLP835"
+          },
+          {
+            "kind": "assistant",
+            "id": "it_18417912_1",
+            "text": "HOLD-PARTIAL-STREAM once upon a time ",
+            "streaming": false,
+            "at": 1794278132777,
+            "messageId": "msg_7c86e83d301a4a7da44da2724aa0cf79",
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "DESKTOP-IBLP835",
+            "completionVerb": "Mapped",
+            "attemptId": "e99341d6-2f12-4ee2-acf7-cc6db26b8e93"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_18417912_2",
+            "checkpointId": "sub-running-with-output",
+            "elapsedMs": 123,
+            "status": "cancelled",
+            "outputTokens": 9,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794278132802,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "DESKTOP-IBLP835",
+            "completionVerb": "Mapped",
+            "attemptId": "e99341d6-2f12-4ee2-acf7-cc6db26b8e93"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_9f6264bc6fb4944b5c7478aa202608f876ca9c30f5f177d2523e2a88f928359a",
+          "preview": "HOLD-TEXT write the file",
+          "title": "HOLD-TEXT write the file",
+          "updatedAt": 1794278132795,
+          "activityAt": 1794278132795,
+          "messageCount": 3,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794278132633,
+          "lastMessagePreview": "HOLD-PARTIAL-STREAM once upon a time"
+        }
       }
     },
     {
       "name": "running-keep-prompt",
+      "id": "sess_desktop_2b967e2ed16d32573f9c8ba31a1a28e003480a47f549ec35af9ff6719d57f1c5",
       "stop": {
         "restorePrompt": false
       },
@@ -55,11 +134,59 @@
           "discardPastedTexts": null,
           "restoredSubmissionIds": []
         },
-        "promptKept": true
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-keep-prompt",
+            "text": "HOLD-EMPTY keep this prompt",
+            "at": 1794278134596,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_94d8893591ef4acc996ff6431c60c7f4",
+            "device": "DESKTOP-IBLP835"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_18417912_3",
+            "checkpointId": "sub-running-keep-prompt",
+            "elapsedMs": 153,
+            "status": "cancelled",
+            "outputTokens": 0,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794278134749,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "DESKTOP-IBLP835",
+            "completionVerb": "Mapped",
+            "attemptId": "4661c1f2-83b5-478c-a4a5-6dbc9f952b80"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_2b967e2ed16d32573f9c8ba31a1a28e003480a47f549ec35af9ff6719d57f1c5",
+          "preview": "HOLD-EMPTY keep this prompt",
+          "title": "HOLD-EMPTY keep this prompt",
+          "updatedAt": 1794278134725,
+          "activityAt": 1794278134725,
+          "messageCount": 2,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794278134557,
+          "lastMessagePreview": "HOLD-EMPTY keep this prompt"
+        }
       }
     },
     {
       "name": "running-steering-queued",
+      "id": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
       "stop": {},
       "node": {
         "reply": {
@@ -71,11 +198,106 @@
           "discardPastedTexts": null,
           "restoredSubmissionIds": []
         },
-        "promptKept": true
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-steering-queued",
+            "text": "HOLD-EMPTY first prompt",
+            "at": 1794278136564,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_ba383750c3fa478985fb20b5d74286bc",
+            "device": "DESKTOP-IBLP835"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_18417912_4",
+            "checkpointId": "sub-running-steering-queued",
+            "elapsedMs": 965,
+            "status": "cancelled",
+            "outputTokens": 0,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794278137530,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "DESKTOP-IBLP835",
+            "completionVerb": "Mapped",
+            "attemptId": "81b3dd82-f728-4959-90b8-de89b3f484a3"
+          },
+          {
+            "kind": "user",
+            "id": "sub-running-steering-queued-2",
+            "text": "and also this",
+            "at": 1794278137616,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_8d8727a0ea0040758a89d7a5723bfbd0",
+            "device": "DESKTOP-IBLP835"
+          },
+          {
+            "kind": "assistant",
+            "id": "it_18417912_5",
+            "text": "ok",
+            "streaming": false,
+            "at": 1794278137880,
+            "messageId": "msg_7053e4e95673409da279e25e7cdc43ad",
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "DESKTOP-IBLP835",
+            "completionVerb": "Wrapped",
+            "attemptId": "fd1641df-db51-46ae-96e9-6566af1b7ace"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_18417912_6",
+            "checkpointId": "sub-running-steering-queued-2",
+            "elapsedMs": 901,
+            "status": "done",
+            "finalAssistantId": "it_18417912_5",
+            "outputTokens": 2,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Wrapped",
+            "at": 1794278138518,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "DESKTOP-IBLP835",
+            "completionVerb": "Wrapped",
+            "attemptId": "fd1641df-db51-46ae-96e9-6566af1b7ace"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
+          "preview": "HOLD-EMPTY first prompt",
+          "title": "HOLD-EMPTY first prompt",
+          "updatedAt": 1794278138051,
+          "activityAt": 1794278138051,
+          "messageCount": 3,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794278136518,
+          "lastMessagePreview": "ok"
+        }
       }
     },
     {
       "name": "running-pasted-text",
+      "id": "sess_desktop_7e35f1684fc2cf5e55253a636c1a09a1b31c5ef784ceb1791d7fb02fece8569e",
       "stop": {},
       "node": {
         "reply": {
@@ -97,11 +319,26 @@
             "sub-running-pasted-text"
           ]
         },
-        "promptKept": false
+        "items": [],
+        "row": {
+          "id": "sess_desktop_7e35f1684fc2cf5e55253a636c1a09a1b31c5ef784ceb1791d7fb02fece8569e",
+          "preview": "",
+          "title": "HOLD-EMPTY with a paste",
+          "updatedAt": 1794278139108,
+          "activityAt": 1794278139108,
+          "messageCount": 0,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794278138925
+        }
       }
     },
     {
       "name": "running-then-stopped-again",
+      "id": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
       "stop": {},
       "again": {},
       "node": {
@@ -125,7 +362,21 @@
           "discardPastedTexts": null,
           "restoredSubmissionIds": []
         },
-        "promptKept": false
+        "items": [],
+        "row": {
+          "id": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+          "preview": "",
+          "title": "HOLD-EMPTY stop me twice",
+          "updatedAt": 1794278141476,
+          "activityAt": 1794278141476,
+          "messageCount": 0,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794278140862
+        }
       }
     }
   ]

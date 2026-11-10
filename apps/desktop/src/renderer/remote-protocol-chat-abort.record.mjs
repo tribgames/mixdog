@@ -41,11 +41,30 @@ process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-abort-node');
 const { daemonEnv, isolatedPaths } = await hload('env.mjs');
 const { createDeadline, latch } = await hload('deadline.mjs');
 const envPaths = isolatedPaths();
-rmSync(envPaths.envRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+rmSync(envPaths.envRoot, { recursive: true, force: true });
 for (const d of [envPaths.dataDir, envPaths.runtimeRoot, envPaths.appData, envPaths.localAppData, envPaths.tmp, envPaths.workspace]) mkdirSync(d, { recursive: true });
 const project = join(envPaths.workspace, 'a');
 mkdirSync(project, { recursive: true });
+// Everything started is ended on every path: the model endpoint, the host and the daemon are closed by `end`, whichever step failed.
+let deadline;
+let discovery;
+let host;
 const provider = await startAbortProvider();
+const end = async () => {
+  deadline?.clear();
+  const ended = createDeadline(60_000, () => 'ending the abort recording');
+  try {
+    if (host) await ended.race(host.dispose(), 'the host to dispose');
+    // Node's own bounded wait for the daemon to exit.
+    if (discovery) await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 });
+    await ended.race(provider.close(), 'the model endpoint to close');
+  } finally {
+    ended.clear();
+  }
+};
+let sessionClient;
+let frames;
+try {
 writeFileSync(join(envPaths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
 const route = { provider: 'custom-harness', model: 'harness-model' };
 for (const key of Object.keys(process.env)) if (/^MIXDOG_/i.test(key)) delete process.env[key];
@@ -53,13 +72,13 @@ Object.assign(process.env, daemonEnv(envPaths));
 // The daemon is forked with this process's flags; it runs as a plain script.
 process.execArgv = [];
 const { SessionHost } = await load('main/session-host.ts');
-const sessionClient = await import(pathToFileURL(join(exportDir, 'src/standalone/session-client.mjs')).href);
+sessionClient = await import(pathToFileURL(join(exportDir, 'src/standalone/session-client.mjs')).href);
 const { createSessionProtocolClient } = await import(pathToFileURL(join(exportDir, 'src/standalone/session-protocol.mjs')).href);
 const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src/standalone/daemon-desktop-runtime.mjs')).href);
 
-const deadline = createDeadline(240_000, () => `node abort recording; frames seen: ${frames.length}; last frame: ${frames.at(-1)?.slice(0, 600)}; snapshot: ${JSON.stringify(Object.keys(host.getSnapshot(lastId) ?? {}))} ${host.getSnapshot(lastId)?.status}; provider requests: ${JSON.stringify(provider.requests.map((r) => [r.held, r.prompt.slice(0, 40)]))}`);
-const discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 2, readyTimeoutMs: 60_000 }), 'the Node daemon');
-const frames = [];
+deadline = createDeadline(240_000, () => `node abort recording; frames seen: ${frames.length}; last frame: ${frames.at(-1)?.slice(0, 600)}; snapshot: ${JSON.stringify(Object.keys(host?.getSnapshot(lastId) ?? {}))} ${host?.getSnapshot(lastId)?.status}; provider requests: ${JSON.stringify(provider.requests.map((r) => [r.held, r.prompt.slice(0, 40)]))}`);
+frames = [];
+discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 1, readyTimeoutMs: 60_000 }), 'the Node daemon');
 const waiters = new Set();
 const wake = () => waiters.forEach((check) => check());
 const until = (ready, what) => {
@@ -81,15 +100,15 @@ const runtime = {
     return createSessionProtocolClient({ call: (name, args, callOptions) => attached.call(name, args, callOptions), close: (reason) => attached.close(reason) });
   },
 };
-const host = await SessionHost.create({ userDataPath: envPaths.appData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime);
-host.subscribeSessions(() => wake());
+host = await deadline.race(SessionHost.create({ userDataPath: envPaths.appData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime), 'the session host');
+let published = [];
+host.subscribeSessions((rows) => { published = rows; wake(); });
 const plain = (value) => JSON.parse(JSON.stringify(value));
 /** The session is idle: the host's own state for it says no turn runs. */
 const idle = (id) => host.getSnapshot(id)?.busy === false;
 
 const cases = [];
 let lastId = '';
-try {
   for (const c of ABORT_CASES) {
     const at = (what) => process.stderr.write(`${c.name}: ${what}\n`);
     at('startProject');
@@ -102,19 +121,19 @@ try {
     await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
     if (c.output) await until(() => frames.some((f) => f.includes(c.output)), `the streamed text of ${c.name} to reach the host`);
     if (c.then) {
-      await host.submitToSession(id, c.then, { id: `sub-${c.name}-2` });
+      await deadline.race(host.submitToSession(id, c.then, { id: `sub-${c.name}-2` }), `submitToSession of the queued prompt of ${c.name}`);
       await until(() => frames.some((f) => f.includes(c.then)), `the queued prompt of ${c.name} to reach the host`);
     }
     at('abort');
     const reply = plain(await deadline.race(host.abortSession(id, c.stop), 'abortSession of '+c.name));
     const turns = c.then ? 2 : 1;
     await until(() => frames.some((f) => f.includes(id) && f.includes(`"turns":${turns}`)) && idle(id), `the turn(s) of ${c.name} to close after its Stop`);
-    const second = c.again ? plain(await host.abortSession(id, c.again)) : undefined;
-    // What the stopped turn left of the prompt in the transcript the host holds.
-    // What the stopped turn left of the prompt in the stored thread: its row's preview is the first prompt, empty once the prompt was handed back.
-    const row = plain((await host.listSessions()).find((r) => r.id === id) ?? null);
-    const promptKept = row.preview.includes(c.prompt);
-    cases.push({ name: c.name, stop: c.stop, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), promptKept } });
+    const second = c.again ? plain(await deadline.race(host.abortSession(id, c.again), `the second abortSession of ${c.name}`)) : undefined;
+    // What the stopped turn left in the stored thread, whole: the transcript rows the host holds and the thread's list row.
+    await until(() => published.some((r) => r.id === id), `the thread row of ${c.name} to be published`);
+    const row = plain((await deadline.race(host.listSessions(), `listSessions after ${c.name}`)).find((r) => r.id === id) ?? null);
+    const items = plain((await deadline.race(host.readSessionTranscript(id), `readSessionTranscript after ${c.name}`)).items);
+    cases.push({ name: c.name, id, stop: c.stop, ...(c.again ? { again: c.again } : {}), node: { reply, ...(second ? { second } : {}), items, row } });
   }
   writeFileSync(outFile, `${JSON.stringify({
     manifest: { exact: true, commit: COMMIT, filesVerified: checked, source: 'Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs' },
@@ -122,8 +141,6 @@ try {
   }, null, 2)}\n`);
   console.log(`recorded ${cases.length} abort cases`);
 } finally {
-  deadline.clear();
-  await host.dispose().catch(() => {});
-  await provider.close();
+  await end();
 }
 process.exit(0);
