@@ -305,8 +305,11 @@ impl DomainService for TerminalService {
                     .map_err(terminal_failure)?;
                 // Node pushed `termData` of every running terminal to a phone reading the lane: the output feed exists from the
                 // first ensure and pumping, so a `feed/subscribe` of `process:<id>` finds it and reads its output.
-                self.feeds.open_terminal(&attached.id);
+                // Node answered the ensure in-process before the new shell's first output (all five recorded runs, runs.json): the
+                // feed is held until the answer is in the connection's outgoing queue, as for a disposal.
+                let held = self.feeds.open_terminal(&attached.id);
                 let _ = self.changes.send(Change::Tabs);
+                req.ctx.after_answer.keep(held);
                 Ok(Reply::Value(attached_reply(&attached, &client)))
             }
             "terminal/attach" => {

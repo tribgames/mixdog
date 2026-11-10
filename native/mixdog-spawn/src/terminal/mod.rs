@@ -214,8 +214,10 @@ pub struct TabEntry {
 }
 
 const SESSION_TERMINAL_PREFIX: &str = "session-terminal:";
-/// How long a disposed tab's shell has to end after its terminal closed before its tree is ended.
-const HANG_UP_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long a disposed tab's shell has to end after its terminal closed before its tree is ended: node-pty's own bound on the same step
+/// (`windowsPtyAgent.js` `_getConsoleProcessList`, lines 213-217 of @homebridge/node-pty-prebuilt-multiarch 0.13: the console's process
+/// list is awaited 5000 ms, then the shell's pid is killed).
+const HANG_UP_GRACE: std::time::Duration = std::time::Duration::from_millis(5000);
 const DEFAULT_COLS: u32 = 80;
 const DEFAULT_ROWS: u32 = 24;
 
@@ -1318,15 +1320,16 @@ impl TerminalTabs {
     /// Ends a disposed tab's process as node-pty's `kill` did on Windows: its terminal is closed, so the shell ends with its own answer to
     /// that (`STATUS_CONTROL_C_EXIT`: the exit line Node's phone saw, golden.json, every `[process exited with code -1073741510]`); the
     /// tree is ended once the shell has exited (what it started may outlive the console), or after [`HANG_UP_GRACE`] if it has not.
+    /// The tree ended is the disposed process's own, captured here: never a process created under the same id since.
     /// Elsewhere, and for a tab whose terminal cannot be closed, the tree is ended at once.
     fn end_process(&self, handle: &ProcessHandle) {
         // Already gone is fine.
         let events = if cfg!(windows) { self.manager.subscribe(handle, None).ok() } else { None };
-        let Some(mut events) = events.filter(|_| self.manager.hang_up(handle).is_ok()) else {
+        let hung = events.as_ref().and_then(|_| self.manager.hang_up(handle).ok());
+        let (Some(mut events), Some(hung)) = (events, hung) else {
             let _ = self.manager.kill_with(handle, KillReason::Requested);
             return;
         };
-        let (manager, handle) = (self.manager.clone(), handle.clone());
         mixdog_rt::spawn("terminal-hang-up", mixdog_rt::TaskClass::Work, async move {
             let _ = tokio::time::timeout(HANG_UP_GRACE, async {
                 while let Some(event) = events.next().await {
@@ -1336,7 +1339,7 @@ impl TerminalTabs {
                 }
             })
             .await;
-            let _ = manager.kill_with(&handle, KillReason::Requested);
+            let _ = hung.kill();
         });
     }
 

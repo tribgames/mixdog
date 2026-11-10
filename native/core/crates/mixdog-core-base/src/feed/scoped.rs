@@ -59,4 +59,8 @@ impl ScopedFeed for CoreFeed {
     fn close(&self) {
         CoreFeed::close(self, CoreError::ConnectionClosed);
     }
+
+    fn subscribers(&self) -> usize {
+        CoreFeed::subscribers(self)
+    }
 }

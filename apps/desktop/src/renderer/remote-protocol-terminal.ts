@@ -157,7 +157,12 @@ function wire(host: PhoneProtocolHost, client: Client): () => void {
         const id = feed.id.slice(RELAY_FEED.length);
         let decoder = decoders.get(id);
         if (!decoder) decoders.set(id, (decoder = new TextDecoder()));
-        const data = decoder.decode(Uint8Array.from(atob(String(params?.bytesB64 ?? '')), (c) => c.charCodeAt(0)), { stream: true });
+        // A frame Node cut inside a surrogate pair carries the lone units at its edges (the core's bytes cannot hold half a character).
+        const unit = (value: unknown): string => (typeof value === 'number' ? String.fromCharCode(value) : '');
+        const data =
+          unit(params?.leadUnit) +
+          decoder.decode(Uint8Array.from(atob(String(params?.bytesB64 ?? '')), (c) => c.charCodeAt(0)), { stream: true }) +
+          unit(params?.tailUnit);
         if (data && laneInUse()) ctx.fanOut(ctx.termListeners, { id, data });
       } else if (method === 'process/exited' && feed?.id.startsWith(RELAY_FEED)) {
         decoders.delete(feed.id.slice(RELAY_FEED.length));

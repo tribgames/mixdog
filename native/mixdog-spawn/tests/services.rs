@@ -431,6 +431,24 @@ async fn a_dispose_keeps_its_feed_hold_until_the_answer_is_queued() {
     assert_eq!(format!("{after:?}"), "AfterAnswer(0)");
 }
 
+/// The ensure's hold on the new tab's feed (the shell's first output waits behind the answer, as in every recorded Node run: runs.json,
+/// each tab's first output after its termEnsure answer) is handed to the request's `after_answer` like the dispose's.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ensure_keeps_its_feed_hold_until_the_answer_is_queued() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager, feeds, publisher, TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let ensure = request("terminal/ensure", json!({ "tabId": "term_new", "options": { "cwd": cwd } }), 1);
+    let after = ensure.ctx.after_answer.clone();
+    service.call(ensure).await.unwrap();
+    assert_eq!(format!("{after:?}"), "AfterAnswer(1)", "the feed hold outlives the call until the answer is queued");
+    after.release();
+    assert_eq!(format!("{after:?}"), "AfterAnswer(0)");
+    service.call(request("terminal/dispose", json!({ "tabId": "term_new" }), 1)).await.unwrap();
+}
+
 /// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.
 #[tokio::test(flavor = "multi_thread")]
 async fn terminal_activity_lists_tabs_in_creation_order() {
