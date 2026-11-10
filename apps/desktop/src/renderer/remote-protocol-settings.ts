@@ -69,13 +69,17 @@ async function updatePins(pins: unknown, host: PhoneProtocolHost): Promise<Activ
   return state;
 }
 
+/** The store's `owed`, which the library's `FoldStore` type does not name (section-store.ts `FoldStoreLike` reads it the same way):
+ *  set while the sections a snapshot swapped in are still being announced. */
+const announcingSnapshot = (client: Client): boolean => Boolean((client.store as { readonly owed?: unknown }).owed);
+
 /** Tells the page each pins revision the connected client hears live; what a connection's snapshot holds is not announced. */
 function followPins(host: PhoneProtocolHost, client: Client): () => void {
   let told = heldPins(client)?.revision ?? 0;
   return client.store.subscribe((change) => {
-    // A snapshot announces every section it holds (`store.owed` is set while it does): it is where the pins stand, not a change.
+    // A snapshot announces every section it holds: it is where the pins stand, not a change.
     if (change.type === 'appSnapshot') told = heldPins(client)?.revision ?? 0;
-    if (change.type !== 'section' || change.section !== 'config' || change.key !== 'desktop' || client.store.owed) return;
+    if (change.type !== 'section' || change.section !== 'config' || change.key !== 'desktop' || announcingSnapshot(client)) return;
     const state = heldPins(client);
     if (!state || state.revision === told) return;
     told = state.revision;
