@@ -7,12 +7,16 @@
 #![cfg(windows)]
 
 use std::ffi::c_void;
-use std::process::Command;
-use windows::Win32::Foundation::{CloseHandle, GetHandleInformation, HANDLE};
+use std::io::Read;
+use std::os::windows::io::AsRawHandle;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
+use windows::Win32::Foundation::{CloseHandle, GetHandleInformation, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::JobObjects::{
     CreateJobObjectW, JobObjectBasicAccountingInformation, QueryInformationJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
 };
-use windows::Win32::System::Threading::{GetCurrentProcessId, GetProcessId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows::Win32::System::Threading::{GetCurrentProcessId, GetProcessId, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION};
 
 /// How many open handles of this process are jobs, and how many are processes.
 fn count_handles() -> (usize, usize) {
@@ -61,17 +65,45 @@ fn the_program_holds_no_job_and_no_process_handle() {
     }
 
     let result = std::env::temp_dir().join(format!("treerun-handles-{}.json", std::process::id()));
-    let output = Command::new(env!("CARGO_BIN_EXE_treerun"))
+    let mut helper = Command::new(env!("CARGO_BIN_EXE_treerun"))
         .arg(&result)
+        .arg("handles-run")
         .arg(std::process::id().to_string())
         .args(["args"])
         .arg(std::env::current_exe().unwrap())
         .args(["--exact", "inspect_as_program", "--nocapture"])
         .env("TREERUN_INSPECT", "1")
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
+    let stdout = read_to_end(helper.stdout.take().unwrap());
+    let stderr = read_to_end(helper.stderr.take().unwrap());
+    // SAFETY: the handle is the helper's own, owned by `helper` for the whole wait.
+    let waited = unsafe { WaitForSingleObject(HANDLE(helper.as_raw_handle()), HELPER_DEADLINE_MS) };
+    if waited != WAIT_OBJECT_0 {
+        // The helper is this test's own child, ended by its handle; its job ends the program with it.
+        let _ = helper.kill();
+        let _ = helper.wait();
+        panic!("the helper running the inspection did not exit within {HELPER_DEADLINE_MS} ms");
+    }
+    let status = helper.wait().unwrap();
     let _ = std::fs::remove_file(&result);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    let pipe = |rx: mpsc::Receiver<Vec<u8>>, name: &str| String::from_utf8_lossy(&rx.recv_timeout(Duration::from_secs(30)).unwrap_or_else(|_| panic!("the helper's {name} did not close within 30 s of its exit"))).into_owned();
+    let (stdout, stderr) = (pipe(stdout, "stdout"), pipe(stderr, "stderr"));
+    assert!(status.success(), "{stdout}{stderr}");
     assert!(stdout.contains("HANDLES jobs=0 processes=0"), "{stdout}");
+}
+
+const HELPER_DEADLINE_MS: u32 = 60_000;
+
+/// Reads a pipe to its end on a thread of its own; the receiver gets the bytes.
+fn read_to_end(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        let _ = tx.send(bytes);
+    });
+    rx
 }

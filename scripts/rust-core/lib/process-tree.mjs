@@ -33,9 +33,10 @@ export function helperPath() {
 
 /**
  * What the helper reported besides the exit code (`launch`, `signal`), or null when it wrote nothing. The helper writes the
- * file last and ends it with `"complete":true`: a file without that record is an error, never a success.
+ * file last and ends it with `"complete":true`: a file without that record is an error, never a success, and so is a
+ * record of another run (`run` is the id this invocation passed: a record left at the path by an earlier run is not ours).
  */
-const readOutcome = (file) => {
+const readOutcome = (file, run) => {
   let text;
   try {
     text = readFileSync(file, 'utf8');
@@ -50,6 +51,7 @@ const readOutcome = (file) => {
     throw new Error(`the tree helper's result ${file} is incomplete: ${text.slice(0, 200)}`);
   }
   if (record.complete !== true) throw new Error(`the tree helper's result ${file} has no completion record: ${text.slice(0, 200)}`);
+  if (record.run !== run) throw new Error(`the tree helper's result ${file} is the record of run ${JSON.stringify(record.run)}, not of this run ${run}`);
   return record;
 };
 
@@ -65,13 +67,14 @@ export function spawnTree(program, args, options = {}) {
   // `signal` is not forwarded to `spawn` (that would end only the helper): an abort ends the tree through the helper.
   const { shell, env, stdio = 'pipe', signal, ...rest } = options;
   const resultFile = join(tmpdir(), `treerun-${randomUUID()}.json`);
+  const run = randomUUID();
   const streams = typeof stdio === 'string' ? [stdio, stdio, stdio] : [...stdio];
   if (streams.length > 3) throw new Error('spawnTree: stdio index 3 is the tree helper\'s channel; pass at most three entries');
   while (streams.length < 3) streams.push('ignore');
   // POSIX: index 3 is the parent's end of a socket pair; its EOF is how the helper learns this process died.
   const full = WINDOWS ? streams : [...streams, 'pipe'];
   const tail = shell ? ['shell', [program, ...args].join(' ')] : ['args', program, ...args];
-  const child = spawn(helperPath(), [resultFile, String(process.pid), ...tail], {
+  const child = spawn(helperPath(), [resultFile, run, String(process.pid), ...tail], {
     ...rest,
     env,
     stdio: full,
@@ -93,7 +96,7 @@ export function spawnTree(program, args, options = {}) {
   let settled;
   child.once('close', () => {
     try {
-      settled = { value: readOutcome(resultFile) };
+      settled = { value: readOutcome(resultFile, run) };
     } catch (error) {
       settled = { error };
     }
@@ -102,7 +105,7 @@ export function spawnTree(program, args, options = {}) {
     rmSync(`${resultFile}.tmp`, { force: true });
   });
   child.treeOutcome = () => {
-    if (!settled) return readOutcome(resultFile);
+    if (!settled) return readOutcome(resultFile, run);
     if (settled.error) throw settled.error;
     return settled.value;
   };
@@ -126,20 +129,40 @@ const signalName = (number) => Object.entries(constants.signals).find(([, n]) =>
 
 const gone = (child) => child.exitCode !== null || child.signalCode !== null;
 
+// The byte that asks a POSIX helper to end its tree (any byte does; end-of-file without one is this process's death).
+const ASK = 'e';
+
+/**
+ * Why the end of a gone helper's tree is not established, or null when it is: the helper exited by itself (no signal)
+ * with this run's complete record and no failure in it. A helper that died of a signal, or left no record, did not finish
+ * ending its tree (POSIX: nothing else ends it), whatever its exit code says.
+ */
+function unestablished(child) {
+  if (child.signalCode !== null) return `the tree helper of pid ${child.pid} died of ${child.signalCode}, so the end of its tree cannot be established`;
+  let outcome;
+  try {
+    outcome = child.treeOutcome();
+  } catch (error) {
+    return `${error.message}, so the end of its tree cannot be established`;
+  }
+  if (!outcome) return `the tree helper of pid ${child.pid} exited (code ${child.exitCode}) without its completion record, so the end of its tree cannot be established`;
+  if (outcome.failure) return `the tree helper of pid ${child.pid} could not show its tree ended: ${outcome.failure}`;
+  return null;
+}
+
 /**
  * Ends `child`'s tree, whether or not the program is still running, and answers `{ killed }`: the helper's pid when it
- * had to be ended, empty when it had already gone (it ends the tree as it goes). Windows: the helper is killed and its job
- * ends every member. POSIX: the helper is asked first (closing descriptor 3 makes it end the program's group and whatever
- * left it), and waited for under the deadline. Rejects, saying that the end of the tree cannot be established, when the
- * helper does not answer in time (it is then killed, by its handle, never by a looked-up number: its tree may still run)
- * and when a POSIX helper had already died of a signal (it could not have ended anything).
+ * had to be ended, empty when it had already gone. Windows: the helper is killed and its job ends every member (the
+ * job's kill-on-close needs nothing of the helper, see tree-helper/src/main.rs). POSIX: the helper is asked (a byte on
+ * descriptor 3 makes it end the program's group and whatever left it, and publish its record), waited for under the
+ * deadline, and then held to `unestablished`, whether it was asked here or had gone before. Rejects, saying that the end
+ * of the tree cannot be established, when the helper does not exit in time (it is then killed, by its handle, never by a
+ * looked-up number: its tree may still run) and when a POSIX helper did not end by its own exit with its record (it died of
+ * a signal, at any moment, or left none or a failure).
  * @param {import('node:child_process').ChildProcess} child started by `spawnTree`
  */
 export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
   if (!child.pid) return { killed: [] };
-  if (gone(child) && !WINDOWS && child.signalCode !== null) {
-    throw new Error(`the tree helper of pid ${child.pid} died of ${child.signalCode}, so the end of its tree cannot be established`);
-  }
   const killed = gone(child) ? [] : [child.pid];
   if (killed.length) {
     let timer;
@@ -150,7 +173,7 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
     if (WINDOWS) {
       if (!child.kill()) throw new Error(`could not kill the tree helper of pid ${child.pid}`);
     } else {
-      child.stdio[3].destroy();
+      child.stdio[3].end(ASK);
     }
     try {
       await exited;
@@ -158,6 +181,10 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
       child.kill('SIGKILL');
       throw new Error(`${error.message}; the helper was killed and the end of its tree cannot be established`);
     }
+  }
+  if (!WINDOWS) {
+    const why = unestablished(child);
+    if (why) throw new Error(why);
   }
   return { killed };
 }
@@ -207,27 +234,18 @@ export function runTree(program, args, { label, cwd, env, deadlineMs, inherit = 
       ending = true;
       clearTimeout(deadline);
       abortSignal?.removeEventListener('abort', onAbort);
-      // A helper that reports nothing, or an incomplete report, died before it finished: that is never a success.
+      // The helper is gone (it ends the tree as it exits): only one that exited by itself with this run's complete record
+      // and no failure has shown its tree ended. Anything else (no record, an incomplete one, a death by a signal) is never
+      // a success. On Windows a helper that exits by itself writes its record too.
+      const why = unestablished(child);
       let outcome = null;
-      let unreported;
       try {
         outcome = child.treeOutcome();
-        if (!outcome) unreported = `the tree helper (exit ${code}, signal ${signal}) ended without writing its report`;
-      } catch (error) {
-        unreported = error.message;
-      }
+      } catch {}
       const stdoutBytes = Buffer.concat(out);
-      if (outcome?.failure) unreported = `the tree helper could not show the tree ended: ${outcome.failure}`;
       const result = { status: outcome?.signal ? null : code, signal: outcome?.signal ? signalName(outcome.signal) : signal, escapes: outcome?.escapes, escapedEnded: outcome?.escaped_ended ?? [], stdout: stdoutBytes.toString('utf8'), stderr: stderrText(), stdoutBytes };
-      let cleanup;
-      try {
-        await endTree(child);
-      } catch (error) {
-        cleanup = error.message;
-      }
-      if (unreported || cleanup) {
-        const parts = [unreported && `${label}: ${unreported}`, cleanup && `${label} finished (status ${result.status}, signal ${result.signal}) but its process tree could not be ended: ${cleanup}`];
-        reject(Object.assign(new Error(`${parts.filter(Boolean).join('; ')}\nits stderr: ${result.stderr.slice(-600)}`), { result }));
+      if (why) {
+        reject(Object.assign(new Error(`${label} finished (status ${result.status}, signal ${result.signal}) but its process tree was not shown ended: ${why}\nits stderr: ${result.stderr.slice(-600)}`), { result }));
         return;
       }
       resolveRun(result);

@@ -1,15 +1,32 @@
-//! `treerun <result-file> <parent-pid> args|shell <program> [args...]` runs the program as the root of a process tree that
-//! is ended whole: when the program exits (what it left behind is ended too), when the process that started this helper
-//! dies, however it dies, and (POSIX) when the helper itself is told to stop with SIGTERM, SIGINT or SIGHUP. The helper's
-//! exit code is the program's, unchanged (an NTSTATUS such as 0xC0000005 arrives as it is), except 70 when ending the tree
-//! failed (the reason is in the record and on stderr). Everything else travels in the result file, which is written to a
-//! temporary file and renamed into place, so a reader sees all of it or none, and which ends with `"complete":true`:
-//! `launch` (the program could not be started: ENOENT, EACCES, ELAUNCH, with `message`), `signal` (the program died of one),
-//! `escapes` (`checked`: nothing of the program's tree outlived the run unnoticed; `undetectable`: macOS, which has no way to
-//! adopt a descendant that left the group, so one that did cannot be found), `escaped_ended` (pids of descendants outside
-//! the group that were adopted and ended) and `failure` (the tree could not be shown to be ended, naming what is left). A
-//! helper ended by a signal or by its parent's death writes no record at all: a parent that finds none knows the run did
-//! not finish.
+//! `treerun <result-file> <run-id> <parent-pid> args|shell <program> [args...]` runs the program as the root of a process
+//! tree that is ended whole: when the program exits (what it left behind is ended too), when the process that started this
+//! helper asks for it or dies, however it dies, and (POSIX) when the helper itself is told to stop with SIGTERM, SIGINT or
+//! SIGHUP. The helper's exit code is the program's, unchanged (an NTSTATUS such as 0xC0000005 arrives as it is), except 70
+//! when ending the tree failed (the reason is in the record and on stderr) and 128 + the signal when a signal stopped it.
+//!
+//! The record. The result file is written to a temporary file and renamed into place, so a reader sees all of it or none.
+//! Its first member is `run`, the run id of this invocation: a record left at the same path by an earlier run (killed
+//! before it published), or by a helper of an earlier run that is still going, names another run, so it is never read as
+//! this one's. Its last member is `"complete":true`. Between them: `launch` (the program could not be started: ENOENT,
+//! EACCES, ELAUNCH, ETIMEDOUT, with `message`), `signal` (the program died of one), `escapes` (`checked`: nothing of the
+//! program's tree outlived the run unnoticed; `undetectable`: macOS, which has no way to adopt a descendant that left the
+//! group, so one that did cannot be found), `escaped_ended` (pids of descendants outside the group that were adopted and
+//! ended) and `failure` (the tree could not be shown to be ended, naming what is left).
+//!
+//! A record is published when the program finished and when the parent asked for the tree to be ended (POSIX: one byte on
+//! descriptor 3; the record then says what ending the tree found). None is published when the parent died (nobody is left
+//! to read it), nor when a signal reached the helper at any moment before the record is in place: a signal caught while the
+//! tree is being ended withholds it, and from the moment of publication on a signal ends the helper by its default action,
+//! so the caller sees the helper die of it. A caller therefore takes the tree as ended only from a helper that exited by
+//! itself with this run's complete record and no failure.
+//!
+//! The helper killed (SIGKILL, or any death no handler of the helper sees):
+//! - Windows: the job closes with the helper's last handle and kill-on-close ends every member. That needs nothing of the
+//!   helper's own code, so the caller's way of ending a tree there is to kill the helper.
+//! - Linux and macOS: nothing ends the tree. The program's group is not signalled; descriptor 3 reports the death of the
+//!   parent, not of the helper; and the descendants a subreaper adopted are re-parented to init (or the next subreaper up)
+//!   when it dies, not ended. The caller sees a helper that died of a signal with no record: by the rule above the end of
+//!   the tree is not established and the run fails.
 //!
 //! The tree is owned, never searched for by a number that could belong to another process:
 //! - Windows: a job object with kill-on-close that the helper joins before it starts the program. Every descendant is in
@@ -23,12 +40,18 @@
 //!   it, so each is ended through that identity (pidfd, signal, reap) until `waitid(P_ALL)` answers ECHILD, under a
 //!   deadline; the helper's own children are named by `/proc/self/task/*/children`, which lists only processes the helper
 //!   itself owns (`waitid` names only children that have exited, so it cannot be what finds a living one).
+//! - macOS also: a signal sent to a group does not show that its members ended, and macOS cannot adopt them. Once the leader
+//!   is reaped, the helper waits until the group has no living member: `kill(-pgid, 0)` answers ESRCH (a zombie is not a
+//!   member to it). Between two such checks it waits for the exit of a member the system lists for the group (a kqueue exit
+//!   event per member), so each check follows an exit, under the deadline; a group still populated at the deadline is a
+//!   failure naming its members.
 //!
-//! The spawn of the program runs on its own thread, so a parent's death or a signal is seen while `spawn` is blocked. What
-//! can block it is the exec itself (an executable on a filesystem that does not answer); the program is then not yet known
-//! to the helper. The helper waits for the spawn for at most the deadline below, ends the tree if it returns, and otherwise
-//! exits 70 saying so: a forked child still inside exec is then outside anything the helper owns. The caller's own deadline
-//! then reaches only the helper (it asks it to stop, and an unresponsive helper is killed and the run fails).
+//! The spawn of the program runs on its own thread, so a parent's death, its request or a signal is seen while `spawn` is
+//! blocked. What can block it is the exec itself (an executable on a filesystem that does not answer); the program is then
+//! not yet known to the helper. The helper waits for the spawn for at most START_DEADLINE (TREE_END_DEADLINE from a stop
+//! on). A spawn that returns in time is ended at once if a stop came. One that does not is a failure (launch ETIMEDOUT
+//! with the failure in the record when one is published) and exit 70: Linux ends the helper's own children (the forked
+//! child is one); elsewhere a forked child still inside exec is outside anything the helper owns, and the failure says so.
 //!
 //! `treerun --end-inside <dir> <pid>` ends one process that a run left behind, only if it is verified to be inside `dir`
 //! on the very handle it then terminates (Windows: process handle, image path; Linux: pidfd, /proc exe link, still alive
@@ -40,8 +63,11 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// How long ending a tree (and waiting for a blocked spawn) may take; what is still there afterwards is reported by name.
+/// How long ending a tree (and waiting for a blocked spawn after a stop) may take; what is still there afterwards is
+/// reported by name.
 const TREE_END_DEADLINE: Duration = Duration::from_secs(10);
+/// How long the spawn of the program may take before the run fails: far beyond an exec on a loaded machine, and finite.
+const START_DEADLINE: Duration = Duration::from_secs(60);
 
 fn json_str(s: &str) -> String {
     let mut out = String::from("\"");
@@ -70,14 +96,16 @@ impl Tree {
     }
 }
 
-/// The result file's body. `"complete":true` is its last member: a file cut short anywhere does not end with it.
-fn record(launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree) -> String {
+/// The result file's body. `run` is its first member, `"complete":true` its last: a file cut short anywhere does not end
+/// with it.
+fn record(run: &str, launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree) -> String {
     let launch = launch.map_or("null".to_owned(), |(code, message)| format!("{},\"message\":{}", json_str(code), json_str(&message)));
     let signal = signal.map_or("null".to_owned(), |s| s.to_string());
     let ended = tree.ended.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
     let failure = if tree.failure.is_empty() { "null".to_owned() } else { json_str(&tree.failure.join("; ")) };
     format!(
-        "{{\"launch\":{launch},\"signal\":{signal},\"escapes\":{},\"escaped_ended\":[{ended}],\"failure\":{failure},\"complete\":true}}",
+        "{{\"run\":{},\"launch\":{launch},\"signal\":{signal},\"escapes\":{},\"escaped_ended\":[{ended}],\"failure\":{failure},\"complete\":true}}",
+        json_str(run),
         json_str(tree.escapes)
     )
 }
@@ -93,19 +121,69 @@ fn write_record(path: &OsString, body: &str) -> std::io::Result<()> {
     written
 }
 
-fn report(path: &OsString, launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree) {
-    if let Err(error) = write_record(path, &record(launch, signal, tree)) {
+/// Publishes the record unless a signal reached the helper first. Arming comes before the check: a signal caught before
+/// the arming is seen by the check, and one that comes after it ends the helper by its default action (both orders are
+/// sequentially consistent, so no signal falls between them). Err is the exit code: 128 + the signal, or 70 when the
+/// record cannot be written.
+fn publish(path: &OsString, body: &str) -> Result<(), i32> {
+    sys::arm_signals();
+    if let Some(signal) = sys::caught_signal() {
+        return Err(128 + signal);
+    }
+    write_record(path, body).map_err(|error| {
         eprintln!("treerun: could not write {}: {error}", path.to_string_lossy());
-        exit(70);
+        70
+    })
+}
+
+/// Where the record goes and the run id it carries.
+struct Out {
+    path: OsString,
+    run: String,
+}
+
+/// What ended the run.
+#[derive(Clone, Copy)]
+enum Stop {
+    /// The program exited, or could not start: the run finished by itself.
+    Finished,
+    /// The parent asked for the tree to be ended (POSIX; on Windows the parent kills the helper and the job ends the tree).
+    #[cfg(unix)]
+    Asked,
+    ParentGone,
+    #[cfg(unix)]
+    Signalled,
+}
+
+impl Stop {
+    /// Whether a record is published: someone reads it, and no signal stopped the helper.
+    fn publishes(self) -> bool {
+        match self {
+            Stop::ParentGone => false,
+            #[cfg(unix)]
+            Stop::Signalled => false,
+            _ => true,
+        }
     }
 }
 
-fn launch_failed(result: &OsString, message: String) -> ! {
-    report(result, Some(("ELAUNCH", message)), None, &Tree::new());
-    exit(126);
+/// Ends the helper: publishes the record when the stop calls for one, and exits with `code`, 128 + a signal caught at any
+/// time before the record was in place, or 70 when something could not be ended.
+fn finish(out: &Out, stop: Stop, launch: Option<(&str, String)>, signal: Option<i32>, tree: &Tree, code: i32) -> ! {
+    if stop.publishes() {
+        match publish(&out.path, &record(&out.run, launch, signal, tree)) {
+            Ok(()) => leave(code, tree),
+            Err(code) => leave(code, tree),
+        }
+    }
+    leave(sys::caught_signal().map_or(code, |signal| 128 + signal), tree)
 }
 
-/// Leaves without a record (the parent died or a signal came): what could not be ended is said, and changes the status.
+fn launch_failed(out: &Out, message: String) -> ! {
+    finish(out, Stop::Finished, Some(("ELAUNCH", message)), None, &Tree::new(), 126)
+}
+
+/// Exits: what could not be ended is said, and changes the status.
 fn leave(code: i32, tree: &Tree) -> ! {
     for failure in &tree.failure {
         eprintln!("treerun: {failure}");
@@ -129,28 +207,43 @@ enum Event {
     /// The program exited; Windows has its status already, POSIX reaps it after the group is signalled.
     Exited(Result<Option<ExitStatus>, String>),
     ParentGone,
-    /// A termination signal reached the helper (POSIX).
+    /// The parent asked for the tree to be ended (POSIX: a byte on descriptor 3).
     #[cfg(unix)]
-    Signalled(i32),
+    Asked,
+    /// A termination signal reached the helper (POSIX); which one is `sys::caught_signal`.
+    #[cfg(unix)]
+    Signalled,
 }
 
-/// The spawn is still blocked when a stop arrives: waits for it, bounded.
-fn await_started(rx: &Receiver<Event>) -> Option<std::io::Result<Child>> {
-    let deadline = Instant::now() + TREE_END_DEADLINE;
-    loop {
-        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Event::Started(result)) => return Some(result),
-            Ok(_) => {}
-            Err(_) => return None,
+impl Event {
+    /// The stop this event is; the spawn's own event is none.
+    fn stop(&self) -> Option<Stop> {
+        match self {
+            Event::Started(_) => None,
+            Event::Exited(_) => Some(Stop::Finished),
+            Event::ParentGone => Some(Stop::ParentGone),
+            #[cfg(unix)]
+            Event::Asked => Some(Stop::Asked),
+            #[cfg(unix)]
+            Event::Signalled => Some(Stop::Signalled),
         }
     }
 }
 
-fn stop_code(event: &Event) -> i32 {
-    match event {
-        #[cfg(unix)]
-        Event::Signalled(signal) => 128 + signal,
-        _ => 0,
+/// Waits for the spawn to return until `deadline`. The first stop that arrives meanwhile is kept in `stop` and brings the
+/// deadline to TREE_END_DEADLINE from then at the latest. None: the spawn did not return in time.
+fn await_started(rx: &Receiver<Event>, mut deadline: Instant, stop: &mut Option<Stop>) -> Option<std::io::Result<Child>> {
+    loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Event::Started(result)) => return Some(result),
+            Ok(event) => {
+                if stop.is_none() {
+                    *stop = event.stop();
+                    deadline = deadline.min(Instant::now() + TREE_END_DEADLINE);
+                }
+            }
+            Err(_) => return None,
+        }
     }
 }
 
@@ -166,35 +259,33 @@ fn main() {
     // First thing in run mode, before any thread or spawn exists: descriptor 3 becomes close-on-exec, so no program this
     // helper starts, and nothing that program starts, can hold the parent channel open.
     let channel = sys::take_parent_channel();
-    if args.len() < 4 {
-        eprintln!("usage: treerun <result-file> <parent-pid> args|shell <program> [args...]");
+    if args.len() < 5 {
+        eprintln!("usage: treerun <result-file> <run-id> <parent-pid> args|shell <program> [args...]");
         exit(64);
     }
-    let result = args[0].clone();
-    let parent_pid: u32 = args[1].to_string_lossy().parse().unwrap_or_else(|_| {
+    let out = Out { path: args[0].clone(), run: args[1].to_string_lossy().into_owned() };
+    let parent_pid: u32 = args[2].to_string_lossy().parse().unwrap_or_else(|_| {
         eprintln!("treerun: parent pid is not a number");
         exit(64);
     });
 
     let (tx, rx) = mpsc::channel();
-    // Before the program exists: a signal or a parent that dies from here on is seen, and the program never holds the channel.
+    // Before the program exists: a signal, a request or a parent that dies from here on is seen, and the program never
+    // holds the channel.
     if let Err(message) = sys::watch_signals(tx.clone()) {
-        launch_failed(&result, message);
+        launch_failed(&out, message);
     }
-    let tx_parent = tx.clone();
-    if let Err(message) = sys::watch_parent(channel, parent_pid, move || {
-        let _ = tx_parent.send(Event::ParentGone);
-    }) {
-        launch_failed(&result, message);
+    if let Err(message) = sys::watch_parent(channel, parent_pid, tx.clone()) {
+        launch_failed(&out, message);
     }
     let _jail = match sys::Jail::new() {
         Ok(jail) => jail,
-        Err(message) => launch_failed(&result, format!("could not create the job: {message}")),
+        Err(message) => launch_failed(&out, format!("could not create the job: {message}")),
     };
 
-    let mut command = if args[2] == "shell" { sys::shell_command(&args[3]) } else { Command::new(&args[3]) };
-    if args[2] != "shell" {
-        command.args(&args[4..]);
+    let mut command = if args[3] == "shell" { sys::shell_command(&args[4]) } else { Command::new(&args[4]) };
+    if args[3] != "shell" {
+        command.args(&args[5..]);
     }
     sys::prepare(&mut command);
     let tx_spawn = tx.clone();
@@ -202,30 +293,17 @@ fn main() {
         let _ = tx_spawn.send(Event::Started(command.spawn()));
     });
 
-    let started = {
-        match rx.recv().expect("the senders live in this function") {
-            Event::Started(result) => result,
-            Event::Exited(_) => unreachable!("nothing waits on a program that was not started"),
-            // The parent is gone or a signal came.
-            stop => {
-                let code = stop_code(&stop);
-                match await_started(&rx) {
-                    Some(Ok(child)) => {
-                        let program = child.id();
-                        let held = sys::adopt(child, tx.clone());
-                        leave(code, &sys::end_tree(held, program, false).1);
-                    }
-                    Some(Err(_)) => exit(code),
-                    None => {
-                        eprintln!(
-                            "treerun: starting the program did not return within {} s of a stop; a process still inside exec is not owned by this helper",
-                            TREE_END_DEADLINE.as_secs()
-                        );
-                        exit(70);
-                    }
-                }
-            }
-        }
+    let mut stop = None;
+    let Some(started) = await_started(&rx, Instant::now() + START_DEADLINE, &mut stop) else {
+        let message = format!(
+            "starting the program did not return within its deadline ({} s, {} s once a stop arrived)",
+            START_DEADLINE.as_secs(),
+            TREE_END_DEADLINE.as_secs()
+        );
+        let mut tree = Tree::new();
+        tree.failure.push(message.clone());
+        sys::end_unstarted(&mut tree, Instant::now() + TREE_END_DEADLINE);
+        finish(&out, stop.unwrap_or(Stop::Finished), Some(("ETIMEDOUT", message)), None, &tree, 70);
     };
     let child = match started {
         Ok(child) => child,
@@ -235,34 +313,32 @@ fn main() {
                 std::io::ErrorKind::PermissionDenied => "EACCES",
                 _ => "ELAUNCH",
             };
-            report(&result, Some((code, error.to_string())), None, &Tree::new());
-            exit(127);
+            finish(&out, stop.unwrap_or(Stop::Finished), Some((code, error.to_string())), None, &Tree::new(), 127);
         }
     };
     let program = child.id();
     let held = sys::adopt(child, tx.clone());
 
-    let event = rx.recv().expect("the senders live in this function");
-    // The program exited, the parent is gone or a signal came: either way nothing of the tree may stay.
-    let (reaped, mut tree) = sys::end_tree(held, program, matches!(event, Event::Exited(_)));
-    match event {
-        Event::ParentGone => leave(0, &tree),
-        #[cfg(unix)]
-        Event::Signalled(signal) => leave(128 + signal, &tree),
-        Event::Exited(waited) => {
-            let status = match waited {
-                Ok(Some(status)) => Some(status),
-                Ok(None) => reaped,
-                Err(message) => {
-                    tree.failure.push(format!("waiting for the program failed: {message}"));
-                    None
-                }
-            };
-            report(&result, None, status.as_ref().and_then(sys::signal_of), &tree);
-            leave(status.and_then(|s| s.code()).unwrap_or(0), &tree)
+    // A stop that came while the spawn ran ends the tree at once; otherwise the first event decides.
+    let (stop, waited) = match stop {
+        Some(stop) => (stop, None),
+        None => match rx.recv().expect("the senders live in this function") {
+            Event::Exited(waited) => (Stop::Finished, Some(waited)),
+            other => (other.stop().expect("the spawn's event came once, so every later event is a stop"), None),
+        },
+    };
+    // The program exited, the parent asked or is gone, or a signal came: either way nothing of the tree may stay.
+    let (reaped, mut tree) = sys::end_tree(held, program, waited.is_some());
+    let status = match waited {
+        None => None,
+        Some(Ok(Some(status))) => Some(status),
+        Some(Ok(None)) => reaped,
+        Some(Err(message)) => {
+            tree.failure.push(format!("waiting for the program failed: {message}"));
+            None
         }
-        Event::Started(_) => unreachable!("the program was started once"),
-    }
+    };
+    finish(&out, stop, None, status.as_ref().and_then(sys::signal_of), &tree, status.and_then(|s| s.code()).unwrap_or(0));
 }
 
 #[cfg(windows)]
@@ -325,6 +401,15 @@ mod sys {
         Ok(())
     }
 
+    pub fn caught_signal() -> Option<i32> {
+        None
+    }
+
+    pub fn arm_signals() {}
+
+    /// A process still inside a spawn that did not return is in the job (the helper joined it first): the job ends it.
+    pub fn end_unstarted(_tree: &mut Tree, _deadline: std::time::Instant) {}
+
     pub fn adopt(mut child: Child, tx: Sender<Event>) -> Held {
         thread::spawn(move || {
             let _ = tx.send(Event::Exited(child.wait().map(Some).map_err(|e| e.to_string())));
@@ -332,8 +417,11 @@ mod sys {
         Held
     }
 
-    /// Calls `on_gone` when the parent process has exited. A parent created after this helper is a stranger on a reused pid.
-    pub fn watch_parent(_channel: Result<(), String>, pid: u32, on_gone: impl FnOnce() + Send + 'static) -> Result<(), String> {
+    /// Sends ParentGone when the parent process has exited. A parent created after this helper is a stranger on a reused pid.
+    pub fn watch_parent(_channel: Result<(), String>, pid: u32, tx: Sender<Event>) -> Result<(), String> {
+        let on_gone = move || {
+            let _ = tx.send(Event::ParentGone);
+        };
         // SAFETY: handles opened here are owned by the thread and closed there (OpenProcess is called with bInheritHandle
         // false, so the handle is never inherited by the program); the FILETIME out-pointers are valid locals.
         thread::spawn(move || unsafe {
@@ -417,6 +505,7 @@ mod sys {
     use std::os::fd::{FromRawFd, OwnedFd};
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::process::{Child, Command, ExitStatus};
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use std::sync::mpsc::{self, Sender};
     use std::thread;
     use std::time::Instant;
@@ -466,17 +555,54 @@ mod sys {
         command.process_group(0);
     }
 
+    /// The first termination signal the helper caught (0: none), set in the handler itself.
+    static CAUGHT: AtomicI32 = AtomicI32::new(0);
+    /// Set at publication: from then on a termination signal ends the helper by its default action.
+    static ARMED: AtomicBool = AtomicBool::new(false);
+
     /// SIGTERM, SIGINT and SIGHUP become events: the helper ends its tree instead of dying with the tree running. The
-    /// handlers are reset by exec, so the program starts with the default actions.
+    /// handler records the first signal before anything else sees it (the event that wakes the main thread is sent only
+    /// after), and once the helper is armed it ends the helper by the signal's default action. The handlers are reset by
+    /// exec, so the program starts with the default actions.
     pub fn watch_signals(tx: Sender<Event>) -> Result<(), String> {
         use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+        for signal in [SIGTERM, SIGINT, SIGHUP] {
+            // SAFETY: the action only uses two atomics and emulate_default_handler, all async-signal-safe. It is registered
+            // before the iterator's own action, so the signal is recorded before the wake-up is written.
+            unsafe {
+                signal_hook::low_level::register(signal, move || {
+                    let _ = CAUGHT.compare_exchange(0, signal, Ordering::SeqCst, Ordering::SeqCst);
+                    if ARMED.load(Ordering::SeqCst) {
+                        let _ = signal_hook::low_level::emulate_default_handler(signal);
+                    }
+                })
+            }
+            .map_err(|e| format!("could not watch for termination signals: {e}"))?;
+        }
         let mut signals = signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]).map_err(|e| format!("could not watch for termination signals: {e}"))?;
         thread::spawn(move || {
-            for signal in signals.forever() {
-                let _ = tx.send(Event::Signalled(signal));
+            for _ in signals.forever() {
+                let _ = tx.send(Event::Signalled);
             }
         });
         Ok(())
+    }
+
+    pub fn caught_signal() -> Option<i32> {
+        match CAUGHT.load(Ordering::SeqCst) {
+            0 => None,
+            signal => Some(signal),
+        }
+    }
+
+    pub fn arm_signals() {
+        ARMED.store(true, Ordering::SeqCst);
+    }
+
+    /// Linux: a forked child still inside a spawn that did not return is a child of the helper, ended through that.
+    pub fn end_unstarted(_tree: &mut Tree, _deadline: Instant) {
+        #[cfg(target_os = "linux")]
+        adopted::end_all(_tree, 0, true, _deadline);
     }
 
     /// Waits for the program's exit without reaping it (WNOWAIT): the zombie keeps the pid and the group id.
@@ -503,18 +629,21 @@ mod sys {
         Ok(std::fs::File::from(fd))
     }
 
-    /// Calls `on_gone` on EOF of the parent channel.
-    pub fn watch_parent(channel: Result<std::fs::File, String>, _pid: u32, on_gone: impl FnOnce() + Send + 'static) -> Result<(), String> {
+    /// The parent channel: a byte is the parent asking for the tree to be ended (Asked); EOF before any byte is its death
+    /// (ParentGone), as is a failed read (the parent cannot be watched any more).
+    pub fn watch_parent(channel: Result<std::fs::File, String>, _pid: u32, tx: Sender<Event>) -> Result<(), String> {
         let mut socket = channel?;
         thread::spawn(move || {
-            let mut buffer = [0u8; 64];
-            // EOF and a failed read both mean the parent cannot be watched any more.
-            while let Ok(n) = socket.read(&mut buffer) {
-                if n == 0 {
-                    break;
+            let mut byte = [0u8; 1];
+            let event = loop {
+                match socket.read(&mut byte) {
+                    Ok(0) => break Event::ParentGone,
+                    Ok(_) => break Event::Asked,
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break Event::ParentGone,
                 }
-            }
-            on_gone();
+            };
+            let _ = tx.send(event);
         });
         Ok(())
     }
@@ -543,7 +672,94 @@ mod sys {
         };
         #[cfg(target_os = "linux")]
         adopted::end_all(&mut tree, program, status.is_some(), deadline);
+        // The group's other members were signalled, not shown ended. On Linux every member whose parent died is the helper's
+        // own child by now and was ended and reaped above; elsewhere the group itself must be seen empty.
+        #[cfg(not(target_os = "linux"))]
+        if status.is_some() {
+            if let Err(message) = group::wait_empty(Pid::from_raw(program as i32).expect("a child's pid is positive"), deadline) {
+                tree.failure.push(message);
+            }
+        }
         (status, tree)
+    }
+
+    /// macOS: waits for a process group to have no living member, event by event.
+    #[cfg(target_os = "macos")]
+    mod group {
+        use super::{Errno, Instant};
+        use rustix::event::kqueue::{kevent, kqueue, Event, EventFilter, EventFlags, ProcessEvents};
+        use rustix::process::{test_kill_process_group, Pid};
+        use std::mem::MaybeUninit;
+        use std::time::Duration;
+
+        /// The pids the system lists in group `pgid` (zombies included; they are not waited for, as `kill` skips them).
+        fn members(pgid: i32) -> Result<Vec<i32>, String> {
+            let mut buffer = vec![0 as libc::pid_t; 4096];
+            let size = (buffer.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
+            // SAFETY: the buffer is valid for `size` bytes and outlives the call.
+            let count = unsafe { libc::proc_listpgrppids(pgid, buffer.as_mut_ptr().cast(), size) };
+            if count < 0 {
+                return Err(format!("the members of the group of pid {pgid} cannot be listed: {}", std::io::Error::last_os_error()));
+            }
+            buffer.truncate(count as usize);
+            Ok(buffer)
+        }
+
+        /// Until `kill(-pgid, 0)` answers ESRCH, waits for the exit of a listed member; each check follows an exit. A group
+        /// still populated at the deadline, or one whose living members no listing names, is an error naming what is known.
+        pub fn wait_empty(group: Pid, deadline: Instant) -> Result<(), String> {
+            let pgid = group.as_raw_nonzero().get();
+            let queue = kqueue().map_err(|e| format!("waiting for the group of pid {pgid} to empty: kqueue failed: {e}"))?;
+            loop {
+                match test_kill_process_group(group) {
+                    Err(Errno::SRCH) => return Ok(()),
+                    Err(error) => return Err(format!("asking whether the group of pid {pgid} is empty failed: {error}")),
+                    Ok(()) => {}
+                }
+                let listed = members(pgid)?;
+                if listed.is_empty() {
+                    return Err(format!("the group of pid {pgid} has living members that the system does not list"));
+                }
+                let mut watched = 0;
+                for pid in listed.iter().filter_map(|pid| Pid::from_raw(*pid)) {
+                    let change = Event::new(EventFilter::Proc { pid, flags: ProcessEvents::EXIT }, EventFlags::ADD | EventFlags::ONESHOT, std::ptr::null_mut());
+                    let mut none: [MaybeUninit<Event>; 0] = [];
+                    // SAFETY: the change names a process, not a descriptor; the queue outlives the call.
+                    match unsafe { kevent(&queue, &[change], &mut none, Some(Duration::ZERO)) } {
+                        Ok(_) => watched += 1,
+                        // Exited (or a zombie) since the listing: the next check sees it.
+                        Err(Errno::SRCH) => {}
+                        Err(error) => return Err(format!("watching member pid {} of the group of pid {pgid} failed: {error}", pid.as_raw_nonzero())),
+                    }
+                }
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err(format!("the group of pid {pgid} still has members {listed:?} at the deadline after SIGKILL"));
+                }
+                if watched == 0 {
+                    continue;
+                }
+                let mut fired = [MaybeUninit::<Event>::uninit()];
+                // SAFETY: as above.
+                match unsafe { kevent(&queue, &[], &mut fired, Some(left)) } {
+                    Ok(([], _)) => {
+                        return Err(format!("the group of pid {pgid} still has members {listed:?} at the deadline after SIGKILL"))
+                    }
+                    Ok(_) | Err(Errno::INTR) => {}
+                    Err(error) => return Err(format!("waiting for a member of the group of pid {pgid} to exit failed: {error}")),
+                }
+            }
+        }
+    }
+
+    /// No other POSIX system is built for; one that is cannot show its group empty, and says so.
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    mod group {
+        use super::{Instant, Pid};
+
+        pub fn wait_empty(group: Pid, _deadline: Instant) -> Result<(), String> {
+            Err(format!("this system has no way to show that the group of pid {} is empty", group.as_raw_nonzero()))
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -702,8 +918,10 @@ mod sys {
 
 #[cfg(test)]
 mod tests {
-    use super::{inside, json_str, record, write_record, Tree};
+    use super::{await_started, inside, json_str, record, write_record, Event, Stop, Tree};
     use std::path::PathBuf;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
 
     /// A fresh directory under the system temp directory, removed on drop.
     struct Scratch(PathBuf);
@@ -726,32 +944,76 @@ mod tests {
     #[test]
     fn the_record_ends_with_its_completion_member_in_every_shape() {
         let failed = Tree { escapes: "checked", ended: vec![7], failure: vec!["pid 7 is still alive".into()] };
-        for body in [record(None, None, &Tree::new()), record(None, Some(9), &Tree::new()), record(Some(("ENOENT", "no such file".into())), None, &failed)] {
+        for body in [record("r", None, None, &Tree::new()), record("r", None, Some(9), &Tree::new()), record("r", Some(("ENOENT", "no such file".into())), None, &failed)] {
             assert!(body.ends_with(",\"complete\":true}"), "{body}");
         }
     }
 
     #[test]
-    fn the_record_carries_launch_signal_escapes_and_failure() {
+    fn the_record_carries_the_run_launch_signal_escapes_and_failure() {
         let tree = Tree { escapes: "checked", ended: Vec::new(), failure: Vec::new() };
-        assert_eq!(record(None, None, &tree), r#"{"launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
-        assert_eq!(record(None, Some(9), &tree), r#"{"launch":null,"signal":9,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
+        assert_eq!(record("r1", None, None, &tree), r#"{"run":"r1","launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
+        assert_eq!(record("r1", None, Some(9), &tree), r#"{"run":"r1","launch":null,"signal":9,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#);
         assert_eq!(
-            record(Some(("EACCES", "denied".into())), None, &tree),
-            r#"{"launch":"EACCES","message":"denied","signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#
+            record("r1", Some(("EACCES", "denied".into())), None, &tree),
+            r#"{"run":"r1","launch":"EACCES","message":"denied","signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}"#
         );
         let adopted = Tree { escapes: "undetectable", ended: vec![11, 12], failure: vec!["a".into(), "b".into()] };
         assert_eq!(
-            record(None, None, &adopted),
-            r#"{"launch":null,"signal":null,"escapes":"undetectable","escaped_ended":[11,12],"failure":"a; b","complete":true}"#
+            record("r1", None, None, &adopted),
+            r#"{"run":"r1","launch":null,"signal":null,"escapes":"undetectable","escaped_ended":[11,12],"failure":"a; b","complete":true}"#
         );
     }
 
     #[test]
     fn strings_are_escaped_so_a_message_cannot_end_the_record_early() {
         assert_eq!(json_str("a\"b\\c\n\u{1}"), r#""a\"b\\c\u000a\u0001""#);
-        let body = record(Some(("ELAUNCH", "\",\"complete\":true}".into())), None, &Tree::new());
+        let body = record("\"", Some(("ELAUNCH", "\",\"complete\":true}".into())), None, &Tree::new());
         assert_eq!(body.matches("\"complete\":true}").count(), 1, "{body}");
+    }
+
+    #[test]
+    fn a_spawn_that_does_not_return_is_given_up_at_its_deadline() {
+        // The spawn's sender stays alive and never sends: the wait must end by its deadline alone.
+        let (tx, rx) = mpsc::channel::<Event>();
+        let deadline = Instant::now() + Duration::from_millis(300);
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut stop = None;
+            let started = await_started(&rx, deadline, &mut stop);
+            let _ = done_tx.send((started.is_none(), stop.is_none(), Instant::now()));
+        });
+        let (timed_out, no_stop, at) = done_rx.recv_timeout(Duration::from_secs(30)).expect("the wait for a spawn that never returns did not end within 30 s: it has no deadline");
+        drop(tx);
+        assert!(timed_out && no_stop);
+        assert!(at >= deadline, "the wait gave up before its deadline");
+    }
+
+    #[test]
+    fn a_stop_during_the_spawn_is_kept_and_the_spawn_still_awaited() {
+        let (tx, rx) = mpsc::channel::<Event>();
+        tx.send(Event::ParentGone).unwrap();
+        tx.send(Event::Started(Err(std::io::Error::from(std::io::ErrorKind::NotFound)))).unwrap();
+        let mut stop = None;
+        let started = await_started(&rx, Instant::now() + Duration::from_secs(30), &mut stop);
+        assert!(matches!(started, Some(Err(_))));
+        assert!(matches!(stop, Some(Stop::ParentGone)));
+    }
+
+    /// A signal caught while the tree was being ended (after the program's exit was seen) withholds the record: the
+    /// helper exits 128 + the signal and the caller finds no record. The signal is real: sent to this process and caught
+    /// by the helper's own handlers.
+    #[cfg(unix)]
+    #[test]
+    fn a_signal_caught_before_publication_withholds_the_record() {
+        let (tx, rx) = mpsc::channel();
+        super::sys::watch_signals(tx).unwrap();
+        rustix::process::kill_process(rustix::process::getpid(), rustix::process::Signal::TERM).unwrap();
+        assert!(matches!(rx.recv_timeout(Duration::from_secs(30)).expect("the SIGTERM sent to this process was not seen within 30 s"), Event::Signalled));
+        let root = Scratch::new("signalled");
+        let target = root.0.join("result.json");
+        assert_eq!(super::publish(&target.clone().into_os_string(), &record("r", None, None, &Tree::new())), Err(143));
+        assert!(!target.exists(), "no record after a signal");
     }
 
     #[test]
@@ -759,7 +1021,7 @@ mod tests {
         let root = Scratch::new("atomic");
         let target = root.0.join("result.json");
         let target_os = target.clone().into_os_string();
-        write_record(&target_os, &record(None, None, &Tree::new())).unwrap();
+        write_record(&target_os, &record("r", None, None, &Tree::new())).unwrap();
         assert!(std::fs::read_to_string(&target).unwrap().ends_with(",\"complete\":true}"));
         assert!(!root.0.join("result.json.tmp").exists(), "the temporary file is renamed away");
         // A destination that cannot be replaced (a directory) fails and leaves no temporary file behind.

@@ -1,6 +1,7 @@
 // Test support: read-only process queries. A process is identified by its pid together with the start time read when it was
 // first seen, and nothing here signals a number: ending a process is the tree helper's work, on a handle it owns.
 import { execFile, execFileSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { helperPath } from './process-tree.mjs';
 
@@ -72,6 +73,22 @@ export async function assertTreeGone(members, deadlineMs = 30_000) {
     const row = stdout.trim();
     if (row && !row.startsWith('Z') && row.slice(row.indexOf(' ')).trim() === start) throw new Error(`pid ${pid} (start ${start}) is still running after its tree was ended`);
   }
+}
+
+/**
+ * A test fixture's leak guard, as one statement for `node -e` and for module scripts alike: a process that a failing run
+ * left behind exits by itself after `lifeMs`, and first writes `guard-<pid>` into `dir`. The marker is what keeps the guard
+ * from hiding a leak: a check that runs late (a slow start, a slow process query) and finds the process gone would pass,
+ * so `assertTreeEnded` also requires that no guard fired. A process the tree's end removed wrote nothing.
+ */
+export const leakGuard = (dir, lifeMs) =>
+  `setTimeout(() => { process.getBuiltinModule('node:fs').writeFileSync(process.getBuiltinModule('node:path').join(${JSON.stringify(dir)}, 'guard-' + process.pid), ''); process.exit(0); }, ${lifeMs});`;
+
+/** `assertTreeGone`, and then that none of the fixtures in `dir` was removed by its own leak guard instead of the tree's end. */
+export async function assertTreeEnded(dir, members) {
+  await assertTreeGone(members);
+  const fired = readdirSync(dir).filter((name) => name.startsWith('guard-'));
+  if (fired.length) throw new Error(`pid ${fired.map((name) => name.slice('guard-'.length)).join(', ')} ended by its own leak guard, not by the end of its tree`);
 }
 
 /** The processes whose executable path (Windows) or command line (POSIX) lies inside `dir`: a read, nothing is signalled. */
