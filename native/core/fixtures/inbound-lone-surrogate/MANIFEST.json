@@ -1,12 +1,27 @@
 {
+  "accepted": [
+    {
+      "comparedWith": "Node's recorded answer to search-regex-real-replacement-query, whole",
+      "decision": "decisions.md \"frame-lone-surrogate\": a regex query holding a lone surrogate reads it as U+FFFD",
+      "nodeAnswered": {
+        "ok": true,
+        "value": {
+          "files": [],
+          "limitHit": false,
+          "matchCount": 0
+        }
+      },
+      "step": "search-regex-lone-query"
+    }
+  ],
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs --tree D:\\mixdog-build\\tmp\\b6f-tree",
   "exact": true,
   "fileCount": 1,
   "files": [
     {
-      "bytes": 22242,
+      "bytes": 23105,
       "path": "golden.json",
-      "sha256": "728565638c89642bc74c5e2aaf8a779037de0eea98d6835ca30ebb16e76abf65"
+      "sha256": "a191da1d125efd2e577a64ba801c6090a5168e9b11967fa73c59833b1d63e4fb"
     }
   ],
   "inputs": {
@@ -53,6 +68,7 @@
     "search-lone-query": "7b226964223a32392c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a225c7564383364227d5d7d",
     "search-real-replacement": "7b226964223a33302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a22efbfbd227d5d7d",
     "search-regex-lone-query": "7b226964223a33322c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a22615c7564653030222c227265676578223a747275657d5d7d",
+    "search-regex-real-replacement-query": "7b226964223a313030302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a2261efbfbd222c227265676578223a747275657d5d7d",
     "stat-lone-name": "7b226964223a32342c226d6574686f64223a227374617450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75646530302e747874225d7d",
     "write-lone-name": "7b226964223a32352c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75643833642e747874222c227a222c2268695c6e225d7d"
   },
@@ -78,15 +94,15 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs",
-      "sha256": "83912be5b2de2e9bd6e485d8b3a96224868a953bb22d1a329c2b8c174c13c860"
+      "sha256": "40fba325c239e51d677e434e4df2038ac3ee0a1f6302348d5012439e5fb32d5c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-cases.mjs",
-      "sha256": "b370d91ff45f3d8ff73fe4694b179b66a18dbeec28acabacdab268b46019903b"
+      "sha256": "b2159f223d633fdb797da067822cdd35d633d17dd55ccc7b0991039acbfe019c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs",
-      "sha256": "7d00579debe405ba7f128a0151f54b645ceb9002e8aa776421f20dc392899ac3"
+      "sha256": "2745d546829b1c1f2f106fb2d9c581eae5368d736d66321b411615c90b7154a0"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/raw-frame-bytes.mjs",
@@ -110,5 +126,5 @@
     }
   ],
   "set": "inbound-lone-surrogate",
-  "totalBytes": 22242
+  "totalBytes": 23105
 }

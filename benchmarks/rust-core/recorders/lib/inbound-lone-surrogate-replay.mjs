@@ -85,7 +85,8 @@ export async function replay({ exe, golden, only }) {
 
     let phone = await openRouter();
     const unexpected = [];
-    // A step marked `accepted` (cases file) is a difference decisions.md accepts: shown whole, not counted as unexpected.
+    // A step marked `accepted` (cases file) is a difference decisions.md accepts: its answer must equal Node's answer to the declared
+    // stand-in step; then it is shown whole as ACCEPTED, and any other answer is unexpected.
     const accepted = [];
     let compared = 0;
     for (const step of STEPS) {
@@ -121,9 +122,21 @@ export async function replay({ exe, golden, only }) {
         );
         if (got.closed !== undefined) phone = await openRouter();
       }
-      const expected = node.closed !== undefined ? { closed: node.closed } : step.coreRaw !== undefined ? { answered: true } : { answer: wellFormed(node.answer) };
+      const expectedOf = (recorded) =>
+        recorded.closed !== undefined ? { closed: recorded.closed } : step.coreRaw !== undefined ? { answered: true } : { answer: wellFormed(recorded.answer) };
+      const expected = expectedOf(node);
       compared += 1;
-      if (!isDeepStrictEqual(got, expected)) (step.accepted ? accepted : unexpected).push({ step: step.name, node: expected, core: got, why: step.accepted });
+      if (step.accepted) {
+        // The accepted answer is Node's own answer to the stand-in step, and only that one.
+        const standIn = golden.steps.find((recorded) => recorded.name === step.accepted.standIn);
+        if (!standIn) throw new Error(`the recording has no stand-in step ${step.accepted.standIn} for ${step.name}`);
+        const declared = expectedOf(standIn);
+        if (!isDeepStrictEqual(got, declared)) unexpected.push({ step: `${step.name} (compared with Node's answer to ${step.accepted.standIn})`, node: declared, core: got });
+        else if (!isDeepStrictEqual(got, expected)) {
+          const why = `differs from Node's own answer as declared, equals Node's answer to ${step.accepted.standIn}; ${step.accepted.decision}`;
+          accepted.push({ step: step.name, node: expected, core: got, why });
+        }
+      } else if (!isDeepStrictEqual(got, expected)) unexpected.push({ step: step.name, node: expected, core: got });
     }
     if (!only) {
       // Sorted by name as the recording is: the order is the file system's listing, which no Node code chose.
