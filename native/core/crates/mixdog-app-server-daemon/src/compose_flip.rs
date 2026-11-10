@@ -2416,7 +2416,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // (`MemberRelay`). The republish closures of the daemon port read `RoomSummaries`, which is built after the rooms (a cycle through `ThreadListService`): the late cell `LateRoomSummaries`.
     let late_room_summaries = Arc::new(crate::late_session::LateRoomSummaries::default());
     let rooms = Arc::new(mixdog_core_rooms::rooms::records::Rooms::new(mixdog_core_rooms::rooms::store::StateRoomStore::new(b.core_state.clone())));
-    let room_sessions = Arc::new(mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()));
+    // Node's one `lastArchiveStamp`, which the host's archive and the rooms' share (`ArchiveStamps`).
+    let archive_stamps: Arc<mixdog_core_session::session::thread_settings::ArchiveStamps> = Arc::default();
+    let room_sessions = Arc::new(
+        mixdog_core::run_host::directory_sessions::DirectorySessions::new(directory.clone(), threads.clone()).with_archive_stamps(archive_stamps.clone()),
+    );
     let maintainer = Arc::new(mixdog_core_rooms::rooms::maintainer::RouteMaintainer::new(Arc::new(mixdog_core::run_host::summary_routes::SummaryRoutes::new(
         summaries.host(&mixdog_core_api::ids::ThreadId::from("room-supervisor"), &mixdog_store::schema::record::Header::new()),
     ))));
@@ -2695,6 +2699,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             app: b.sections.clone(),
             ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
             surface: surface_generation.clone(),
+            archive_stamps: archive_stamps.clone(),
         },
     )))?;
     // `thread/setWorkflow`, `thread/setOrchestrationMode`, `thread/setOutputStyle`, `thread/switchContext` (`compose-seams.md` "wu-thread-settings", landing wu-thread-settings-3; flip-brief A16): the context switch

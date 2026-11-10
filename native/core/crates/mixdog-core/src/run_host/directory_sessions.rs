@@ -21,6 +21,7 @@ use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_rooms::rooms::RoomError;
 use mixdog_core_rooms::rooms::sessions::SessionOps;
 use mixdog_core_session::session::SessionDirectory;
+use mixdog_core_session::session::thread_settings::ArchiveStamps;
 
 fn port(error: impl std::fmt::Debug) -> RoomError {
     RoomError::Port(format!("session: {error:?}"))
@@ -34,11 +35,18 @@ fn missing(error: &CoreError) -> bool {
 pub struct DirectorySessions {
     directory: Arc<SessionDirectory>,
     state: Arc<dyn ThreadState>,
+    /// The archive stamps the host's own archive hands out too (Node's one `lastArchiveStamp`).
+    stamps: Arc<ArchiveStamps>,
 }
 
 impl DirectorySessions {
     pub fn new(directory: Arc<SessionDirectory>, state: Arc<dyn ThreadState>) -> Self {
-        Self { directory, state }
+        Self { directory, state, stamps: Arc::default() }
+    }
+
+    /// Shares the host's archive stamps (`ThreadSettingsParts::archive_stamps`).
+    pub fn with_archive_stamps(self, stamps: Arc<ArchiveStamps>) -> Self {
+        Self { stamps, ..self }
     }
 
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
@@ -86,13 +94,21 @@ impl DirectorySessions {
 
     /// The desktop's sidebar marks are the header's own positive stamps (`archivedAt`, `retiredAt`), which the thread rows read
     /// (`summary.rs` `catalog_row`). As `DesktopSessionMetadata.setArchived`/`setRetired` (`desktop-session-metadata.ts:133-171`):
-    /// a mark already in the asked state is left as it is, a new one is stamped now, a cleared one is removed.
+    /// a mark already in the asked state is left as it is, a new one is stamped now on the runtime's clock, a cleared one is removed.
+    /// An archive stamp never repeats (`Math.max(Date.now(), lastArchiveStamp + 1)`); a retirement is `Date.now()` as it is.
     async fn mark(&self, session_id: &str, key: &str, on: bool) -> Result<(), RoomError> {
         if self.stamped(session_id, key).await? == on {
             return Ok(());
         }
         if on {
-            self.patch(session_id, Map::from_iter([(key.to_owned(), json!(chrono::Utc::now().timestamp_millis()))])).await
+            let now = self.directory.deps().clock.now_ms();
+            let archive = key == "archivedAt";
+            let stamp = if archive { self.stamps.next(now) } else { now };
+            self.patch(session_id, Map::from_iter([(key.to_owned(), json!(stamp))])).await?;
+            if archive {
+                self.stamps.note(stamp);
+            }
+            Ok(())
         } else {
             self.patch_unset(session_id, Map::new(), vec![key.to_owned()]).await
         }
@@ -232,5 +248,31 @@ mod tests {
         // An empty conversation keeps no archive copy and clears in place.
         sessions.clear("home_bench", "arch_1").await.unwrap();
         assert_eq!(sessions.route("arch_1").await.unwrap(), None);
+    }
+
+    /// `DesktopSessionMetadata.setArchived`'s `Math.max(Date.now(), lastArchiveStamp + 1)`: two archives at one instant of the
+    /// runtime's clock take distinct, increasing stamps, and the counter is the one the host's own archive hands out from.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_archives_at_one_instant_take_distinct_increasing_stamps() {
+        use mixdog_core_session::session::Clock;
+        let rig = Rig::new();
+        let now = rig.clock.now_ms();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let stamps: Arc<ArchiveStamps> = Arc::default();
+        let sessions = DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory))).with_archive_stamps(stamps.clone());
+        for id in ["room_a", "room_b", "room_c"] {
+            sessions.create(id, &json!({})).await.unwrap();
+        }
+        let stamp = |id: &'static str| {
+            let sessions = &sessions;
+            async move { sessions.header(id).await.unwrap().unwrap().get("archivedAt").cloned() }
+        };
+        sessions.set_archived("room_a", true).await.unwrap();
+        sessions.set_archived("room_b", true).await.unwrap();
+        assert_eq!((stamp("room_a").await, stamp("room_b").await), (Some(json!(now)), Some(json!(now + 1))));
+        // The host's archive handed out a later stamp meanwhile: the rooms' next one follows it.
+        stamps.note(now + 5);
+        sessions.set_archived("room_c", true).await.unwrap();
+        assert_eq!(stamp("room_c").await, Some(json!(now + 6)));
     }
 }
