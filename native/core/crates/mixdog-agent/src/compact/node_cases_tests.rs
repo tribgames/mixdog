@@ -5,7 +5,6 @@
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ImageSource;
-use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
@@ -13,8 +12,6 @@ use serde_json::Value;
 use super::estimate::MediaMeter;
 use super::estimate::MessageMeter;
 use super::estimate::PartMeter;
-use super::ingest::IngestView;
-use super::ingest::should_exclude_ingest_message;
 use super::observation::stale_observations;
 use super::observation::supersede_observation;
 use super::redact::redact_tool_call_secrets;
@@ -120,14 +117,7 @@ fn tagged_completions_are_neither_instructions_nor_conversation_as_in_node() {
             case["actualUserInstruction"],
             "{case}"
         );
-        let view = IngestView {
-            role: Role::User,
-            first_text: case["message"]["content"].as_str().unwrap(),
-            meta_source: case["message"]["meta"]["source"].as_str().unwrap_or(""),
-            skill_body: false,
-            has_tool_calls: false,
-        };
-        assert_eq!(!should_exclude_ingest_message(&view), !case["ingestProjection"].as_array().unwrap().is_empty(), "{case}");
+        // The ingest projection is replayed through the memory ingest (`mixdog-services` `ingest_shape_node_cases_tests.rs`).
     }
 }
 
