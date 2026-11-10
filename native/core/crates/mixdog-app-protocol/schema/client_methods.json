@@ -1203,6 +1203,23 @@
       ],
       "type": "string"
     },
+    "ApprovalNotificationAction": {
+      "description": "A phone notification's button on an approval (today's `answerApprovalNotification`).",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "type": "string"
+    },
+    "ApprovalNotificationOutcome": {
+      "description": "What came of the button: `answered` (this answer resolved the approval), `settled` (it was answered already), `open` (Allow is not taken from a notification for it: the phone opens the app instead).",
+      "enum": [
+        "answered",
+        "settled",
+        "open"
+      ],
+      "type": "string"
+    },
     "ApprovalProvideSecretParams": {
       "description": "Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`); never part of a decision or a log record.",
       "properties": {
@@ -1418,7 +1435,7 @@
       "type": "object"
     },
     "BrowserStreamParams": {
-      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or stops this connection's stream of the browser session. The first stream of a session makes the core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's live-view signals name only a session it streams. `request` is the stream request (fit, quality) the core hands on to the host unchanged.",
+      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream([sessionId, options])`): `on` starts or renews this connection's subscription to the browser session with `request` (Node's `DesktopRemoteBrowserStreamOptions` `{maxWidth, maxHeight, fit?}`, checked as `normalizeRemoteBrowserStreamOptions` checks it); `on: false` ends it (Node's `null` options). A subscription lapses 4 s after its last renewal. On every change the core sends the host `host/browser/viewFrames{on:true, request}` with the largest options of the session's subscribers, and `{on:false}` when the last one ends; the phone's live-view signals name only a session it streams.",
       "properties": {
         "on": {
           "type": "boolean"
@@ -12305,6 +12322,91 @@
       "description": "Params of `remoteAccess/state`.",
       "type": "object"
     },
+    "RemoteCapabilities": {
+      "description": "The features Node's relay announced to a phone in its challenge, each true when this core serves it. Node offered every flag but `nativePush` always; `nativePush` only while the relay could deliver a native push (`relayNativePlatforms().length > 0`).",
+      "properties": {
+        "browserDrive": {
+          "description": "The remote browser pane may send the `viewport` control.",
+          "type": "boolean"
+        },
+        "browserFit": {
+          "description": "A take-over's fit is honored and frames are marked.",
+          "type": "boolean"
+        },
+        "browserSessionTabs": {
+          "description": "A conversation browser's tabs ride its frames and its tab controls are accepted.",
+          "type": "boolean"
+        },
+        "browserWebrtc": {
+          "description": "The WebRTC live view's version (Node's `REMOTE_WEBRTC_VERSION`); 0 when it is not served.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "fileDownloads": {
+          "description": "The host file download lane (`transfer/*`).",
+          "type": "boolean"
+        },
+        "hostDirectories": {
+          "description": "The host folder browser (`projectFs/browseDirs`).",
+          "type": "boolean"
+        },
+        "mediaE2ee": {
+          "description": "The encrypted HTTP media lane.",
+          "type": "boolean"
+        },
+        "nativePush": {
+          "description": "`remoteAccess/registerNativePush`: the relay this core's leg is on delivers native pushes.",
+          "type": "boolean"
+        },
+        "projectRecovery": {
+          "description": "Project file recovery (`projectFs/recovery`).",
+          "type": "boolean"
+        },
+        "remoteParity": {
+          "description": "The update, trash, browser-page release, deduplicated submit, preview and pull-request calls (`remoteParity`).",
+          "type": "boolean"
+        },
+        "routeAutoEffort": {
+          "description": "`autoEffort` in model selections.",
+          "type": "boolean"
+        },
+        "secretInput": {
+          "description": "A handoff secret typed on the phone (`approval/provideSecret`).",
+          "type": "boolean"
+        },
+        "termSizeOwner": {
+          "description": "Terminal resizes follow the size-owner claim.",
+          "type": "boolean"
+        },
+        "usageRequests": {
+          "description": "The usage ledger's request list.",
+          "type": "boolean"
+        },
+        "visualize": {
+          "description": "The agent visualize panel.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "browserDrive",
+        "browserFit",
+        "browserSessionTabs",
+        "browserWebrtc",
+        "fileDownloads",
+        "hostDirectories",
+        "mediaE2ee",
+        "nativePush",
+        "projectRecovery",
+        "remoteParity",
+        "routeAutoEffort",
+        "secretInput",
+        "termSizeOwner",
+        "usageRequests",
+        "visualize"
+      ],
+      "type": "object"
+    },
     "RequestId": {
       "anyOf": [
         {
@@ -12948,6 +13050,27 @@
         "office": {
           "$ref": "#/definitions/CapabilityState"
         },
+        "remote": {
+          "$ref": "#/definitions/RemoteCapabilities",
+          "default": {
+            "browserDrive": false,
+            "browserFit": false,
+            "browserSessionTabs": false,
+            "browserWebrtc": 0,
+            "fileDownloads": false,
+            "hostDirectories": false,
+            "mediaE2ee": false,
+            "nativePush": false,
+            "projectRecovery": false,
+            "remoteParity": false,
+            "routeAutoEffort": false,
+            "secretInput": false,
+            "termSizeOwner": false,
+            "usageRequests": false,
+            "visualize": false
+          },
+          "description": "What a paired phone may use: Node's relay challenge flags (`remote-relay-client-lifecycle.ts:117-151` at b6f10295a). Absent from a core that predates it; read that as every flag off."
+        },
         "voice": {
           "$ref": "#/definitions/CapabilityState"
         }
@@ -13291,6 +13414,13 @@
         "id": {
           "type": "string"
         },
+        "liveSeq": {
+          "default": 0,
+          "description": "The first seq published after this attach. A replay's frames are below it: they were published while the client was away (Node's relay sent a phone only what happened while it was connected). Absent from a core that predates it.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
         "mode": {
           "$ref": "#/definitions/SubscriptionMode"
         },
@@ -13462,6 +13592,67 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "ThreadApprovalAnswerNotificationParams": {
+      "description": "`thread/approval/answerNotification`: the approval the notification was about, in the thread it waits in.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/ApprovalNotificationAction"
+        },
+        "approvalId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "approvalId",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadApprovalAnswerNotificationResponse": {
+      "properties": {
+        "outcome": {
+          "$ref": "#/definitions/ApprovalNotificationOutcome"
+        }
+      },
+      "required": [
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "ThreadApprovalAnswerParams": {
+      "description": "`thread/approval/answer`: a card's decision on the approval request `approval_id` (the server request's id) of the thread it waits in, the `result` a server-request response would carry.",
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "result": true,
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "result",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadApprovalAnswerResponse": {
+      "description": "`accepted`: this decision resolved the request; `false` when it was resolved or resolving already (Node's `resolveToolApprovalForSession` result).",
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
+      ],
       "type": "object"
     },
     "ThreadApprovals": {
@@ -20730,6 +20921,22 @@
         "$ref": "#/definitions/ThreadAgentControlParams"
       },
       "result": true
+    },
+    "thread/approval/answer": {
+      "params": {
+        "$ref": "#/definitions/ThreadApprovalAnswerParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadApprovalAnswerResponse"
+      }
+    },
+    "thread/approval/answerNotification": {
+      "params": {
+        "$ref": "#/definitions/ThreadApprovalAnswerNotificationParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ThreadApprovalAnswerNotificationResponse"
+      }
     },
     "thread/archive": {
       "params": {
