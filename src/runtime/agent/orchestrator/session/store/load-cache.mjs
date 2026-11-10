@@ -8,6 +8,13 @@
  * preferred live snapshot, only the record's header ({ id, generation }) is
  * retained, not a second transcript. Retained documents are bounded by count
  * and by their record's bytes on disk.
+ *
+ * A log this process's open recorder knows in the state it is in now
+ * (ownLogGeneration), with no json beside it that could speak instead, is not
+ * replayed for its header when a live copy is preferred: the recorder's
+ * generation stands for it, as v1.4.5's own-commit verdict did. However large
+ * the log has grown and however long ago (or never) it was read here, a
+ * session this process is writing is never read back to answer for itself.
  */
 import { getPluginData } from '../../config.mjs';
 import { shareJsonStrings } from '../../../../shared/json-snapshot.mjs';
@@ -15,7 +22,7 @@ import { noteMemoryRelease } from '../../../../shared/idle-gc.mjs';
 import { parseSessionRecordStamp, resolveSessionRecordSync, sessionRecordStampSync } from './session-log-reader.mjs';
 import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
 import { loadLegacySession } from './legacy-session.mjs';
-import { bindLoadedSession } from './session-writers.mjs';
+import { bindLoadedSession, ownLogGeneration } from './session-writers.mjs';
 import { ABSENT_RECORD_STAMP } from './session-record.mjs';
 
 // Retained transcripts are bounded by count; headers are tiny and get their
@@ -26,7 +33,8 @@ const SESSION_LOAD_CACHE_LIMIT = 8;
 // the whole budget keeps only its validation header.
 const SESSION_LOAD_CACHE_MAX_CHARS = 8 * 1024 * 1024;
 const SESSION_LOAD_HEADER_LIMIT = 512;
-const _cache = new Map(); // id → { stamp, header, session|null, chars, released: WeakRef|null }
+// fromLog: the header is the log's (the json beside it did not speak).
+const _cache = new Map(); // id → { stamp, header, session|null, chars, released: WeakRef|null, fromLog }
 let _documents = 0;
 let _chars = 0;
 let _cacheDataDir = null;
@@ -108,6 +116,26 @@ function _filesOf(id) {
   return { jsonPath: sessionRecordPath(id), logPath: sessionLogRecordPath(id) };
 }
 
+// `{ log, json }`: a record stamp's part of each file.
+function stampParts(stamp) {
+  const cut = stamp.indexOf('|');
+  return { log: stamp.slice('log:'.length, cut), json: stamp.slice(cut + 1) };
+}
+
+const NO_JSON = 'json:-';
+
+// The header of `id`'s log under `stamp` when this process's open recorder
+// knows the log in that state and the log is what speaks for the id: there is
+// no json beside it, or the json is the very one the cached log header
+// (`cached`, may be absent) was read beside; otherwise null.
+function _ownLogHeader(id, logPath, cached, stamp) {
+  const now = stampParts(stamp);
+  const logSpeaks = now.json === NO_JSON || (cached?.fromLog === true && stampParts(cached.stamp).json === now.json);
+  if (!logSpeaks) return null;
+  const generation = ownLogGeneration(id, logPath, now.log);
+  return generation === null ? null : { id, generation };
+}
+
 /**
  * `{ exists, session }` for `id`: `exists` false only when neither file is
  * there; `session` null for a record that is there and holds no session of
@@ -131,6 +159,10 @@ export function _readStoredSessionCached(id, { preferInMemory = null } = {}) {
   }
   const cached = _cache.get(id);
   if (cached?.stamp === stamp) {
+    // Used again: the last to go when headers are dropped (_put), so the
+    // sessions asked about most are not the ones read again.
+    _cache.delete(id);
+    _cache.set(id, cached);
     const preferred = preferInMemory?.(cached.header);
     if (preferred) {
       _release(cached);
@@ -138,6 +170,14 @@ export function _readStoredSessionCached(id, { preferInMemory = null } = {}) {
     }
     const doc = cached.session ?? cached.released?.deref() ?? null;
     if (doc) return { exists: true, session: doc };
+  } else if (preferInMemory) {
+    const header = _ownLogHeader(id, files.logPath, cached, stamp);
+    const preferred = header && preferInMemory(header);
+    if (preferred) {
+      // A cached transcript is of an earlier state: only the header goes on.
+      _put(id, { stamp, header, session: null, chars: 0, released: null, fromLog: true });
+      return { exists: true, session: preferred };
+    }
   }
   let outcome;
   try {
@@ -168,7 +208,14 @@ export function _readStoredSessionCached(id, { preferInMemory = null } = {}) {
   }
   if (after === stamp) {
     const retained = preferred ? null : session;
-    _put(id, { stamp, header, session: retained, chars: retained ? recordBytes(stamp) : 0, released: null });
+    _put(id, {
+      stamp,
+      header,
+      session: retained,
+      chars: retained ? recordBytes(stamp) : 0,
+      released: null,
+      fromLog: outcome.kind === 'log' || outcome.kind === 'orphan',
+    });
   } else {
     _drop(id);
   }

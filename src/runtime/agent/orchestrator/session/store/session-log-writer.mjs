@@ -59,7 +59,13 @@ import {
   SESSION_LOG_SUFFIX,
   sha1Hex,
 } from './session-log-format.mjs';
-import { legacySessionId, legacyStanding, parseSessionLog, sessionFromLog } from './session-log-reader.mjs';
+import {
+  legacySessionId,
+  legacyStanding,
+  parseSessionLog,
+  recordStampPart,
+  sessionFromLog,
+} from './session-log-reader.mjs';
 
 export const SESSION_LOG_ERRORS = Object.freeze({
   /** The log is not the one this copy was recorded on, or the claim is gone. */
@@ -633,7 +639,10 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
   options.claim.assertHeld();
   let fd = openSync(logPath, 'r+');
   let log;
+  // The stat the replay is proven to be of (unchanged across the read), or null.
+  let known = null;
   try {
+    const opened = fstatSync(fd, { bigint: true });
     const bytes = readFileSync(fd);
     log = parseSessionLog(bytes);
     if (!log.valid) throw logError(SESSION_LOG_ERRORS.INVALID, `log has no valid base: ${logPath}`);
@@ -646,12 +655,22 @@ export function openSessionLog({ logPath, expect = null, messages = null, ...opt
       cutTornTail(fd, logPath, bytes, log.tornTail.offset);
       log.size = log.tornTail.offset;
       log.tornTail = null;
+    } else {
+      const read = fstatSync(fd, { bigint: true });
+      if (recordStampPart(read) === recordStampPart(opened)) known = read;
     }
   } catch (err) {
     if (fd !== null) closeSync(fd);
     throw err;
   }
-  const recorder = new SessionLogRecorder({ logPath, fd, log, refs: log.messages, options: recorderOptions(options) });
+  const recorder = new SessionLogRecorder({
+    logPath,
+    fd,
+    log,
+    refs: log.messages,
+    options: recorderOptions(options),
+    known,
+  });
   if (expect) {
     try {
       recorder.adopt(expect, messages);
@@ -681,7 +700,7 @@ function repairDamagedLog(logPath, log, claim) {
 }
 
 export class SessionLogRecorder {
-  constructor({ logPath, fd, log, refs, options }) {
+  constructor({ logPath, fd, log, refs, options, known = null }) {
     this.logPath = logPath;
     this._jsonPath = join(dirname(logPath), `${basename(logPath, SESSION_LOG_SUFFIX)}.json`);
     this.sessionId = log.sessionId;
@@ -705,6 +724,7 @@ export class SessionLogRecorder {
     this._closed = false;
     this._closedHard = false;
     this._reset(log.logId, log.seq, log.size, log.header, refs);
+    if (known) this._know(known, this._generation());
   }
 
   _reset(logId, seq, size, header, refs) {
@@ -719,6 +739,13 @@ export class SessionLogRecorder {
     for (const [key, json] of diskHeaderEntries(header, this._options.transientKeys)) this._strings.set(key, json);
     this._refs = refs.slice();
     this._settle(this._refs);
+    // The log's record-stamp part (recordStampPart) at which this recorder
+    // knows exactly what the file holds, and the generation the log holds
+    // there: its own whole read of it, then each of its batches acknowledged
+    // right on top of the last one. Only while the file stays open: a new
+    // file starts with none.
+    this._knownLast = null;
+    this._knownGeneration = 0;
   }
 
   /**
@@ -868,6 +895,70 @@ export class SessionLogRecorder {
   /** Last acknowledged (fsynced) position: { logId, seq, end }. */
   get acked() {
     return { logId: this.logId, seq: this._ackedSeq, end: this._end };
+  }
+
+  /**
+   * The generation the log holds at `current` (a record stamp's log part, as
+   * a reader sees the file now) when that is the last state this recorder
+   * knows; otherwise null. The open file's inode cannot be reused, so an
+   * equal part is this very file, unchanged since. What a reader held before
+   * is not asked: the recorder read the whole file when it opened it, so a
+   * session that was written many times since its last read, or was never
+   * read here, is vouched for the same (a 247 MB log was read whole every two
+   * seconds, 2,279 MB in 20 s, by a process that had written all of it).
+   */
+  knownGeneration(current) {
+    if (this.finished || this._fd === null || current !== this._knownLast) return null;
+    // `finished` only tells of a loss a write already noticed: the claim is
+    // asked here, so a loss nobody noticed yet does not vouch for the log. The
+    // strict check fails closed: a claim that cannot be proven (its metadata
+    // unreadable, or no strict check at all: a TypeError here) proves nothing.
+    try {
+      this._options.claim.assertHeldStrict();
+    } catch {
+      this._forgetKnown();
+      return null;
+    }
+    return this._knownGeneration;
+  }
+
+  // The generation the recorded header holds, as a load of the log reads it.
+  _generation() {
+    const value = this.recordedHeader('generation');
+    return typeof value === 'number' ? value : 0;
+  }
+
+  _know(st, generation) {
+    this._knownLast = recordStampPart(st);
+    this._knownGeneration = generation;
+  }
+
+  _forgetKnown() {
+    this._knownLast = null;
+  }
+
+  // The stat of the open log, or null when it cannot be had.
+  _openStat() {
+    try {
+      return fstatSync(this._fd, { bigint: true });
+    } catch {
+      return null;
+    }
+  }
+
+  // A batch acknowledged. `written`: the file's stat taken right after the
+  // batch was written, before the fsync was awaited, or null when the batch
+  // did not land on a known state. The state it left is known only when the
+  // file ends where the batch does and is still exactly `written` now: a
+  // write by anyone else while the fsync ran (even of the same length)
+  // changes its mtime/ctime, and then nothing is known.
+  _noteAcked(written, generation) {
+    const st = written ? this._openStat() : null;
+    if (st && Number(written.size) === this._end && recordStampPart(st) === recordStampPart(written)) {
+      this._know(st, generation);
+    } else {
+      this._forgetKnown();
+    }
   }
 
   get seq() {
@@ -1193,6 +1284,7 @@ export class SessionLogRecorder {
         const start = failed ? failed.start : this._end;
         const buffer = failed ? Buffer.concat([failed.buffer, fresh]) : fresh;
         const lastSeq = this._seq;
+        const generation = this._generation();
         const waiters = this._waiters;
         this._waiters = [];
         this._unacked = { buffer, start, lastSeq, waiters };
@@ -1227,11 +1319,15 @@ export class SessionLogRecorder {
           this._goStale(err);
           return;
         }
+        const landsOn = this._openStat();
+        const onKnown = landsOn !== null && recordStampPart(landsOn) === this._knownLast;
+        let written = null;
         try {
           // Written on the thread (into the page cache), fsynced off it: a
           // write never outlives the descriptor it was issued on (see
           // _releaseForRename).
           writeBatchSync(this._fd, buffer, start);
+          if (onKnown) written = this._openStat();
           await syncFd(this._fd);
         } catch (err) {
           if (this._closedHard) return;
@@ -1245,6 +1341,7 @@ export class SessionLogRecorder {
         this._unacked = null;
         this._end = start + buffer.length;
         this._ackedSeq = lastSeq;
+        this._noteAcked(written, generation);
         for (const waiter of waiters) waiter.resolve(this.acked);
       }
     } finally {
@@ -1306,6 +1403,7 @@ export class SessionLogRecorder {
         throw err;
       }
       if (buffer.length) {
+        this._forgetKnown();
         writeAllSync(this._fd, buffer, start);
         syncFdSync(this._fd);
         this._end = start + buffer.length;
@@ -1529,6 +1627,7 @@ export class SessionLogRecorder {
   // the thread — so no write can land in a file that reuses the descriptor.
   _releaseForRename(step) {
     if (!step.log || this._fd === null) return;
+    this._forgetKnown();
     closeSync(this._fd);
     this._fd = null;
   }

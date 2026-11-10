@@ -123,6 +123,14 @@ export function sessionWriterHeldHere(id) {
   return _held.get(path)?.intact() === true && !_releasing.has(path);
 }
 
+/** sessionWriterHeldHere for a verdict that lets work be skipped (the session
+ *  load's replay): a claim file whose metadata cannot be read is not shown to
+ *  be the locked one, so it does not count as held. */
+export function sessionWriterHeldStrictlyHere(id) {
+  const path = _claimPath(id);
+  return _held.get(path)?.intactStrict() === true && !_releasing.has(path);
+}
+
 /** Ids of the sessions whose claim this process holds now (none on its way out). */
 export function heldSessionWriterIds() {
   return [..._held.keys()].filter((path) => !_releasing.has(path)).map((path) => basename(path, '.lock'));
