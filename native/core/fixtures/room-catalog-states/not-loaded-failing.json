@@ -1,0 +1,68 @@
+{
+  "scenario": "not-loaded-failing",
+  "listFirst": false,
+  "failListingAfter": 0,
+  "calls": [
+    "create",
+    "update"
+  ],
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-not-loaded-failing-VhRbI6\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "room": {
+    "sessionId": "sess_room_mwae9zd53d985b11",
+    "roomId": "mwae9zd53d985b11"
+  },
+  "steps": [
+    {
+      "step": "create",
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mwae9zd53d985b11",
+            "roomId": "mwae9zd53d985b11"
+          }
+        }
+      ]
+    },
+    {
+      "step": "update",
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mwae9zd53d985b11",
+            "name": "Room Renamed",
+            "members": [
+              "alpha",
+              "beta",
+              "gamma"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta",
+              "gamma": "Gamma"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

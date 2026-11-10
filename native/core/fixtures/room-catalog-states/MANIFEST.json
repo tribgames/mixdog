@@ -1,0 +1,64 @@
+{
+  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --harness <real-turn-harness dir>",
+  "exact": true,
+  "fileCount": 5,
+  "files": [
+    {
+      "bytes": 6643,
+      "path": "loaded-failing.json",
+      "sha256": "622088f1274474e49617ab99989953062b0b1c838b7663be4d100466bdbdd7ae"
+    },
+    {
+      "bytes": 3389,
+      "path": "loaded-reconnect.json",
+      "sha256": "f5b553e334cd4c6e7f5c61f0ad57b63e401dd27fbb4e6a0e11243dfe85ed71a9"
+    },
+    {
+      "bytes": 15776,
+      "path": "loaded.json",
+      "sha256": "b9ee1815e5515c790bc377dcd01a34e9f24cbaa16b748108b8c33eef7c9c0815"
+    },
+    {
+      "bytes": 1478,
+      "path": "not-loaded-failing.json",
+      "sha256": "34be80510bbde0599131ca79b30095850acbcca3d9f24584eb13d75a7f14fbd0"
+    },
+    {
+      "bytes": 6206,
+      "path": "not-loaded.json",
+      "sha256": "14c1732847f55dd3828a21bf6fc4f23b7b2644527f7561cab3568ac328df63a4"
+    }
+  ],
+  "harness": {
+    "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
+    "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
+    "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
+  "scenarios": [
+    "loaded",
+    "loaded-reconnect",
+    "not-loaded",
+    "not-loaded-failing",
+    "loaded-failing"
+  ],
+  "set": "room-catalog-states",
+  "totalBytes": 33492
+}
