@@ -4,7 +4,7 @@
 // wrote with Node's rows of that scenario, whole and in order, normalised by lib/tool-failure-rows.mjs as the recorder normalised
 // Node's (session_id by the scenario's own thread, ts, tool_ms, and the workspace path: each run has its own folder, of the recorded
 // path's length). Every scenario is compared; the full run (the default) is the verdict.
-//   MIXDOG_RECORDER_SCRATCH=<the recording's scratch parent> node replay-tool-failures.mjs --mixdogd <exe> [--only <n>,<n>]
+//   MIXDOG_RECORDER_SCRATCH=<the recording's scratch parent> node replay-tool-failures.mjs --mixdogd <exe> --mixdogd-held <exe built with --features replay-controls> [--only <n>,<n>]
 // The exit code is 1 on any difference.
 import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -72,8 +72,10 @@ async function loadLibs() {
  * Runs one scenario on a fresh core and returns the file it wrote. `root` is this scenario's folder under the run's folder. The core runs
  * in a job object of its own (lib/job-run.mjs): every process it or its tools start is a member, and the members still in it when the
  * core exits are returned (and ended) for the caller to compare with Node's; ending the core's host on any failure path ends the job.
+ * `held` ({ name, rows, fileAtStop }, for a holdFlushTimer scenario) holds the core's failure log timer and checks, before the stop,
+ * that it queued `rows` rows and its file is `fileAtStop`.
  */
-async function runScenario(scenario, root, ws, bin) {
+async function runScenario(scenario, root, ws, bin, held = null) {
   const home = join(root, 'home');
   const p = { data: join(home, '.mixdog', 'data'), runtime: join(root, 'runtime'), appData: join(home, 'AppData', 'Roaming'), local: join(home, 'AppData', 'Local'), tmp: join(root, 'tmp'), bin: join(root, 'bin') };
   for (const d of Object.values(p)) mkdirSync(d, { recursive: true });
@@ -98,6 +100,10 @@ async function runScenario(scenario, root, ws, bin) {
     writeFileSync(join(p.bin, 'js-runtime.json'), JSON.stringify({ program: process.execPath, packageRoot: repo }));
     const env = {};
     for (const [k, v] of Object.entries(process.env)) if (!DROP.test(k)) env[k] = v;
+    // A holdFlushTimer scenario runs a `replay-controls` build (`--mixdogd-held`) told to hold its failure log's timer: it writes the
+    // count of rows queued while held to this file (mixdog-core-run failure_log.rs `replay_held`).
+    const heldReport = join(root, 'flush-held.txt');
+    if (held) env.MIXDOG_FAILURE_FLUSH_HELD = heldReport;
     Object.assign(env, { MIXDOG_DATA_DIR: p.data, MIXDOG_HOME: join(home, '.mixdog'), MIXDOG_CONFIG_DIR: join(home, '.mixdog'), MIXDOG_DESKTOP_USER_DATA: join(p.appData, 'Mixdog'), MIXDOG_RUNTIME_ROOT: p.runtime, MIXDOG_SKIP_USER_DATA_BACKUP: '1', HOME: home, USERPROFILE: home, APPDATA: p.appData, LOCALAPPDATA: p.local, TEMP: p.tmp, TMP: p.tmp, NO_PROXY: '127.0.0.1,localhost' });
     // REPLAY_STDERR=<file> keeps the core's stderr for a scenario that does not replay.
     const stderrFile = process.env.REPLAY_STDERR ? openSync(process.env.REPLAY_STDERR, 'a') : 'ignore';
@@ -186,6 +192,15 @@ async function runScenario(scenario, root, ws, bin) {
     }
     await deadline(client.close(), 30_000, 'the client closing');
     client = null;
+    const file = join(p.data, 'history', 'tool-failures.jsonl');
+    if (held) {
+      // As on Node (results[i].atStop): just before the stop, the core has queued the scenario's rows with its timer held, and its
+      // file is what Node's was then; a row found after the exit is then the exit flush's.
+      const queued = existsSync(heldReport) ? readFileSync(heldReport, 'utf8') : 'none';
+      if (queued !== String(held.rows)) throw new Error(`${held.name}: the core reports ${queued} rows queued with its flush timer held before the stop, Node queued ${held.rows} (is ${bin} a replay-controls build?)`);
+      const atStop = existsSync(file) ? readFileSync(file, 'utf8') : '';
+      if (atStop !== held.fileAtStop) throw new Error(`${held.name}: the core's failures file before the stop is ${JSON.stringify(atStop)}, Node's was ${JSON.stringify(held.fileAtStop)}: the row was not still queued`);
+    }
     const stopping = new AbortController();
     const stopped = await deadline(
       fetch(`http://127.0.0.1:${doc.core.control.port}/mgmt/stop`, { method: 'POST', headers: { authorization: `Bearer ${doc.endpoints.session.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }), signal: stopping.signal }),
@@ -196,7 +211,6 @@ async function runScenario(scenario, root, ws, bin) {
     await deadline(exited, 30_000, 'the core exiting');
     const job = readJobReport(join(root, 'job.json'));
     if (job.exitCode !== 0) throw new Error(`the core exited with ${job.exitCode}`);
-    const file = join(p.data, 'history', 'tool-failures.jsonl');
     // What the job still held when the core exited (ended since by the job host), compared with Node's by the caller.
     return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '', left: leftAtExit(job, { workspace: ws, dataDir: p.data }), rawLeft: job.left, requests };
   } finally {
@@ -219,6 +233,7 @@ async function runScenario(scenario, root, ws, bin) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const bin = resolve(arg('--mixdogd'));
+  const heldBin = arg('--mixdogd-held', null) && resolve(arg('--mixdogd-held'));
   if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent the recording was made under (the workspace path length is part of the rows)');
   // This run's own folder; the workspace is `<it>\ws`, the same shape (and length) as the recorder's `<scratch>\tf-rec-XXXXXX\ws`.
   const base = mkdtempSync(join(scratch, 'tf-rpl-'));
@@ -232,7 +247,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (JSON.stringify(scenarios(ws)) !== JSON.stringify(golden.scenarios)) throw new Error('the scenarios built for this workspace are not the recorded ones');
     for (const [i, scenario] of golden.scenarios.entries()) {
       if (only && !only.includes(i)) continue;
-      const { threadId, dataDir, text, left, rawLeft, requests } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
+      const held = scenario.holdFlushTimer ? { name: `scenario ${i} (${scenario.name})`, rows: golden.rows[i].length, fileAtStop: golden.results[i].atStop.fileAtStop } : null;
+      if (held && !heldBin) throw new Error(`scenario ${i} holds the failure log's timer: --mixdogd-held must name a mixdogd built with --features replay-controls`);
+      const { threadId, dataDir, text, left, rawLeft, requests } = await runScenario(scenario, join(base, `s${i}`), ws, held ? heldBin : bin, held);
       // The core must ask the provider as often as Node's session sent: an extra request takes a scripted reply meant for the turn.
       if (requests.length !== golden.results[i].sends) {
         bad += 1;

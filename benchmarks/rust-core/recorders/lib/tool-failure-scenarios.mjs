@@ -176,9 +176,9 @@ export function scenarios(workspace) {
     },
     {
       // The row is queued and the process is stopped before its 1000 ms flush is due: the recording holds that timer (it never fires),
-      // so the row reaches the file only through the process's exit hooks (agent-trace-io.mjs:214-221). The core's replay runs it with
-      // the core's own timer; the core's exit flush with its timer held is shown by the daemon crate's
-      // `a_failure_row_still_queued_at_the_stop_is_written_by_the_exit_flush_as_node_s`, against this recording.
+      // so the row reaches the file only through the process's exit hooks (agent-trace-io.mjs:214-221). The core's replay holds the
+      // core's timer the same way (a `replay-controls` build, failure_log.rs `replay_held`) and checks before the stop that the row is
+      // queued and the file is still Node's file at its stop.
       name: 'a failed call whose row is still queued when the process stops',
       holdFlushTimer: true,
       replies: [{ text: 'go', calls: [{ id: 'q1', name: 'read', args: {} }] }, DONE],

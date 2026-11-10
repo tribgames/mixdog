@@ -12,7 +12,8 @@ path = "src/main.rs"
 workspace = true
 
 [features]
-# The controls a replay of the download recording drives a spawned core with (mixdog-workspace, replay_controls.rs). Never in an ordinary build.
+# The controls a replay drives a spawned core with: the download recording's (mixdog-workspace, replay_controls.rs) and the tool-failure
+# recording's held flush timer (mixdog-core-run, failure_log.rs `replay_held`). Never in an ordinary build.
 replay-controls = ["mixdog-app-server-daemon/replay-controls"]
 
 [dependencies]
