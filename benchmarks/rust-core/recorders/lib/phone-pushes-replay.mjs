@@ -426,6 +426,13 @@ async function notices() {
   return { shown, raised };
 }
 
+/** Recorded scenarios the core's own tests replay against this golden, at the session where the answers meet
+ *  (`mixdog-core-session/src/session/approval_notification_tests.rs`, `room_approval_tests.rs`). */
+const REPLAYED_BY_CORE_TESTS = {
+  'approval-answers': 'a_notifications_allow_and_deny_answer_as_nodes',
+  'approval-races': 'answers_that_meet_at_the_session_are_arbitrated_as_nodes, a_rooms_answer_that_meets_another_is_arbitrated_as_nodes',
+};
+
 /** Plays every scenario (or `only`), each beside the others; returns the differences per scenario. */
 export async function replayPushes({ exe, golden, only }) {
   browserGlobals();
@@ -449,6 +456,9 @@ export async function replayPushes({ exe, golden, only }) {
     },
     'notice-reconnect': async () => ({ node: { shown: node['notice-reconnect'].shown }, core: await noticeReconnect(exe) }),
   };
+  // Every recorded scenario is replayed somewhere: here, or by the core test named for it. One that is neither fails the replay.
+  const unreplayed = Object.keys(node).filter((name) => !(name in cases) && !(name in REPLAYED_BY_CORE_TESTS));
+  if (unreplayed.length) throw new Error(`recorded scenario(s) with no replay: ${unreplayed.join(', ')}`);
   const names = only ? [only] : Object.keys(cases);
   try {
     const results = await Promise.all(names.map((name) => cases[name]()));
