@@ -16,7 +16,6 @@ use mixdog_app_protocol::rpc::FeedStamp;
 use mixdog_app_protocol::rpc::JsonRpcNotification;
 use mixdog_app_protocol::v2::feed::FeedSnapshotParams;
 use mixdog_core_api::domain::process::ExitStatus;
-use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_core_api::error::CoreError;
@@ -187,6 +186,9 @@ struct Entry {
     /// How often the pump has stopped for a hold. Tests only.
     #[cfg(test)]
     stopped: tokio::sync::watch::Sender<u64>,
+    /// Runs once a claim's hold is taken (`ProcessFeeds::hold_new_output`). Tests only.
+    #[cfg(test)]
+    after_mark: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Told the bytes of output the pump has taken, after each output event went through the relay buffer (`u64::MAX` when it ends):
     /// a terminal tab's activity changes wait for it (`TerminalTabs::relay_order`).
     taken: OnceLock<Arc<dyn Fn(u64) + Send + Sync>>,
@@ -329,6 +331,8 @@ impl ProcessFeeds {
             hold: tokio::sync::watch::Sender::new(Vec::new()),
             #[cfg(test)]
             stopped: tokio::sync::watch::Sender::new(0),
+            #[cfg(test)]
+            after_mark: Mutex::new(None),
             taken: OnceLock::new(),
         });
         entries.insert(handle.to_owned(), Arc::clone(&entry));
@@ -368,10 +372,15 @@ impl ProcessFeeds {
 
     /// Holds back what the process of `handle` writes from now on, and every relay flush and the exit, but not the output already in its
     /// feed (see [`FeedHold`]); `None` when it has no feed. A process that is gone writes nothing more.
+    /// The cut and the hold are one step under the feed's lock: output the shell writes after the cut is never taken unheld.
     pub(crate) fn hold_new_output(&self, handle: &str) -> Option<FeedHold> {
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
-        let offset = self.manager.output_mark(&entry.handle).unwrap_or(u64::MAX);
-        Some(entry.hold_from(offset))
+        let held = self.manager.output_mark_then(&entry.handle, |offset| entry.hold_from(offset)).unwrap_or_else(|_| entry.hold_from(u64::MAX));
+        #[cfg(test)]
+        if let Some(seam) = entry.after_mark.lock().unwrap().take() {
+            seam();
+        }
+        Some(held)
     }
 
     /// Retires the feed of a disposed tab: a new tab of the same id gets a feed of its own, and this one stays attached until it is evicted like
@@ -430,14 +439,9 @@ impl ProcessFeeds {
         let handle = &entry.handle;
         // `taken` counts from the output offset of the first event, so it is the feed's own offset (the tab's `emitted`) even when the
         // ring has dropped the start.
-        let (mut events, mut taken) = match self.manager.subscribe_at(handle, Some(0)) {
-            Ok(events) => events,
-            // The ring already dropped its first events: start at the oldest one it holds.
-            Err(ProcessError::ReplayUnavailable { oldest }) => match self.manager.subscribe_at(handle, Some(oldest)) {
-                Ok(events) => events,
-                Err(_) => return self.finish(entry),
-            },
-            Err(_) => return self.finish(entry),
+        // From the oldest event the ring holds, found and subscribed in one step: an eviction in between cannot end the pump.
+        let Ok((mut events, mut taken)) = self.manager.subscribe_oldest(handle) else {
+            return self.finish(entry);
         };
         // The window a late subscriber is given: Node's replay buffer, the last 200,000 UTF-16 units (a cut may fall inside a non-BMP
         // character, which then reads as U+FFFD at the window's start).
@@ -556,6 +560,11 @@ impl ProcessFeeds {
     /// How often the pump of the current feed of `handle` has stopped for a hold, as it changes.
     pub(crate) fn stops_of(&self, handle: &str) -> tokio::sync::watch::Receiver<u64> {
         self.entries.lock().unwrap().get(handle).expect("the feed exists").stopped.subscribe()
+    }
+
+    /// The next claim's hold on `handle` runs `seam` once it is taken.
+    pub(crate) fn after_mark(&self, handle: &str, seam: impl FnOnce() + Send + 'static) {
+        *self.entries.lock().unwrap().get(handle).expect("the feed exists").after_mark.lock().unwrap() = Some(Box::new(seam));
     }
 }
 
@@ -737,6 +746,82 @@ mod tests {
         drop(after);
         pump.await;
         assert!(entry.publisher.feed.position().seq >= 2, "published once the unanswered request went");
+    }
+
+    /// A claim's cut and hold are one step: output the shell writes right after the cut (the seam writes it as soon as the hold is
+    /// taken, and waits until the pump has either sent it or stopped for the hold) does not reach the feed before the owner's
+    /// announcement can go, as in Node, which resized and announced before it read any later output (terminal-manager.ts:485-488).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn output_written_right_after_a_claims_cut_is_held() {
+        use mixdog_core_api::domain::common::AbsPath;
+        use mixdog_core_api::domain::process::CommandSpec;
+        use mixdog_core_api::domain::process::EnvSpec;
+        use mixdog_core_api::domain::process::OutputMode;
+        use mixdog_core_api::domain::process::ProcessOwner;
+        use mixdog_core_api::domain::process::SpawnRequest;
+        use mixdog_core_api::mock::FeedTap;
+        const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("claim-cut-{}", std::process::id()));
+        let command = if cfg!(windows) {
+            let script = "$null = [Console]::In.ReadLine(); [Console]::Out.Write('before'); $null = [Console]::In.ReadLine(); \
+                          [Console]::Out.Write('after'); $null = [Console]::In.ReadLine()";
+            CommandSpec::Argv { program: "powershell".to_owned(), args: vec!["-NoProfile".to_owned(), "-Command".to_owned(), script.to_owned()] }
+        } else {
+            CommandSpec::Argv { program: "sh".to_owned(), args: vec!["-c".to_owned(), "read a; printf before; read b; printf after; read c".to_owned()] }
+        };
+        manager
+            .spawn(SpawnRequest {
+                handle: handle.clone(),
+                command,
+                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                pty: None,
+                stdin_piped: true,
+                output: OutputMode::Merged,
+                owner: ProcessOwner::Internal,
+                time_limit: None,
+            })
+            .await
+            .unwrap();
+        let scoped = Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default()));
+        let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
+        drop(feeds.open_terminal(handle.as_str(), || None));
+        let raw = scoped.find(&FeedId::from(format!("process:{handle}"))).expect("the raw feed exists");
+        let tap = Arc::new(FeedTap::attach(&raw));
+        let text = |frames: &[Value]| {
+            frames
+                .iter()
+                .filter(|frame| frame["method"] == "process/outputDelta")
+                .map(|frame| String::from_utf8(STANDARD.decode(frame["params"]["bytesB64"].as_str().unwrap()).unwrap()).unwrap())
+                .collect::<String>()
+        };
+        manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+        tokio::time::timeout(DEADLINE, tap.notifications_until(|frames| text(frames).contains("before"))).await.expect("the first output went");
+
+        let mut stops = feeds.stops_of(handle.as_str());
+        let stopped = *stops.borrow_and_update();
+        let (settled, settle) = std::sync::mpsc::channel();
+        let watcher = Arc::clone(&tap);
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = stops.wait_for(|stops| *stops > stopped) => {}
+                _ = watcher.notifications_until(|frames| text(frames).contains("after")) => {}
+            }
+            let _ = settled.send(());
+        });
+        let writer = manager.clone();
+        let written = handle.clone();
+        feeds.after_mark(handle.as_str(), move || {
+            writer.write_input(&written, b"2\n".to_vec()).unwrap();
+            settle.recv_timeout(DEADLINE).expect("the pump sent the later output or stopped for the hold within 60 s");
+        });
+        let held = feeds.hold_new_output(handle.as_str()).expect("the feed exists");
+        let now = tokio::time::timeout(DEADLINE, tap.notifications_until(|_| true)).await.unwrap();
+        assert!(!text(&now).contains("after"), "output written after the cut went out before the hold: {}", text(&now));
+        drop(held);
+        tokio::time::timeout(DEADLINE, tap.notifications_until(|frames| text(frames).contains("after"))).await.expect("the later output goes once the hold ends");
+        let _ = manager.kill(&handle);
     }
 
     /// With no phone reading the relay feed, output does not enter the relay buffer (remote-relay-push-lanes.ts:98-101): the raw feed

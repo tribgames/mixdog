@@ -1505,6 +1505,8 @@ mod lock_order {
     use std::time::Duration;
     use std::time::Instant;
 
+    use mixdog_core_api::domain::process::OutputStream;
+
     use super::*;
     use crate::manager::ProcessConfig;
 
@@ -1771,6 +1773,93 @@ mod lock_order {
         let log = logged.until("the pump's end", |log| log.contains(&Seen::Taken(u64::MAX)));
         let change = log.iter().position(|seen| *seen == Seen::Change(Some(ActivityState::Idle))).expect("the prompt's change went");
         assert_eq!(log[..change].last(), Some(&Seen::Taken(total)), "the change goes when the pump has taken the whole output: {log:?}");
+    }
+
+    /// The ring drops the oldest event the pump would start at between finding it and subscribing there (the producer, unsubscribed,
+    /// evicts it: the feed's refusal seam pushes output at exactly that point). The pump finds and subscribes in one step, so it keeps
+    /// pumping: a later chunk's change goes when the pump takes that chunk, not at a pump's end.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_eviction_while_the_pump_subscribes_does_not_end_it() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("term_evicting_{}", std::process::id()));
+        let logged = Logged::new();
+        let tab = relay_tab(Arc::clone(&logged) as Arc<dyn TerminalEvents>, manager.clone(), handle.as_str());
+        manager
+            .spawn_with(
+                piped(
+                    &handle,
+                    "$null = [Console]::In.ReadLine(); [Console]::Out.Write(('x' * 70000) + [char]27 + ']697;P' + [char]7); \
+                     $null = [Console]::In.ReadLine(); [Console]::Out.Write('z' + [char]27 + ']697;C' + [char]7); $null = [Console]::In.ReadLine()",
+                    "read a; printf '%070000d\\033]697;P\\007' 0; read b; printf 'z\\033]697;C\\007'; read c",
+                ),
+                SpawnOptions { ring_bytes: Some(1024), filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+            )
+            .await
+            .unwrap();
+        // The first write, all in the feed (read as it comes, so the reader never waits on this reader).
+        let mut watch = manager.subscribe(&handle, None).unwrap();
+        manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+        let mut read = 0;
+        while read < 70000 {
+            match tokio::time::timeout(Duration::from_secs(60), watch.next()).await.expect("the first write arrives within 60 s") {
+                Some(ProcessEvent::Output { bytes, .. }) => read += bytes.len(),
+                other => panic!("the first write, not {other:?}"),
+            }
+        }
+        drop(watch);
+        assert!(matches!(manager.subscribe(&handle, Some(0)), Err(ProcessError::ReplayUnavailable { .. })), "the ring dropped the start");
+        let feed = manager.feed_of(&handle).unwrap();
+        let (seam_feed, mut producer) = (Arc::clone(&feed), TabFilter::new(Arc::clone(&tab)));
+        feed.on_refused(move || {
+            let bytes = producer.filter(&[b'y'; 2048]);
+            seam_feed.admit(OutputStream::Stdout, &bytes, || producer.admitted());
+        });
+        pump(&manager, &tab, &logged);
+        logged.until("the first write's change", |log| log.contains(&Seen::Change(Some(ActivityState::Idle))));
+        manager.write_input(&handle, b"2\n".to_vec()).unwrap();
+        let log = logged.until("the later chunk's change", |log| log.contains(&Seen::Change(Some(ActivityState::Running))));
+        let at = log.iter().position(|seen| *seen == Seen::Change(Some(ActivityState::Running))).unwrap();
+        let total = manager.output_pushed(&handle).unwrap();
+        assert_eq!(log[..at].last(), Some(&Seen::Taken(total)), "the later chunk's change goes when the pump takes it: {log:?}");
+        let _ = manager.kill(&handle);
+    }
+
+    /// The exit line is an event of its own: with the output before the exit unread when the shell ends (the pump not yet running), the
+    /// tab's end goes once the pump has taken that output and before it takes the exit line (Node: the text, `activity.exit()`, then the
+    /// exit line, terminal-manager.ts:378-384), however the feed merged the output before it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_tabs_end_goes_between_the_output_before_the_exit_and_the_exit_line() {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let handle = ProcessHandle::from(format!("term_exit_line_{}", std::process::id()));
+        let logged = Logged::new();
+        let tab = relay_tab(Arc::clone(&logged) as Arc<dyn TerminalEvents>, manager.clone(), handle.as_str());
+        let mut request = piped(&handle, "[Console]::Out.Write('x' + [char]27 + ']697;P' + [char]7)", "printf 'x\\033]697;P\\007'");
+        request.pty = Some(PtySize { cols: 80, rows: 24 });
+        let ending = Arc::clone(&tab);
+        manager
+            .spawn_with(
+                request,
+                SpawnOptions {
+                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    on_exit: Some(Box::new(move |exit| ending.exited(exit))),
+                    ..SpawnOptions::default()
+                },
+            )
+            .await
+            .unwrap();
+        let feed = manager.feed_of(&handle).unwrap();
+        tokio::time::timeout(Duration::from_secs(60), feed.ended()).await.expect("the shell ended within 60 s");
+        let total = manager.output_pushed(&handle).unwrap();
+        let line = match manager.info(&handle).unwrap().exit.expect("the shell ended").status {
+            ExitStatus::Code(code) => format!("\r\n[process exited with code {code}]\r\n").len() as u64,
+            ExitStatus::Signal(signal) => format!("\r\n[process exited with code {}]\r\n", 128 + signal).len() as u64,
+        };
+        pump(&manager, &tab, &logged);
+        let log = logged.until("the pump's end", |log| log.contains(&Seen::Taken(u64::MAX)));
+        let end = log.iter().position(|seen| *seen == Seen::Change(None)).expect("the tab's end went");
+        let taken = log[..end].iter().rev().find(|seen| matches!(seen, Seen::Taken(_)));
+        assert_eq!(taken, Some(&Seen::Taken(total - line)), "the tab's end goes once the output before the exit is taken: {log:?}");
+        assert_eq!(log.get(end + 1), Some(&Seen::Taken(total)), "the exit line is taken after the tab's end: {log:?}");
     }
 
     /// A chunk the paused producer holds at the feed's gate has not been read (Node's paused PTY read nothing): its marker is not applied,

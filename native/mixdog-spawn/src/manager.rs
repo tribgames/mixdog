@@ -769,7 +769,9 @@ fn wait_and_finish(
     let status = status.unwrap_or(mixdog_core_api::domain::process::ExitStatus::Code(-1));
     let exit = ProcessExit { status, killed };
     if let Some(hook) = on_exit {
-        proc.feed.push_output(OutputStream::Pty, &hook(&exit));
+        // An event of its own, made under the feed's lock: what the hook orders after the output before the exit (a tab's end) and
+        // before its line keeps that place for the feed's consumer.
+        proc.feed.push_last_output(OutputStream::Pty, || hook(&exit));
     }
     proc.exit_order
         .store(inner.exit_counter.fetch_add(1, Ordering::AcqRel), Ordering::Release);
@@ -1031,21 +1033,24 @@ impl LocalProcessManager {
         Ok(self.inner.lookup(handle)?.feed.pushed())
     }
 
-    /// The output offset reached so far, cut there: output after it comes in events of its own (see `Feed::mark`).
-    pub(crate) fn output_mark(&self, handle: &ProcessHandle) -> Result<u64, ProcessError> {
-        Ok(self.inner.lookup(handle)?.feed.mark())
+    /// The output offset reached so far, cut there (output after it comes in events of its own), given to `then` under the feed's lock:
+    /// no output enters between the cut and what `then` does (see `Feed::mark_then`).
+    pub(crate) fn output_mark_then<T>(&self, handle: &ProcessHandle, then: impl FnOnce(u64) -> T) -> Result<T, ProcessError> {
+        Ok(self.inner.lookup(handle)?.feed.mark_then(then))
     }
 
-    /// [`ProcessManager::subscribe`] with the output offset where the subscription's first event starts (more than zero when the
-    /// ring has dropped the start of the output).
-    pub(crate) fn subscribe_at(
-        &self,
-        handle: &ProcessHandle,
-        from_seq: Option<u64>,
-    ) -> Result<(Box<dyn EventSource<ProcessEvent>>, u64), ProcessError> {
-        let subscription = self.inner.lookup(handle)?.feed.subscribe(from_seq)?;
+    /// A subscription from the oldest event the ring still holds, with the output offset where its first event starts (more than zero
+    /// when the ring has dropped the start of the output), taken in one step (see `Feed::subscribe_oldest`).
+    pub(crate) fn subscribe_oldest(&self, handle: &ProcessHandle) -> Result<(Box<dyn EventSource<ProcessEvent>>, u64), ProcessError> {
+        let subscription = self.inner.lookup(handle)?.feed.subscribe_oldest();
         let start = subscription.start();
         Ok((Box::new(subscription), start))
+    }
+
+    /// The feed of `handle`. Tests only.
+    #[cfg(all(test, feature = "core-test"))]
+    pub(crate) fn feed_of(&self, handle: &ProcessHandle) -> Result<Arc<crate::feed::Feed>, ProcessError> {
+        Ok(Arc::clone(&self.inner.lookup(handle)?.feed))
     }
 
     /// Input accepted but not yet written to the process.
