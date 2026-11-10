@@ -1814,7 +1814,13 @@ maxItemFieldBytes: number,
 /**
  * Outbound non-snapshot frame bound.
  */
-maxFrameBytes: number, queueBytes: number, controlReserveBytes: number, eventBudgetBytes: number, maxSnapshotBytes: number, ringBytes: number, appRingBytes: number,
+maxFrameBytes: number, queueBytes: number, controlReserveBytes: number, eventBudgetBytes: number,
+/**
+ * The ordered class's event room (events never dropped, P §6.5), apart from `queueBytes`:
+ * one event of any size enters an empty room; behind it, events queue while the queued bytes
+ * stay within this bound, and the connection closes 4000 when the peer has not drained them.
+ */
+orderedQueueBytes: number, maxSnapshotBytes: number, ringBytes: number, appRingBytes: number,
 /**
  * Terminal feed replay ring, in characters (`REPLAY_BUFFER_LIMIT`).
  */

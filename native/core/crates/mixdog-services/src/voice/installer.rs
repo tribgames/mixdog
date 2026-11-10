@@ -368,9 +368,8 @@ struct Waits {
     same_pid_since: i64,
 }
 
-#[allow(clippy::disallowed_types, reason = "the open lock file is held by the install")]
 enum Attempt {
-    Held(std::fs::File),
+    Held(mixdog_fsio::File),
     /// The lock was reclaimed: try again at once.
     Retry(Waits),
     Wait(Waits),
@@ -448,15 +447,13 @@ pub fn release_held_locks() {
 
 /// The held lock: closed and unlinked by [`ManagedVoiceInstaller::release`]; dropped any other way
 /// (a cancelled install), it unlinks itself.
-#[allow(clippy::disallowed_types, reason = "the open lock file is held by the install")]
 struct Lock {
-    file: Option<std::fs::File>,
+    file: Option<mixdog_fsio::File>,
     path: PathBuf,
 }
 
-#[allow(clippy::disallowed_types, reason = "the open lock file is held by the install")]
 impl Lock {
-    fn held(file: std::fs::File, path: PathBuf) -> Self {
+    fn held(file: mixdog_fsio::File, path: PathBuf) -> Self {
         held().push(path.clone());
         Self { file: Some(file), path }
     }
