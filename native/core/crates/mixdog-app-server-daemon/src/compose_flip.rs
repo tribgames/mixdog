@@ -2025,7 +2025,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 )),
                 search: session_search,
                 memory: Arc::new(mixdog_core_session::session::MemoryCloseIngest::new(Some(memory_module.clone()))),
-                sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf(sensitive.clone())),
+                sensitive: Arc::new(mixdog_core_session::session::store::SensitiveMarksOf::new(sensitive.clone())),
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
                 staged_originals: Arc::new(mixdog_core_session::session::staged_originals::StagedOriginals::new(&data_dir)),

@@ -271,7 +271,8 @@ pub(crate) enum JobDone {
     Encoded {
         id: u64,
         generation: u64,
-        result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>), CoreError>,
+        /// The encoding, the live items and notes, and the record as the log stores it when that differs.
+        result: Result<(EncodedRecord, Vec<Shown>, Vec<Note>, Option<Record>), CoreError>,
     },
     PromptSession { session: Vec<String>, publish: bool },
     PromptPersisted(Vec<String>),
@@ -1270,10 +1271,14 @@ impl SessionActor {
         directory.unload(&self.id, &self.cell, self.close_ingest());
     }
 
-    /// Today's `ingestSessionIntoMemory(session)` over the model context.
+    /// Today's `ingestSessionIntoMemory(session)` over the model context, each message through the sensitive projection:
+    /// the memory database is written to disk, so a sensitive value goes there as its marker. Node passes the loaded
+    /// session's own messages (`memory-ingest.mjs:18`) and so writes the value itself into the memory database; fixed on
+    /// both sides (`redactSensitiveMessages(session.id, messages)`).
     fn close_ingest(&self) -> futures::future::BoxFuture<'static, ()> {
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -1287,7 +1292,8 @@ impl SessionActor {
             let Ok(rows) = context.read().await else {
                 return;
             };
-            let messages = rows.into_iter().map(|(_, body)| body).collect();
+            let messages: Vec<Value> = rows.into_iter().map(|(_, body)| body).collect();
+            let messages = context.sensitive.redacted(&context.thread, &messages);
             memory.ingest(&context.thread, &cwd, messages).await;
         })
     }
@@ -1382,7 +1388,9 @@ impl SessionActor {
         let turn = self.run.as_ref().map(|slot| slot.transcript.clone());
         let at = self.deps.clock.now_ms();
         let submitted = self.deps.lanes.cpu.submit(&CancellationToken::new(), move |lane| {
-            let result = deps.codec.encode(lane, &record).map(|encoded| {
+            // The log holds the record as the sensitive projection stores it; the live rows show it as committed.
+            let stored = deps.sensitive.stored(&thread, &record);
+            let result = deps.codec.encode(lane, stored.as_ref().unwrap_or(&record)).map(|encoded| {
                 let Record::Item(row) = &*record else {
                     return (encoded, Vec::new(), Vec::new());
                 };
@@ -1417,6 +1425,7 @@ impl SessionActor {
                     .collect();
                 (encoded, shown, notes)
             });
+            let result = result.map(|(encoded, shown, notes)| (encoded, shown, notes, stored));
             let _ = jobs.send(JobDone::Encoded {
                 id: entry,
                 generation,
@@ -1443,7 +1452,7 @@ impl SessionActor {
                     return;
                 }
                 match result {
-                    Ok((encoded, shown, notes)) => {
+                    Ok((encoded, shown, notes, stored)) => {
                         if let Some(entry) = self.outbox.get_mut(id) {
                             if let Change::Record { display, .. } = &mut entry.change
                                 && !shown.is_empty()
@@ -1452,7 +1461,7 @@ impl SessionActor {
                             }
                             entry.notes.extend(notes);
                         }
-                        self.outbox.encoded(id, encoded);
+                        self.outbox.encoded(id, encoded, stored);
                     }
                     Err(error) => {
                         if let Some(entry) = self.outbox.remove(id) {
@@ -2628,6 +2637,7 @@ impl SessionActor {
             items: super::quota_lane::transcript_rows(self.acked.window.iter().map(|row| row.item.as_ref())),
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -2832,6 +2842,7 @@ impl SessionActor {
         let (tx, rx) = oneshot::channel();
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -4881,6 +4892,7 @@ impl SessionActor {
             let retry_turn_id = options.retry_turn_id.clone().filter(|id| !id.is_empty());
             let context = ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -5184,6 +5196,7 @@ impl SessionActor {
             ready: input_rx.clone(),
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: input_iid.clone(),
@@ -5235,6 +5248,7 @@ impl SessionActor {
             port,
             context: ModelContext {
                 store: self.deps.store.clone(),
+                sensitive: self.deps.sensitive.clone(),
                 lanes: self.deps.lanes,
                 thread: self.id.clone(),
                 input: input_iid.clone(),

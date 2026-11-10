@@ -324,6 +324,7 @@ impl SessionHandle {
         let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -399,6 +400,7 @@ impl SessionHandle {
         let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -820,6 +822,7 @@ impl ThreadHandle for SessionHandle {
             "thread/messages/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
                 let context = super::run::ModelContext {
                     store: self.deps.store.clone(),
+                    sensitive: self.deps.sensitive.clone(),
                     lanes: self.deps.lanes,
                     thread: self.id.clone(),
                     input: mixdog_core_api::ids::ItemId::from(String::new()),

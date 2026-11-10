@@ -41,6 +41,8 @@ use mixdog_core_ports::ports::threads::Section;
 #[derive(Clone)]
 pub struct ModelContext {
     pub(crate) store: Arc<dyn ThreadStore>,
+    /// The thread's sensitive marks: the rows read back in full, and the calls' marks.
+    pub(crate) sensitive: Arc<dyn super::seams::SensitiveMarks>,
     pub(crate) lanes: SessionLanes,
     pub(crate) thread: ThreadId,
     /// The run's input row, which the read leaves out.
@@ -49,11 +51,26 @@ pub struct ModelContext {
 
 impl ModelContext {
     /// The lineage's model rows since its last compaction, oldest first, before the run's input
-    /// row (today's `session.messages` at ask start). Read once the input row is durable.
+    /// row (today's `session.messages` at ask start). Read once the input row is durable. A row
+    /// the log stores redacted reads as it was committed while this process holds it, as Node's
+    /// in-memory session does: the stored copy is the only one a marker replaced.
     pub async fn read(&self) -> Result<Vec<(ItemId, Value)>, CoreError> {
         let mut rows = read_context(&self.store, &self.lanes, &self.thread).await?;
         rows.retain(|(iid, _)| *iid != self.input);
+        self.sensitive.held(&self.thread, &mut rows);
         Ok(rows)
+    }
+
+    /// `rememberSensitiveValues(sessionId, executionCalls)` for this thread (`loop/tool-phase.mjs:49`).
+    pub fn remember_sensitive(&self, calls: &[Value]) -> bool {
+        self.sensitive.remember(&self.thread, calls)
+    }
+
+    /// A call's arguments as this thread stores them (`redactSensitiveToolCall`, `sensitive-projection.mjs:62`).
+    pub fn redact_arguments(&self, arguments: &Value) -> Value {
+        let call = serde_json::json!({ "toolCalls": [{ "arguments": arguments }] });
+        let stored = self.sensitive.redacted(&self.thread, std::slice::from_ref(&call));
+        stored.first().and_then(|message| message.pointer("/toolCalls/0/arguments")).cloned().unwrap_or_else(|| arguments.clone())
     }
 }
 

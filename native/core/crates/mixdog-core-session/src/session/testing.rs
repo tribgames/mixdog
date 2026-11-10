@@ -1718,7 +1718,7 @@ impl Rig {
             effort: self.prewarms.clone(),
             search: self.ingests.clone(),
             memory: self.closes.clone(),
-            sensitive: Arc::new(super::store::SensitiveMarksOf(self.sensitive.clone())),
+            sensitive: Arc::new(super::store::SensitiveMarksOf::new(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),

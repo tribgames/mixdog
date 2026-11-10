@@ -4388,6 +4388,81 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
     eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
 }
 
+/// A value a call marked sensitive (`rememberSensitiveValues`, before the assistant row carrying it is committed) is in
+/// no record the log is handed: the row is stored through the sensitive projection (`_messageForDisk`). The thread's
+/// model context still reads the row as it was committed, as Node's loaded session keeps it (`sensitive-values.mjs:7-9`).
+#[tokio::test(start_paused = true)]
+async fn a_sensitive_value_never_reaches_the_log_and_the_model_context_keeps_it() {
+    const CODE: &str = "482913";
+    let rig = Rig::new();
+    let committed = json!({
+        "role": "assistant",
+        "content": "",
+        "toolCalls": [{ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } }],
+    });
+    let body = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let body = body.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            assert!(run.context.remember_sensitive(&[body["toolCalls"][0].clone()]), "the fill's value is marked");
+            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "fill the code", "op-1").await;
+    let stored = eventually_on!(&[&rig.store.committed], || {
+        rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
+            mixdog_store::schema::record::Record::Item(row) if row.iid.as_str() == "a-1" => Some(row.body),
+            _ => None,
+        })
+    })
+    .await;
+    let mixdog_store::schema::blob::Slot::Inline(stored) = stored else { panic!("an inline body") };
+    for record in rig.store.records(&handle.id) {
+        let bytes = serde_json::to_string(&record.1).expect("record json");
+        assert!(!bytes.contains(CODE), "record {} holds the value: {bytes}", record.0);
+    }
+    assert_eq!(stored, rig.sensitive.redact_message(handle.id.as_str(), &committed), "stored as the projection stores it");
+    let context = directory.model_context(&handle.id).read().await.expect("context");
+    let row = context.iter().find(|(iid, _)| iid.as_str() == "a-1").expect("the assistant row");
+    assert_eq!(row.1, committed, "the model context keeps the row as committed");
+}
+
+/// The memory ingest of an unloading thread (`ingestSessionIntoMemory`) goes to a database on disk: a value the thread
+/// marked sensitive goes there as the marker, though the model context holds it whole (Node bug, fixed on both sides:
+/// `memory-ingest.mjs` passes the loaded session's messages as they are).
+#[tokio::test(start_paused = true)]
+async fn an_unloading_thread_goes_to_memory_with_its_sensitive_values_as_the_marker() {
+    const CODE: &str = "482913";
+    let rig = Rig::new();
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    let body = json!({ "role": "assistant", "content": "", "toolCalls": [fill.clone()] });
+    rig.set_script(Arc::new(move |run| {
+        let (body, fill) = (body.clone(), fill.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.context.remember_sensitive(&[fill]);
+            let row = ItemCommit { iid: ItemId::from("a-1"), role: Some("assistant".into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, &format!("the code is {CODE}"), "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    subscribe(&handle);
+    handle.cell.unsubscribed();
+    eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
+    let ingested = serde_json::to_string(&lock(&rig.closes.seen)[0].1).expect("messages json");
+    assert!(!ingested.contains(CODE), "the memory ingest holds the value: {ingested}");
+    assert!(ingested.contains("[redacted]"), "{ingested}");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_saved_provider_state_reaches_the_next_turn_whole_and_a_clear_drops_it() {
     use mixdog_core_api::domain::provider::ProviderState;

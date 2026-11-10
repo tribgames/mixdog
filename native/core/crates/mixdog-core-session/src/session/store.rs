@@ -614,12 +614,112 @@ impl super::seams::TurnIngest for SessionSearchTurns {
     }
 }
 
-/// [`super::seams::SensitiveMarks`] over the process's sensitive-value store.
-pub struct SensitiveMarksOf(pub Arc<mixdog_services::memory::sensitive::SensitiveStore>);
+/// [`super::seams::SensitiveMarks`] over the process's sensitive-value store, with the bodies the store's projection
+/// redacted, as they were committed: thread → item id → body. Like the store's values, they stay for the life of the
+/// process (Node's loaded session holds the same text in memory, `sensitive-values.mjs:12`), and nothing writes them.
+pub struct SensitiveMarksOf {
+    store: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
+    held: std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<String, Value>>>,
+}
+
+impl SensitiveMarksOf {
+    pub fn new(store: Arc<mixdog_services::memory::sensitive::SensitiveStore>) -> Self {
+        Self { store, held: std::sync::Mutex::default() }
+    }
+
+    fn held_bodies(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, std::collections::HashMap<String, Value>>> {
+        self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
 
 impl super::seams::SensitiveMarks for SensitiveMarksOf {
     fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
-        Box::new(self.0.on_marked(thread.as_str(), move |_| listener()))
+        Box::new(self.store.on_marked(thread.as_str(), move |_| listener()))
+    }
+
+    fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool {
+        self.store.remember(thread.as_str(), calls)
+    }
+
+    fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {
+        use mixdog_store::schema::blob::Slot;
+        use mixdog_store::schema::record::Record;
+        let session = thread.as_str();
+        // A thread with no marked value holds no redacted body either (both live for the process).
+        if self.store.version(session) == 0 {
+            return None;
+        }
+        let mut out = record.clone();
+        // (item id, the body as committed when the projection changed it).
+        let mut bodies: Vec<(String, Option<Value>)> = Vec::new();
+        let mut project = |iid: &str, body: &mut Value| {
+            let next = self.store.redact_message(session, body);
+            if next == *body {
+                bodies.push((iid.to_owned(), None));
+            } else {
+                bodies.push((iid.to_owned(), Some(std::mem::replace(body, next))));
+            }
+        };
+        let mut prompt_changed = false;
+        match &mut out {
+            Record::Item(row) => {
+                if let Slot::Inline(body) = &mut row.body {
+                    project(row.iid.as_str(), body);
+                }
+                // The prompt-history text is the row's own text as it displays (`content`'s text): stored as its content is.
+                if let Some(Slot::Inline(prompt)) = &mut row.prompt
+                    && let Value::String(next) = self.store.redact_content(session, &Value::String(prompt.clone()))
+                    && next != *prompt
+                {
+                    *prompt = next;
+                    prompt_changed = true;
+                }
+            }
+            Record::Amend(amend) => {
+                if let Slot::Inline(body) = &mut amend.body {
+                    project(amend.iid.as_str(), body);
+                }
+            }
+            Record::Compacted(compacted) => {
+                if let Slot::Inline(entries) = &mut compacted.replacement {
+                    for entry in entries {
+                        project(&entry.iid, &mut entry.body);
+                    }
+                }
+            }
+            _ => return None,
+        }
+        let changed = prompt_changed || bodies.iter().any(|(_, body)| body.is_some());
+        let mut held = self.held_bodies();
+        let thread_held = held.entry(session.to_owned()).or_default();
+        for (iid, body) in bodies {
+            match body {
+                Some(body) => {
+                    thread_held.insert(iid, body);
+                }
+                // A later body of the row (an amend) that holds no value is stored as it is and read as stored.
+                None => {
+                    thread_held.remove(&iid);
+                }
+            }
+        }
+        changed.then_some(out)
+    }
+
+    fn redacted(&self, thread: &ThreadId, messages: &[Value]) -> Vec<Value> {
+        self.store.redact_messages(thread.as_str(), messages)
+    }
+
+    fn held(&self, thread: &ThreadId, rows: &mut [(ItemId, Value)]) {
+        let held = self.held_bodies();
+        let Some(bodies) = held.get(thread.as_str()) else {
+            return;
+        };
+        for (iid, body) in rows {
+            if let Some(full) = bodies.get(iid.as_str()) {
+                body.clone_from(full);
+            }
+        }
     }
 }
 

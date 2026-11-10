@@ -470,6 +470,7 @@ impl SessionActor {
         }
         let context = ModelContext {
             store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
             lanes: self.deps.lanes,
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),

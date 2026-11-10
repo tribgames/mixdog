@@ -404,6 +404,7 @@ impl SessionDirectory {
     pub fn model_context(&self, id: &ThreadId) -> super::run::ModelContext {
         super::run::ModelContext {
             store: self.inner.deps.store.clone(),
+            sensitive: self.inner.deps.sensitive.clone(),
             lanes: self.inner.deps.lanes,
             thread: id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),

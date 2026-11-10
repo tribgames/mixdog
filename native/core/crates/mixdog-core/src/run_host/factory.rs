@@ -563,6 +563,8 @@ struct PortObserver {
     /// The run's token: once it is cancelled the interruption's record is closed (Node finalizes the interrupted turn in the
     /// abort's own step, so a call that settles after the abort is closed as cancelled).
     cancel: tokio_util::sync::CancellationToken,
+    /// The thread's model context, whose sensitive marks a tool batch's execution calls set.
+    context: mixdog_core_session::session::run::ModelContext,
 }
 
 impl PortObserver {
@@ -704,6 +706,11 @@ impl RunObserver for PortObserver {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
             }
+            // On the loop's own task, before the assistant turn carrying the calls is committed (its encode reads the marks).
+            RunEvent::ExecutionCalls(calls) => {
+                let calls: Vec<Value> = calls.iter().map(|call| json!({ "id": call.id, "name": call.name, "arguments": call.arguments })).collect();
+                self.context.remember_sensitive(&calls);
+            }
             RunEvent::ToolCalls { calls, .. } => {
                 {
                     let mut observed = lock(&self.observed);
@@ -739,6 +746,26 @@ impl RunObserver for PortObserver {
 
     fn retract_text(&self, _retraction: TextRetraction) -> Retracted {
         Retracted::Refused
+    }
+}
+
+/// The run's failure log with each failed call's arguments through the thread's sensitive projection: the log is a file
+/// (`history/tool-failures.jsonl`), so a failed sensitive fill's value goes there as its marker. Node summarizes the
+/// arguments as they are (`agent-trace-format.mjs:526`, `summarizeToolArgs`), which keeps a fill's `input.text`, and so
+/// writes the value to disk: fixed on both sides (`redactSensitiveToolCall(sessionId, { arguments: toolArgs })`).
+struct SensitiveFailures {
+    inner: Arc<dyn mixdog_agent::env::ToolFailureLog>,
+    context: mixdog_core_session::session::run::ModelContext,
+}
+
+impl mixdog_agent::env::ToolFailureLog for SensitiveFailures {
+    fn failed(&self, mut call: mixdog_agent::env::FailedCall) {
+        call.tool_args = self.context.redact_arguments(&call.tool_args);
+        self.inner.failed(call);
+    }
+
+    fn stall_abort(&self, ctx: serde_json::Map<String, Value>) {
+        self.inner.stall_abort(ctx);
     }
 }
 
@@ -951,6 +978,7 @@ async fn drive(
     let Assembled {
         provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
+    let failures = failures.map(|inner| Arc::new(SensitiveFailures { inner, context: context.clone() }) as Arc<dyn mixdog_agent::env::ToolFailureLog>);
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
     // before the first save.
@@ -1126,7 +1154,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone() });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone(), cancel: cancel.clone(), context: context.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
