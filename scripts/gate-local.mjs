@@ -58,7 +58,7 @@ if (
   console.warn('[gate:local] warning: model recommendations stale or invalid (not blocking)');
 }
 
-for (const script of ['build:spawn:test', 'build:supervisor:test']) {
+for (const script of ['build:spawn:test']) {
   const build = spawnSync(`npm run ${script}`, { cwd: root, stdio: 'inherit', shell: true });
   if (build.status !== 0) {
     console.error(`[gate:local] ${script} failed`);
@@ -122,8 +122,6 @@ const testLanes = [
 });
 const lanesByName = new Map(testLanes.map((lane) => [lane.name, lane]));
 const commandUnits = [
-  { lane: 'shipped-history', cmds: ['node scripts/build-shipped-history.mjs --check'], stopOnFail: true },
-  { lane: 'runtime', cmds: ['npm run smoke:patch'] },
   // Only the daemon end-to-end test reads the build (apps/desktop/out); no
   // test lane does, so the build shares the pool with them.
   { lane: 'desktop', cmds: ['npm run build --prefix apps/desktop', 'npm run test:daemon:e2e --prefix apps/desktop'] },

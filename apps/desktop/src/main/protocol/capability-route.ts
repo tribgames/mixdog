@@ -9,9 +9,9 @@ import {
   desktopSessionState,
   sessionReducer,
 } from '../../../../../packages/protocol-client/src/index.ts';
-import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
-import { resolveAction } from '../../../../../src/standalone/protocol-session/action-route.mjs';
-import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/method-args.generated.mjs';
+import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
+import { resolveAction } from '../../../../../packages/protocol-client/src/actions/action-route.mjs';
+import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
 import type {
   DesktopCapability,
   DesktopCapabilityReadRequest,

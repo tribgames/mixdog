@@ -403,7 +403,6 @@ export function runtimePackageFileForFingerprint(file) {
     return true;
   }
   const path = relative(repoRoot, resolvedFile).replaceAll(sep, '/');
-  if (path === 'src/tui/dev' || path.startsWith('src/tui/dev/')) return false;
   if (!path.startsWith('scripts/')) return true;
   const script = path.slice('scripts/'.length);
   if (script.startsWith('bench/')) return false;

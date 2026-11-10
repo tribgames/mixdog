@@ -38,7 +38,7 @@ test('a CJS bundle of the model catalog loads and warms it through its embedded 
   t.after(() => rmSync(outDir, { recursive: true, force: true }));
   const bundle = join(outDir, 'catalog.cjs');
   await build({
-    entryPoints: [join(rootDir, 'src', 'runtime', 'shared', 'llm', 'model-catalog.mjs')],
+    entryPoints: [join(rootDir, 'apps', 'desktop', 'src', 'shared', 'core-src', 'runtime', 'shared', 'llm', 'model-catalog.mjs')],
     outfile: bundle,
     define: await modelCatalogWorkerDefine(),
     bundle: true,

@@ -9,7 +9,11 @@ import { build } from 'esbuild';
 const WORKER_ENTRY = join(
   dirname(fileURLToPath(import.meta.url)),
   '..',
+  'apps',
+  'desktop',
   'src',
+  'shared',
+  'core-src',
   'runtime',
   'shared',
   'llm',

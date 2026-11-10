@@ -11,7 +11,7 @@ import { sessionIdOf } from './session-host-transport';
 import { reconcileSessionProjection, reconcileTranscriptItems } from './state-delta';
 import { canonicalJson } from '../shared/remote-view-resume';
 import { estimateRetainedChars } from '../shared/retained-value-weight';
-import { transcriptItemsDigest } from '../../../../src/standalone/session-state-patch.mjs';
+import { transcriptItemsDigest } from '../shared/core-src/standalone/session-state-patch.mjs';
 
 const UNWATCHED_PROJECTION_MAX_BYTES = 16 * 1024 * 1024;
 const UNWATCHED_PROJECTION_MAX_ENTRIES = 64;

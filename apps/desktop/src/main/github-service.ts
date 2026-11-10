@@ -2,7 +2,7 @@ import { executeGithubRequest } from '../../../../src/runtime/github/client.mjs'
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 import { childEnvironment } from './child-environment';
 import { requiredRepositoryCwd } from './git-contract.mjs';
-import { builtinFeatureActive, withGrandfatheredBuiltins } from '../../../../src/session-runtime/builtin-features.mjs';
+import { builtinFeatureActive, withGrandfatheredBuiltins } from '../shared/core-src/session-runtime/builtin-features.mjs';
 import type { MixdogConfigModule } from './settings-store';
 
 export function githubRequest(cwd: unknown, input: unknown) {

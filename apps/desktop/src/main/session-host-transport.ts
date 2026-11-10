@@ -5,7 +5,7 @@ import type {
   DesktopTranscriptHistoryRequest,
   SessionSnapshot,
 } from '../shared/contract';
-import { SESSION_READ_ACTION_SET } from '../../../../src/standalone/session-protocol.mjs';
+import { SESSION_READ_ACTION_SET } from '../shared/core-src/standalone/session-protocol.mjs';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
 import { isSessionId } from './desktop-state';
