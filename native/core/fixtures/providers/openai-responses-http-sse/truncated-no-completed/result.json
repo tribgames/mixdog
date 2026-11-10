@@ -1,8 +1,8 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "message": "OpenAI HTTP fallback ended before response.completed (text=17 chars, toolCalls=0)",
     "name": "Error",
+    "message": "OpenAI HTTP fallback ended before response.completed (text=17 chars, toolCalls=0)",
     "status": null
-  }
+  },
+  "dispatchedToolCalls": []
 }

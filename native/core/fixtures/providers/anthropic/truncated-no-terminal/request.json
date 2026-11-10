@@ -1,295 +1,295 @@
 {
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": {
+        "host": "api.anthropic.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "Anthropic/JS 0.137.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-timeout": "600",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "0.137.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "anthropic-version": "2023-06-01",
+        "x-api-key": "<redacted>",
+        "content-type": "application/json",
+        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "477"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "x-stainless-retry-count",
+        "x-stainless-timeout",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "anthropic-version",
+        "x-api-key",
+        "content-type",
+        "anthropic-beta",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": {
+        "host": "api.anthropic.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "Anthropic/JS 0.137.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-timeout": "600",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "0.137.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "anthropic-version": "2023-06-01",
+        "x-api-key": "<redacted>",
+        "content-type": "application/json",
+        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "477"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "x-stainless-retry-count",
+        "x-stainless-timeout",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "anthropic-version",
+        "x-api-key",
+        "content-type",
+        "anthropic-beta",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": {
+        "host": "api.anthropic.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "Anthropic/JS 0.137.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-timeout": "600",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "0.137.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "anthropic-version": "2023-06-01",
+        "x-api-key": "<redacted>",
+        "content-type": "application/json",
+        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "477"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "x-stainless-retry-count",
+        "x-stainless-timeout",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "anthropic-version",
+        "x-api-key",
+        "content-type",
+        "anthropic-beta",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/messages",
+      "headers": {
+        "host": "api.anthropic.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "user-agent": "Anthropic/JS 0.137.0",
+        "x-stainless-retry-count": "0",
+        "x-stainless-timeout": "600",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "0.137.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "anthropic-version": "2023-06-01",
+        "x-api-key": "<redacted>",
+        "content-type": "application/json",
+        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "477"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "user-agent",
+        "x-stainless-retry-count",
+        "x-stainless-timeout",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "anthropic-version",
+        "x-api-key",
+        "content-type",
+        "anthropic-beta",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}"
+    }
+  ],
   "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "anthropic/truncated-no-terminal",
+      "seed": 307407157,
+      "samples": [
+        {
+          "n": 1,
+          "value": 0.7325452077202499,
+          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt"
+        },
+        {
+          "n": 2,
+          "value": 0.18587891454808414,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs"
+        },
+        {
+          "n": 3,
+          "value": 0.56417141482234,
+          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt"
+        },
+        {
+          "n": 4,
+          "value": 0.6073115030303597,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs"
+        },
+        {
+          "n": 5,
+          "value": 0.5152845238335431,
+          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt"
+        },
+        {
+          "n": 6,
+          "value": 0.955740456469357,
+          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs"
+        },
+        {
+          "n": 7,
+          "value": 0.8407179983332753,
+          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt"
+        }
+      ]
+    },
     "cryptoRandom": {
       "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
       "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
-      "samples": [],
-      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9"
+      "samples": []
     },
-    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value",
+    "retrySleeps": [
+      {
+        "seq": 1,
+        "delayMs": 219,
+        "precedesAttempt": 2,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_defaultAbortSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ]
+      },
+      {
+        "seq": 2,
+        "delayMs": 1043,
+        "precedesAttempt": 3,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_defaultAbortSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ]
+      },
+      {
+        "seq": 3,
+        "delayMs": 2365,
+        "precedesAttempt": 4,
+        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+        "chain": [
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_defaultAbortSleep",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
+          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
+        ]
+      }
+    ],
     "otherProductTimerSites": [
       "src/runtime/agent/orchestrator/providers/anthropic-sse-watchdogs.mjs#Object.armFirstMessageTimer",
       "src/runtime/agent/orchestrator/providers/anthropic-sse-watchdogs.mjs#Object.resetIdleTimer",
       "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
     ],
-    "retrySleeps": [
-      {
-        "chain": [
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_defaultAbortSleep",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
-        ],
-        "delayMs": 219,
-        "precedesAttempt": 2,
-        "seq": 1,
-        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
-      },
-      {
-        "chain": [
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_defaultAbortSleep",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
-        ],
-        "delayMs": 1043,
-        "precedesAttempt": 3,
-        "seq": 2,
-        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
-      },
-      {
-        "chain": [
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#_defaultAbortSleep",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>",
-          "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#sleepWithAbort"
-        ],
-        "delayMs": 2365,
-        "precedesAttempt": 4,
-        "seq": 3,
-        "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#<anonymous>"
-      }
-    ],
-    "rng": {
-      "algorithm": "mulberry32",
-      "samples": [
-        {
-          "n": 1,
-          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt",
-          "value": 0.7325452077202499
-        },
-        {
-          "n": 2,
-          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
-          "value": 0.18587891454808414
-        },
-        {
-          "n": 3,
-          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt",
-          "value": 0.56417141482234
-        },
-        {
-          "n": 4,
-          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
-          "value": 0.6073115030303597
-        },
-        {
-          "n": 5,
-          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt",
-          "value": 0.5152845238335431
-        },
-        {
-          "n": 6,
-          "site": "src/runtime/agent/orchestrator/providers/retry-backoff.mjs#jitterDelayMs",
-          "value": 0.955740456469357
-        },
-        {
-          "n": 7,
-          "site": "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs#attempt",
-          "value": 0.8407179983332753
-        }
-      ],
-      "scenarioId": "anthropic/truncated-no-terminal",
-      "seed": 307407157,
-      "seedDerivation": "fnv1a32(scenarioId)"
-    }
-  },
-  "requests": [
-    {
-      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
-      "headers": {
-        "accept": "application/json",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
-        "anthropic-version": "2023-06-01",
-        "connection": "keep-alive",
-        "content-length": "477",
-        "content-type": "application/json",
-        "host": "api.anthropic.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "Anthropic/JS 0.137.0",
-        "x-api-key": "<redacted>",
-        "x-stainless-arch": "x64",
-        "x-stainless-lang": "js",
-        "x-stainless-os": "Windows",
-        "x-stainless-package-version": "0.137.0",
-        "x-stainless-retry-count": "0",
-        "x-stainless-runtime": "node",
-        "x-stainless-runtime-version": "v22.20.0",
-        "x-stainless-timeout": "600"
-      },
-      "method": "POST",
-      "path": "/v1/messages",
-      "rawHeaderOrder": [
-        "host",
-        "connection",
-        "accept",
-        "user-agent",
-        "x-stainless-retry-count",
-        "x-stainless-timeout",
-        "x-stainless-lang",
-        "x-stainless-package-version",
-        "x-stainless-os",
-        "x-stainless-arch",
-        "x-stainless-runtime",
-        "x-stainless-runtime-version",
-        "anthropic-version",
-        "x-api-key",
-        "content-type",
-        "anthropic-beta",
-        "accept-language",
-        "sec-fetch-mode",
-        "accept-encoding",
-        "content-length"
-      ]
-    },
-    {
-      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
-      "headers": {
-        "accept": "application/json",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
-        "anthropic-version": "2023-06-01",
-        "connection": "keep-alive",
-        "content-length": "477",
-        "content-type": "application/json",
-        "host": "api.anthropic.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "Anthropic/JS 0.137.0",
-        "x-api-key": "<redacted>",
-        "x-stainless-arch": "x64",
-        "x-stainless-lang": "js",
-        "x-stainless-os": "Windows",
-        "x-stainless-package-version": "0.137.0",
-        "x-stainless-retry-count": "0",
-        "x-stainless-runtime": "node",
-        "x-stainless-runtime-version": "v22.20.0",
-        "x-stainless-timeout": "600"
-      },
-      "method": "POST",
-      "path": "/v1/messages",
-      "rawHeaderOrder": [
-        "host",
-        "connection",
-        "accept",
-        "user-agent",
-        "x-stainless-retry-count",
-        "x-stainless-timeout",
-        "x-stainless-lang",
-        "x-stainless-package-version",
-        "x-stainless-os",
-        "x-stainless-arch",
-        "x-stainless-runtime",
-        "x-stainless-runtime-version",
-        "anthropic-version",
-        "x-api-key",
-        "content-type",
-        "anthropic-beta",
-        "accept-language",
-        "sec-fetch-mode",
-        "accept-encoding",
-        "content-length"
-      ]
-    },
-    {
-      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
-      "headers": {
-        "accept": "application/json",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
-        "anthropic-version": "2023-06-01",
-        "connection": "keep-alive",
-        "content-length": "477",
-        "content-type": "application/json",
-        "host": "api.anthropic.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "Anthropic/JS 0.137.0",
-        "x-api-key": "<redacted>",
-        "x-stainless-arch": "x64",
-        "x-stainless-lang": "js",
-        "x-stainless-os": "Windows",
-        "x-stainless-package-version": "0.137.0",
-        "x-stainless-retry-count": "0",
-        "x-stainless-runtime": "node",
-        "x-stainless-runtime-version": "v22.20.0",
-        "x-stainless-timeout": "600"
-      },
-      "method": "POST",
-      "path": "/v1/messages",
-      "rawHeaderOrder": [
-        "host",
-        "connection",
-        "accept",
-        "user-agent",
-        "x-stainless-retry-count",
-        "x-stainless-timeout",
-        "x-stainless-lang",
-        "x-stainless-package-version",
-        "x-stainless-os",
-        "x-stainless-arch",
-        "x-stainless-runtime",
-        "x-stainless-runtime-version",
-        "anthropic-version",
-        "x-api-key",
-        "content-type",
-        "anthropic-beta",
-        "accept-language",
-        "sec-fetch-mode",
-        "accept-encoding",
-        "content-length"
-      ]
-    },
-    {
-      "bodyText": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"tools\":[{\"name\":\"lookup\",\"description\":\"Read a value\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}],\"thinking\":{\"type\":\"adaptive\"},\"stream\":true}",
-      "headers": {
-        "accept": "application/json",
-        "accept-encoding": "gzip, deflate",
-        "accept-language": "*",
-        "anthropic-beta": "interleaved-thinking-2025-05-14,effort-2025-11-24",
-        "anthropic-version": "2023-06-01",
-        "connection": "keep-alive",
-        "content-length": "477",
-        "content-type": "application/json",
-        "host": "api.anthropic.com",
-        "sec-fetch-mode": "cors",
-        "user-agent": "Anthropic/JS 0.137.0",
-        "x-api-key": "<redacted>",
-        "x-stainless-arch": "x64",
-        "x-stainless-lang": "js",
-        "x-stainless-os": "Windows",
-        "x-stainless-package-version": "0.137.0",
-        "x-stainless-retry-count": "0",
-        "x-stainless-runtime": "node",
-        "x-stainless-runtime-version": "v22.20.0",
-        "x-stainless-timeout": "600"
-      },
-      "method": "POST",
-      "path": "/v1/messages",
-      "rawHeaderOrder": [
-        "host",
-        "connection",
-        "accept",
-        "user-agent",
-        "x-stainless-retry-count",
-        "x-stainless-timeout",
-        "x-stainless-lang",
-        "x-stainless-package-version",
-        "x-stainless-os",
-        "x-stainless-arch",
-        "x-stainless-runtime",
-        "x-stainless-runtime-version",
-        "anthropic-version",
-        "x-api-key",
-        "content-type",
-        "anthropic-beta",
-        "accept-language",
-        "sec-fetch-mode",
-        "accept-encoding",
-        "content-length"
-      ]
-    }
-  ]
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
 }
