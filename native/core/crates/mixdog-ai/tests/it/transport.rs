@@ -179,7 +179,9 @@ async fn shared_http_link_returns_status_headers_and_a_streaming_body() {
     assert_eq!(all.body, b"hi");
 }
 
-#[tokio::test]
+// Driven by the paused clock: hyper's HTTP/2 keep-alive takes its timers from tokio, so the runtime advances virtual time
+// while the sockets are idle and the elapsed time asserted is the schedule's own, whatever the machine's load.
+#[tokio::test(start_paused = true)]
 async fn silent_http2_peer_fails_the_request_within_the_schedule() {
     // A cleartext peer that accepts and swallows bytes: it never sends its
     // SETTINGS or a PING ack.
@@ -195,7 +197,7 @@ async fn silent_http2_peer_fails_the_request_within_the_schedule() {
         .http2_prior_knowledge()
         .build()
         .unwrap();
-    let started = Instant::now();
+    let started = tokio::time::Instant::now();
     let err = client
         .get(format!("http://{addr}/"))
         .send()
