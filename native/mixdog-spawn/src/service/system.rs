@@ -113,6 +113,12 @@ impl SystemService {
         self.hub.sampler_threads()
     }
 
+    /// See [`PortsHub::wait_samplers_stopped`].
+    #[cfg(feature = "core-test")]
+    pub fn wait_samplers_stopped(&self, deadline: Duration) -> bool {
+        self.hub.wait_samplers_stopped(deadline)
+    }
+
     fn release(&self, viewer: &str) {
         self.hub.unsubscribe(viewer);
         if self.hub.viewers() == 0 {

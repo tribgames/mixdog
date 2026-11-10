@@ -1,0 +1,624 @@
+{
+  "manifest": {
+    "recorder": "benchmarks/rust-core/recorders/record-pty-exit-timing.mjs",
+    "recorderSha256": "53e6c1cad22b392ec6cf748250195aa84898034f3e0ac562add50ac8d7ed7c07",
+    "nodePty": {
+      "package": "C:/Project/mixdog/apps/desktop/node_modules/@homebridge/node-pty-prebuilt-multiarch",
+      "version": "0.13.1"
+    },
+    "nodePtyFiles": {
+      "lib/windowsPtyAgent.js": "ddc88ba108c0e743ce444e98e8f2e820ec0f49a024306bb9021b117c8020a0d4",
+      "lib/windowsTerminal.js": "ed0d141362cdb0104b86bed55ea7dc717ce80116f784f8bef29a03cb66a5aeac",
+      "lib/windowsConoutConnection.js": "1440f70908fb1f55911ac8e936a1230f68a9c00c03096fcef6788eac6aad9d62",
+      "lib/worker/conoutSocketWorker.js": "3e4bac095ac3870c3248a7302f5d10217de625f30c32b7000fe48a34788e47ac"
+    },
+    "node": "v22.20.0",
+    "runsPerCase": 3
+  },
+  "cases": {
+    "output 0 ms before the end": [
+      {
+        "exitAfterProcessExit": 1002.2,
+        "exitAfterLastOutput": 1014.6,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 119.2,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 131.6,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 1133.8,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 1004,
+        "exitAfterLastOutput": 1020.1,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 114.6,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 130.7,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 1134.7,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 1003.3,
+        "exitAfterLastOutput": 1020.9,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 121.2,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 138.8,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 1142.1,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      }
+    ],
+    "output 999 ms before the end": [
+      {
+        "exitAfterProcessExit": 1001,
+        "exitAfterLastOutput": 2039.8,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 128.8,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 1167.5,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 2168.6,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 1002.7,
+        "exitAfterLastOutput": 2043.1,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 130.9,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 1171.3,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 2174,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 1003.3,
+        "exitAfterLastOutput": 2044.5,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 130,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 1171.2,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 2174.5,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      }
+    ],
+    "output 1000 ms before the end": [
+      {
+        "exitAfterProcessExit": 1001.8,
+        "exitAfterLastOutput": 2046.4,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 125.4,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 1170.1,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 2171.9,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 1002.6,
+        "exitAfterLastOutput": 2040.2,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 124.6,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 1162.2,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 2164.8,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 1008.1,
+        "exitAfterLastOutput": 2052.3,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 151.8,
+            "ev": "data",
+            "length": 85
+          },
+          {
+            "t": 1196.1,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 2204.2,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      }
+    ],
+    "output after the end": [
+      {
+        "exitAfterProcessExit": 1699.6,
+        "exitAfterLastOutput": 1001,
+        "exitAfterLastOutputAfterTheEnd": 1001,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 221.9,
+            "ev": "data",
+            "length": 84
+          },
+          {
+            "t": 239.1,
+            "ev": "data",
+            "length": 70
+          },
+          {
+            "t": 539.8,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 1224,
+            "ev": "data",
+            "length": 1
+          },
+          {
+            "t": 1238.4,
+            "ev": "data",
+            "length": 37
+          },
+          {
+            "t": 2239.4,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 3727.2,
+        "exitAfterLastOutput": 999.7,
+        "exitAfterLastOutputAfterTheEnd": 999.7,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 227.9,
+            "ev": "data",
+            "length": 84
+          },
+          {
+            "t": 237,
+            "ev": "data",
+            "length": 70
+          },
+          {
+            "t": 555.4,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 1240.3,
+            "ev": "data",
+            "length": 1
+          },
+          {
+            "t": 1254,
+            "ev": "data",
+            "length": 37
+          },
+          {
+            "t": 2253.6,
+            "ev": "data",
+            "length": 1
+          },
+          {
+            "t": 2268.7,
+            "ev": "data",
+            "length": 37
+          },
+          {
+            "t": 3267.7,
+            "ev": "data",
+            "length": 1
+          },
+          {
+            "t": 3282.9,
+            "ev": "data",
+            "length": 165
+          },
+          {
+            "t": 4282.6,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 2713.9,
+        "exitAfterLastOutput": 1000.3,
+        "exitAfterLastOutputAfterTheEnd": 1000.3,
+        "exitAfterKill": null,
+        "exitAfterSocketEnd": null,
+        "socketEndAfterProcessExit": null,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 217.6,
+            "ev": "data",
+            "length": 84
+          },
+          {
+            "t": 237.8,
+            "ev": "data",
+            "length": 70
+          },
+          {
+            "t": 539.5,
+            "ev": "processExit",
+            "code": 3
+          },
+          {
+            "t": 1224,
+            "ev": "data",
+            "length": 1
+          },
+          {
+            "t": 1238.7,
+            "ev": "data",
+            "length": 37
+          },
+          {
+            "t": 2238.5,
+            "ev": "data",
+            "length": 1
+          },
+          {
+            "t": 2253.1,
+            "ev": "data",
+            "length": 37
+          },
+          {
+            "t": 3253.4,
+            "ev": "exit",
+            "code": 3
+          }
+        ]
+      }
+    ],
+    "kill": [
+      {
+        "exitAfterProcessExit": 49,
+        "exitAfterLastOutput": 54,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": 61.1,
+        "exitAfterSocketEnd": 0.3,
+        "socketEndAfterProcessExit": 48.7,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 67.4,
+            "ev": "data",
+            "length": 165
+          },
+          {
+            "t": 86.8,
+            "ev": "data",
+            "length": 18
+          },
+          {
+            "t": 470.4,
+            "ev": "data",
+            "length": 33
+          },
+          {
+            "t": 2494.2,
+            "ev": "kill"
+          },
+          {
+            "t": 2501.3,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 2506.3,
+            "ev": "processExit",
+            "code": -1073741510
+          },
+          {
+            "t": 2555,
+            "ev": "socketEnd"
+          },
+          {
+            "t": 2555.3,
+            "ev": "exit",
+            "code": -1073741510
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 50.6,
+        "exitAfterLastOutput": 55.5,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": 61.4,
+        "exitAfterSocketEnd": 0.1,
+        "socketEndAfterProcessExit": 50.5,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 69.1,
+            "ev": "data",
+            "length": 165
+          },
+          {
+            "t": 79,
+            "ev": "data",
+            "length": 18
+          },
+          {
+            "t": 189.2,
+            "ev": "data",
+            "length": 33
+          },
+          {
+            "t": 2487.6,
+            "ev": "kill"
+          },
+          {
+            "t": 2493.5,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 2498.4,
+            "ev": "processExit",
+            "code": -1073741510
+          },
+          {
+            "t": 2548.9,
+            "ev": "socketEnd"
+          },
+          {
+            "t": 2549,
+            "ev": "exit",
+            "code": -1073741510
+          }
+        ]
+      },
+      {
+        "exitAfterProcessExit": 48.9,
+        "exitAfterLastOutput": 54.5,
+        "exitAfterLastOutputAfterTheEnd": null,
+        "exitAfterKill": 60.7,
+        "exitAfterSocketEnd": 0.1,
+        "socketEndAfterProcessExit": 48.8,
+        "events": [
+          {
+            "t": 0,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 70.4,
+            "ev": "data",
+            "length": 165
+          },
+          {
+            "t": 89.9,
+            "ev": "data",
+            "length": 18
+          },
+          {
+            "t": 187.8,
+            "ev": "data",
+            "length": 33
+          },
+          {
+            "t": 2495.5,
+            "ev": "kill"
+          },
+          {
+            "t": 2501.8,
+            "ev": "data",
+            "length": 16
+          },
+          {
+            "t": 2507.3,
+            "ev": "processExit",
+            "code": -1073741510
+          },
+          {
+            "t": 2556.1,
+            "ev": "socketEnd"
+          },
+          {
+            "t": 2556.2,
+            "ev": "exit",
+            "code": -1073741510
+          }
+        ]
+      }
+    ]
+  }
+}
