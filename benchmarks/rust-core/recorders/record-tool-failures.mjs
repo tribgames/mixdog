@@ -192,9 +192,9 @@ async function record(label, run, workspace) {
   const sessions = results.map((r) => r?.session ?? null);
   const file = join(env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
   const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
-  // Each recording's own session ids and workspace become placeholders; what is left must be what the other recording wrote.
-  const rows = rowsByScenario(text, sessions, workspace);
-  const masked = results.map((r, i) => (r === null ? null : JSON.parse(maskWorkspace(JSON.stringify({ ...r, session: undefined }), workspace).split(sessions[i]).join(`<session:${i}>`))));
+  // Each recording's own session ids, workspace and data folder become placeholders; what is left must be what the other recording wrote.
+  const rows = rowsByScenario(text, sessions, workspace, env.MIXDOG_DATA_DIR);
+  const masked = results.map((r, i) => (r === null ? null : JSON.parse(maskWorkspace(maskWorkspace(JSON.stringify({ ...r, session: undefined }), workspace), env.MIXDOG_DATA_DIR, '<DATA>').split(sessions[i]).join(`<session:${i}>`))));
   return { rows, results: masked };
 }
 
@@ -234,7 +234,7 @@ try {
       scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null })),
       hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
       approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
-      mcpServer: { file: 'fx-mcp.mjs', sha256: createHash('sha256').update(FILES['fx-mcp.mjs']).digest('hex'), tools: ['fail', 'boom', 'ok'] },
+      mcpServer: { file: 'fx-mcp.mjs', sha256: createHash('sha256').update(FILES['fx-mcp.mjs']).digest('hex'), tools: ['fail', 'boom', 'ok', 'big'] },
       workspaceFiles: Object.fromEntries(Object.entries(FILES).map(([name, text]) => [name, createHash('sha256').update(text).digest('hex')])),
     };
     writeSetManifest(stage, {
@@ -244,7 +244,7 @@ try {
       identity,
       extra: {
         rows: a.rows.flat().length,
-        normalised: ['session_id', 'ts', 'tool_ms', 'workspace'],
+        normalised: ['session_id', 'ts', 'tool_ms', 'workspace', 'data folder (with result_bytes_est counted on the masked text)'],
         node: process.version,
         recorderSha256: sha256(SELF),
         scenariosSha256: sha256(SCENARIOS_FILE),

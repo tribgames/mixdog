@@ -323,11 +323,31 @@
           "calls": []
         }
       ]
+    },
+    {
+      "name": "a returned error that is offloaded",
+      "full": true,
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "o1",
+              "name": "mcp__fx__big",
+              "args": {}
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
     }
   ],
   "files": {
     "a.txt": "hello\nsecond line\n",
-    "fx-mcp.mjs": "\nlet buffered = '';\nconst send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');\nconst TOOLS = ['fail', 'boom', 'ok'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));\nprocess.stdin.on('data', (chunk) => {\n  buffered += chunk;\n  let at;\n  while ((at = buffered.indexOf('\\n')) >= 0) {\n    const line = buffered.slice(0, at);\n    buffered = buffered.slice(at + 1);\n    if (!line.trim()) continue;\n    const message = JSON.parse(line);\n    if (message.id === undefined) continue;\n    const reply = (result) => send({ jsonrpc: '2.0', id: message.id, result });\n    if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fx', version: '1' } });\n    else if (message.method === 'tools/list') reply({ tools: TOOLS });\n    else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });\n    else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'server exploded' } });\n    else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });\n    else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });\n  }\n});\n"
+    "fx-mcp.mjs": "\nlet buffered = '';\nconst send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');\nconst TOOLS = ['fail', 'boom', 'ok', 'big'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));\nprocess.stdin.on('data', (chunk) => {\n  buffered += chunk;\n  let at;\n  while ((at = buffered.indexOf('\\n')) >= 0) {\n    const line = buffered.slice(0, at);\n    buffered = buffered.slice(at + 1);\n    if (!line.trim()) continue;\n    const message = JSON.parse(line);\n    if (message.id === undefined) continue;\n    const reply = (result) => send({ jsonrpc: '2.0', id: message.id, result });\n    if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fx', version: '1' } });\n    else if (message.method === 'tools/list') reply({ tools: TOOLS });\n    else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });\n    else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'server exploded' } });\n    else if (message.method === 'tools/call' && message.params.name === 'big') reply({ content: [{ type: 'text', text: 'Error: ' + 'x'.repeat(100000) }] });\n    else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });\n    else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });\n  }\n});\n"
   },
   "model": "fake-model",
   "rows": [
@@ -364,7 +384,10 @@
       "{\"ts\":\"<ts>\",\"session_id\":\"<session:6>\",\"iteration\":1,\"tool_name\":\"mcp__fx__boom\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"Error: MCP error -32603: server exploded\",\"error_preview\":\"Error: MCP error -32603: server exploded\",\"result_bytes_est\":40,\"result_lines_est\":1}"
     ],
     [],
-    []
+    [],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:9>\",\"iteration\":1,\"tool_name\":\"mcp__fx__big\",\"tool_kind\":\"mcp\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":null,\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"[tool output offloaded: mcp__fx__big → <DATA>/tool-results/<session:9>/e831fcf155454e5566d53c48c1912e8f34c5b3cf146f501ace1f4436d9efa201.txt (98 KB, 1 lines)]\",\"error_preview\":\"[tool output offloaded: mcp__fx__big → <DATA>/tool-results/<session:9>/e831fcf155454e5566d53c48c1912e8f34c5b3cf146f501ace1f4436d9efa201.txt (98 KB, 1 lines)]\\n\\nError: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n... [preview middle omitted — 97 KB] ...\\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n[preview truncated; full output preserved at the artifact path above]\",\"result_bytes_est\":787,\"result_lines_est\":6}"
+    ]
   ],
   "results": [
     {
@@ -483,6 +506,18 @@
       },
       "sends": 1,
       "toolMessages": []
+    },
+    {
+      "name": "a returned error that is offloaded",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2,
+      "toolMessages": [
+        [
+          "[tool output offloaded: mcp__fx__big → <DATA>/tool-results/<session:9>/e831fcf155454e5566d53c48c1912e8f34c5b3cf146f501ace1f4436d9efa201.txt (98 KB, 1 lines)]\n\nError: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n... [preview middle omitted — 97 KB] ...\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n[preview truncated; full output preserved at the artifact path above]"
+        ]
+      ]
     }
   ]
 }

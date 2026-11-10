@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 29244,
+      "bytes": 32125,
       "path": "golden.json",
-      "sha256": "0b286ad1bacf123d78e5703d363f69878e94922ef79ce1df4c946cf3fa02193a"
+      "sha256": "cb4eb1786c7fb656ce0941c0ac2a73abbc112dde915bb4f935bee8c511e08138"
     }
   ],
   "node": "v22.20.0",
@@ -13,7 +13,8 @@
     "session_id",
     "ts",
     "tool_ms",
-    "workspace"
+    "workspace",
+    "data folder (with result_bytes_est counted on the masked text)"
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -33,10 +34,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "recorderSha256": "616b76d40f2a9ad72ed931155f4a8a9017481505b164a844caa5f2d8e281da13",
-  "rows": 18,
-  "rowsLibSha256": "c59af01bd8d627d2217c9ae02d40afd53b64db9f29039940247588230d95c5a7",
-  "scenariosSha256": "31256eabfb512dac8e3cfd4a4b20bc9c2ea44e35610b582b749500d706844291",
+  "recorderSha256": "243c17af2ea283d9d353bef8d78dc566c7e8be18bbe86e1762818dd89d052e53",
+  "rows": 19,
+  "rowsLibSha256": "c5ba1f81dafe10cbf0b821bcd04d704d01e891e90c8db366f875808a99774f8f",
+  "scenariosSha256": "3ec3d3dac6b3418a8ac429ea80a495e6fcea4195bcca0e5e3e021e04b48f6e01",
   "set": "tool-failures",
   "syntheticInputs": {
     "approvalAnswers": [
@@ -60,11 +61,12 @@
     ],
     "mcpServer": {
       "file": "fx-mcp.mjs",
-      "sha256": "ad4457c5badae91ca36e94bc1b5bdb11a4079be8de62043987d628d0b177608f",
+      "sha256": "ac70ce5538f80300f0255b1ff6fae8b2c4beb7847cd43df44e8217082a3c3a57",
       "tools": [
         "fail",
         "boom",
-        "ok"
+        "ok",
+        "big"
       ]
     },
     "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/tool-failure-scenarios.mjs",
@@ -149,12 +151,20 @@
         "hook": null,
         "name": "a turn ended while a batch with failed calls runs",
         "replies": 2
+      },
+      {
+        "abortWhenFile": null,
+        "approval": null,
+        "full": true,
+        "hook": null,
+        "name": "a returned error that is offloaded",
+        "replies": 2
       }
     ],
     "workspaceFiles": {
       "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
-      "fx-mcp.mjs": "ad4457c5badae91ca36e94bc1b5bdb11a4079be8de62043987d628d0b177608f"
+      "fx-mcp.mjs": "ac70ce5538f80300f0255b1ff6fae8b2c4beb7847cd43df44e8217082a3c3a57"
     }
   },
-  "totalBytes": 29244
+  "totalBytes": 32125
 }

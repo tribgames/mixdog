@@ -781,6 +781,18 @@ impl Run {
         let indices: Vec<usize> = (0..calls.len())
             .filter(|i| executed[*i] && staged[*i].is_some())
             .collect();
+        // `classifyExecuted` (`execute-call.mjs:17-20,187-194`): a call that returned text reading as an error (the
+        // delegated-agent, skill and MCP tools answer `Error: …` instead of failing) is an error call, decided on the tool's
+        // own return before anything below rewrites it; that kind stays the result's through the offload, the failure log,
+        // the cache write and the transcript (`finalize.mjs:174-177,238,292`).
+        for i in &indices {
+            if let Some(m) = staged[*i].as_mut()
+                && m.tool_kind == Some(ToolKind::Normal)
+                && crate::result_kind::classify_result_kind(&m.text(), &calls[*i].name) == crate::result_kind::ResultKind::Error
+            {
+                m.tool_kind = Some(ToolKind::Error);
+            }
+        }
         // A loading tool's native tool-search payload becomes the message's, and its summary the
         // result (`finalizeBatchResults` parses before anything is offloaded or cached).
         for i in &indices {
@@ -823,35 +835,28 @@ impl Run {
                 }
             }
         }
-        // `traceAgentTool` -> `traceAgentToolFailure` (`finalize.mjs` `traceCompleted`): per call, in call order, on the
-        // result the transcript holds, before the call's cache write.
-        if let Some(log) = &self.env.failures {
-            for i in &indices {
-                // A call fails when it threw (the executor's `Err`) or returned text that reads as an error
-                // (`classifyToolReturn`: the delegated-agent and skill tools answer `Error: …` instead of failing).
-                let Some(m) = staged[*i].as_ref().filter(|m| {
-                    m.tool_kind == Some(ToolKind::Error)
-                        || (m.tool_kind == Some(ToolKind::Normal)
-                            && crate::result_kind::classify_result_kind(&m.text(), &calls[*i].name) == crate::result_kind::ResultKind::Error)
-                }) else {
-                    continue;
-                };
-                log.failed(crate::env::FailedCall {
-                    iteration: self.iterations,
-                    tool_name: calls[*i].name.clone(),
-                    tool_kind: trace_tool_kind(&self.tools, &calls[*i].name),
-                    tool_ms: tool_ms[*i],
-                    tool_args: calls[*i].arguments.clone(),
-                    model: self.model.clone(),
-                    result_text: m.text(),
-                });
-            }
-        }
-        if let Some(reuse) = &self.env.reuse {
-            for i in indices.into_iter().filter(|i| cacheable[*i]) {
-                if let (Some(m), Some(output)) = (&staged[i], &outputs[i]) {
-                    reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
+        // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (an error call's row of the
+        // failure log, on the result the transcript holds) and then `writeCaches` (a normal call's reusable body).
+        for i in indices {
+            let Some(m) = &staged[i] else {
+                continue;
+            };
+            if m.tool_kind == Some(ToolKind::Error) {
+                if let Some(log) = &self.env.failures {
+                    log.failed(crate::env::FailedCall {
+                        iteration: self.iterations,
+                        tool_name: calls[i].name.clone(),
+                        tool_kind: trace_tool_kind(&self.tools, &calls[i].name),
+                        tool_ms: tool_ms[i],
+                        tool_args: calls[i].arguments.clone(),
+                        model: self.model.clone(),
+                        result_text: m.text(),
+                    });
                 }
+            } else if cacheable[i]
+                && let (Some(reuse), Some(output)) = (&self.env.reuse, &outputs[i])
+            {
+                reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
             }
         }
     }}
