@@ -112,7 +112,8 @@
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -129,7 +130,7 @@
     "inputs": [
       {
         "path": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
-        "sha256": "4f051b607db0b7621a7c6054a32a8f49e18b9b37b67eca74dfcd82fde4e17401"
+        "sha256": "6efa2dee0c94607019c3dcfdc033df2962751a12240f6b2ae6dbb15857cc2ab9"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -141,7 +142,7 @@
       }
     ],
     "nodeVersion": "v22.20.0",
-    "recorderSha256": "4f051b607db0b7621a7c6054a32a8f49e18b9b37b67eca74dfcd82fde4e17401"
+    "recorderSha256": "6efa2dee0c94607019c3dcfdc033df2962751a12240f6b2ae6dbb15857cc2ab9"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-gateways.mjs",
   "scenarios": [

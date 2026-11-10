@@ -18,7 +18,7 @@ import http from 'node:http';
 import { createRequire, register } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, commitStage, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { installDeterministicWorld } from './lib/deterministic-world.mjs';
 
 const RECORDER = 'benchmarks/rust-core/recorders/record-provider-gateways.mjs';
@@ -345,8 +345,8 @@ writeSetManifest(outDir, {
   recorder: RECORDER,
   command: `node ${RECORDER} --tree <b6f tree>`,
   extra: { scenarios: recorded.sort(), clockStartMs: T0, provenance: recordingProvenance(RECORDER, [RECORDER, 'benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/deterministic-world.mjs']) },
-  identityTree: tree,
-  identityRef: 'b6f10295a',
+  // Refuses to write unless the loaded tree is exactly b6f10295a.
+  identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
 });
 commitStage(outDir, finalDir);
 server.closeAllConnections();
