@@ -1,4 +1,8 @@
 {
+  "manifest": {
+    "role": "input: the session document both halves of the wire parity run read (node-wire-capture.mjs and wire_parity_tests.rs); it holds no expected value",
+    "producer": "threadId, installationId, host, system and tools: the Rust core's own first OpenAI request, written by rust-capture.mjs (sessionDocument), which lives on branch k1-ci (commit cbb5c4c4c1) with the harness it needs (scripts/rust-core/lib/core-session.mjs, benchmarks/terminal-bench-2.1/analysis/contract-hash-rust.mjs); storedHeader: written by hand (efe24dd420), the stored header of a Codex session whose wire identity is padded and upper-cased"
+  },
   "threadId": "01a1c203-1d1e-7689-970e-9d71ae87052b",
   "installationId": "964bf5c8-0dc4-401b-99c4-ec221a922fbb",
   "host": {
