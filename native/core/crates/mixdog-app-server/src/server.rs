@@ -832,10 +832,13 @@ impl Shared {
             Registered::Replaced(None) => {}
         }
         let frame = response_frame(id, &Value::Object(result));
-        if conn.sink.send_control_release(frame, attached.release).is_err() {
+        let release = attached.release;
+        if conn
+            .send_attach_response(&feed_id, &sub_id, || conn.sink.send_control_release(frame, release))
+            .is_err()
+        {
             return;
         }
-        conn.mark_live(&feed_id, &sub_id);
         if feed_id == FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID) && conn.is_desktop_on(&feed_id) {
             self.outgoing.desktop_ready();
         }
