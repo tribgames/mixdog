@@ -234,6 +234,73 @@ fn is_absolute_pattern(pattern: &str) -> bool {
     pattern.starts_with('/') || Path::new(pattern).is_absolute()
 }
 
+/// Node `isUncOrSmbPath`: a `\\` or `//` spelling, the device namespaces (`//./`, `//?/`) included.
+fn is_unc_or_smb(path: &str) -> bool {
+    path.starts_with("\\\\") || path.starts_with("//")
+}
+
+/// Node `globUncRefusal`: the base path (as given, then resolved) and every absolute pattern, before any walk.
+fn glob_unc_refusal(ctx: &ToolContext, raw: &str, patterns: &[String]) -> Option<String> {
+    let refuse = |shown: &str| {
+        format!(
+            "Error: glob refuses UNC/SMB path {}; remote share access is blocked to prevent NTLM credential leaks",
+            serde_json::to_string(&super::patch_guard::normalize_output_path(shown)).unwrap_or_default()
+        )
+    };
+    if is_unc_or_smb(raw) {
+        return Some(refuse(raw));
+    }
+    if let Ok(resolved) = resolve_path(&ctx.cwd, raw)
+        && is_unc_or_smb(&resolved.as_path().to_string_lossy())
+    {
+        return Some(refuse(&resolved.as_path().to_string_lossy()));
+    }
+    patterns.iter().find(|p| is_absolute_pattern(p) && is_unc_or_smb(p)).map(|p| refuse(p))
+}
+
+/// The byte length of Node's `path.parse(raw).root` (win32 on Windows, posix elsewhere) of a `/`-spelled path:
+/// a UNC share keeps its server and share, a device path its namespace, a drive its letter in either case.
+pub(super) fn parse_root_len(raw: &str) -> usize {
+    let b = raw.as_bytes();
+    if !cfg!(windows) {
+        return usize::from(b.first() == Some(&b'/'));
+    }
+    let sep = |i: usize| b.get(i) == Some(&b'/');
+    if sep(0) {
+        if b.len() == 1 || !sep(1) {
+            return 1;
+        }
+        let mut j = 2;
+        let mut last = j;
+        while j < b.len() && !sep(j) {
+            j += 1;
+        }
+        if j < b.len() && j != last {
+            last = j;
+            while j < b.len() && sep(j) {
+                j += 1;
+            }
+            if j < b.len() && j != last {
+                last = j;
+                while j < b.len() && !sep(j) {
+                    j += 1;
+                }
+                if j == b.len() {
+                    return j;
+                }
+                if j != last {
+                    return j + 1;
+                }
+            }
+        }
+        return 1;
+    }
+    if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+        return if sep(2) { 3 } else { 2 };
+    }
+    0
+}
+
 const EXPAND_DEADLINE: Duration = Duration::from_millis(1_500);
 const EXPAND_CANDIDATE_CAP: usize = 200;
 
@@ -280,12 +347,16 @@ async fn expand_absolute_glob(ctx: &ToolContext, pattern: &str, limit: usize) ->
         return None;
     }
     let stop = Instant::now() + EXPAND_DEADLINE;
-    let root_len = if raw.starts_with('/') { 1 } else { raw.find('/')? + 1 };
+    let root_len = parse_root_len(&raw);
+    if root_len == 0 {
+        return None;
+    }
     let segments: Vec<&str> = raw[root_len..].split('/').filter(|s| !s.is_empty()).collect();
     if segments.is_empty() {
         return None;
     }
-    let mut current = vec![resolve_path(&ctx.cwd, &raw[..root_len]).ok()?];
+    let root = if cfg!(windows) { raw[..root_len].replace('/', "\\") } else { raw[..root_len].to_owned() };
+    let mut current = vec![resolve_path(&ctx.cwd, &root).ok()?];
     for segment in segments {
         if Instant::now() >= stop {
             return None;
@@ -388,6 +459,9 @@ impl Tool for GlobTool {
             None => GLOB_DEFAULT_LIMIT,
         };
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
+        if let Some(text) = glob_unc_refusal(ctx, raw, &patterns) {
+            return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
+        }
         let root = resolve_path(&ctx.cwd, raw)?;
         // Node `buildGlobPatternGroups`: an absolute pattern is walked from its own static prefix,
         // anchored there; the others from `path`.

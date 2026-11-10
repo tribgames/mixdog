@@ -272,6 +272,24 @@ const SCENARIOS = [
       { tool: 'glob', input: { pattern: '<ROOT>/lib/*.ts', limit: 1, offset: 5 } },
     ],
   },
+  // A UNC/SMB or device-namespace pattern or path is refused before any walk or expansion (search-glob-tool.mjs
+  // globUncRefusal); a backslashed drive pattern reaches the expansion with its drive root (absolute-glob-expand.mjs).
+  {
+    name: 'glob-unc',
+    files: { 'deep/inner/x.ts': 'x\n' },
+    junctions: { jn: 'deep/inner' },
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
+    calls: [
+      { tool: 'glob', input: { pattern: '//server/share/j*/x.ts' } },
+      { tool: 'glob', input: { pattern: '\\\\server\\share\\x\\*.ts' } },
+      { tool: 'glob', input: { pattern: '//./C:/x/*.ts' } },
+      { tool: 'glob', input: { pattern: '//?/C:/x/*.ts' } },
+      { tool: 'glob', input: { pattern: ['*.ts', '//server/share/*.ts'] } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '//server/share' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '\\\\server\\share\\dir' } },
+      { tool: 'glob', input: { pattern: '<ROOT>\\j*\\x.ts' } },
+    ],
+  },
   // gaps-tools item 12: a glob-shaped `list` path is answered as a name search (list-tool.mjs -> executeFindFilesTool).
   {
     name: 'list-glob-path',
