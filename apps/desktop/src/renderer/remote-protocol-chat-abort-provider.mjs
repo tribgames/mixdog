@@ -14,6 +14,8 @@ export const PARTIAL = 'HOLD-PARTIAL-STREAM';
 export const FINAL = 'HOLD-FINAL-ANSWER';
 /** The file a HOLD-ASK turn reads: the hook rule that asks before the read names it. */
 export const ASKED_FILE = 'ask-me.json';
+/** A gated request's kind: its key without the body's length and hash. */
+export const kindOf = (key) => key.replace(/ \d+ [0-9a-f]{64}$/, '');
 const textOf = (content) => (typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => p?.text ?? '').join('\n') : '');
 
 /** `gated`: nothing is written until the caller releases it (`releaseNext`, one write at a time, the history recorder's barrier between
@@ -23,11 +25,14 @@ export async function startAbortProvider({ gated = false } = {}) {
   const listeners = new Set();
   // The writes not yet released, per request (gated only), and the requests by their key in arrival order of the key.
   const queued = [];
+  // Told (after the handler has queued its writes) that a request is waiting.
+  const waiters = new Set();
   const gate = (entry, res) => {
     if (!gated) return res;
     const steps = [];
     entry.steps = steps;
     queued.push(entry);
+    queueMicrotask(() => { for (const waiter of waiters) waiter(); });
     const later = (op) => (...args) => { steps.push(() => res[op](...args)); };
     return { setHeader: later('setHeader'), writeHead: later('writeHead'), write: later('write'), end: later('end'), on: (...args) => res.on(...args) };
   };
@@ -131,6 +136,17 @@ export async function startAbortProvider({ gated = false } = {}) {
       entry.released = (entry.released ?? 0) + 1;
       return { key: entry.key, prompt: entry.prompt?.slice(0, 60) ?? entry.key, step: entry.released };
     },
+    /** Gated, for a replay of a recorded release: the next write of the first waiting request of `kind` (a key without its body's
+     *  length and hash, which are the client's own); false when no such request is waiting yet. */
+    release: (kind) => {
+      const entry = queued.find((e) => e.steps.length && kindOf(e.key) === kind);
+      if (!entry) return false;
+      entry.steps.shift()();
+      entry.released = (entry.released ?? 0) + 1;
+      return { key: entry.key, step: entry.released };
+    },
+    /** Calls `waiter` whenever a request has queued its writes. */
+    onQueued: (waiter) => { waiters.add(waiter); },
     close: () => new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); }),
   };
 }
