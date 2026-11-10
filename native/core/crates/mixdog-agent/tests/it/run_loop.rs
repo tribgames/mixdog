@@ -620,7 +620,8 @@ struct Harness {
     reuse: Option<Arc<dyn ResultReuse>>,
     route: Option<Arc<dyn RouteFallback>>,
     mcp: Option<Arc<dyn mixdog_agent::env::McpCatalog>>,
-    failures: Option<Arc<FailureLog>>,
+    failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
+    artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
 }
@@ -656,6 +657,7 @@ impl Harness {
             route: None,
             mcp: None,
             failures: None,
+            artifacts: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
         }
@@ -696,9 +698,9 @@ impl Harness {
             mcp: self.mcp.clone(),
             side: self.side.clone(),
             step_judge: None,
-            artifacts: None,
+            artifacts: self.artifacts.clone(),
             images: None,
-            failures: self.failures.clone().map(|f| f as Arc<dyn mixdog_agent::env::ToolFailureLog>),
+            failures: self.failures.clone(),
         }
     }
 
@@ -3090,6 +3092,97 @@ async fn the_failure_log_gets_the_executed_calls_that_ended_as_errors() {
         seen,
         [("boom".to_owned(), "Error: boom".to_owned()), ("agent".to_owned(), "Error: agent: unknown type \"x\"".to_owned())]
     );
+}
+
+/// Answers `Error: ` and 100,000 more characters as a normal return.
+struct LongErrorText(ToolSpec);
+#[async_trait]
+impl Tool for LongErrorText {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("Error: {}", "x".repeat(100_000)))], ..ToolOutput::default() })
+    }
+}
+
+/// An artifact store whose writes land.
+struct Persisting;
+#[async_trait]
+impl mixdog_agent::offload::ArtifactStore for Persisting {
+    async fn persist(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
+        self.preview(content).await
+    }
+    async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
+    }
+}
+
+/// A returned error is an error call by the tool's own return (`execute-call.mjs:17-20`), so the offload that replaces its
+/// text with a pointer does not take its failure row away: the row holds the offloaded result the transcript holds
+/// (`finalize.mjs:238`), and the transcript keeps the error kind. The Node recording of this case is the tool-failures
+/// scenario "a returned error that is offloaded".
+#[tokio::test]
+async fn an_offloaded_returned_error_keeps_its_failure_row() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "big", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let log = Arc::new(FailureLog::default());
+    h.failures = Some(log.clone());
+    h.artifacts = Some(Arc::new(Persisting));
+    let mut big = Echo(Echo::tool().spec().clone());
+    big.0.name = "big".into();
+    let output = finish(h.run(config(), vec![Arc::new(LongErrorText(big.0))], vec![AgentMessage::user("go")])).await;
+    let result = &output.transcript[2];
+    assert!(result.text().starts_with("[tool output offloaded: big → /art/x.txt"), "{}", result.text());
+    assert_eq!(result.tool_kind, Some(ToolKind::Error));
+    let seen: Vec<String> = log.0.lock().unwrap().iter().map(|c| c.result_text.clone()).collect();
+    assert_eq!(seen, [result.text()]);
+}
+
+/// Every step of a call's post-processing as one sequence: its failure row and its cache write.
+#[derive(Default)]
+struct Steps(Mutex<Vec<String>>);
+impl mixdog_agent::env::ToolFailureLog for Steps {
+    fn failed(&self, call: mixdog_agent::env::FailedCall) {
+        self.0.lock().unwrap().push(format!("failed {}", call.tool_name));
+    }
+    fn stall_abort(&self, _ctx: serde_json::Map<String, serde_json::Value>) {
+        panic!("the agent loop never records a watchdog stop");
+    }
+}
+#[async_trait]
+impl ResultReuse for Steps {
+    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+        None
+    }
+    async fn store(&self, call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {
+        self.0.lock().unwrap().push(format!("stored {}", call.id));
+    }
+    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+}
+
+/// `postProcessCompleted` (`finalize.mjs:170-177`) runs per call in call order: a call's failure row and its cache write
+/// come before the next call's, and an error call is not cached (`writeCaches` takes only a normal result, `:262-266`).
+#[tokio::test]
+async fn each_calls_failure_row_and_cache_write_come_in_call_order() {
+    let mut h = Harness::new(vec![
+        turn(vec![
+            call("c1", "echo", json!({"n": 1})),
+            call("c2", "agent", json!({})),
+            call("c3", "echo", json!({"n": 3})),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let steps = Arc::new(Steps::default());
+    h.reuse = Some(steps.clone());
+    h.failures = Some(steps.clone());
+    let mut agent = Echo(Echo::tool().spec().clone());
+    agent.0.name = "agent".into();
+    finish(h.run(config(), vec![Echo::tool(), Arc::new(ErrorText(agent.0))], vec![AgentMessage::user("go")])).await;
+    assert_eq!(*steps.0.lock().unwrap(), ["stored c1", "failed agent", "stored c3"]);
 }
 
 /// A call whose arguments the provider could not parse is answered with the retry notice and never dispatched.

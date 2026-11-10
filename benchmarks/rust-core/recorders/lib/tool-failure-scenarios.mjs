@@ -6,15 +6,16 @@
 // session is made to refuse a call, `abortWhenFile` ends the turn once the tool has created that file in the
 // workspace.
 export const MODEL = 'fake-model';
-// `fx-mcp.mjs` is the stdio MCP server the `full` scenarios connect: no SDK, three tools (`fail` answers an `isError` result, `boom` a
-// JSON-RPC error, `ok` a success), so Node's client and the core's speak to the same bytes. `boom`'s code is an internal error
+// `fx-mcp.mjs` is the stdio MCP server the `full` scenarios connect: no SDK, four tools (`fail` answers an `isError` result, `boom` a
+// JSON-RPC error, `ok` a success, `big` a success whose text is `Error: ` and 100,000 more characters), so Node's client and the
+// core's speak to the same bytes. `boom`'s code is an internal error
 // (-32603): Node takes -32000 and -32001 for the SDK's own closed-connection and timeout codes and reconnects the server before it
 // answers (`isMcpServerResponseError`, mcp/client.mjs:917-925, and the reconnect at :542-600), which the core does not do; that gap
 // is reported, not recorded here.
 const MCP_SERVER = `
 let buffered = '';
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
-const TOOLS = ['fail', 'boom', 'ok'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));
+const TOOLS = ['fail', 'boom', 'ok', 'big'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));
 process.stdin.on('data', (chunk) => {
   buffered += chunk;
   let at;
@@ -29,6 +30,7 @@ process.stdin.on('data', (chunk) => {
     else if (message.method === 'tools/list') reply({ tools: TOOLS });
     else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });
     else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'server exploded' } });
+    else if (message.method === 'tools/call' && message.params.name === 'big') reply({ content: [{ type: 'text', text: 'Error: ' + 'x'.repeat(100000) }] });
     else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });
     else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });
   }
@@ -152,6 +154,13 @@ export function scenarios(workspace) {
         },
         DONE,
       ],
+    },
+    {
+      // A returned `Error: …` text past the offload threshold: the call is an error by the tool's own return (execute-call.mjs:17-20),
+      // and its row holds the offloaded result (finalize.mjs:238), with the artifact persisted in the profile's data folder.
+      name: 'a returned error that is offloaded',
+      full: true,
+      replies: [{ text: 'go', calls: [{ id: 'o1', name: 'mcp__fx__big', args: {} }] }, DONE],
     },
   ];
 }

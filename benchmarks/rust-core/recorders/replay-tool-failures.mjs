@@ -190,7 +190,7 @@ async function runScenario(scenario, root, ws, bin) {
     if (!stopped.ok) throw new Error(`/mgmt/stop answered ${stopped.status}`);
     await deadline(exited, 30_000, 'the core exiting');
     const file = join(p.data, 'history', 'tool-failures.jsonl');
-    return { threadId, text: existsSync(file) ? readFileSync(file, 'utf8') : '' };
+    return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '' };
   } finally {
     for (const cleanup of cleanups.reverse()) { try { await cleanup(); } catch {} }
     try { await client?.close(); } catch {}
@@ -216,10 +216,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (JSON.stringify(scenarios(ws)) !== JSON.stringify(golden.scenarios)) throw new Error('the scenarios built for this workspace are not the recorded ones');
     for (const [i, scenario] of golden.scenarios.entries()) {
       if (only && !only.includes(i)) continue;
-      const { threadId, text } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
-      // The core's file of this scenario, normalised as Node's was: its rows are the rows of this scenario's thread only.
-      const sessions = golden.scenarios.map((_, k) => (k === i ? threadId : null));
-      const got = rowsByScenario(text, sessions, ws)[i];
+      const { threadId, dataDir, text } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
+      // The core's file of this scenario, normalised as Node's was. This core ran scenario i alone, so its thread is the only session
+      // a row may name: a row of any other session (or of none) fails the run.
+      const sessions = golden.scenarios.map((_, k) => (k === i ? threadId : undefined));
+      const got = rowsByScenario(text, sessions, ws, dataDir)[i];
       const want = golden.rows[i];
       const same = got.length === want.length && got.every((line, k) => line === want[k]);
       console.log(`${same ? 'SAME' : 'DIFF'} ${i} ${scenario.name} (${got.length} rows, Node ${want.length})`);
