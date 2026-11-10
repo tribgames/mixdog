@@ -38,6 +38,22 @@ fn flights() -> std::sync::MutexGuard<'static, HashMap<Key, Flight>> {
     FLIGHTS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Takes a flight out of the map however its task ends: returned, expired, panicked, or dropped unfinished with its
+/// runtime. A flight whose task is gone can never be joined, so the next caller starts its own refresh.
+struct Landed {
+    key: Key,
+    identity: Arc<()>,
+}
+
+impl Drop for Landed {
+    fn drop(&mut self) {
+        let mut map = flights();
+        if map.get(&self.key).is_some_and(|(id, _)| Arc::ptr_eq(id, &self.identity)) {
+            map.remove(&self.key);
+        }
+    }
+}
+
 /// No flight is running for a caller after this one, as in a new process; a flight still running ends on its own.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn reset() {
@@ -63,16 +79,13 @@ where
         {
             Some(running) => running.clone(),
             None => {
-                let (done, identity) = (key.clone(), Arc::new(()));
-                let ours = identity.clone();
+                let identity = Arc::new(());
+                let landed = Landed { key: key.clone(), identity: identity.clone() };
                 let task = tokio::spawn(async move {
                     // An expired flight leaves the map like a finished one, and every joiner
                     // gets the same typed failure instead of a dead flight.
                     let result = REFRESH_FLIGHT.bound_head(refresh).await;
-                    let mut map = flights();
-                    if map.get(&done).is_some_and(|(id, _)| Arc::ptr_eq(id, &ours)) {
-                        map.remove(&done);
-                    }
+                    drop(landed);
                     result
                 });
                 let shared = async move {
@@ -176,6 +189,35 @@ mod tests {
         drop(left);
         crate::reset_process_state();
         assert_eq!(refresh_once(path, async { 9u32 }).await, Ok(9));
+    }
+
+    async fn broken() -> u32 {
+        panic!("the refresh broke")
+    }
+
+    // A refresh that panicked is over: its callers get the panic, the next caller a refresh of its own.
+    #[tokio::test]
+    async fn a_refresh_that_panicked_is_not_joined_by_the_next_caller() {
+        let path = Path::new("panicked-oauth.json");
+        let first = tokio::spawn(refresh_once(path, broken()));
+        assert!(first.await.is_err_and(|error| error.is_panic()), "the caller of the broken refresh gets its panic");
+        assert_eq!(refresh_once(path, async { 6u32 }).await, Ok(6));
+    }
+
+    // A runtime that ends drops the refresh it was running; a later runtime of the process starts its own.
+    #[test]
+    fn a_refresh_dropped_with_its_runtime_is_not_joined_in_the_next() {
+        let path = Path::new("shutdown-oauth.json");
+        let runtime = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let first = runtime();
+        first.block_on(async {
+            let mut caller = Box::pin(refresh_once(path, std::future::pending::<u32>()));
+            assert!((&mut caller).now_or_never().is_none(), "the refresh is under way");
+            // The refresh's own task runs up to its wait, so what the runtime drops is a refresh in flight.
+            tokio::task::yield_now().await;
+        });
+        drop(first);
+        assert_eq!(runtime().block_on(refresh_once(path, async { 7u32 })), Ok(7));
     }
 
     #[tokio::test(start_paused = true)]
