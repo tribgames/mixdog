@@ -863,14 +863,14 @@ impl WorkspaceService {
                 let id = s(params, "watchId")?;
                 let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == Self::owner(req));
                 if owned {
-                    self.forget_watch(id);
-                    // Ending the OS watch closes its handle, which a path that does not answer can hold: on the lane, not here.
+                    // Ending the OS watch closes its handle, which a path that does not answer can hold: on the lane, not here. The job is
+                    // admitted before the watch's record goes, with a token no cancel reaches, so the OS watch never outlives its record:
+                    // a lane that refuses it leaves the watch whole, and a request cancelled meanwhile does not drop it.
                     let (watcher, watch_id) = (self.watcher.clone(), id.to_owned());
-                    run_fallible(self.lanes.interactive, &cancel, move || {
-                        watcher.unwatch(&watch_id);
-                        Ok(())
-                    })
-                    .await?;
+                    let job = move |_: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>| crate::lanes::counted(move || watcher.unwatch(&watch_id))();
+                    let cleanup = mixdog_rt::LaneToken::submit(self.lanes.interactive, &CancellationToken::new(), job)?;
+                    self.forget_watch(id);
+                    let _ = cleanup.await;
                 }
                 value(json!({}))
             }
