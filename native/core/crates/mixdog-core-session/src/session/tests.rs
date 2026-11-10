@@ -2321,6 +2321,7 @@ async fn a_fork_has_a_codex_wire_identity_of_its_own() {
             header.insert("codexWireSessionId".into(), json!(source_wire));
             let thread = ThreadId::from(id.to_owned());
             directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
+            give_conversation(&directory.handle(&thread).expect("loaded")).await;
             let params = json!({ "threadId": id, "opId": format!("op-{id}") });
             let reply = directory.handle(&thread).expect("loaded").request(request("thread/fork", params, &format!("op-{id}"))).await.expect("thread/fork");
             let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };

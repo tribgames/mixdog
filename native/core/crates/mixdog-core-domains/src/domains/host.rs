@@ -124,6 +124,9 @@ pub struct HostService {
     power: Arc<dyn PowerSink>,
     clicks: Arc<dyn NotificationClicks>,
     surfaces: Arc<dyn BrowserSurfaces>,
+    /// The core's copy of the visualize tabs, folded from every `visualize` value the desktop sets (the section may hold
+    /// only a stub of a large one).
+    visualize: Arc<mixdog_exthost::VisualizePanes>,
 }
 
 impl HostService {
@@ -133,6 +136,7 @@ impl HostService {
         power: Arc<dyn PowerSink>,
         clicks: Arc<dyn NotificationClicks>,
         surfaces: Arc<dyn BrowserSurfaces>,
+        visualize: Arc<mixdog_exthost::VisualizePanes>,
     ) -> Arc<Self> {
         Arc::new(Self {
             publisher,
@@ -140,11 +144,15 @@ impl HostService {
             power,
             clicks,
             surfaces,
+            visualize,
         })
     }
 
     fn state_set(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let (key, value) = decode::<HostStateSetParams>(req)?.into_parts();
+        if key == "visualize" {
+            self.visualize.fold(&value);
+        }
         self.publisher.publish(
             SectionName::HostState,
             Some(key.to_owned()),
