@@ -104,6 +104,7 @@ pub(crate) fn isolated(
         step_judge: None,
         artifacts: None,
         images: None,
+        failures: None,
     }
 }
 

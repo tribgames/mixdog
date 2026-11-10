@@ -620,8 +620,24 @@ struct Harness {
     reuse: Option<Arc<dyn ResultReuse>>,
     route: Option<Arc<dyn RouteFallback>>,
     mcp: Option<Arc<dyn mixdog_agent::env::McpCatalog>>,
+    failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
+    artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
+}
+
+/// The calls the loop reported to the host's failure log.
+#[derive(Default)]
+struct FailureLog(Mutex<Vec<mixdog_agent::env::FailedCall>>);
+
+impl mixdog_agent::env::ToolFailureLog for FailureLog {
+    fn failed(&self, call: mixdog_agent::env::FailedCall) {
+        self.0.lock().unwrap().push(call);
+    }
+
+    fn stall_abort(&self, _ctx: serde_json::Map<String, serde_json::Value>) {
+        panic!("the agent loop never records a watchdog stop: its host's watchdog does");
+    }
 }
 
 impl Harness {
@@ -640,6 +656,8 @@ impl Harness {
             reuse: None,
             route: None,
             mcp: None,
+            failures: None,
+            artifacts: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
         }
@@ -680,8 +698,9 @@ impl Harness {
             mcp: self.mcp.clone(),
             side: self.side.clone(),
             step_judge: None,
-            artifacts: None,
+            artifacts: self.artifacts.clone(),
             images: None,
+            failures: self.failures.clone(),
         }
     }
 
@@ -2994,4 +3013,195 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
         compared += 1;
     }
     assert!(compared > 100, "scenarios compared: {compared}");
+}
+
+/// A gate whose surface refuses `blocked` before any call is dispatched.
+struct BlockedSurface;
+#[async_trait]
+impl ToolGate for BlockedSurface {
+    async fn check_call(&self, _call_id: &str, _call: &GateCall) -> GateDecision {
+        GateDecision::Allow
+    }
+    fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {
+        (call.name == "blocked").then(|| "Error: tool \"blocked\" is not available in this session.".to_owned())
+    }
+}
+
+/// Three refused calls leave the fourth waiting on outcomes that are only recorded after the decision pass; it is
+/// decided again once they are, instead of the batch ending without its result.
+#[tokio::test]
+async fn a_call_waiting_on_refused_earlier_calls_is_decided_again_and_runs() {
+    let mut h = Harness::new(vec![
+        turn(vec![
+            call("c1", "blocked", json!({"n": 1})),
+            call("c2", "blocked", json!({"n": 2})),
+            call("c3", "blocked", json!({"n": 3})),
+            call("c4", "echo", json!({"n": 4})),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.gate = Arc::new(BlockedSurface);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let refusal = "Error: tool \"blocked\" is not available in this session.";
+    assert_eq!(
+        dump(&output.transcript)[2..],
+        [
+            format!("tool#c1(Error):{refusal}"),
+            format!("tool#c2(Error):{refusal}"),
+            format!("tool#c3(Error):{refusal}"),
+            "tool#c4(Normal):echo:{\"n\":4}".to_owned(),
+        ]
+    );
+}
+
+/// Answers `Error: …` as a normal return, as the delegated-agent and skill tools do.
+struct ErrorText(ToolSpec);
+#[async_trait]
+impl Tool for ErrorText {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text("Error: agent: unknown type \"x\"".into())], ..ToolOutput::default() })
+    }
+}
+
+/// The failure log gets the executed calls that ended as an error: a tool that failed, a tool that returned `Error: …`
+/// text; not a call that returned normally, and not a call the surface refused before dispatch.
+#[tokio::test]
+async fn the_failure_log_gets_the_executed_calls_that_ended_as_errors() {
+    let mut h = Harness::new(vec![
+        turn(vec![
+            call("c1", "boom", json!({})),
+            call("c2", "echo", json!({"n": 2})),
+            call("c3", "agent", json!({})),
+            call("c4", "blocked", json!({})),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.gate = Arc::new(BlockedSurface);
+    let log = Arc::new(FailureLog::default());
+    h.failures = Some(log.clone());
+    let mut agent = Echo(Echo::tool().spec().clone());
+    agent.0.name = "agent".into();
+    finish(h.run(config(), vec![Boom::tool(), Echo::tool(), Arc::new(ErrorText(agent.0))], vec![AgentMessage::user("go")])).await;
+    let seen: Vec<(String, String)> = log.0.lock().unwrap().iter().map(|c| (c.tool_name.clone(), c.result_text.clone())).collect();
+    assert_eq!(
+        seen,
+        [("boom".to_owned(), "Error: boom".to_owned()), ("agent".to_owned(), "Error: agent: unknown type \"x\"".to_owned())]
+    );
+}
+
+/// Answers `Error: ` and 100,000 more characters as a normal return.
+struct LongErrorText(ToolSpec);
+#[async_trait]
+impl Tool for LongErrorText {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("Error: {}", "x".repeat(100_000)))], ..ToolOutput::default() })
+    }
+}
+
+/// An artifact store whose writes land.
+struct Persisting;
+#[async_trait]
+impl mixdog_agent::offload::ArtifactStore for Persisting {
+    async fn persist(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
+        self.preview(content).await
+    }
+    async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
+        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
+    }
+}
+
+/// A returned error is an error call by the tool's own return (`execute-call.mjs:17-20`), so the offload that replaces its
+/// text with a pointer does not take its failure row away: the row holds the offloaded result the transcript holds
+/// (`finalize.mjs:238`), and the transcript keeps the error kind. The Node recording of this case is the tool-failures
+/// scenario "a returned error that is offloaded".
+#[tokio::test]
+async fn an_offloaded_returned_error_keeps_its_failure_row() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "big", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let log = Arc::new(FailureLog::default());
+    h.failures = Some(log.clone());
+    h.artifacts = Some(Arc::new(Persisting));
+    let mut big = Echo(Echo::tool().spec().clone());
+    big.0.name = "big".into();
+    let output = finish(h.run(config(), vec![Arc::new(LongErrorText(big.0))], vec![AgentMessage::user("go")])).await;
+    let result = &output.transcript[2];
+    assert!(result.text().starts_with("[tool output offloaded: big → /art/x.txt"), "{}", result.text());
+    assert_eq!(result.tool_kind, Some(ToolKind::Error));
+    let seen: Vec<String> = log.0.lock().unwrap().iter().map(|c| c.result_text.clone()).collect();
+    assert_eq!(seen, [result.text()]);
+}
+
+/// Every step of a call's post-processing as one sequence: its failure row and its cache write.
+#[derive(Default)]
+struct Steps(Mutex<Vec<String>>);
+impl mixdog_agent::env::ToolFailureLog for Steps {
+    fn failed(&self, call: mixdog_agent::env::FailedCall) {
+        self.0.lock().unwrap().push(format!("failed {}", call.tool_name));
+    }
+    fn stall_abort(&self, _ctx: serde_json::Map<String, serde_json::Value>) {
+        panic!("the agent loop never records a watchdog stop");
+    }
+}
+#[async_trait]
+impl ResultReuse for Steps {
+    async fn lookup(&self, _call: &ToolCall, _touch: bool) -> Option<Reused> {
+        None
+    }
+    async fn store(&self, call: &ToolCall, _content: &str, _tool_use_id: &str, _output: &ToolOutput) {
+        self.0.lock().unwrap().push(format!("stored {}", call.id));
+    }
+    async fn after_call(&self, _call: &ToolCall, _failed: bool) {}
+}
+
+/// `postProcessCompleted` (`finalize.mjs:170-177`) runs per call in call order: a call's failure row and its cache write
+/// come before the next call's, and an error call is not cached (`writeCaches` takes only a normal result, `:262-266`).
+#[tokio::test]
+async fn each_calls_failure_row_and_cache_write_come_in_call_order() {
+    let mut h = Harness::new(vec![
+        turn(vec![
+            call("c1", "echo", json!({"n": 1})),
+            call("c2", "agent", json!({})),
+            call("c3", "echo", json!({"n": 3})),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let steps = Arc::new(Steps::default());
+    h.reuse = Some(steps.clone());
+    h.failures = Some(steps.clone());
+    let mut agent = Echo(Echo::tool().spec().clone());
+    agent.0.name = "agent".into();
+    finish(h.run(config(), vec![Echo::tool(), Arc::new(ErrorText(agent.0))], vec![AgentMessage::user("go")])).await;
+    assert_eq!(*steps.0.lock().unwrap(), ["stored c1", "failed agent", "stored c3"]);
+}
+
+/// A call whose arguments the provider could not parse is answered with the retry notice and never dispatched.
+#[tokio::test]
+async fn a_call_with_unparseable_arguments_is_answered_with_the_retry_notice_and_not_run() {
+    let h = Harness::new(vec![
+        turn(vec![
+            call(
+                "c1",
+                "echo",
+                json!({"__invalidToolArgs": true, "__rawArguments": "{\"a\":", "__parseError": "Unexpected end of JSON input"}),
+            ),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(
+        dump(&output.transcript)[2],
+        "tool#c1(Error):The arguments provided to `echo` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
+    );
 }

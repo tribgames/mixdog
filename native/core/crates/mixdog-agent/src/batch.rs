@@ -34,6 +34,7 @@ use crate::run::AgentError;
 use crate::run::Run;
 use crate::tools::CallEnv;
 use crate::tools::CallFuture;
+use crate::tools::ToolSet;
 use crate::tools::Executed;
 use crate::tools::Projection;
 use crate::barriers::is_mutation;
@@ -193,13 +194,32 @@ async fn run_one(call: ToolCall, env: Arc<CallEnv>, group: Option<EditGroup>) ->
         }
         let rerun = execute_call(retry, env).await;
         if !rerun.failed {
+            // Node keeps the first run's start and takes the retry's end.
+            let span = executed.tool_ms + rerun.tool_ms;
             executed = rerun;
+            executed.tool_ms = span;
         }
     }
     if !executed.failed {
         group.lock().unwrap_or_else(std::sync::PoisonError::into_inner).1 += 1;
     }
     executed
+}
+
+/// `getToolKind(name)` (`session/loop/tool-helpers.mjs`): the skill tools, then `apply_patch` / `code_graph`
+/// (builtin), the `mcp__` prefix, a tool of the surface that is not a builtin (an internal tool), else builtin.
+fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
+    if matches!(name, "Skill" | "skills_list" | "skill_view") {
+        "skill"
+    } else if matches!(name, "apply_patch" | "code_graph") {
+        "builtin"
+    } else if name.starts_with("mcp__") {
+        "mcp"
+    } else if tools.get(name).is_some() && !tools.builtin_names().contains(&name) {
+        "internal"
+    } else {
+        "builtin"
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -544,6 +564,7 @@ impl Run {
         let mut ready: Vec<bool> = vec![false; n];
         let mut recorded = 0usize;
         let mut was_executed = vec![false; n];
+        let mut tool_ms = vec![0i64; n];
         let mut cacheable = vec![false; n];
         let mut outputs: Vec<Option<ToolOutput>> = (0..n).map(|_| None).collect();
         let mut follow_ups: Vec<AgentMessage> = Vec::new();
@@ -602,6 +623,7 @@ impl Run {
                         self.record_executed(&calls[recorded], &result, sig_pair, later_mutation).await;
                     outputs[recorded] = result.output.take();
                     was_executed[recorded] = true;
+                    tool_ms[recorded] = result.tool_ms;
                     follow_ups.extend(result.follow_ups.iter().cloned());
                     staged[recorded] = Some(result.message);
                 }
@@ -714,7 +736,7 @@ impl Run {
         }
         drop(running);
 
-        self.finalize_results(&calls, &mut staged, &was_executed, &cacheable, &outputs).await;
+        self.finalize_results(&calls, &mut staged, &was_executed, &tool_ms, &cacheable, &outputs).await;
         // Results commit in the assistant's call order.
         for message in staged.into_iter().flatten() {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
@@ -752,12 +774,27 @@ impl Run {
         calls: &[ToolCall],
         staged: &mut [Option<AgentMessage>],
         executed: &[bool],
+        tool_ms: &[i64],
         cacheable: &[bool],
         outputs: &[Option<ToolOutput>],
     ) {
         let indices: Vec<usize> = (0..calls.len())
             .filter(|i| executed[*i] && staged[*i].is_some())
             .collect();
+        // `classifyExecuted` (`execute-call.mjs:17-20,187-194`): a call that returned text reading as an error (the
+        // delegated-agent, skill and MCP tools answer `Error: …` instead of failing) is an error call, decided on the tool's
+        // own return before anything below rewrites it; that kind stays the result's through the offload, the failure log,
+        // the cache write and the transcript (`finalize.mjs:174-177,238,292`). Only a text return is read: a structured one
+        // (parts, an image among them) is normal (`classifyResultKind` of a non-string, result-classification.mjs:75).
+        for i in &indices {
+            if let Some(m) = staged[*i].as_mut()
+                && m.tool_kind == Some(ToolKind::Normal)
+                && let Content::Text(text) = &m.message.content
+                && crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error
+            {
+                m.tool_kind = Some(ToolKind::Error);
+            }
+        }
         // A loading tool's native tool-search payload becomes the message's, and its summary the
         // result (`finalizeBatchResults` parses before anything is offloaded or cached).
         for i in &indices {
@@ -800,14 +837,47 @@ impl Run {
                 }
             }
         }
-        if let Some(reuse) = &self.env.reuse {
-            for i in indices.into_iter().filter(|i| cacheable[*i]) {
-                if let (Some(m), Some(output)) = (&staged[i], &outputs[i]) {
-                    reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
+        // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (an error call's row of the
+        // failure log, on the result the transcript holds) and then `writeCaches` (a normal call's reusable body).
+        for i in indices {
+            let Some(m) = &staged[i] else {
+                continue;
+            };
+            if m.tool_kind == Some(ToolKind::Error) {
+                if let Some(log) = &self.env.failures {
+                    log.failed(crate::env::FailedCall {
+                        iteration: self.iterations,
+                        tool_name: calls[i].name.clone(),
+                        tool_kind: trace_tool_kind(&self.tools, &calls[i].name),
+                        tool_ms: tool_ms[i],
+                        tool_args: calls[i].arguments.clone(),
+                        model: self.model.clone(),
+                        result_text: trace_text(&m.message.content),
+                    });
                 }
+            } else if cacheable[i]
+                && let (Some(reuse), Some(output)) = (&self.env.reuse, &outputs[i])
+            {
+                reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
             }
         }
     }}
+
+/// `toolTraceText(result)` (agent-trace-format.mjs:360-370), the text a failure row is cut from: a text as it is, a structured
+/// result's text parts joined by newlines, its images and other parts left out.
+fn trace_text(content: &Content) -> String {
+    match content {
+        Content::Text(text) => text.clone(),
+        Content::Parts(parts) => parts
+            .iter()
+            .filter_map(|part| match part {
+                mixdog_core_api::domain::provider::ContentPart::Text(text, _) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
 
 /// `notifyEarlyResult` (`eager-dispatch/entry.mjs`): what a call that settled before the stop tells the host. The
 /// model-visible text; `error` only when the call threw (`isError: !settled.ok`, the executor's `Err`). A thrown
