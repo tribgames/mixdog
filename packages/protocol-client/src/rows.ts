@@ -111,6 +111,11 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   if (node.isTranscriptHiddenControlToolName(name) || node.isTaskWaitToolCall(name, args)) return null;
   const ext = asObj(m.ext);
   const finished = typeof m.status === 'string' && FINISHED.has(m.status);
+  // A live turn's card starts when its call shows and completes when its result lands (turn-tool-cards.mjs `startedAt: Date.now()`,
+  // aggregate-result.mjs `completedAt: Date.now()`), the times its run carries; a restored one reads its message's time for both.
+  const run = asObj(item.run);
+  const live = run.live === true;
+  const completedAt = live && finite(run.completedAt) ? run.completedAt : m.at;
   const row: Obj = {
     kind: 'tool',
     id: item.id as Json,
@@ -119,7 +124,7 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
     expanded: false,
     count: 1,
     completedCount: finished ? 1 : 0,
-    ...(finite(m.at) ? { at: m.at, startedAt: m.at, ...(finished ? { completedAt: m.at } : {}) } : {}),
+    ...(finite(m.at) ? { at: m.at, startedAt: live && finite(run.startedAt) ? run.startedAt : m.at, ...(finished ? { completedAt } : {}) } : {}),
     ...present('callId', asObj(item.run).callId ?? ext.callId),
   };
   if (asObj(item.run).live === true) liveRows.add(row);
