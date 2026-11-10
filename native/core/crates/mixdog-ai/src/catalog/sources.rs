@@ -335,7 +335,7 @@ fn effective_row_of(
         _ => serde_json::Map::new(),
     };
     for key in ["display", "supportsVision", "supportsReasoning"] {
-        row.remove(key);
+        row.shift_remove(key);
     }
     if let Some(display) = display {
         row.insert("display".into(), serde_json::json!(display));

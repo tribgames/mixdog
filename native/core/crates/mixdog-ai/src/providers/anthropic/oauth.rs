@@ -92,6 +92,19 @@ impl StoredOAuth {
     }
 }
 
+/// Whether the access token lasts less than `lease_ms` more; no recorded expiry counts as short.
+fn lease_is_short(stored: &StoredOAuth, now_ms: u64, lease_ms: u64) -> bool {
+    stored.expires_at == 0 || stored.expires_at < now_ms + lease_ms
+}
+
+/// What [`OAuthSession::ensure_lease`] established; metadata only, never token bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LeaseOutcome {
+    pub expires_at: u64,
+    pub remaining_ms: u64,
+    pub refreshed: bool,
+}
+
 /// The access+refresh pair a refresh started from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TokenPair {
@@ -422,13 +435,16 @@ impl RefreshParts {
         }
     }
 
-    async fn refresh(self, rejected: Option<String>) -> Result<String, ProviderError> {
+    /// `lease_ms`: refresh unless the token outlasts that window (`preflightAnthropicOAuthCredentials`), instead
+    /// of the usual skew.
+    async fn refresh(self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
         // Reload first: another process may already have rotated the pair.
         let stored = self.stored().await?;
         let now = (self.clock)();
-        let current = match &rejected {
-            Some(token) => stored.access_token != *token,
-            None => !stored.needs_refresh(now),
+        let current = match (&rejected, lease_ms) {
+            (Some(token), _) => stored.access_token != *token,
+            (None, Some(lease)) => !lease_is_short(&stored, now, lease),
+            (None, None) => !stored.needs_refresh(now),
         };
         if current {
             return Ok(stored.access_token);
@@ -498,6 +514,11 @@ impl OAuthSession {
         self.parts.stored().await
     }
 
+    /// Names the account: the credential file it signs in from.
+    pub fn account(&self) -> String {
+        self.parts.file.path().display().to_string()
+    }
+
     /// A usable access token, refreshing first when it is near expiry.
     pub async fn access_token(&self) -> Result<String, ProviderError> {
         let stored = self.stored().await?;
@@ -517,12 +538,37 @@ impl OAuthSession {
     }
 
     async fn refresh(&self, rejected: Option<String>) -> Result<String, ProviderError> {
+        self.refresh_for(rejected, None).await
+    }
+
+    async fn refresh_for(&self, rejected: Option<String>, lease_ms: Option<u64>) -> Result<String, ProviderError> {
         let parts = self.parts.clone();
         self.parts
             .file
-            .refresh_once(async move { parts.refresh(rejected).await })
+            .refresh_once(async move { parts.refresh(rejected, lease_ms).await })
             .await
             .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
+    }
+
+    /// `preflightAnthropicOAuthCredentials`: refreshes the credential now unless its access token lasts at least
+    /// `lease_ms` more (no recorded expiry counts as short), whatever the usual skew says; the refreshed pair is
+    /// persisted before this returns. Errors when signed out, when the grant is dead, or when the endpoint grants less
+    /// than the lease. Returns the persisted credential's expiry (epoch ms) and whether a refresh ran.
+    pub async fn ensure_lease(&self, lease_ms: u64) -> Result<LeaseOutcome, ProviderError> {
+        let before = self.stored().await?;
+        if before.reauth_required == Some(true) {
+            return Err(auth_error("Anthropic sign-in expired; sign in again", true));
+        }
+        let refreshed = lease_is_short(&before, (self.parts.clock)(), lease_ms);
+        if refreshed {
+            self.refresh_for(None, Some(lease_ms)).await?;
+        }
+        let after = self.stored().await?;
+        let remaining_ms = after.expires_at.saturating_sub((self.parts.clock)());
+        if remaining_ms < lease_ms {
+            return Err(auth_error(&format!("Anthropic OAuth cannot satisfy the {}s credential lease (provider granted {}s)", lease_ms.div_ceil(1000), remaining_ms / 1000), false));
+        }
+        Ok(LeaseOutcome { expires_at: after.expires_at, remaining_ms, refreshed })
     }
 }
 
