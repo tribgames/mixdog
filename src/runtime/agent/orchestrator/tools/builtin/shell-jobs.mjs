@@ -1,4 +1,3 @@
-import os from 'node:os';
 import {
   modelVisibleToolCompletionMessage,
   normalizeToolNotifyContext,
@@ -119,14 +118,6 @@ const backgroundShellJobWatchers = new Map();
 const jobNotifyCtxByJobId = new Map();
 // jobId -> process-tree tracker of a published background job.
 const backgroundTrackers = new Map();
-
-function demoteBackgroundShellPriority(pid) {
-  if (process.env.MIXDOG_BG_PRIORITY === '0') return;
-  if (!Number.isFinite(pid) || pid <= 0) return;
-  try {
-    os.setPriority(pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
-  } catch {}
-}
 
 // Live tasks exist only in the spawning process's memory, so every running job
 // also publishes a disk record for the out-of-process shell-count readers
@@ -628,7 +619,6 @@ export async function promoteForegroundShellJob({
     clientHostPid,
   });
   if (!native) return null;
-  demoteBackgroundShellPriority(pid);
   // Promotion refreshes the task at transition time, and a promoted standby
   // shell carries its process-creation time. Neither is when this command started,
   // so the runner's own start moment is registered before anything reads the
