@@ -73,12 +73,17 @@ pub(super) fn split_lines(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Node's `_symbolTokenIndex` keys (`<language|*>|<name>`), in first-lookup order: every name a
+/// query has looked up in this graph, found or not.
+pub(super) type Lookups = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
 pub(super) struct Graph {
     pub nodes: Vec<Node>,
     index: HashMap<String, usize>,
     /// rel -> sorted rels of the files that import it.
     reverse: HashMap<String, BTreeSet<String>>,
     pub truncated: bool,
+    lookups: Lookups,
 }
 
 impl Graph {
@@ -99,9 +104,35 @@ impl Graph {
         name: &'a str,
         language: Option<&'a str>,
     ) -> impl Iterator<Item = &'a Node> {
+        let key = format!("{}|{name}", language.unwrap_or("*"));
+        let mut seen = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !seen.contains(&key) {
+            seen.push(key);
+        }
+        drop(seen);
         self.nodes
             .iter()
             .filter(move |n| language.is_none_or(|l| n.lang == l) && n.has_token(name))
+    }
+
+    /// Node `_formatNoSymbolMatches`: up to three other spellings of `symbol`, differing only in
+    /// case, that a query has looked up in this graph.
+    pub fn casing_variants(&self, symbol: &str) -> Vec<String> {
+        let lower = symbol.to_lowercase();
+        let mut out: Vec<String> = Vec::new();
+        if self.nodes.is_empty() {
+            return out;
+        }
+        for key in self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter() {
+            let Some((_, name)) = key.split_once('|') else { continue };
+            if name != symbol && name.to_lowercase() == lower && !out.iter().any(|n| n == name) {
+                out.push(name.to_owned());
+                if out.len() >= 3 {
+                    break;
+                }
+            }
+        }
+        out
     }
 
     /// The whole project under `root`, minus the nested project roots in `excluded` (a federated
@@ -163,7 +194,16 @@ impl Graph {
         if whole_tree && (reused.into_inner() != nodes.len() || previous_len != nodes.len()) {
             cache.stage(root, nodes.iter().filter_map(CachedFile::of).collect());
         }
-        Ok(Self::assemble(root, nodes, truncated))
+        let mut graph = Self::assemble(root, nodes, truncated);
+        if whole_tree {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            for node in &graph.nodes {
+                (&node.rel, node.fingerprint).hash(&mut hasher);
+            }
+            graph.lookups = cache.lookups_for(&path_key(root), hasher.finish());
+        }
+        Ok(graph)
     }
 
     /// One file on its own, rooted at `root` (a symbol outline needs no edges).
@@ -205,6 +245,7 @@ impl Graph {
             index,
             reverse,
             truncated,
+            lookups: Lookups::default(),
         }
     }
 }

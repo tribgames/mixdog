@@ -431,6 +431,10 @@ pub(super) fn find_symbol_across_graph(
         if graph.truncated {
             lines.push(format!("WARN: graph truncated at CODE_GRAPH_MAX_FILES={MAX_FILES} — symbol may exist in an un-indexed file. Re-run with a narrower cwd."));
         }
+        let variants = graph.casing_variants(symbol);
+        if !variants.is_empty() {
+            lines.push(format!("hint: indexed under different casing: {}", variants.join(", ")));
+        }
         if !outside_line.is_empty() {
             lines.push(outside_line);
         }
