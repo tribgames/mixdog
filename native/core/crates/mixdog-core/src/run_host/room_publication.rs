@@ -45,8 +45,53 @@ where
             Box::pin(async move { summaries.republish_catalog().await.map_err(|error| RoomError::Port(format!("{error:?}"))) })
         })
     };
+    let sessions = Arc::new(RenameLists { sessions, summaries: summaries.clone() });
     let host = Arc::new(SessionRoomHost::new(agents, sessions, republish));
     Ok(RoomPublication { summaries, host })
+}
+
+/// The room sessions as Node's host serves them to the rooms: a room log's rename is the host's `renameSession`
+/// (`session-host.ts:316`), which after the title awaits a whole catalog listing (`session-host-lifecycle.ts:225-233`); that listing
+/// is what loads the catalog before a room create or rename publishes it (recorded: `fixtures/room-catalog-states`).
+struct RenameLists {
+    sessions: Arc<dyn SessionOps>,
+    summaries: Arc<RoomSummaries>,
+}
+
+#[async_trait::async_trait]
+impl SessionOps for RenameLists {
+    async fn route(&self, session_id: &str) -> Result<Option<serde_json::Value>, RoomError> {
+        self.sessions.route(session_id).await
+    }
+    async fn create(&self, session_id: &str, params: &serde_json::Value) -> Result<(), RoomError> {
+        self.sessions.create(session_id, params).await
+    }
+    async fn set_route(&self, session_id: &str, route: &serde_json::Value) -> Result<(), RoomError> {
+        self.sessions.set_route(session_id, route).await
+    }
+    async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), RoomError> {
+        self.sessions.set_archived(session_id, archived).await
+    }
+    async fn is_retired(&self, session_id: &str) -> Result<bool, RoomError> {
+        self.sessions.is_retired(session_id).await
+    }
+    async fn set_retired(&self, session_id: &str, retired: bool) -> Result<(), RoomError> {
+        self.sessions.set_retired(session_id, retired).await
+    }
+    async fn rename(&self, session_id: &str, title: &str) -> Result<(), RoomError> {
+        self.sessions.rename(session_id, title).await?;
+        self.summaries.publish_catalogs().await;
+        Ok(())
+    }
+    async fn set_retired_title(&self, session_id: &str, name: &str) -> Result<(), RoomError> {
+        self.sessions.set_retired_title(session_id, name).await
+    }
+    async fn clear(&self, session_id: &str, archive_as: &str) -> Result<(), RoomError> {
+        self.sessions.clear(session_id, archive_as).await
+    }
+    async fn delete(&self, session_id: &str) -> Result<(), RoomError> {
+        self.sessions.delete(session_id).await
+    }
 }
 
 #[cfg(test)]
@@ -67,7 +112,9 @@ mod tests {
     use mixdog_core_rooms::rooms::records::Rooms;
     use mixdog_core_rooms::rooms::service::RoomRunner;
     use mixdog_core_rooms::rooms::service::RoomService;
+    use mixdog_core_rooms::rooms::home::HomePorts;
     use mixdog_core_rooms::rooms::home::Presence;
+    use mixdog_core_rooms::rooms::sessions::SessionHomePorts;
     use mixdog_core_rooms::rooms::store::StateRoomStore;
     use mixdog_core_session::session::StoreThreads;
     use mixdog_core_session::session::thread_list::LIST;
@@ -84,9 +131,15 @@ mod tests {
     use crate::run_host::room_list::RoomListRows;
 
     /// The agents the rooms name, and the folder tasks run in; the listing's task workspace lookup fails once `lookup_fails` is set.
-    #[derive(Default)]
     struct Agents {
         lookup_fails: std::sync::atomic::AtomicBool,
+        /// Each agent's id and name.
+        roster: Vec<(String, String)>,
+    }
+    impl Default for Agents {
+        fn default() -> Self {
+            Self { lookup_fails: false.into(), roster: vec![("gh".into(), "GH".into()), ("rel".into(), "Rel".into())] }
+        }
     }
     #[async_trait]
     impl TaskWorkspace for Agents {
@@ -101,7 +154,7 @@ mod tests {
     impl AgentCatalog for Agents {
         async fn agents(&self) -> Result<Vec<mixdog_core_rooms::rooms::service::KnownAgent>, RoomError> {
             let route = json!({ "provider": "custom-harness", "model": "harness-model" });
-            Ok(["gh", "rel"].map(|id| mixdog_core_rooms::rooms::service::KnownAgent { id: id.into(), route: route.clone() }).to_vec())
+            Ok(self.roster.iter().map(|(id, _)| mixdog_core_rooms::rooms::service::KnownAgent { id: id.clone(), route: route.clone() }).collect())
         }
         async fn mixy_route(&self) -> Value {
             Value::Null
@@ -122,7 +175,7 @@ mod tests {
     #[async_trait]
     impl MemberNames for Agents {
         async fn names(&self) -> HashMap<String, String> {
-            HashMap::from([("gh".to_owned(), "GH".to_owned()), ("rel".to_owned(), "Rel".to_owned())])
+            self.roster.iter().cloned().collect()
         }
     }
 
@@ -184,7 +237,7 @@ mod tests {
     struct Composed {
         service: Arc<Service>,
         list: Arc<ThreadListService>,
-        rooms: Arc<Rooms<StateRoomStore>>,
+        homes: SessionHomePorts<StateRoomStore>,
         agents: Arc<Agents>,
         app: MockConnection,
         gate: Arc<Gate>,
@@ -195,6 +248,15 @@ mod tests {
         async fn create(&self) -> tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>> {
             let service = self.service.clone();
             tokio::spawn(async move { value(&*service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))).await })
+        }
+
+        /// One room call through the service, its `input` as given; its answer or its error's text.
+        async fn call(&self, method: &'static str, input: Value, op: u64) -> Result<Value, String> {
+            let service = self.service.clone();
+            let answer = tokio::time::timeout(DEADLINE, async move { value(&*service, request(method, with_op(json!({ "input": input }), op), Some(op))).await })
+                .await
+                .unwrap_or_else(|_| panic!("{method} answered within the deadline"));
+            answer.map_err(|error| format!("{error:?}"))
         }
 
         /// A listing, as a window's first list loads Node's catalog.
@@ -240,32 +302,181 @@ mod tests {
         assert!(ids.contains(&room.as_str()), "thread/list at the reply lists the room {room}: {ids:?}");
     }
 
-    /// Node with its catalog loaded lets a failed publish throw into the call (`agent-rooms.ts:289`): the creation rejects, and the
-    /// room it saved stays saved. The publish here fails at the listing's task workspace lookup.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn with_the_catalog_loaded_a_failed_publish_rejects_the_create_and_keeps_the_room() {
-        let world = composed().await;
-        world.load_catalog().await;
-        world.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
-        let answer = tokio::time::timeout(DEADLINE, world.create().await).await.expect("room/create answered within the deadline").expect("task");
-        assert!(answer.is_err(), "the create answered {answer:?} though its publish failed");
-        assert_eq!(world.rooms.list().await.expect("rooms").len(), 1, "the saved room stays");
+    fn recorded(scenario: &str) -> Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../fixtures/room-catalog-states/{scenario}.json"));
+        serde_json::from_slice(&std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))).expect("recording")
     }
 
-    /// Before any listing (Node's `sessionCatalogLoaded` false) the publish is started and not awaited (`session-host.ts:355`,
-    /// `void this.catalog.publishCatalogs()`): the creation answers while the publish, a whole listing, is held at its first step for
-    /// good, and that listing is the one the gate stopped.
+    /// The room log rows of the frames the app feed has been sent since the last drain, in order.
+    fn room_rows(app: &MockConnection) -> Vec<Value> {
+        app.drain_text()
+            .into_iter()
+            .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
+            .filter(|frame| frame["method"] == "thread/summary/updated" && frame["params"]["thread"]["agentRoom"].is_object())
+            .map(|frame| frame["params"]["thread"].clone())
+            .collect()
+    }
+
+    /// Where the two runs differ by what they are, not by what they do: the room's id (made at random) and each time field (each
+    /// run's clock; per field, as two clock reads of one run can land in one millisecond) are named by their order of first
+    /// appearance in the scenario; the task workspace a room log is made in (`agent-rooms.ts:284`, the log row's `cwd`) is named
+    /// as such.
+    struct Names {
+        ids: Vec<String>,
+        times: HashMap<&'static str, Vec<i64>>,
+        workspace: String,
+    }
+    impl Names {
+        fn new(workspace: &str) -> Self {
+            Self { ids: Vec::new(), times: HashMap::new(), workspace: workspace.to_owned() }
+        }
+        fn named(&mut self, row: &Value) -> Value {
+            let mut row = row.clone();
+            let id = row["agentRoom"]["id"].as_str().expect("room id").to_owned();
+            let at = self.ids.iter().position(|seen| *seen == id).unwrap_or_else(|| (self.ids.push(id.clone()), self.ids.len() - 1).1);
+            row["id"] = json!(format!("<room log {at}>"));
+            row["agentRoom"]["id"] = json!(format!("<room {at}>"));
+            for key in ["createdAt", "updatedAt", "activityAt"] {
+                if let Some(time) = row.get(key).and_then(Value::as_i64) {
+                    let seen = self.times.entry(key).or_default();
+                    let at = seen.iter().position(|t| *t == time).unwrap_or_else(|| (seen.push(time), seen.len() - 1).1);
+                    row[key] = json!(format!("<{key} {at}>"));
+                }
+            }
+            if !self.workspace.is_empty() && row["cwd"] == self.workspace.as_str() {
+                row["cwd"] = json!("<task workspace>");
+            }
+            row
+        }
+    }
+
+    /// The one known difference, named and checked rather than passed over (reported for `decisions.md`, owner: Lead): Node's
+    /// daemon lists a session it still holds live from the session object (`listLeadSessions` over a session, no summary:
+    /// `store-summary-real-turns.test.mjs:115-118`), which carries neither `compactCount` nor `incomingTail`; the core's row is
+    /// always the stored summary's (`store-summary-index.mjs:288,350`), `compactCount: 0` and, for a room log, `incomingTail: []`.
+    /// Only that exact pair, absent from Node's row, is taken off the core's; any other difference stays.
+    fn live_form(mut core: Value, node: &Value) -> Value {
+        for (key, stored) in [("compactCount", json!(0)), ("incomingTail", json!([]))] {
+            if node.get(key).is_none() && core.get(key) == Some(&stored) {
+                core.as_object_mut().expect("row").shift_remove(key);
+            }
+        }
+        core
+    }
+
+    /// Every room call of Node's recordings (`benchmarks/rust-core/recorders/record-room-catalog-states.mjs` →
+    /// `fixtures/room-catalog-states`), replayed whole and in order through the production wiring: per call, whether the catalog was
+    /// loaded before and after it, how it ended, and the room rows its own publications sent before it answered (the room's
+    /// rename's whole listing and the room call's `republishCatalog`, Node's `room-rename`/`room-call` origins). Node's other
+    /// publications (a member session's reset or deletion, the store watcher) are other paths, the core's index edges; they are
+    /// recorded with their own origin and not part of a room call's answer. Node's listing fault (the daemon's `session.list`
+    /// failing) is the core's listing failing at its first step, the task workspace lookup.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn with_the_catalog_not_loaded_a_room_create_answers_without_waiting_for_its_publish() {
-        let world = composed().await;
-        let (_open, arrived) = world.gate.arm();
-        let created = tokio::time::timeout(DEADLINE, world.create().await).await.expect("room/create waited for its publish, held at its first step").expect("task");
-        created.expect("room/create");
-        tokio::time::timeout(DEADLINE, arrived).await.expect("the room create never started its publish").expect("gate");
-        assert!(!world.list.catalog_loaded(), "the held listing has not answered");
+    async fn room_calls_replay_nodes_catalog_states() {
+        let manifest: Value = serde_json::from_slice(
+            &std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-catalog-states/MANIFEST.json")).expect("manifest"),
+        )
+        .expect("manifest json");
+        assert_eq!(manifest["product"]["exact"], json!(true), "the recording is of the exact product");
+        for scenario in manifest["scenarios"].as_array().expect("scenarios") {
+            replay(scenario.as_str().expect("scenario")).await;
+        }
+    }
+
+    async fn replay(scenario: &str) {
+        let node = recorded(scenario);
+        let bots: Vec<String> = node["bots"].as_array().expect("bots").iter().map(|b| b.as_str().expect("bot").to_owned()).collect();
+        // The bots' names, as Node's room summary names them.
+        let named = node["steps"].as_array().expect("steps").iter().find_map(|step| {
+            step["events"].as_array()?.iter().find_map(|event| {
+                event["value"]["memberNames"]
+                    .as_object()
+                    .or_else(|| event["rooms"].as_array()?.iter().find_map(|row| row["agentRoom"]["memberNames"].as_object()))
+                    .cloned()
+            })
+        });
+        let names = named.expect("a step answers the members' names");
+        let roster = bots.iter().map(|id| (id.clone(), names[id].as_str().expect("name").to_owned())).collect();
+        let world = composed_with(Agents { lookup_fails: false.into(), roster }).await;
+        let fail_from = node["failListingAfter"].as_u64();
+        if fail_from == Some(0) {
+            world.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        let workspace = world.agents.path().await.unwrap_or_default();
+        let (mut node_names, mut core_names) = (Names::new(node["taskWorkspace"].as_str().expect("task workspace")), Names::new(&workspace));
+        let mut room: Option<Value> = None;
+        let mut created = 0;
+        for step in node["steps"].as_array().expect("steps") {
+            let name = step["step"].as_str().expect("step");
+            let events = step["events"].as_array().cloned().unwrap_or_default();
+            let what = format!("{scenario} / {name}");            match name {
+                "list" => world.load_catalog().await,
+                // The core's flag is the list service's, which a lost transport or a reloaded window does not replace.
+                "transport-loss-and-renderer-reload" => {}
+                call => {
+                    assert_eq!(json!(world.list.catalog_loaded()), step["loadedBefore"], "{what}: loaded before the call");
+                    drop(world.app.drain_text());
+                    created += 1;
+                    let room_id = room.as_ref().map(|r| r["roomId"].clone()).unwrap_or(Value::Null);
+                    let answer = match call {
+                        "create" => world.call("room/create", json!({ "name": "Room One", "members": bots }), created).await,
+                        "update" => world.call("room/update", json!({ "roomId": room_id, "name": "Room Renamed" }), created).await,
+                        "reset" => world.call("room/reset", json!({ "roomId": room_id }), created).await,
+                        "remove" => world.call("room/remove", json!({ "roomId": room_id }), created).await,
+                        "forget-member" => {
+                            let forget = world.homes.forget_room_member(&bots[2]);
+                            tokio::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered").map(|()| Value::Null).map_err(|error| format!("{error:?}"))
+                        }
+                        other => panic!("{what}: a call this replay does not know: {other}"),
+                    };
+                    let sent = room_rows(&world.app);
+                    let node_answer = events.iter().find(|e| e["kind"] == "answered" || e["kind"] == "threw").expect("the call's end");
+                    match (&answer, node_answer["kind"].as_str()) {
+                        (Ok(value), Some("answered")) => {
+                            if call == "create" {
+                                room = Some(value.clone());
+                            }
+                            let core_room = room.as_ref().map(|r| r["roomId"].as_str().expect("room id").to_owned()).unwrap_or_default();
+                            let node_room = node["room"]["roomId"].as_str().unwrap_or_default();
+                            let core_text = value.to_string().replace(&core_room, "<room>");
+                            // A call Node answers with nothing (`Promise<void>`, recorded as null) answers the protocol's empty object.
+                            // (The member removal is no protocol call: its `()` is the null here.)
+                            let node_value = if node_answer["value"].is_null() && call != "forget-member" { json!({}) } else { node_answer["value"].clone() };
+                            let node_text = node_value.to_string().replace(node_room, "<room>");
+                            assert_eq!(core_text, node_text, "{what}: the answer");
+                        }
+                        (Err(error), Some("threw")) => assert!(error.contains(node_answer["message"].as_str().expect("message")), "{what}: {error}"),
+                        (got, _) => panic!("{what}: the core ended {got:?}, Node {node_answer}"),
+                    }
+                    // The room rows Node's own publications of the call carried before it answered, the last one per room.
+                    let node_rows: Vec<&Value> = events
+                        .iter()
+                        .take_while(|e| e["kind"] != "answered" && e["kind"] != "threw")
+                        .filter(|e| e["kind"] == "published" && (e["origin"] == "room-call" || e["origin"] == "room-rename" || e["origin"] == "room-call-background-listing"))
+                        .filter_map(|e| e["rooms"].as_array())
+                        .last()
+                        .map(|rows| rows.iter().collect())
+                        .unwrap_or_default();
+                    let node_rows: Vec<Value> = node_rows.into_iter().map(|row| node_names.named(row)).collect();
+                    let core_last = sent.last().map(|row| core_names.named(row));
+                    match node_rows.as_slice() {
+                        [] => assert_eq!(core_last, None, "{what}: Node published no room row before answering"),
+                        [one] => assert_eq!(core_last.map(|row| live_form(row, one)).as_ref(), Some(one), "{what}: the room row published before the answer"),
+                        more => panic!("{what}: Node published {} rooms; the scenario has one", more.len()),
+                    }
+                    assert_eq!(json!(world.list.catalog_loaded()), step["loadedAfter"], "{what}: loaded after the call");                }
+            }
+            if name == "list" && fail_from == Some(1) {
+                world.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
     }
 
     async fn composed() -> Composed {
+        composed_with(Agents::default()).await
+    }
+
+    async fn composed_with(agents: Agents) -> Composed {
         let data = tempfile::tempdir().expect("data dir");
         let tokens = mixdog_rt::testing::tokens();
         let root = data.path().to_path_buf();
@@ -282,7 +493,7 @@ mod tests {
         std::fs::create_dir_all(data.path().join("state")).expect("state dir");
         let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
         let rooms = Arc::new(Rooms::new(StateRoomStore::new(state)));
-        let agents = Arc::new(Agents::default());
+        let agents = Arc::new(agents);
         let limits = MockLimits::default();
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
         let app = MockConnection::new(ConnectionId(1), limits);
@@ -296,10 +507,12 @@ mod tests {
         let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
         list.fence(store);
         let sessions = Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone()))));
-        let publication = wire(list.clone(), sections, agents.clone(), &index, directory, sessions).expect("wired");
+        let publication = wire(list.clone(), sections, agents.clone(), &index, directory, sessions.clone()).expect("wired");
         let op_dir = tempfile::tempdir().expect("op dir");
         let scopes = mixdog_core_base::support::testing::scopes(op_dir.path(), "room").await;
-        let service = Arc::new(RoomService::new(rooms.clone(), publication.host, Arc::new(Idle), scopes));
-        Composed { service, list, rooms, agents, app, gate, _held: (rig, data, op_dir) }
+        // The agent deletion's room ports, as `compose_flip.rs` composes them.
+        let homes = SessionHomePorts::new(agents.clone(), sessions, rooms.clone(), publication.host.clone(), Arc::new(Idle));
+        let service = Arc::new(RoomService::new(rooms.clone(), publication.host, Arc::new(Idle), scopes, agents.clone()));
+        Composed { service, list, homes, agents, app, gate, _held: (rig, data, op_dir) }
     }
 }

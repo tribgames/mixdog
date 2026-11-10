@@ -156,11 +156,13 @@ pub struct RoomService<S: RoomStore, H: RoomHost, R: RoomRunner> {
     host: Arc<H>,
     runner: Arc<R>,
     ops: OpScopes,
+    /// The members' names an answered room summary carries (`refreshNames`, `agent-rooms.ts:304`).
+    names: Arc<dyn super::catalog_rows::MemberNames>,
 }
 
 impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> RoomService<S, H, R> {
-    pub fn new(rooms: Arc<Rooms<S>>, host: Arc<H>, runner: Arc<R>, ops: OpScopes) -> Self {
-        Self { rooms, host, runner, ops }
+    pub fn new(rooms: Arc<Rooms<S>>, host: Arc<H>, runner: Arc<R>, ops: OpScopes, names: Arc<dyn super::catalog_rows::MemberNames>) -> Self {
+        Self { rooms, host, runner, ops, names }
     }
 
     async fn known(&self) -> Result<Vec<KnownAgent>, RoomError> {
@@ -254,7 +256,8 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
                 "The room was updated, but {failed} conversations of removed members could not be deleted."
             )));
         }
-        Ok(summary(&updated.room, self.runner.is_running(room_id)))
+        // `summaryOf(room)` (`agent-rooms.ts:319`), the room as the catalog's `agentRoom` shows it.
+        Ok(super::catalog_rows::room_summary(&updated.room, &self.names.names().await, self.runner.is_running(room_id)))
     }
 
     async fn remove(&self, input: &Value) -> Result<Value, RoomError> {
@@ -326,23 +329,6 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
     }
 }
 
-/// A room as the catalog shows it.
-fn summary(room: &RoomRecord, running: bool) -> Value {
-    json!({
-        "id": room.id,
-        "name": room.config.name,
-        "members": room.config.members,
-        "maxRounds": room.config.max_rounds,
-        "maxMessages": room.config.max_messages,
-        "shareTools": room.config.share_tools,
-        "createdAt": room.created_at,
-        "lastSpeaker": room.last_speaker,
-        "lastAt": room.last_at,
-        "lastPreview": room.last_preview,
-        "running": running,
-    })
-}
-
 #[async_trait]
 impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> DomainService for RoomService<S, H, R> {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
@@ -399,6 +385,15 @@ mod tests {
 
     use super::super::records::{RoomDoc, RoomRecord, RoomStore};
     use std::sync::Mutex;
+
+    /// No agent has a name: a summary names each member by its id.
+    struct Unnamed;
+    #[async_trait]
+    impl super::super::catalog_rows::MemberNames for Unnamed {
+        async fn names(&self) -> std::collections::HashMap<String, String> {
+            std::collections::HashMap::new()
+        }
+    }
 
     struct Mem(Mutex<RoomDoc>);
     #[async_trait]
@@ -501,7 +496,7 @@ mod tests {
             });
             let rooms = Arc::new(Rooms::new(Mem(Mutex::new(RoomDoc::from([(room_id.to_owned(), before.clone())])))));
             let ops = mixdog_core_base::support::testing::scopes(dir.path(), "room").await;
-            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops);
+            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops, Arc::new(Unnamed));
 
             // The unknown room is asked for by another id than the one the record sits under.
             let asked = if name == "unknown room" { "nosuchroom" } else { room_id };
@@ -666,6 +661,7 @@ mod tests {
             host.clone(),
             Arc::new(Idle),
             mixdog_core_base::support::testing::scopes(dir.path(), "room").await,
+            Arc::new(Unnamed),
         );
         (service, host, dir)
     }

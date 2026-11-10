@@ -1,0 +1,252 @@
+{
+  "scenario": "loaded-failing",
+  "listFirst": true,
+  "failListingAfter": 1,
+  "calls": [
+    "create",
+    "update",
+    "reset"
+  ],
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-failing-Ie4XDO\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "room": {
+    "sessionId": "sess_room_mwaea1wv6812a66a",
+    "roomId": "mwaea1wv6812a66a"
+  },
+  "steps": [
+    {
+      "step": "list",
+      "loadedAfter": true,
+      "rooms": [],
+      "events": []
+    },
+    {
+      "step": "create",
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "rooms": [
+            {
+              "id": "sess_room_mwaea1wv6812a66a",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794297290296,
+              "activityAt": 1794297290296,
+              "messageCount": 0,
+              "cwd": "",
+              "classification": "task",
+              "projectPath": null,
+              "agentRoom": {
+                "id": "mwaea1wv6812a66a",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mwaea1wv6812a66a",
+            "roomId": "mwaea1wv6812a66a"
+          }
+        }
+      ]
+    },
+    {
+      "step": "update",
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "rooms": [
+            {
+              "id": "sess_room_mwaea1wv6812a66a",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1794297290296,
+              "activityAt": 1794297290296,
+              "messageCount": 0,
+              "cwd": "",
+              "classification": "task",
+              "projectPath": null,
+              "agentRoom": {
+                "id": "mwaea1wv6812a66a",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mwaea1wv6812a66a",
+            "name": "Room Renamed",
+            "members": [
+              "alpha",
+              "beta",
+              "gamma"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta",
+              "gamma": "Gamma"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "step": "reset",
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "listing",
+          "rooms": [
+            {
+              "id": "sess_room_mwaea1wv6812a66a",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1794297290296,
+              "activityAt": 1794297290296,
+              "messageCount": 0,
+              "cwd": "",
+              "classification": "task",
+              "projectPath": null,
+              "agentRoom": {
+                "id": "mwaea1wv6812a66a",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "published",
+          "origin": "listing",
+          "rooms": [
+            {
+              "id": "sess_room_mwaea1wv6812a66a",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1794297290296,
+              "activityAt": 1794297290296,
+              "messageCount": 0,
+              "cwd": "",
+              "classification": "task",
+              "projectPath": null,
+              "agentRoom": {
+                "id": "mwaea1wv6812a66a",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "rooms": [
+            {
+              "id": "sess_room_mwaea1wv6812a66a",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1794297290504,
+              "activityAt": 1794297290504,
+              "messageCount": 0,
+              "cwd": "",
+              "classification": "task",
+              "projectPath": null,
+              "agentRoom": {
+                "id": "mwaea1wv6812a66a",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "archivedSessionId": null
+          }
+        }
+      ]
+    }
+  ]
+}

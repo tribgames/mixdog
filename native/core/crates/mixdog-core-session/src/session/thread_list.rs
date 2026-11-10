@@ -253,10 +253,24 @@ impl ThreadListService {
     /// The row a room publication carries for the room log `id`, as Node's in-memory catalog has it inside the call
     /// (`session-host.ts:354` `sessionCatalog()` → `catalogWithRooms`, `agent-room-views.ts:116-152`): the indexed row stamped with
     /// the room when the index holds the log, else the row made up from the saved room alone. It waits for no projection, so
-    /// the saved room is always carried; `None` only for a log that is no room's.
+    /// the saved room is always carried; `None` only for a log that is no room's. Node's in-call publication reads nothing (its rows
+    /// are the last listing's), so a read that fails here does not fail it: the room goes out as the row made from the saved room,
+    /// as Node's does when its last listing did not hold the log (recorded: `fixtures/room-catalog-states/loaded-failing.json`).
     async fn room_row(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
-        let workspace = self.workspace().await?;
-        if let Some(listed) = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))? {
+        let indexed = match self.workspace().await {
+            Ok(workspace) => match self.store.lead_row(id.as_str()).await {
+                Ok(listed) => listed.map(|listed| (listed, workspace)),
+                Err(error) => {
+                    tracing::warn!(%error, thread = id.as_str(), "room publication: the log's row could not be read; the saved room goes out");
+                    None
+                }
+            },
+            Err(error) => {
+                tracing::warn!(?error, thread = id.as_str(), "room publication: the task workspace could not be read; the saved room goes out");
+                None
+            }
+        };
+        if let Some((listed, workspace)) = indexed {
             return self.summary_of(id, &listed, &workspace).await;
         }
         let row = self.rooms.unlisted(std::slice::from_ref(id)).await.map_err(|error| failed(DOMAIN, error))?.pop();
@@ -371,6 +385,12 @@ impl RoomSummaries {
         let this = self.clone();
         tokio::spawn(async move { drop(this.publish_listing().await) });
         Ok(())
+    }
+
+    /// Node's `publishCatalogs` awaited, as a room log's rename does (`session-host-lifecycle.ts:225-233` `renameSession`): the whole
+    /// listing (which marks the catalog loaded) and its room rows; a failed listing is dropped (`session-host-catalog.ts:231-238`).
+    pub async fn publish_catalogs(&self) {
+        drop(self.publish_listing().await);
     }
 
     /// The background pass: the whole listing, then the room rows it holds; one pass in the chain, so a call that the listing made
