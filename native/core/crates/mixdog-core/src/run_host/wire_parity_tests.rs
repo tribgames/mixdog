@@ -110,7 +110,7 @@ fn request(session: &Value, scenario: &Value, model: &str) -> ModelRequest {
         options.prompt_cache_key = Some("mixdog-codex".into());
         // The identity comes through the production assembly from the stored header, not from the fixture's thread id.
         let header = session["storedHeader"].as_object().unwrap().clone();
-        options.thread = Some(super::assemble::request_identity(&thread.as_str().into(), &header, Some(text(&scenario["turnId"]).as_str().into())));
+        super::assemble::apply_identity(&mut options, &thread.as_str().into(), &header, Some(text(&scenario["turnId"]).as_str().into()));
     }
     ModelRequest { model: model.into(), messages, tools, options }
 }
@@ -292,7 +292,7 @@ async fn differences(provider: &str) -> Vec<String> {
 }
 
 // Ignored, not passing: the socket-level comparison shows differences that are not closed yet (the report of this commit lists them).
-#[ignore = "socket-level differences from Node are open: upgrade header order/case and permessage-deflate offer, preconnect HEAD, http/1.1 header case/order"]
+#[ignore = "360 socket-level differences from Node are open: the HEAD preconnect arrives after the upgrade and carries accept/accept-encoding where Node's has host and connection only; the upgrade lacks the permessage-deflate offer and writes Host first, with lowercase caller headers in another order; http/1.1 header case, order, extra undici headers and accept-encoding value"]
 #[tokio::test]
 async fn every_openai_request_equals_nodes_recording() {
     let differences = differences("openai-oauth").await;
