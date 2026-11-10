@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from '../lib/common.mjs';
-import { killTree, startCore } from '../lib/phone-files-replay.mjs';
+import { exitWithin, killTree, startCore } from '../lib/phone-files-replay.mjs';
 import { asReceived, COMPARISON, CONTENTS, CORRUPT } from './scenarios.mjs';
 
 // A connection that is dropped on purpose (the core ended at a gate, or was stopped) ends the client's reconnect ladder with this error, which nobody awaits.
@@ -35,17 +35,6 @@ function runSync(what, command, args, ms, options = {}) {
   return result;
 }
 
-/** Resolves when `child` has exited; fails with a message naming `what` after `ms`. */
-const exitWithin = (child, ms, what) =>
-  child.exitCode !== null || child.signalCode !== null
-    ? Promise.resolve()
-    : new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`${what} did not exit within ${ms} ms`)), ms);
-        child.once('exit', () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
 
 /** Every descendant of `pid` now (the core's database, for one): a crash of the core leaves them running. */
 function descendants(pid) {
@@ -116,7 +105,9 @@ async function stopCore(exe, core) {
     runSync('mixdogd ctl stop', exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], 60_000, { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     await exited;
   } catch (error) {
-    killTree(core.child);
+    await killTree(core.child).catch((ending) => {
+      error.message += `\nand ending it failed: ${ending.message}`;
+    });
     throw error;
   }
   databaseEnded(core.dataDir);
@@ -292,10 +283,7 @@ async function replayScenario({ exe, scenario, numberFresh }) {
   // The next scenario's database takes the first free port; this one's must have let go of its own.
   if (core && core.child.exitCode === null) await end('stopping the last core', async () => (await stopCore(exe, core))());
   for (const started of cores) {
-    await end(`ending the core pid ${started.child.pid}`, async () => {
-      killTree(started.child);
-      await exitWithin(started.child, 60_000, "the core's process tree, ended with taskkill");
-    });
+    await end(`ending the core pid ${started.child.pid}`, () => killTree(started.child));
   }
   // A pid already gone is no error here.
   for (const pid of survivors) await end(`ending the crashed core's process ${pid}`, () => runSync(`taskkill of the crashed core's process ${pid}`, 'taskkill', ['/F', '/PID', String(pid)], 60_000, { stdio: 'ignore' }));
@@ -350,15 +338,17 @@ const nodeSide = (recorded) =>
   });
 
 /** One answer of the core in the recording's terms (COMPARISON.translated `recorded[].reply`): `thread.id` is `sessionId`, an answer is `accepted`, and the paths of
- *  `coreNotCompared` are left out; whatever else the core answered stays and is compared (a `thread` that keeps a field not declared stays too). */
-const translatedAnswer = (answer) => {
+ *  `coreNotCompared` are left out; whatever else the core answered stays and is compared (a `thread` that keeps a field not declared stays too). The translation only
+ *  adds what the phone's adapter derives: a field the core's answer already carries is the core's, as received, and is compared as it came (as `asReceived` lets
+ *  every received field stand over the one it would set). */
+export const translatedAnswer = (answer) => {
   if (!answer || answer.ok !== true || !('thread' in answer)) return answer;
   const copy = structuredClone(answer);
   for (const path of paths(COMPARISON.coreNotCompared, 'reply.')) without(copy, path);
   const { id, ...rest } = copy.thread ?? {};
   if (Object.keys(rest).length) copy.thread = rest;
   else delete copy.thread;
-  return { ...copy, accepted: true, sessionId: id };
+  return { accepted: true, sessionId: id, ...copy };
 };
 const coreSide = (got) => got.map((step) => ({ ...step, reply: Array.isArray(step.reply) ? step.reply.map(translatedAnswer) : translatedAnswer(step.reply) }));
 

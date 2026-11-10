@@ -36,15 +36,100 @@ function differences(a, b, path = '') {
 }
 
 /** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
-export function killTree(child) {
-  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 60_000, windowsHide: true });
+export async function killTree(child) {
+  const gone = () => child.exitCode !== null || child.signalCode !== null;
+  if (gone()) return;
+  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
   if (ended.error) throw new Error(`taskkill of the core's tree (pid ${child.pid}) did not finish within 60 s: ${ended.error.message}`);
+  // 128: no such process (it ended between the look above and the kill).
+  if (ended.status !== 0 && ended.status !== 128 && !gone()) {
+    throw new Error(`taskkill of the core's tree (pid ${child.pid}) failed (exit ${ended.status}): ${(ended.stderr || ended.stdout).trim()}`);
+  }
+  await exitWithin(child, 60_000, `the core (pid ${child.pid}), ended with taskkill`);
+}
+
+/** Resolves when `child` has exited; fails with a message naming `what` after `ms`. */
+export const exitWithin = (child, ms, what) =>
+  child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${what} did not exit within ${ms} ms`)), ms);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+
+/** A Windows job, closed when its last handle closes, that ends every process in it (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0x2000). */
+const JOB = `
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class ReplayJob {
+  [StructLayout(LayoutKind.Sequential)] struct Basic { public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags; public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass; }
+  [StructLayout(LayoutKind.Sequential)] struct Io { public ulong Reads, Writes, Others, ReadBytes, WriteBytes, OtherBytes; }
+  [StructLayout(LayoutKind.Sequential)] struct Extended { public Basic Limits; public Io Counters; public UIntPtr ProcessMemoryLimit; public UIntPtr JobMemoryLimit; public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed; }
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateJobObjectW(IntPtr attributes, IntPtr name);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref Extended info, int length);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+  static IntPtr held;
+  public static void Confine(int pid) {
+    IntPtr job = CreateJobObjectW(IntPtr.Zero, IntPtr.Zero);
+    if (job == IntPtr.Zero) throw new Win32Exception();
+    Extended info = new Extended();
+    info.Limits.LimitFlags = 0x2000;
+    if (!SetInformationJobObject(job, 9, ref info, Marshal.SizeOf(typeof(Extended)))) throw new Win32Exception();
+    IntPtr process = OpenProcess(0x0101, false, pid);
+    if (process == IntPtr.Zero || !AssignProcessToJobObject(job, process)) throw new Win32Exception();
+    held = job;
+  }
+}`;
+
+let confined = null;
+
+/** Puts this replay's own process into a job that ends with it, so every core it starts afterwards (and the database each starts) is in
+ *  the job too and cannot outlive the replay, however the replay ends: a Ctrl-C, a caller's timeout ending its process, a crash. The
+ *  job's one handle is held by a PowerShell started first (so outside the job), which exits when its stdin, a pipe from this process,
+ *  closes: when this process ends for any reason, the handle closes and Windows ends every process left in the job. Node's own job
+ *  (libuv src/win/process.c `uv__init_global_job_handle`) ends only this process's direct children: it allows silent breakaway, so what
+ *  they start (the core's database, the crashed core's survivors) outlives it; this job allows none. Neither mixdogd nor pg_ctl starts a
+ *  process with CREATE_BREAKAWAY_FROM_JOB. The replay runs only on Windows (taskkill, PowerShell, pg_ctl.exe), so there is no other
+ *  system to hold this on. */
+function confineToReplay() {
+  confined ??= new Promise((resolve, reject) => {
+    const script = `$ErrorActionPreference = 'Stop'\nAdd-Type -TypeDefinition @'\n${JOB}\n'@\n[ReplayJob]::Confine(${process.pid})\n[Console]::Out.WriteLine('confined')\n[Console]::Out.Flush()\n[void][Console]::In.ReadToEnd()\n`;
+    const guard = spawn('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => fail(new Error(`the replay's job was not set up within 60 s:\n${err}`)), 60_000);
+    const fail = (error) => {
+      clearTimeout(timer);
+      guard.kill();
+      reject(error);
+    };
+    guard.stderr.on('data', (chunk) => (err += chunk));
+    guard.once('error', (error) => fail(new Error(`the replay's job guard did not start: ${error.message}`)));
+    guard.once('exit', (code) => fail(new Error(`the replay's job guard exited ${code} before it held the job:\n${err}`)));
+    guard.stdout.on('data', (chunk) => {
+      out += chunk;
+      if (!out.includes('confined')) return;
+      clearTimeout(timer);
+      guard.removeAllListeners('exit');
+      // Held for the life of this process, which it must not keep alive.
+      guard.unref();
+      for (const stream of [guard.stdin, guard.stdout, guard.stderr]) stream.unref();
+      resolve();
+    });
+  });
+  return confined;
 }
 
 /** How long a core may take to write its discovery file (its own start deadlines, the database's 30 s among them, are inside it). */
 const START_DEADLINE_MS = 120_000;
 
 export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {}) {
+  await confineToReplay();
   if (fresh) rmSync(coreRoot, { recursive: true, force: true });
   rmSync(join(coreRoot, 'runtime', 'daemon.json'), { force: true });
   for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(coreRoot, dir), { recursive: true });
@@ -100,7 +185,10 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
       }
     }
   } catch (error) {
-    killTree(child);
+    // What could not be ended is reported with the start's own failure, not waited for.
+    await killTree(child).catch((ending) => {
+      error.message += `\nand ending it failed: ${ending.message}`;
+    });
     throw error;
   } finally {
     clearTimeout(deadline);
@@ -201,9 +289,9 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         if (relay || window) throw new Error('restart is replayed on a loopback phone with no window');
         client.close?.();
         // A stop the app itself performs (its own quit): the memory database shuts down cleanly, so the next start does not run crash recovery.
-        const { execFileSync } = await import('node:child_process');
-        const exited = new Promise((resolve) => core.child.once('exit', resolve));
-        execFileSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+        const exited = exitWithin(core.child, 120_000, `the core (pid ${core.child.pid}) asked to stop`);
+        const stopped = spawnSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env: core.env, encoding: 'utf8', timeout: 60_000, windowsHide: true });
+        if (stopped.error || stopped.status !== 0) throw new Error(`mixdogd ctl stop failed: ${stopped.error?.message ?? `exit ${stopped.status}: ${stopped.stderr}`}`);
         await exited;
         Object.assign(core, await startCore(exe, coreRoot, relay, false));
         base.connector = createWsConnector(async () => core.endpoint);
@@ -284,7 +372,8 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   } finally {
     client?.close?.();
     window?.client.close?.();
-    killTree(core.child);
+    // A core that cannot be ended fails the replay with its pid instead of holding it.
+    await killTree(core.child);
   }
 }
 

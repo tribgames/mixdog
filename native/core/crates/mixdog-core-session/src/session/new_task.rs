@@ -57,10 +57,10 @@ pub struct NewTaskReceipts {
     folder: PathBuf,
     io: DurabilityIo,
     active: Mutex<HashMap<String, Active>>,
-    /// Cancelled at shutdown: each attempt is cut at its next await, and no new one starts.
+    /// Cancelled at shutdown: each attempt ends as Node's does at quit ([`SessionDirectory::start_new_task`]), and no new one starts.
     closing: CancellationToken,
-    /// A read hold per running attempt and per receipt write that began; `shutdown` takes the write hold, so it returns once
-    /// every attempt is cut and every write that began has ended whole.
+    /// A read hold per running attempt, shared by each receipt write it began; `shutdown` takes the write hold, so it returns
+    /// once every attempt has ended and every write that began has ended whole.
     alive: Arc<tokio::sync::RwLock<()>>,
     /// Told each time a request joins an attempt in flight.
     #[cfg(test)]
@@ -81,10 +81,14 @@ pub struct NewTaskReceipts {
 /// One request's view of its receipt (`NewTaskRequest`).
 pub struct Request {
     gate: Arc<NewTaskReceipts>,
+    /// The attempt's hold on `alive`, which each of its writes keeps until it has ended whole.
+    hold: Hold,
     path: PathBuf,
     signature: String,
     receipt: Mutex<Receipt>,
 }
+
+type Hold = Arc<tokio::sync::OwnedRwLockReadGuard<()>>;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -197,17 +201,23 @@ impl NewTaskReceipts {
         })
     }
 
-    /// At shutdown, what a process that ends there leaves: every attempt in flight is cut at its next await, its receipt in the
-    /// last phase it wrote (a write that began ends whole first, within `bound`); none runs on with a closed directory, whose
-    /// refusals would mark its receipt refused. The next start resumes each phase as it resumes it after a crash (an atomic
-    /// rename leaves the receipt before or after a write that outlives `bound`). The callers in flight and later requests get no
-    /// answer ([`unanswered`]). `Err` when a write outlived `bound`.
+    /// At shutdown, what Node's quit leaves: every attempt in flight ends as Node's does when its daemon client is disposed
+    /// ([`SessionDirectory::start_new_task`]: cut where it stands, or refused while it applies its draft to a created session),
+    /// before the directory closes (a write that began ends whole first, within `bound`); none runs on with a closed directory.
+    /// The next start resumes each receipt as it resumes it after a crash or a refusal (an atomic rename leaves the receipt
+    /// before or after a write that outlives `bound`). The callers in flight and later requests get no answer ([`unanswered`]).
+    /// `Err` when a write outlived `bound`.
     pub async fn shutdown(&self, bound: std::time::Duration) -> Result<(), String> {
         self.closing.cancel();
         match tokio::time::timeout(bound, self.alive.write()).await {
             Ok(_) => Ok(()),
             Err(_) => Err(format!("a new-task receipt write did not end within {bound:?} of shutdown; its receipt holds the phase before or after it")),
         }
+    }
+
+    /// Cancelled when the receipts shut down.
+    pub(super) fn closing(&self) -> CancellationToken {
+        self.closing.clone()
     }
 
     /// How many requests are in flight.
@@ -259,13 +269,13 @@ impl NewTaskReceipts {
     }
 
     /// `writeReceipt`: an atomic rename; `durable` also flushes the file and its folder entry before it is reported.
-    async fn write(&self, path: &Path, receipt: &Receipt, durable: bool) -> Result<(), CoreError> {
+    async fn write(&self, hold: &Hold, path: &Path, receipt: &Receipt, durable: bool) -> Result<(), CoreError> {
         self.secure().await?;
         #[cfg(test)]
         lock(&self.writes).push((format!("{}{}", receipt.phase().name(), if receipt.refused() { "+refused" } else { "" }), durable));
         let (path, bytes) = (path.to_owned(), receipt.to_bytes());
         let opts = mixdog_statefile::Opts { fsync: durable, fsync_dir: durable, ..mixdog_statefile::Opts::default() };
-        let Ok(alive) = self.alive.clone().try_read_owned() else { return Err(failed("session", "The receipts are shut down.")) };
+        let alive = hold.clone();
         let (io, written) = (self.io, tokio::sync::oneshot::channel());
         #[cfg(test)]
         let stall = lock(&self.stall).clone();
@@ -347,21 +357,17 @@ impl NewTaskReceipts {
         let gate = self.clone();
         drop(mixdog_rt::spawn("new-task-request", TaskClass::Work, async move {
             let leave = Leave { gate: gate.clone(), key: key.clone() };
-            let outcome = tokio::select! {
-                biased;
-                () = gate.closing.cancelled() => None,
-                outcome = gate.attempt(&key, signature, execute) => Some(outcome),
-            };
+            let outcome = gate.attempt(&key, signature, Arc::new(alive), execute).await;
             drop(leave);
-            if let Some(outcome) = outcome {
+            // At shutdown nobody is answered, as Node's quit answers nobody.
+            if !gate.closing.is_cancelled() {
                 let _ = settled.send(Some(outcome));
             }
-            drop(alive);
         }));
         done
     }
 
-    async fn attempt<F, Fut>(self: &Arc<Self>, key: &str, signature: String, execute: F) -> Outcome
+    async fn attempt<F, Fut>(self: &Arc<Self>, key: &str, signature: String, hold: Hold, execute: F) -> Outcome
     where
         F: FnOnce(Arc<Request>) -> Fut + Send + 'static,
         Fut: Future<Output = Outcome> + Send + 'static,
@@ -386,12 +392,12 @@ impl NewTaskReceipts {
                     Some(_) => fresh_session_id(),
                 };
                 let receipt = Receipt::reserved(&signature, &session, false);
-                self.write(&path, &receipt, refused).await?;
+                self.write(&hold, &path, &receipt, refused).await?;
                 crash_gate(Phase::Reserved.name());
                 receipt
             }
         };
-        execute(Arc::new(Request { gate: self.clone(), path, signature, receipt: Mutex::new(receipt) })).await
+        execute(Arc::new(Request { gate: self.clone(), hold, path, signature, receipt: Mutex::new(receipt) })).await
     }
 }
 
@@ -407,7 +413,7 @@ impl Request {
     /// `commit`: only `accepted` is flushed before it is reported.
     pub async fn commit(&self, phase: Phase) -> Result<(), CoreError> {
         let next = lock(&self.receipt).with_phase(phase);
-        self.gate.write(&self.path, &next, phase == Phase::Accepted).await?;
+        self.gate.write(&self.hold, &self.path, &next, phase == Phase::Accepted).await?;
         *lock(&self.receipt) = next;
         crash_gate(phase.name());
         Ok(())
@@ -417,7 +423,7 @@ impl Request {
     /// have been accepted was sent, so the old reservation must not be resumed and the id may be resent with other content.
     pub async fn reset(&self) -> Result<(), CoreError> {
         let next = Receipt::reserved(&self.signature, &fresh_session_id(), true);
-        self.gate.write(&self.path, &next, true).await?;
+        self.gate.write(&self.hold, &self.path, &next, true).await?;
         *lock(&self.receipt) = next;
         Ok(())
     }
@@ -490,7 +496,37 @@ impl SessionDirectory {
             return Ok(Started { thread: id, summary: serde_json::to_value(handle.cell.view.load_full().summary.clone()).unwrap_or(Value::Null), turn: None });
         }
         let mut unsent = request.phase() == Phase::Reserved;
-        let started = self.new_task_phases(request, req, params, submission, &id, &mut unsent).await;
+        // What Node's createNewTask still sends the daemon after the session is created, while unsent: the draft's workflow,
+        // mode and route (`configureDraft`, before `configured`) and its worktree.
+        let draft = params.draft.as_ref();
+        let configures = draft.is_some_and(|draft| {
+            draft.route.is_some() || draft.workflow_id.as_deref().is_some_and(|workflow| !workflow.is_empty()) || draft.orchestration_mode.is_some()
+        });
+        let enters = draft.is_some_and(|draft| draft.worktree.is_some());
+        let closing = self.deps().new_tasks.closing();
+        let started = {
+            let phases = self.new_task_phases(request, req, params, submission, &id, &mut unsent);
+            tokio::select! {
+                biased;
+                () = closing.cancelled() => None,
+                started = phases => Some(started),
+            }
+        };
+        let Some(started) = started else {
+            // Shutdown, as Node's quit: the disposed daemon client fails the call in flight and every later one
+            // (desktop-service-client.ts `dispose` → `rejectPending`). A call that fails before the session exists (`client.create`)
+            // leaves the receipt as it is; one that fails while the draft is applied to the created session, or its worktree
+            // entered, is refused as any failure there is (`if (unsent) await request.reset()`); after that the receipt keeps
+            // its phase. Nobody is answered (the gate sends no outcome once it is closing).
+            let pending = (request.phase() == Phase::Reserved && configures) || enters;
+            if unsent && pending && self.try_stored_header(&id).await.ok().flatten().is_some() {
+                let _ = request.reset().await;
+                if !self.holds_user_conversation(&id).await.unwrap_or(true) {
+                    self.discard(&id).await;
+                }
+            }
+            return Err(failed("session", "The new task request ended with the shutdown."));
+        };
         if let Err(error) = &started {
             // The daemon destroys an unclaimed reservation, so the receipt must stop pointing at it.
             if unsent {
