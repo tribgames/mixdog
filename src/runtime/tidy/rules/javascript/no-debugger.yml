@@ -1,8 +1,0 @@
-id: no-debugger
-language: JavaScript
-severity: error
-message: Remove debugger statements.
-note: debugger must not ship. Delete the statement.
-rule:
-  kind: debugger_statement
-fix: ""
