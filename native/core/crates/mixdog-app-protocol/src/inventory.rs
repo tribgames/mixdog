@@ -1451,7 +1451,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "answerApprovalNotification",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answerNotification"),
     ),
     (
         InventoryList::Remote,

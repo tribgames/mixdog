@@ -2250,8 +2250,8 @@
       "list": "remote",
       "name": "answerApprovalNotification",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answerNotification"
       }
     },
     {

@@ -792,6 +792,27 @@
     },
     {
       "class": "C2",
+      "method": "thread/approval/answerNotification",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::approval::ThreadApprovalAnswerNotificationParams",
+      "result": "v2::approval::ThreadApprovalAnswerNotificationResponse",
+      "scope": {
+        "field": "threadId",
+        "kind": "thread"
+      }
+    },
+    {
+      "class": "C2",
       "method": "thread/goal/set",
       "mutation": {
         "domain": "thread",

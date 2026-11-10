@@ -36,11 +36,12 @@ function differences(a, b, path = '') {
 }
 
 /** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
-function killTree(child) {
+export function killTree(child) {
   spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
 }
 
-async function startCore(exe, coreRoot, relay, fresh = true) {
+/** A fresh `mixdogd serve` over `coreRoot`, dialing `relay` when given; `nowMs` is the instant a debug core reads as now. */
+export async function startCore(exe, coreRoot, relay, fresh = true, nowMs = FIXED_NOW_MS) {
   if (fresh) rmSync(coreRoot, { recursive: true, force: true });
   rmSync(join(coreRoot, 'runtime', 'daemon.json'), { force: true });
   for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(coreRoot, dir), { recursive: true });
@@ -51,7 +52,7 @@ async function startCore(exe, coreRoot, relay, fresh = true) {
     MIXDOG_DATA_DIR: join(coreRoot, 'data'),
     MIXDOG_HOME: join(coreRoot, 'home'),
     MIXDOG_CONFIG_DIR: join(coreRoot, 'config'),
-    MIXDOG_FIXED_NOW_MS: String(FIXED_NOW_MS),
+    MIXDOG_FIXED_NOW_MS: String(nowMs),
     ...(relay ? { MIXDOG_RELAY_URL: `ws://127.0.0.1:${relay.port}` } : {}),
   });
   // An install that has used remote access before: the core dials its relay at start.

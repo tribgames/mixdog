@@ -14,6 +14,7 @@ use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_protocol::limits::LimitsViolation;
 use mixdog_app_protocol::v1::CapabilityState;
+use mixdog_app_protocol::v1::RemoteCapabilities;
 use mixdog_app_protocol::v1::ServerCapabilities;
 use mixdog_app_server::AppServer;
 use mixdog_app_server::Inbound;
@@ -63,7 +64,7 @@ impl Running {
             core.clone(),
             outgoing.clone(),
             Arc::new(move |id| origins.origin_of(id)),
-            server_config(limits, core.defaults_separation()),
+            ServerConfig { native_push: core.native_push_offered(), ..server_config(limits, core.defaults_separation()) },
         )?;
         Ok(Self { server, hub, outgoing })
     }
@@ -75,6 +76,30 @@ impl Running {
         while let Some(accepted) = transport.accept().await {
             spawn_drive(self.server.clone(), accepted);
         }
+    }
+}
+
+/// The relay challenge flags of Node (`remote-relay-client-lifecycle.ts:117-151`), each on where this core serves the feature behind
+/// it. Node offered all but `nativePush` on every phone connection; `nativePush` is read per `initialize` (`ServerConfig::native_push`).
+/// Off until their features are served: the remote browser's drive, session tabs, fit and WebRTC live view (RS-2) and the encrypted
+/// media lane (RS-1).
+fn remote_capabilities() -> RemoteCapabilities {
+    RemoteCapabilities {
+        remote_parity: true,
+        native_push: false,
+        browser_drive: false,
+        browser_session_tabs: false,
+        term_size_owner: true,
+        host_directories: true,
+        usage_requests: true,
+        project_recovery: true,
+        route_auto_effort: true,
+        visualize: true,
+        file_downloads: true,
+        secret_input: true,
+        browser_webrtc: 0,
+        browser_fit: false,
+        media_e2ee: false,
     }
 }
 
@@ -95,7 +120,9 @@ pub(crate) fn server_config(limits: Limits, defaults_separation: mixdog_app_prot
             browser: CapabilityState::Available,
             computer: CapabilityState::Available,
             voice: CapabilityState::Available,
+            remote: remote_capabilities(),
         },
+        native_push: Arc::new(|| false),
         limits,
         version_gate: Arc::new(move |client| match compat::parse(&client.version) {
             Ok(client) => match compat::order(&client, &server) {

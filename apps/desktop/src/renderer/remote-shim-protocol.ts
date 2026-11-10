@@ -51,6 +51,8 @@ export interface ProtocolRouter {
   prefetch(reads: ReadonlyArray<readonly [string, unknown[]]>): void;
   fire(method: string, params: unknown[]): void;
   install(): void;
+  /** An adapter answers the Node call `method`. */
+  claims(method: string): boolean;
 }
 
 /** Desk-side state reads with no side effect: only these are prefetched or share a queued request (Node's COALESCED_READS and
@@ -216,5 +218,6 @@ export function createProtocolRouter(
     install(): void {
       for (const adapter of adapters) adapter.install?.(link.host);
     },
+    claims: (method) => owners.has(method),
   };
 }
