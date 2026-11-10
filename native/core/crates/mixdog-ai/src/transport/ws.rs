@@ -41,13 +41,21 @@ use crate::netproxy::tunnel::TunnelError;
 use crate::netproxy::tunnel::tls_code;
 use crate::netproxy::tunnel::open_proxy_tunnel;
 
+use base64::Engine;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWrite;
+use tokio::io::AsyncWriteExt;
+
+use super::wsio::Extension;
+use super::wsio::WsIo;
 use super::fault::fault_from_io;
 use super::fault::fault_from_ws_error;
 use super::tcp;
 
 pub use tokio_tungstenite::tungstenite::Message;
 
-type Socket = WebSocketStream<MaybeTlsStream<Conn>>;
+type Socket = WebSocketStream<WsIo<MaybeTlsStream<Conn>>>;
 
 /// Frames queued toward the socket and the consumer.
 const QUEUE: usize = 64;
@@ -224,6 +232,7 @@ pub async fn connect_via(
     connect_over(request, stream, schedule, None).await
 }
 
+
 /// The upgrade of `request` over the TCP connection to `addr` instead of the one its host names, trusting `tls` alone:
 /// the request (url, `Host`, SNI) and everything after the connect are the production path, so a loopback server
 /// receives what the real one would.
@@ -237,7 +246,121 @@ pub async fn connect_pinned(
         .await
         .map(Conn::Tcp)
         .map_err(|err| ConnectError::Transport(fault_from_io(&err, true)))?;
-    connect_over(request, stream, schedule, Some(tokio_tungstenite::Connector::Rustls(tls))).await
+    connect_over(request, stream, schedule, Some(tls)).await
+}
+
+/// The headers the upgrade is written with, in the caller's order and letter case: the provider's, as the request's
+/// extension carries them. `ws` writes them first, then its own, then `Host` (`websocket.js:690`, `:773-779`).
+#[derive(Debug, Clone, Default)]
+pub struct CallerHeaders(pub Vec<(String, String)>);
+
+/// What `ws` itself puts on an upgrade, in its order (`websocket.js:783-790`), and the names the caller may not set.
+const RESERVED: [&str; 6] = ["host", "connection", "upgrade", "sec-websocket-version", "sec-websocket-key", "sec-websocket-extensions"];
+
+/// The upgrade request as `ws` writes it, and the key it carries.
+fn upgrade_bytes(request: &tungstenite::handshake::client::Request, key: &str) -> Vec<u8> {
+    let uri = request.uri();
+    let path = uri.path_and_query().map_or("/", |p| p.as_str());
+    let fallback;
+    let caller = match request.extensions().get::<CallerHeaders>() {
+        Some(CallerHeaders(list)) => list,
+        None => {
+            fallback = request
+                .headers()
+                .iter()
+                .map(|(n, v)| (n.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
+                .collect::<Vec<_>>();
+            &fallback
+        }
+    };
+    let host = uri.host().unwrap_or_default();
+    let host = match (uri.port_u16(), uri.scheme_str()) {
+        (Some(443), Some("wss")) | (Some(80), Some("ws")) | (None, _) => host.to_owned(),
+        (Some(port), _) => format!("{host}:{port}"),
+    };
+    let mut out = format!("GET {path} HTTP/1.1\r\n");
+    for (name, value) in caller.iter().filter(|(n, _)| !RESERVED.contains(&n.to_ascii_lowercase().as_str())) {
+        out.push_str(&format!("{name}: {value}\r\n"));
+    }
+    out.push_str(&format!(
+        "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: {key}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\
+         Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\nHost: {host}\r\n\r\n"
+    ));
+    out.into_bytes()
+}
+
+/// The longest response head or rejected body read.
+const RESPONSE_LIMIT: usize = 1 << 20;
+
+/// Writes the upgrade over `io` and reads the answer: the 101 response, the bytes already behind it, and what the
+/// server accepted of the compression offer. Any other answer is [`ConnectError::Rejected`] with its body.
+async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
+    io: &mut S,
+    request: &tungstenite::handshake::client::Request,
+) -> Result<(Response<Option<Vec<u8>>>, Vec<u8>, Option<Extension>), ConnectError> {
+    let io_fault = |e: std::io::Error| ConnectError::Transport(fault_from_io(&e, false));
+    let key = tungstenite::handshake::client::generate_key();
+    io.write_all(&upgrade_bytes(request, &key)).await.map_err(io_fault)?;
+    io.flush().await.map_err(io_fault)?;
+    let mut buf = Vec::new();
+    let (status, headers, head_len) = loop {
+        let mut chunk = [0u8; 8192];
+        let n = io.read(&mut chunk).await.map_err(io_fault)?;
+        if n == 0 {
+            return Err(ConnectError::Transport(TransportFault::Closed));
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        let mut slots = [httparse::EMPTY_HEADER; 64];
+        let mut parsed = httparse::Response::new(&mut slots);
+        match parsed.parse(&buf) {
+            Ok(httparse::Status::Complete(len)) => {
+                let headers = parsed
+                    .headers
+                    .iter()
+                    .map(|h| (h.name.to_owned(), h.value.to_vec()))
+                    .collect::<Vec<_>>();
+                break (parsed.code.unwrap_or(0), headers, len);
+            }
+            Ok(httparse::Status::Partial) if buf.len() < RESPONSE_LIMIT => {}
+            _ => return Err(ConnectError::Transport(TransportFault::Closed)),
+        }
+    };
+    let mut builder = Response::builder().status(status);
+    for (name, value) in &headers {
+        builder = builder.header(name.as_str(), value.as_slice());
+    }
+    let find = |name: &str| {
+        headers
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| String::from_utf8_lossy(v).trim().to_owned())
+    };
+    let mut rest = buf.split_off(head_len);
+    if status != 101 {
+        let wanted = find("content-length").and_then(|v| v.parse::<usize>().ok());
+        while wanted.is_none_or(|n| rest.len() < n) && rest.len() < RESPONSE_LIMIT {
+            let mut chunk = [0u8; 8192];
+            match io.read(&mut chunk).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => rest.extend_from_slice(&chunk[..n]),
+            }
+        }
+        let response = builder.body(Some(rest)).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
+        return Err(ConnectError::Rejected(response));
+    }
+    let digest = ring::digest::digest(
+        &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
+        format!("{key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes(),
+    );
+    let accepted = find("sec-websocket-accept") == Some(base64::engine::general_purpose::STANDARD.encode(digest.as_ref()));
+    let upgraded = find("upgrade").is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+    let extension = Extension::parse(find("sec-websocket-extensions").as_deref());
+    let (true, true, Ok(extension)) = (accepted, upgraded, extension) else {
+        return Err(ConnectError::Transport(TransportFault::Closed));
+    };
+    let response = builder.body(None).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
+    rest.shrink_to_fit();
+    Ok((response, rest, extension))
 }
 
 /// The upgrade of `request` over an already open `stream`, and the connection that follows. `connector` is the TLS
@@ -246,16 +369,32 @@ async fn connect_over(
     request: tungstenite::handshake::client::Request,
     stream: Conn,
     schedule: &KeepaliveSchedule,
-    connector: Option<tokio_tungstenite::Connector>,
+    tls: Option<Arc<rustls::ClientConfig>>,
 ) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
-    let (socket, response) = tokio_tungstenite::client_async_tls_with_config(
-        request, stream, None, connector,
+    let secure = request.uri().scheme_str() == Some("wss");
+    let mut stream = if secure {
+        let config = match tls {
+            Some(config) => config,
+            None => crate::netproxy::tunnel::tls_config().map_err(|e| ConnectError::Transport(fault_from_io(&e, true)))?,
+        };
+        let host = request.uri().host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']').to_owned();
+        let name = rustls::pki_types::ServerName::try_from(host)
+            .map_err(|_| ConnectError::Transport(TransportFault::Tls))?;
+        let secured = tokio_rustls::TlsConnector::from(config)
+            .connect(name, stream)
+            .await
+            .map_err(|_| ConnectError::Transport(TransportFault::Tls))?;
+        MaybeTlsStream::Rustls(secured)
+    } else {
+        MaybeTlsStream::Plain(stream)
+    };
+    let (response, early, extension) = upgrade(&mut stream, &request).await?;
+    let socket = WebSocketStream::from_raw_socket(
+        WsIo::new(stream, early, extension),
+        tungstenite::protocol::Role::Client,
+        None,
     )
-    .await
-    .map_err(|err| match err {
-        tungstenite::Error::Http(response) => ConnectError::Rejected(response.map(|body| body)),
-        other => ConnectError::Transport(fault_from_ws_error(&other)),
-    })?;
+    .await;
     let link = Arc::new(WsLink::new(*schedule));
     let (sink, stream) = socket.split();
     let (out_tx, out_rx) = mpsc::channel(QUEUE);
