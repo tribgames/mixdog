@@ -159,6 +159,14 @@ impl GrantStore {
     /// tables and the seen conversations go together (dropping the seen set alone would let a held grant outlive its conversation's
     /// removal). This is the only bound Node's `seenSessions` has.
     pub fn relay_closed(&self) {
+        // The grants themselves end, also in a table a connection still holds until its teardown: nothing granted before the close is
+        // redeemed after it (Node's method tables die with the old handle's connections).
+        for table in self.bound.lock().expect("grants").values() {
+            table.lock().expect("grants").clear();
+        }
+        for table in self.devices.lock().expect("grants").values() {
+            table.lock().expect("grants").clear();
+        }
         self.devices.lock().expect("grants").clear();
         self.seen.lock().expect("grant sessions").clear();
     }
@@ -487,6 +495,25 @@ mod tests {
         mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
         let gone = store.redeem("dev", 1, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
         assert_eq!(gone.reason.code(), GRANT_UNAVAILABLE_CODE);
+    }
+
+    /// A relay close ends the grants themselves: a grant whose conversation was removed before the close, held in a table a connection
+    /// keeps until its teardown, is not redeemed after the close resets what the store has seen (Node's old service keeps its history).
+    #[tokio::test]
+    async fn nothing_granted_before_a_relay_close_is_redeemed_after_it() {
+        let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
+        // `Catalog` holds the conversations that are gone.
+        let catalog = Arc::new(Catalog::default());
+        let store = GrantStore::new(clock, catalog.clone());
+        let dir = std::env::temp_dir().join("outside");
+        let token = store.mint("dev", 1, &dir.join("a.txt"), "s1").await.unwrap();
+        mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
+        catalog.0.lock().unwrap().insert("s1".to_owned());
+        // An unpair dropped the device's table; connection 1 still holds it until its teardown.
+        store.revoke_device("dev");
+        store.relay_closed();
+        let after = store.redeem("dev", 1, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
+        assert_eq!(after.reason.code(), GRANT_UNAVAILABLE_CODE, "the still-bound connection's grant ended with the relay");
     }
 
     #[tokio::test]
