@@ -4448,6 +4448,7 @@ dependencies = [
  "mixdog-secrets",
  "mixdog-spawn",
  "mixdog-store",
+ "mixdog-testkit",
  "mixdog-tools",
  "mixdog-trace",
  "mixdog-workspace",
