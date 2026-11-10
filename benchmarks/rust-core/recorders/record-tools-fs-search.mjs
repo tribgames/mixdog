@@ -26,7 +26,32 @@ const FIXED = '2026-01-02T03:04:05Z';
 // A scenario: the workspace (`files`: path -> text; `junctions`: path -> the workspace directory it points at; `mtimes`: path -> ISO
 // time), the folder the calls run in (`cwd`, under the workspace), unrecorded `warmup` calls and the calls, in order. `<ROOT>` in an input is the workspace
 // path, written with forward slashes.
+const notebook = (cells) => JSON.stringify({ cells, metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1);
 const SCENARIOS = [
+  // gaps-tools item 8: a `.ipynb` read goes to Node's notebook extractor (read-single-media.mjs), never the raw JSON. Every
+  // public read reaches it with a window (offset/limit), so the extractor refuses it (read-special-files.mjs extractIpynbText).
+  {
+    name: 'read-ipynb',
+    files: {
+      'nb.ipynb': notebook([
+        { cell_type: 'markdown', metadata: {}, source: ['# Title\n', 'Some *text*.'] },
+        { cell_type: 'code', execution_count: 1, metadata: {}, source: ['print(1)'], outputs: [{ output_type: 'stream', name: 'stdout', text: ['1\n'] }] },
+      ]),
+      'empty.ipynb': notebook([]),
+      'UPPER.IPYNB': notebook([{ cell_type: 'markdown', metadata: {}, source: ['upper'] }]),
+      'a.txt': 'alpha\n',
+    },
+    calls: [
+      { tool: 'read', input: { file_path: 'nb.ipynb' } },
+      { tool: 'read', input: { file_path: 'nb.ipynb' } },
+      { tool: 'read', input: { file_path: 'empty.ipynb' } },
+      { tool: 'read', input: { file_path: 'UPPER.IPYNB' } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', offset: 2 } },
+      { tool: 'read', input: { file_path: 'nb.ipynb', full: true } },
+      { tool: 'read', input: { file_path: ['nb.ipynb', 'a.txt'] } },
+      { tool: 'read', input: { file_path: 'nope.ipynb' } },
+    ],
+  },
   // gaps-tools item 6: two or more content patterns are answered as independent greps (lib/grep-pattern-fanout.mjs), one
   // `# grep pattern:"x"` section each, matches already shown dropped, misses summarised, a bad pattern failing its own section.
   {
