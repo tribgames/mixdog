@@ -55,6 +55,15 @@ struct Startup {
     done: Done,
 }
 
+/// The catalog refresh state. Node changes it in single synchronous steps: whatever a step checks still holds when it
+/// acts. Here other threads run in between, so every change is decided from what is read in the same critical section
+/// of this lock that makes it, and a task that acts later acts only while the identity it was made for still holds:
+/// - a startup refresh is installed for the registry epoch read under the lock that installs it, so installs follow
+///   the epoch forward and each epoch gets one refresh (`startup_refresh`);
+/// - a timer fires only when, under the lock, it is still the armed one and its not-before boundary has passed, and
+///   the full refresh starts in that same critical section (`arm_next_refresh`);
+/// - the pending flag is owned by the id of the latest observed refresh, set in the critical section that observes
+///   it, and cleared by one compare-and-set on that id (`observe_startup_refresh`, `CatalogService::settle_startup_refresh`).
 #[derive(Default)]
 struct Refreshes {
     startup: Option<Startup>,
@@ -63,8 +72,11 @@ struct Refreshes {
     observed: Option<u64>,
     /// The completion handling of each observed refresh still running, by refresh id.
     completions: Vec<(u64, Done)>,
-    /// `_catalogRefreshTimer`.
-    timer: Option<tokio::task::JoinHandle<()>>,
+    /// `_catalogRefreshTimer`: the armed timer's id and task.
+    timer: Option<(u64, tokio::task::JoinHandle<()>)>,
+    next_timer: u64,
+    /// `_catalogRefreshNotBefore`: no timer-driven full refresh before it.
+    not_before: Option<tokio::time::Instant>,
     /// `_catalogRefreshPromise`: the full catalog refresh running now.
     full: Option<Done>,
     /// How many times the 24 h timer has fired.
@@ -98,6 +110,36 @@ pub struct ProviderReadiness {
     /// `warmProviderModelCache({ loadSecrets: true })`, bound by the provider-models cache above this crate.
     rewarm: OnceLock<Arc<dyn Fn() + Send + Sync>>,
     refreshes: Mutex<Refreshes>,
+    #[cfg(any(test, feature = "test-support"))]
+    points: Mutex<HashMap<Point, Box<dyn FnOnce() + Send>>>,
+}
+
+/// The points where a thread of the refresh can be overtaken by another, at which a test runs the other side's steps
+/// (`ProviderReadiness::at`). Absent from a normal build.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Point {
+    /// A startup refresh is asked for; the refresh state is not locked yet.
+    StartupBeforeLock,
+    /// An observed startup refresh completed; its completion has not settled the pending flag yet.
+    CompletionBeforeSettle,
+    /// The 24 h timer's sleep ended; it has not locked the refresh state yet.
+    TimerBeforeLock,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl ProviderReadiness {
+    /// Runs `steps` the next time the product reaches `point`, on the thread that reaches it, before that thread goes on.
+    pub fn at(&self, point: Point, steps: impl FnOnce() + Send + 'static) {
+        self.points.lock().unwrap_or_else(PoisonError::into_inner).insert(point, Box::new(steps));
+    }
+
+    fn reach(&self, point: Point) {
+        let steps = self.points.lock().unwrap_or_else(PoisonError::into_inner).remove(&point);
+        if let Some(steps) = steps {
+            steps();
+        }
+    }
 }
 
 fn closing() -> RegistryError {
@@ -123,6 +165,8 @@ impl ProviderReadiness {
             invalidation: OnceLock::new(),
             rewarm: OnceLock::new(),
             refreshes: Mutex::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            points: Mutex::default(),
         })
     }
 
@@ -140,8 +184,11 @@ impl ProviderReadiness {
     /// registered provider (each bounded by the listing deadline; a failure is logged and the rest go on) and moves the
     /// catalog revision when all have settled.
     fn startup_refresh(self: &Arc<Self>) -> Startup {
-        let epoch = self.registry.catalog_refresh_epoch();
+        #[cfg(any(test, feature = "test-support"))]
+        self.reach(Point::StartupBeforeLock);
         let mut refreshes = self.refreshes();
+        // Read under the lock that installs, so no caller installs an epoch older than one installed before it.
+        let epoch = self.registry.catalog_refresh_epoch();
         if let Some(startup) = refreshes.startup.as_ref().filter(|s| s.epoch == epoch) {
             return startup.clone();
         }
@@ -162,33 +209,42 @@ impl ProviderReadiness {
 
     /// `armNextCatalogRefresh()`: the full catalog refresh 24 h from now, replacing the one armed before.
     fn arm_next_refresh(self: &Arc<Self>, refreshes: &mut Refreshes) {
-        if let Some(timer) = refreshes.timer.take() {
+        if let Some((_, timer)) = refreshes.timer.take() {
             timer.abort();
         }
+        refreshes.next_timer += 1;
+        let id = refreshes.next_timer;
+        let not_before = tokio::time::Instant::now() + CATALOG_REFRESH_INTERVAL;
+        refreshes.not_before = Some(not_before);
         let this = Arc::downgrade(self);
-        let deadline = tokio::time::Instant::now() + CATALOG_REFRESH_INTERVAL;
-        refreshes.timer = Some(mixdog_rt::spawn("catalog.refresh-timer", mixdog_rt::TaskClass::Work, async move {
-            tokio::time::sleep_until(deadline).await;
-            if let Some(this) = this.upgrade() {
-                // The timer that fired is no longer armed (`_catalogRefreshTimer = null`); the refresh arms the next.
-                {
-                    let mut refreshes = this.refreshes();
-                    refreshes.timer = None;
-                    refreshes.timer_fires += 1;
-                }
-                drop(this.full_refresh());
+        let task = mixdog_rt::spawn("catalog.refresh-timer", mixdog_rt::TaskClass::Work, async move {
+            tokio::time::sleep_until(not_before).await;
+            let Some(this) = this.upgrade() else { return };
+            #[cfg(any(test, feature = "test-support"))]
+            this.reach(Point::TimerBeforeLock);
+            let mut refreshes = this.refreshes();
+            // The abort of a replaced timer cannot stop one already past its sleep: only the armed timer fires, and only
+            // past the boundary (`clearTimeout`, and `refreshCatalogs`' `Date.now() < _catalogRefreshNotBefore`).
+            let armed = refreshes.timer.as_ref().is_some_and(|(armed, _)| *armed == id);
+            if !armed || refreshes.not_before.is_some_and(|not_before| tokio::time::Instant::now() < not_before) {
+                return;
             }
-        }));
+            // The timer that fired is no longer armed (`_catalogRefreshTimer = null`); the refresh arms the next.
+            refreshes.timer = None;
+            refreshes.timer_fires += 1;
+            drop(this.start_full(&mut refreshes));
+        });
+        refreshes.timer = Some((id, task));
     }
 
-    /// `refreshCatalogs()` as the timer and a forced refresh run it (registry.mjs:738-774): one at a time; it arms the next
-    /// timer, refreshes the metadata tables and asks every registered provider, then moves the catalog revision.
-    fn full_refresh(self: &Arc<Self>) -> Done {
-        let mut refreshes = self.refreshes();
+    /// `refreshCatalogs()` past its boundary check (registry.mjs:738-774), as the timer and a forced refresh run it, with
+    /// the refresh state locked: one at a time; it arms the next timer, refreshes the metadata tables and asks every
+    /// registered provider, then moves the catalog revision.
+    fn start_full(self: &Arc<Self>, refreshes: &mut Refreshes) -> Done {
         if let Some(full) = &refreshes.full {
             return full.clone();
         }
-        self.arm_next_refresh(&mut refreshes);
+        self.arm_next_refresh(refreshes);
         let this = self.clone();
         let task = mixdog_rt::spawn("catalog.full-refresh", mixdog_rt::TaskClass::Work, async move {
             for (provider, error) in this.catalog.refresh().await.failed {
@@ -250,13 +306,15 @@ impl ProviderReadiness {
             return;
         }
         refreshes.observed = Some(startup.id);
-        self.catalog.mark_startup_refresh_pending();
+        // In the critical section that observes it: the flag's owner is the latest observed refresh.
+        self.catalog.mark_startup_refresh_pending(startup.id);
         let (this, id) = (self.clone(), startup.id);
         let task = mixdog_rt::spawn("catalog.startup-refresh-completion", mixdog_rt::TaskClass::Work, async move {
             startup.done.await;
-            if this.refreshes().observed == Some(id) {
-                this.catalog.settle_startup_refresh();
-            }
+            #[cfg(any(test, feature = "test-support"))]
+            this.reach(Point::CompletionBeforeSettle);
+            // Settles only while this refresh still owns the flag (`isLatest()`).
+            this.catalog.settle_startup_refresh(id);
             if !this.gate().closed {
                 this.invalidate(true, true);
                 if let Some(rewarm) = this.rewarm.get() {
@@ -422,7 +480,11 @@ impl ProviderReadiness {
     /// A forced full catalog refresh (`refreshCatalogs({ force: true })`, which also arms the next 24 h one), then the
     /// model-derived caches drop while the initialized registry stays.
     pub async fn refresh_catalogs(self: &Arc<Self>) {
-        self.full_refresh().await;
+        let full = {
+            let mut refreshes = self.refreshes();
+            self.start_full(&mut refreshes)
+        };
+        full.await;
         if !self.gate().closed {
             self.invalidate_provider_caches(true);
         }

@@ -47,6 +47,8 @@ pub use oauth_cache::OauthModelCache;
 pub use readiness::CacheDrop;
 pub use readiness::ProviderReadiness;
 pub use readiness::CATALOG_REFRESH_INTERVAL;
+#[cfg(any(test, feature = "test-support"))]
+pub use readiness::Point;
 pub use readiness::is_known_provider;
 pub use record::BudgetSpec;
 pub use rosters::CachedWindows;

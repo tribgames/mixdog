@@ -47,7 +47,9 @@ pub struct CatalogService {
     settled: std::sync::Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
     /// The startup refresh the readiness observed has not settled (`rt.startupProviderCatalogRefreshPending`). A state,
     /// not an event: a background job scheduled after the refresh began, or after it settled, reads the same answer.
-    startup_pending: std::sync::atomic::AtomicBool,
+    /// It holds the id of the refresh that owns the flag (the latest observed; 0: nothing pending), so only that one
+    /// clears it.
+    startup_pending: std::sync::atomic::AtomicU64,
     /// `modelMetaByRoute` and its placeholder keys (`lookupModelMeta`).
     pub(super) meta: std::sync::Mutex<super::facts::MetaMemo>,
     /// `catalogRevision(reg())`, bound by the readiness that owns the registry; 0 until bound.
@@ -82,7 +84,7 @@ impl CatalogService {
             listing: ListingLookup::new(),
             audited: std::sync::Mutex::new(None),
             settled: std::sync::Mutex::new(Vec::new()),
-            startup_pending: std::sync::atomic::AtomicBool::new(false),
+            startup_pending: std::sync::atomic::AtomicU64::new(0),
             meta: std::sync::Mutex::default(),
             revision: arc_swap::ArcSwapOption::empty(),
             listed_revision: std::sync::Mutex::new(None),
@@ -222,19 +224,24 @@ impl CatalogService {
 
     /// The startup catalog refresh the readiness observed is running (`rt.startupProviderCatalogRefreshPending`).
     pub fn refresh_in_flight(&self) -> bool {
-        self.startup_pending.load(std::sync::atomic::Ordering::SeqCst)
+        self.startup_pending.load(std::sync::atomic::Ordering::SeqCst) != 0
     }
 
-    /// The readiness observed a startup refresh that has not settled.
-    pub fn mark_startup_refresh_pending(&self) {
-        self.startup_pending.store(true, std::sync::atomic::Ordering::SeqCst);
+    /// The readiness observed startup refresh `refresh` (an id from 1), which has not settled: it owns the flag now.
+    pub fn mark_startup_refresh_pending(&self, refresh: u64) {
+        self.startup_pending.store(refresh, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// The latest observed startup refresh settled: nothing is pending, then the parked warm-ups are woken.
-    pub fn settle_startup_refresh(&self) {
+    /// Startup refresh `refresh` settled. Only the latest observed one settles the flag (`isLatest()`,
+    /// provider-readiness.mjs:152-157): when it still owns it, nothing is pending, then the parked warm-ups are woken; a
+    /// superseded one changes nothing. Node checks and clears in one synchronous step; here the check and the clear are
+    /// one compare-and-set on the owner, so a refresh observed in between keeps its flag.
+    pub fn settle_startup_refresh(&self, refresh: u64) {
         // Before the callbacks, so the wake they give finds nothing pending.
-        self.startup_pending.store(false, std::sync::atomic::Ordering::SeqCst);
-        self.refresh_settled();
+        let ordering = std::sync::atomic::Ordering::SeqCst;
+        if self.startup_pending.compare_exchange(refresh, 0, ordering, ordering).is_ok() {
+            self.refresh_settled();
+        }
     }
 
     /// Replaces the wall clock that stamps a failed listing's retry time (a test on virtual time).
