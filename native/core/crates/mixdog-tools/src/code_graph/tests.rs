@@ -70,6 +70,44 @@ fn code_graph_matches_golden_fixtures() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// gaps-tools item 10: `fixtures/tools-fs-search/code-graph-refs-casing.json` (`record-tools-fs-search.mjs`), replayed
+/// whole, in order, over one cache as Node's resident graph answers them: a symbol miss names the differently-cased
+/// spellings earlier queries looked up in the graph, and a reference scan stops at 200 mentions as Node's does (its
+/// truncation notice is parsed away before the answer, so the cut shows as missing rows, not as a line).
+#[test]
+fn code_graph_answers_casing_misses_and_capped_references_as_node_does() {
+    let fixture: Value = serde_json::from_str(
+        &fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/tools-fs-search/code-graph-refs-casing.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("ws");
+    for (rel, text) in fixture["files"].as_object().unwrap() {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text.as_str().unwrap()).unwrap();
+    }
+    let root = root.canonicalize().unwrap();
+    let root_text = root.display().to_string();
+    let root_fwd = root_text.replace('\\', "/");
+    let (_cache_dir, cache) = no_cache();
+    let mut failures = Vec::new();
+    for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
+        let env = dispatch::Env { trust: &no_roots(), cache: &cache, session_cwd: &root };
+        let got = match dispatch::run(&Args::parse(&call["input"]), &root, &env) {
+            Ok(answer) => answer.text,
+            Err(e) => e,
+        };
+        let got = got.replace(&root_text, "<ROOT>").replace(&root_fwd, "<ROOT>");
+        let want = call["text"].as_str().unwrap();
+        if got != want {
+            failures.push(format!("#{index} {}\n  want: {want:?}\n  got:  {got:?}", call["input"]));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 fn project_with_sentinel() -> (tempfile::TempDir, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("proj");

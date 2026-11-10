@@ -28,6 +28,33 @@ const FIXED = '2026-01-02T03:04:05Z';
 // path, written with forward slashes.
 const notebook = (cells) => JSON.stringify({ cells, metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1);
 const SCENARIOS = [
+  // gaps-tools item 10: a reference scan past REFERENCE_HIT_CAP says it was cut (code-graph/search.mjs _cheapReferenceSearch),
+  // and a symbol miss names a differently-cased spelling the graph's token index holds (search-references.mjs
+  // _formatNoSymbolMatches).
+  {
+    name: 'code-graph-refs-casing',
+    files: {
+      'package.json': '{}\n',
+      'src/widget.ts': 'export class Widget {\n  size = 1;\n}\n\nexport function makeWidget(): Widget {\n  return new Widget();\n}\n',
+      'src/use.ts': `import { Widget } from './widget';\n\nexport const w = new Widget();\n`,
+      'src/many.ts': `export function target(n: number): number {\n  return n;\n}\n\n${Array.from({ length: 230 }, (_, i) => `export const v${i} = target(${i});`).join('\n')}\n`,
+      'src/shapes.ts': `export interface Shape {\n  n: number;\n}\n\n${Array.from({ length: 230 }, (_, i) => `export type S${i} = Shape;`).join('\n')}\n`,
+      'src/zz-late.ts': `import { Shape } from './shapes';\n\nexport let late: Shape | null = null;\n`,
+    },
+    calls: [
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'] } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['Widget'] } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['widget'] } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['WIDGET'] } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['Widget', 'widget'] } },
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['target'] } },
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['target'], limit: 0 } },
+      { tool: 'code_graph', input: { mode: 'callers', symbols: ['target'] } },
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['Widget'] } },
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['Shape'] } },
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['Shape'], limit: 3 } },
+    ],
+  },
   // gaps-tools item 8: a `.ipynb` read goes to Node's notebook extractor (read-single-media.mjs), never the raw JSON. Every
   // public read reaches it with a window (offset/limit), so the extractor refuses it (read-special-files.mjs extractIpynbText).
   {

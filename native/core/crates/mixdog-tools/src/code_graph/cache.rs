@@ -199,6 +199,8 @@ pub struct GraphCache {
     scheduled: AtomicBool,
     /// Serialises the commit (merge, write, prune, sweep) within this core.
     commit: Mutex<()>,
+    /// Per project root: the indexed file set's signature and the names looked up in that graph.
+    lookups: Mutex<HashMap<String, (u64, super::graph::Lookups)>>,
 }
 
 fn now_ms() -> i64 {
@@ -253,7 +255,19 @@ impl GraphCache {
             pending: Mutex::default(),
             scheduled: AtomicBool::new(false),
             commit: Mutex::new(()),
+            lookups: Mutex::default(),
         }
+    }
+
+    /// The lookup memo of `root`'s graph: kept while the indexed file set is the one it was
+    /// started for, a fresh one for a graph built over a changed set (Node builds a new graph).
+    pub(super) fn lookups_for(&self, root: &str, signature: u64) -> super::graph::Lookups {
+        let mut all = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = all.entry(root.to_owned()).or_insert_with(|| (signature, super::graph::Lookups::default()));
+        if entry.0 != signature {
+            *entry = (signature, super::graph::Lookups::default());
+        }
+        entry.1.clone()
     }
 
     #[cfg(test)]
