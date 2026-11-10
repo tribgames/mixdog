@@ -35,8 +35,12 @@ function differences(a, b, path = '') {
 }
 
 /** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
-function killTree(child) {
+async function killTree(child) {
+  const exited = child.exitCode === null && child.signalCode === null ? new Promise((resolve) => child.once('exit', resolve)) : null;
   spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
+  // taskkill returns when the kill is requested; the folder may be removed only after the core has let go of its files (an open
+  // `daemon-owner.json.claim.lock` made that removal fail with EBUSY).
+  await exited;
 }
 
 async function startCore(exe, coreRoot, relay, fresh = true) {
@@ -85,7 +89,7 @@ async function startCore(exe, coreRoot, relay, fresh = true) {
       }
     }
   } catch (error) {
-    killTree(child);
+    await killTree(child);
     throw error;
   } finally {
     watcher.close();
@@ -268,7 +272,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   } finally {
     client?.close?.();
     window?.client.close?.();
-    killTree(core.child);
+    await killTree(core.child);
   }
 }
 
