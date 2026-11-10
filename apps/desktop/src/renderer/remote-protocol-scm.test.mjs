@@ -13,6 +13,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { adapter } from './remote-protocol-scm.ts';
 import { callQueueFor, runQueued } from './remote-protocol-queue.ts';
+import { isRemoteConnectionInterruptedError } from './remote-connection-state.ts';
+import { createProtocolRouter } from './remote-shim-protocol.ts';
 import { SCM_OPERATION_ROUTES } from '../shared/scm-operation-route.ts';
 import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 
@@ -237,5 +239,16 @@ test('a connection that ends during a call reaches the router as the client\'s o
       (error) => error === lost,
       kind,
     );
+  }
+});
+
+test('the router turns a connection that ends during a scm call into the interruption error', async () => {
+  globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
+  for (const kind of ['connectionLost', 'clientClosed']) {
+    const lost = Object.assign(new Error('connection ended'), { detail: { kind } });
+    const host = { ctx: {}, client: () => ({ server: { platformFamily: 'windows' }, call: async () => Promise.reject(lost) }), declareLane() {} };
+    const ready = Promise.resolve();
+    const router = createProtocolRouter([adapter], { host, started: () => ready, synced: () => ready, probe() {}, silentSince: () => false });
+    await assert.rejects(router.call('gitStatus', ['C:\\\\repo']), (error) => isRemoteConnectionInterruptedError(error), kind);
   }
 });
