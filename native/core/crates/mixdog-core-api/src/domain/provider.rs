@@ -864,7 +864,8 @@ pub struct ProviderError {
     pub exposure: Exposure,
     pub delivery: DeliveryState,
     pub transport: Option<TransportFault>,
-    /// Provider message for logs; never matched.
+    /// Provider message for logs; matched only by the agent's image-strip
+    /// recovery (`isImageProcessingError` reads the same text).
     pub message: String,
     /// The usage the stream reported before it failed (its last
     /// `StreamEvent::Usage`, or the usage the failing frame carried). Set on

@@ -367,9 +367,9 @@ pub struct Run {
     /// The tool surface frozen for the requests of this run (`fixedProviderToolSurface`): the first request
     /// takes the session's tools, later ones keep its eager prefix and adopt changed MCP definitions.
     pub(crate) fixed_surface: Option<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
-    /// The latest turn's images are left out of every request until a send
-    /// succeeds.
-    pub(crate) image_strip_active: bool,
+    /// The images an image-strip retry leaves out of every request until a
+    /// send succeeds (`state.imageStrip`).
+    pub(crate) image_strip: Option<crate::recovery::ImageStrip>,
     pub(crate) image_strip_used: bool,
     pub(crate) replay_repair_used: bool,
     pub(crate) tool_schema_drop_used: bool,
@@ -490,7 +490,7 @@ impl Run {
             last_reminder: None,
             dropped_tools: std::collections::HashMap::new(),
             fixed_surface: None,
-            image_strip_active: false,
+            image_strip: None,
             image_strip_used: false,
             replay_repair_used: false,
             tool_schema_drop_used: false,
