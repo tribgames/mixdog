@@ -78,8 +78,8 @@ impl FailureWriter {
         self.after_append(due);
     }
 
-    /// `recordAgentWatchdogAbort(ctx)`: the `stall_abort` row of a stopped dispatch (`mixdog_trace::watchdog_abort_records` has the
-    /// fields of `ctx`), queued behind the same buffer.
+    /// `recordAgentWatchdogAbort(ctx)`: the `stall_abort` rows of a stopped turn (`mixdog_trace::watchdog_abort_records` has the
+    /// fields of `ctx`), queued behind the same buffers.
     pub fn record_watchdog_abort(self: &Arc<Self>, ctx: &Map<String, Value>) {
         let due = self.trace.watchdog_abort(ctx, self.clock.now_ms());
         self.after_append(due);
@@ -161,5 +161,9 @@ impl ToolFailureLog for RunFailureLog {
         if let Value::Object(args) = args {
             self.writer.record(&args);
         }
+    }
+
+    fn stall_abort(&self, ctx: Map<String, Value>) {
+        self.writer.record_watchdog_abort(&ctx);
     }
 }

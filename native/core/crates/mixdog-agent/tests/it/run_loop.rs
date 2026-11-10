@@ -633,6 +633,10 @@ impl mixdog_agent::env::ToolFailureLog for FailureLog {
     fn failed(&self, call: mixdog_agent::env::FailedCall) {
         self.0.lock().unwrap().push(call);
     }
+
+    fn stall_abort(&self, _ctx: serde_json::Map<String, serde_json::Value>) {
+        panic!("the agent loop never records a watchdog stop: its host's watchdog does");
+    }
 }
 
 impl Harness {

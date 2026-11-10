@@ -28,12 +28,12 @@ use mixdog_agent::env::{Clock, Yielder};
 use mixdog_agent::subagent::{ChildResult, ChildRunner, DispatchRequest, dispatch, partial_handoff_text};
 use mixdog_ai::service::admin_route::{normalize_context_tokens, truthy};
 use mixdog_core_config::config::agent_disabled;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
 use crate::run_host::cycle1_dispatch::{AgentDispatch, AgentDispatchPayload};
 use crate::run_host::summary_host::trimmed;
-use crate::run_host::watchdog::Watchdog;
+use crate::run_host::watchdog::{StallSite, Watchdog, stall_abort_ctx};
 
 /// `ROLE_BY_MAINT_KEY`: the settings agent whose route a hidden role runs on.
 const ROLE_BY_MAINT_KEY: [(&str, &str); 2] = [("memory", "maintainer"), ("explore", "explore")];
@@ -204,17 +204,8 @@ impl HiddenRoleRunner {
                 let (sessions, world, id, agent) = (self.sessions.clone(), self.world.clone(), id.clone(), agent.to_owned());
                 let anchor_ts = clock.now_ms();
                 move |snapshot: &Snapshot, message: &str, now: i64| {
-                    let mut ctx = Map::new();
-                    ctx.insert("sessionId".into(), json!(id));
-                    ctx.insert("agent".into(), json!(agent));
-                    ctx.insert("error".into(), json!({ "message": message }));
-                    ctx.insert("snapshot".into(), snapshot_ctx(snapshot));
-                    ctx.insert("policy".into(), json!({ "idleStaleMs": policy.idle_stale_ms }));
-                    ctx.insert("now".into(), json!(now));
-                    ctx.insert("anchorTs".into(), json!(anchor_ts));
-                    ctx.insert("iteration".into(), sessions.last_iteration_index(&id).unwrap_or(Value::Null));
-                    ctx.insert("buildVersion".into(), json!(env!("CARGO_PKG_VERSION")));
-                    world.record_stall_abort(ctx);
+                    let site = StallSite::Dispatch { iteration: sessions.last_iteration_index(&id).unwrap_or(Value::Null) };
+                    world.record_stall_abort(stall_abort_ctx(&id, Some(&agent), &site, &policy, anchor_ts, snapshot, message, now));
                     sessions.arm_turn_timeout(&id);
                 }
             },
@@ -269,23 +260,6 @@ impl ChildRunner for HiddenRoleRunner {
 /// The call's value when it is truthy, else the factory's (`a || b`).
 fn first_set<'a>(call: Option<&'a Value>, factory: Option<&'a Value>) -> Option<&'a Value> {
     call.filter(|value| truthy(Some(value))).or(factory)
-}
-/// `getSessionProgressSnapshot`'s object, as `recordAgentWatchdogAbort` reads it (`awaitingUser` is present only while a person is asked).
-fn snapshot_ctx(snapshot: &Snapshot) -> Value {
-    let mut object = Map::new();
-    object.insert("stage".into(), json!(snapshot.stage.as_deref().unwrap_or("idle")));
-    object.insert("askStartedAt".into(), json!(snapshot.ask_started_at));
-    object.insert("modelRequestStartedAt".into(), json!(snapshot.model_request_started_at));
-    object.insert("firstActivityAt".into(), json!(snapshot.first_activity_at));
-    object.insert("currentTool".into(), snapshot.current_tool.as_ref().map_or(Value::Null, |tool| json!(tool)));
-    object.insert("lastProgressAt".into(), json!(snapshot.last_progress_at));
-    object.insert("lastKeepaliveAt".into(), json!(snapshot.last_keepalive_at));
-    object.insert("waitingForTransport".into(), json!(snapshot.waiting_for_transport));
-    object.insert("waitingForFirstSemantic".into(), json!(snapshot.waiting_for_first_semantic));
-    if snapshot.awaiting_user {
-        object.insert("awaitingUser".into(), json!("approval"));
-    }
-    Value::Object(object)
 }
 
 fn non_empty(text: &Option<String>) -> Option<String> {

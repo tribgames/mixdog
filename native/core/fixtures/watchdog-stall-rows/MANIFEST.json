@@ -1,0 +1,120 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 86475,
+      "path": "golden.json",
+      "sha256": "a0b6000024ce5443fb8add864748aa9f44697cad84f4e49d49038ebcd219787e"
+    }
+  ],
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-watchdog-stall-rows.mjs",
+  "recorderSha256": "666b228f1eba0d14ae6fdbbacf91e674482920c8b2226fc4165bef87b857e965",
+  "set": "watchdog-stall-rows",
+  "syntheticInputs": {
+    "agent": "worker",
+    "policy": {
+      "firstSemanticMs": 8000,
+      "firstTransportMs": 5000,
+      "idleStaleMs": 10000
+    },
+    "runtime": "an in-process agent runtime object (getTurnLiveness = the manager snapshot copy, abort recorded)",
+    "scenarios": [
+      {
+        "name": "idle-after-output",
+        "steps": [
+          [
+            0,
+            "ask"
+          ],
+          [
+            0,
+            "requesting"
+          ],
+          [
+            1500,
+            "delta",
+            "text"
+          ]
+        ]
+      },
+      {
+        "name": "no-transport",
+        "steps": [
+          [
+            0,
+            "ask"
+          ],
+          [
+            0,
+            "requesting"
+          ]
+        ]
+      },
+      {
+        "name": "transport-without-output",
+        "steps": [
+          [
+            0,
+            "ask"
+          ],
+          [
+            0,
+            "requesting"
+          ],
+          [
+            500,
+            "delta",
+            "transport"
+          ]
+        ]
+      },
+      {
+        "name": "next-request-after-a-tool",
+        "steps": [
+          [
+            0,
+            "ask"
+          ],
+          [
+            0,
+            "requesting"
+          ],
+          [
+            100,
+            "delta",
+            "text"
+          ],
+          [
+            200,
+            "tool",
+            "shell"
+          ],
+          [
+            300,
+            "requesting"
+          ]
+        ]
+      }
+    ]
+  },
+  "totalBytes": 86475
+}
