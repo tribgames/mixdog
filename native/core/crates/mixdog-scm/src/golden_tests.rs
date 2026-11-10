@@ -35,7 +35,9 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
 
 pub(crate) fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let dir = tempfile::tempdir().unwrap();
-    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
+    // The plain spelling of the folder, as git names it and as every caller of the core passes it (not the verbatim `\\?\` one).
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let repo = std::path::PathBuf::from(canonical.to_string_lossy().trim_start_matches(r"\\?\")).join("repo");
     std::fs::create_dir_all(repo.join("src")).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     // The engine's own git commands read the repository config; the helper above only sets it

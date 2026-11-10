@@ -528,10 +528,24 @@ impl ScmService {
                 let p: p::GitRenameBranchParams = decode(req)?;
                 json!(open!(p).rename_branch(&p.input.branch, &p.input.next_branch).await?)
             }
-            "git/resetToCommit" => { let p: p::GitResetToCommitParams = decode(req)?; json!(open!(p).reset_to_commit(&p.value, &p.mode, p.confirmed_dirty.unwrap_or(false)).await?) }
+            "git/resetToCommit" => {
+                let p: p::GitResetToCommitParams = decode(req)?;
+                let place = cwd(&p.cwd)?;
+                match scm.open(&place, cancel).await {
+                    Err(ScmFailure::NotARepository) => return Err(scm.commit_lookup_outside_repository(&place, cancel, Some(&p.mode), &p.value).await.into()),
+                    repo => json!(repo?.reset_to_commit(&p.value, &p.mode, p.confirmed_dirty.unwrap_or(false)).await?),
+                }
+            }
             "git/revertCommit" => { let p: p::GitRevertCommitParams = decode(req)?; json!(open!(p).revert_commit(&p.value).await?) }
             "git/revertFile" => { let p: p::GitRevertFileParams = decode(req)?; open!(p).revert_file(&p.path, p.untracked, p.mode.as_deref().unwrap_or("all")).await?; unit() }
-            "git/cherryPickCommit" => { let p: p::GitCherryPickCommitParams = decode(req)?; json!(open!(p).cherry_pick_commit(&p.value).await?) }
+            "git/cherryPickCommit" => {
+                let p: p::GitCherryPickCommitParams = decode(req)?;
+                let place = cwd(&p.cwd)?;
+                match scm.open(&place, cancel).await {
+                    Err(ScmFailure::NotARepository) => return Err(scm.commit_lookup_outside_repository(&place, cancel, None, &p.value).await.into()),
+                    repo => json!(repo?.cherry_pick_commit(&p.value).await?),
+                }
+            }
             "git/applyPatch" => { let p: p::GitApplyPatchParams = decode(req)?; open!(p).apply_patch(&p.path, &p.patch, p.reverse.unwrap_or(false)).await?; unit() }
             "git/ignore" => { let p: p::GitIgnoreParams = decode(req)?; open!(p).ignore(&p.path, p.scope.as_deref().unwrap_or("file")).await?; unit() }
             "git/continue" => { let p: p::GitContinueParams = decode(req)?; json!(open!(p).continue_operation().await?) }

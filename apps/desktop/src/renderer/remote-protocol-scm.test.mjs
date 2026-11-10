@@ -9,6 +9,7 @@
 // as the page passes them (the relay's JSON turned them into null).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { adapter } from './remote-protocol-scm.ts';
 import { callQueueFor, runQueued } from './remote-protocol-queue.ts';
@@ -17,7 +18,7 @@ import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 
 const fixture = (name) => new URL(`./fixtures/phone-scm/${name}`, import.meta.url);
 const golden = JSON.parse(readFileSync(fixture('golden.json'), 'utf8'));
-const calls = readFileSync(fixture('calls.txt'), 'utf8').split(/\s+/).filter(Boolean);
+const calls = readFileSync(fixture('calls.txt'), 'utf8').trim().split(/\s+/);
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
 // A wait that never ends is a defect to name, not a hang: every wait on the queue is raced with a bound that only ever fails it.
@@ -108,9 +109,15 @@ async function answerOf(entry, params, coreCodes = false) {
 
 test('the adapter answers exactly the 62 source-control calls', () => {
   assert.equal(calls.length, 62);
-  assert.deepEqual(Object.keys(adapter.calls).sort(), [...calls].sort());
+  // The listed calls are distinct, the adapter answers each of them and nothing else (its own order of definition is not Node's).
+  assert.ok(calls.every((call, index) => calls.indexOf(call) === index));
+  assert.ok(calls.every((call) => typeof adapter.calls[call] === 'function'));
+  assert.equal(Object.keys(adapter.calls).length, calls.length);
   assert.equal(adapter.group, 'scm');
-  assert.deepEqual([...new Set(golden.cases.map((entry) => entry.call))].sort(), [...calls].sort());
+  // Every recorded case is of a listed call, and every listed call has a recorded case (first case of each, in recorded order).
+  const recordedCalls = golden.cases.map((entry) => entry.call);
+  assert.ok(recordedCalls.every((call) => calls.includes(call)));
+  assert.deepEqual(calls.filter((call) => !recordedCalls.includes(call)), [], 'listed calls with no recorded case');
 });
 
 for (const entry of golden.cases) {
@@ -126,9 +133,15 @@ for (const entry of golden.cases) {
 test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write starts after the write ended', async () => {
   const { ordering } = golden;
   const wires = ordering.ops.map((op) => ({ ...op, ...clone(SCM_OPERATION_ROUTES[op.name](op.args)) }));
-  const WRITES = new Set(['gitStage', 'gitUnstage']);
   const log = [];
   const ended = [];
+  const last = ordering.orders[0].at(-1);
+  const endOrder = [...last.endedBefore, last.started];
+  const waiting = [];
+  const wake = () => waiting.splice(0).forEach((resolve) => resolve());
+  const turn = async (name) => {
+    while (ended.length !== endOrder.indexOf(name)) await new Promise((resolve) => waiting.push(resolve));
+  };
   let release;
   let held;
   const gate = new Promise((resolve) => (release = resolve));
@@ -137,12 +150,16 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
     async call(method, params) {
       const op = wires.find((wire) => wire.method === method && JSON.stringify(wire.params) === JSON.stringify(params));
       assert.ok(op, `unexpected request ${method} ${JSON.stringify(params)}`);
-      log.push({ started: op.name, endedBefore: WRITES.has(op.name) ? [...ended].sort() : ended.filter((name) => WRITES.has(name)).sort() });
+      log.push({ started: op.name, endedBefore: [...ended] });
       if (op.name === ordering.heldStarts[0]) {
         held();
         await gate;
       }
+      // The operation ends when Node's did: after exactly the operations that ended before it in the recording (the last start's list
+      // plus that start is the whole order of ends). A signal wakes the next in line; nothing is polled.
+      await turn(op.name);
       ended.push(op.name);
+      wake();
       return op.result === undefined ? null : clone(op.result);
     },
   };
@@ -160,26 +177,38 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   assert.deepEqual(log.map((entry) => entry.started), ordering.heldStarts);
   release();
   assert.deepEqual(await within(Promise.all(answers), `the calls behind the held write ${ordering.heldStarts[0]} never finished`), ordering.answers);
-  assert.deepEqual(log, ordering.order);
+  // Node's two recorded runs saw the same order of every start and end, so the order is Node's and is compared as recorded.
+  assert.equal(ordering.orders.length, 2);
+  for (const order of ordering.orders) assert.deepEqual(log, order);
   callQueueFor(ctx).close();
 });
-test('phone-scm checks an absolute path by the platform of the PC\'s initialize answer', async () => {
-  const asked = [];
-  const on = (platformFamily) => ({ ctx: {}, client: () => ({ server: { platformFamily }, call: async (method) => (asked.push(method), null) }) });
-  // The router runs the handler in the call's queue slot, so an argument check that throws is a rejection.
-  const run = (call, params, platformFamily) => runQueued({}, call, params, async () => adapter.calls[call](params, on(platformFamily)));
-  const status = (cwd, platformFamily) => run('gitStatus', [cwd], platformFamily);
-  await assert.rejects(status('C:\\repo', 'unix'), { message: 'A project directory is required.' });
-  await assert.rejects(status('\\repo', 'unix'), { message: 'A project directory is required.' });
-  assert.deepEqual(asked, []);
-  await status('/repo', 'unix');
-  await status('C:\\repo', 'windows');
-  await status('/repo', 'windows');
-  assert.deepEqual(asked, ['git/status', 'git/status', 'git/status']);
-  await assert.rejects(run('gitDiff', ['/repo', 'C:\\x'], 'windows'), { message: 'git path is invalid.' });
-  await run('gitDiff', ['/repo', 'C:\\x'], 'unix');
-});
-test('phone-scm forwards the call\'s `sent` claim on every request it writes (the router scopes the client per call)', async () => {
+test('phone-scm checks an absolute path as node:path does on the platform of the PC\'s initialize answer', async () => {
+  // The oracle is node:path itself, which is what Node's host ran on the PC: `win32` on a Windows PC, `posix` on any other.
+  const platforms = { windows: path.win32, unix: path.posix };
+  const inputs = ['C:\\repo', '\\repo', '/repo', 'C:/repo', '\\\\host\\share', '//host/share', 'repo', './repo', 'C:repo', ' /repo '];
+  for (const [family, platform] of Object.entries(platforms)) {
+    for (const cwd of inputs) {
+      const asked = [];
+      const host = { ctx: {}, client: () => ({ server: { platformFamily: family }, call: async (method) => (asked.push(method), null) }) };
+      // The router runs the handler in the call's queue slot, so an argument check that throws is a rejection.
+      const run = runQueued({}, 'gitStatus', [cwd], async () => adapter.calls.gitStatus([cwd], host));
+      if (platform.isAbsolute(cwd.trim())) {
+        await run;
+        assert.deepEqual(asked, ['git/status'], `${family}: ${cwd}`);
+      } else {
+        await assert.rejects(run, { message: 'A project directory is required.' }, `${family}: ${cwd}`);
+        assert.deepEqual(asked, [], `${family}: ${cwd}`);
+      }
+    }
+    for (const file of inputs.filter((input) => input.trim() === input)) {
+      const host = { ctx: {}, client: () => ({ server: { platformFamily: family }, call: async () => null }) };
+      const run = runQueued({}, 'gitDiff', ['/repo', file], async () => adapter.calls.gitDiff(['/repo', file], host));
+      // A path inside the repository is relative: an absolute one is refused.
+      if (platform.isAbsolute(file)) await assert.rejects(run, { message: 'git path is invalid.' }, `${family}: ${file}`);
+      else await run;
+    }
+  }
+});test('phone-scm forwards the call\'s `sent` claim on every request it writes (the router scopes the client per call)', async () => {
   const claim = () => {};
   const options = [];
   const client = { call: async (_method, _params, option) => (options.push(option?.sent), null) };

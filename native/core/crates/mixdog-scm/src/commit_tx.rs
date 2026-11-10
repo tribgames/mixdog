@@ -168,8 +168,7 @@ impl Repo {
         }
         let absolute: std::path::PathBuf = self.cwd.join(path).components().collect();
         let comparable_text = |text: &str| {
-            // A verbatim `\\?\` path names the same place as git's plain spelling of it.
-            let normalized = text.trim_start_matches(r"\\?\").replace('\\', "/");
+            let normalized = text.replace('\\', "/");
             if cfg!(windows) { normalized.to_lowercase() } else { normalized }
         };
         let prefix = format!("{}/", comparable_text(&root).trim_end_matches('/'));
@@ -190,6 +189,17 @@ impl Repo {
         for path in &requested {
             assert_commit_path(path)?;
         }
+        // git reports the worktree by its real path, so the selection is resolved from the real cwd too
+        // (`realpath(resolve(cwd))`, git-commit-transaction.ts:1288); a spelling the OS resolves differently would place every
+        // selected file outside the repository. An unresolvable cwd stays as given, as Node's `.catch`.
+        let place = self.cwd.clone();
+        let real = on_lane(self.scm.lane, &self.cancel, move || std::fs::canonicalize(&place).ok().map(plain_path)).await?;
+        let at = Repo { cwd: real.unwrap_or_else(|| self.cwd.clone()), ..self.clone() };
+        at.commit_paths_at(message, paths).await
+    }
+
+    async fn commit_paths_at(&self, message: &str, paths: &[String]) -> Result<String, ScmFailure> {
+        let requested: Vec<&String> = paths.iter().filter(|path| !path.is_empty()).collect();
         // repositoryIdentity: the repository is asked who it is before anything else is read.
         let identity = self
             .scm
@@ -803,5 +813,13 @@ mod tests {
         let path = first.0.clone();
         drop(first);
         assert!(!path.exists());
+    }
+}
+
+/// Windows spells a canonical path with a verbatim prefix; Node's realpath answers the plain drive spelling git also uses.
+fn plain_path(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path,
     }
 }

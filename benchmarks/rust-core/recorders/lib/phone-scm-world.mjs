@@ -14,6 +14,15 @@ import { promisify } from 'node:util';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+// A wait on this world that never ends is a defect to name, not a hang. The real timer is taken at load, before the recorder replaces the clock.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+function bounded(promise, message) {
+  let timer;
+  const stalled = new Promise((_, reject) => (timer = realSetTimeout(() => reject(new Error(message)), 90_000)));
+  return Promise.race([promise, stalled]).finally(() => realClearTimeout(timer));
+}
+
 /**
  * The rules of gh-script.json and the world they change: one engine answers both the Node host (execFile below) and the
  * executables the replay puts on a built mixdogd's PATH (serveShims below), so Node and the core see the same tools.
@@ -202,13 +211,18 @@ export async function serveShims({ engine, onSpawn, shim, places }) {
       socket.write(`X ${reply.code === -1 ? 1 : reply.code}\n`);
     });
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await bounded(new Promise((resolve, reject) => (server.once('error', reject), server.listen(0, '127.0.0.1', resolve))), 'the shim server did not start listening');
   return {
     address: `127.0.0.1:${server.address().port}`,
     flows,
     /** The nth PTY the core started (resolves when it connects). */
     async flow(n) {
-      while (!flows[n]) await new Promise((resolve) => waiting.push(resolve));
+      await bounded(
+        (async () => {
+          while (!flows[n]) await new Promise((resolve) => waiting.push(resolve));
+        })(),
+        `the core never started sign-in terminal ${n}`,
+      );
       return flows[n];
     },
     sync,
