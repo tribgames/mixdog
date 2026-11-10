@@ -136,6 +136,8 @@ struct Shared {
     peers: Vec<String>,
     creates: u64,
     minted: u8,
+    /// Every relay message, as written.
+    relay_raw: Vec<Vec<u8>>,
 }
 
 /// The shared state behind a lock, so the stand-ins can ride in a Send coordinator.
@@ -264,6 +266,7 @@ impl Host for HostFake {
     fn relay_send(&mut self, message: &[u8]) -> Settle<bool> {
         let held = self.log.borrow().options["relay"] == "held";
         self.log.borrow_mut().effects.push(with(json!({ "e": "relay" }), bytes_record(message)));
+        self.log.borrow_mut().relay_raw.push(message.to_vec());
         if held { Settle::Later } else { Settle::Now(true) }
     }
 
@@ -562,6 +565,7 @@ fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
             peers: Vec::new(),
             creates: 0,
             minted: 0,
+            relay_raw: Vec::new(),
         })));
         let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
         let host = HostFake { log: log.clone(), now: now.clone() };
@@ -588,35 +592,8 @@ fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
 /// (the patched Node's `mayWrite`, asked after its last fragment is sealed).
 #[test]
 fn an_unpair_that_lands_while_a_later_fragment_is_sealed_waits_for_the_whole_write() {
-    let log: Log = std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
-        effects: Vec::new(),
-        results: Vec::new(),
-        options: json!({}),
-        refuse: false,
-        buffered: 0,
-        encrypt: None,
-        seal_control: None,
-        pending_deliver: 0,
-        meters: Vec::new(),
-        tickets: HashMap::new(),
-        peers: Vec::new(),
-        creates: 0,
-        minted: 0,
-    })));
-    // The registry's write gate: the permission, and the lock a write and a revocation each take.
-    let allowed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let writes = std::sync::Arc::new(std::sync::Mutex::new(()));
-    let gate = {
-        let (allowed, writes) = (allowed.clone(), writes.clone());
-        mixdog_remote::transport::coordinator::WriteGate(std::sync::Arc::new(move |write: &mut dyn FnMut()| {
-            let _writes = writes.lock().unwrap();
-            let open = allowed.load(std::sync::atomic::Ordering::SeqCst);
-            if open {
-                write();
-            }
-            open
-        }))
-    };
+    let log = gated_log();
+    let (allowed, writes, gate) = write_gate();
     // The unpair, at the seal of the frame's second record: it revokes at once when no write holds the gate, else after the write.
     let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
     let on_seal = {
@@ -661,4 +638,145 @@ fn an_unpair_that_lands_while_a_later_fragment_is_sealed_waits_for_the_whole_wri
     assert_eq!(coordinator.next_sequence(), 3, "no record of it is in the stream");
     assert_eq!(send(&mut coordinator, r#"{"method":"event","params":{}}"#, None), json!({ "media": true }));
     assert_eq!(coordinator.next_sequence(), 4, "the next message takes the next sequence: the stream has no hole");
+}
+
+fn gated_log() -> Log {
+    std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
+        effects: Vec::new(),
+        results: Vec::new(),
+        options: json!({}),
+        refuse: false,
+        buffered: 0,
+        encrypt: None,
+        seal_control: None,
+        pending_deliver: 0,
+        meters: Vec::new(),
+        tickets: HashMap::new(),
+        peers: Vec::new(),
+        creates: 0,
+        minted: 0,
+        relay_raw: Vec::new(),
+    })))
+}
+
+type Allowed = std::sync::Arc<std::sync::atomic::AtomicBool>;
+
+/// The registry's write gate: the permission, and the lock a write and a revocation each take.
+fn write_gate() -> (Allowed, std::sync::Arc<std::sync::Mutex<()>>, mixdog_remote::transport::coordinator::WriteGate) {
+    let allowed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let writes = std::sync::Arc::new(std::sync::Mutex::new(()));
+    let gate = {
+        let (allowed, writes) = (allowed.clone(), writes.clone());
+        mixdog_remote::transport::coordinator::WriteGate(std::sync::Arc::new(move |write: &mut dyn FnMut()| {
+            let _writes = writes.lock().unwrap();
+            let open = allowed.load(std::sync::atomic::Ordering::SeqCst);
+            if open {
+                write();
+            }
+            open
+        }))
+    };
+    (allowed, writes, gate)
+}
+
+/// The phone on the relay: the stream's receiver and the message assembler, acking what it took.
+struct RelayPhone {
+    receiver: mixdog_remote::transport::receiver::Receiver,
+    assembler: mixdog_remote::transport::split::MessageAssembler,
+    taken: usize,
+    acks: u64,
+    messages: Vec<String>,
+}
+
+impl RelayPhone {
+    fn new() -> Self {
+        Self {
+            receiver: mixdog_remote::transport::receiver::Receiver::new(),
+            assembler: mixdog_remote::transport::split::MessageAssembler::new(AssemblyPool::default()),
+            taken: 0,
+            acks: 0,
+            messages: Vec::new(),
+        }
+    }
+
+    /// Takes what the desktop wrote, then acks what it took. False: nothing new.
+    fn read_and_ack(&mut self, log: &Log, coordinator: &mut Coordinator<ChannelFake, HostFake>) -> bool {
+        let written: Vec<Vec<u8>> = log.borrow().relay_raw[self.taken..].to_vec();
+        self.taken += written.len();
+        let mut through = None;
+        for message in &written {
+            if let mixdog_remote::transport::frame::Message::Record(record) = mixdog_remote::transport::frame::decode_message(message).expect("a conforming message") {
+                self.receiver.accept(&record, 0);
+            }
+        }
+        while let Some((sequence, box_bytes)) = self.receiver.next().map(|(sequence, bytes)| (sequence, bytes.to_vec())) {
+            let (_, plaintext) = open_box(&box_bytes, APP_MAGIC).expect("an application box");
+            self.receiver.commit(sequence, 0).expect("in order");
+            if let mixdog_remote::transport::split::Assembly::Complete(bytes) = self.assembler.accept(&plaintext, 0).expect("the phone's reassembly takes it") {
+                self.messages.push(String::from_utf8(bytes).expect("text"));
+            }
+            through = Some(sequence);
+        }
+        let Some(through) = through else { return false };
+        self.acks += 1;
+        let ack = make_box(CONTROL_MAGIC, self.acks, &mixdog_remote::transport::control::ack_json(through, &[]));
+        coordinator.receive("relay", &mixdog_remote::transport::frame::encode_control(&ack).expect("a control message"));
+        coordinator.settle();
+        true
+    }
+}
+
+fn picture(jpeg_bytes: usize) -> String {
+    let data = base64::engine::general_purpose::STANDARD.encode(vec![0x5a; jpeg_bytes]);
+    format!(r#"{{"method":"browser/frame","params":{{"sessionId":"sess_1","seq":1,"image":{{"mimeType":"image/jpeg","data":"{data}"}}}}}}"#)
+}
+
+/// A live-view picture larger than the old ceiling (8 records of a 4 MiB JPEG), and one larger than the whole window (a 10 MiB
+/// JPEG), each arrive whole: the gate is asked once at the first record, every record is sealed then, and they enter the window as
+/// the phone's acks admit them, as Node b6f10295a sent them. A picture still waiting for the window when the device is unpaired
+/// enters none of it, and the stream has no hole.
+#[test]
+fn a_live_view_picture_past_the_old_ceiling_arrives_whole_and_one_waiting_at_an_unpair_none_of_it() {
+    let log = gated_log();
+    let (allowed, _writes, gate) = write_gate();
+    let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
+    let host = HostFake { log: log.clone(), now: Rc::new(Cell::new(1_000)) };
+    let mut coordinator = Coordinator::new("session-1", channel, host, AssemblyPool::default());
+    let mut phone = RelayPhone::new();
+    // The coordinator numbers its tickets from 1; each send is tagged by name before it can settle.
+    let tickets = Cell::new(0);
+    let send = |coordinator: &mut Coordinator<ChannelFake, HostFake>, name: &str, text: &str| {
+        tickets.set(tickets.get() + 1);
+        log.borrow_mut().tickets.insert(tickets.get(), json!({ "id": name }));
+        let gate = text.starts_with(r#"{"method":"browser/frame""#).then(|| gate.clone());
+        let sent = coordinator.send(text, SendOptions { droppable: false, stream: None, meter: None, gate });
+        assert!(matches!(sent, Sent::Queued(ticket) if ticket == tickets.get()), "{name} was queued as ticket {}", tickets.get());
+        coordinator.settle();
+    };
+    let settled = |name: &str| log.borrow().results.iter().find(|result| result["id"] == name).cloned();
+
+    for (name, jpeg_bytes) in [("past the old ceiling", 4 * 1024 * 1024), ("past the window", 10 * 1024 * 1024)] {
+        let text = picture(jpeg_bytes);
+        send(&mut coordinator, name, &text);
+        while phone.read_and_ack(&log, &mut coordinator) {}
+        let result = settled(name).unwrap_or_else(|| panic!("the picture {name} settled"));
+        assert!(result["ok"].as_u64().is_some(), "the picture {name} entered the stream: {result}");
+        assert_eq!(phone.messages.last().map(String::len), Some(text.len()), "the phone rebuilt the picture {name}");
+        assert!(phone.messages.last() == Some(&text), "the phone rebuilt the picture {name} byte for byte");
+    }
+
+    // A picture allowed and sealed whose last record waits for the window, one queued behind it, then the device's unpair, then the
+    // phone's acks: the first was decided before the unpair and arrives whole; the second enters none of it.
+    let rebuilt = phone.messages.len();
+    send(&mut coordinator, "decided before the unpair", &picture(6 * 1024 * 1024));
+    send(&mut coordinator, "at the unpair", &picture(4 * 1024 * 1024));
+    assert!(settled("decided before the unpair").is_none() && settled("at the unpair").is_none(), "both wait for the window");
+    allowed.store(false, std::sync::atomic::Ordering::SeqCst);
+    while phone.read_and_ack(&log, &mut coordinator) {}
+    assert!(settled("decided before the unpair").is_some_and(|result| result["ok"].as_u64().is_some()));
+    assert_eq!(settled("at the unpair"), Some(json!({ "id": "at the unpair", "ok": null })), "the waiting picture was refused");
+    assert_eq!(phone.messages.len(), rebuilt + 1, "the phone rebuilt the first and nothing of the refused picture");
+    send(&mut coordinator, "after", r#"{"method":"event","params":{}}"#);
+    while phone.read_and_ack(&log, &mut coordinator) {}
+    assert_eq!(phone.messages.last().map(String::as_str), Some(r#"{"method":"event","params":{}}"#), "the stream has no hole");
 }
