@@ -488,10 +488,13 @@ fn keep_tail(kept: &mut Vec<u8>, more: &[u8]) {
 }
 
 impl StartOutput {
-    /// Node's `r.stderr || r.stdout`, trimmed: `None` when both are empty.
+    /// Node's `r.stderr || r.stdout`, then trimmed (`startPg`, `startFailure`, `process.mjs:459-467`): a stderr of only whitespace is chosen over stdout
+    /// and trims to nothing. `None` when the chosen text is empty after the trim.
     fn text(&self) -> Option<String> {
-        let read = |stream: &std::sync::Mutex<Vec<u8>>| String::from_utf8_lossy(&stream.lock().expect("output")).trim().to_owned();
-        [read(&self.stderr), read(&self.stdout)].into_iter().find(|text| !text.is_empty())
+        let read = |stream: &std::sync::Mutex<Vec<u8>>| String::from_utf8_lossy(&stream.lock().expect("output")).into_owned();
+        let stderr = read(&self.stderr);
+        let chosen = if stderr.is_empty() { read(&self.stdout) } else { stderr };
+        Some(chosen.trim().to_owned()).filter(|text| !text.is_empty())
     }
 }
 

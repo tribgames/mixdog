@@ -65,8 +65,6 @@ class Run {
   async endDaemon() {
     const failures = [];
     await this.#daemonSteps(failures);
-    this.child = null;
-    this.doc = null;
     if (failures.length) throw new AggregateError(failures, failures.map((failure) => failure.message).join('; '));
   }
 
@@ -74,6 +72,11 @@ class Run {
     const failures = [];
     await this.#daemonSteps(failures);
     const step = Run.#step(failures);
+    if (this.child) {
+      // A daemon that could not be ended still uses the profile (its cluster, its lock): nothing it uses is touched.
+      failures.push(new Error(`the daemon pid ${this.child.pid} is still running; the profile ${this.sandbox} is kept`));
+      throw new AggregateError(failures, failures.map((failure) => failure.message).join('; '));
+    }
     await step('the spawn lock', async () => this.releaseLock?.());
     await step('the profile', async () => rmSync(this.sandbox, { recursive: true, force: true }));
     if (failures.length) throw new AggregateError(failures, failures.map((failure) => failure.message).join('; '));
@@ -94,21 +97,34 @@ class Run {
     await step('the readiness watcher', async () => this.watcher?.close());
     await step('the daemon', async () => {
       const child = this.child;
-      if (!child || child.exitCode !== null || child.signalCode !== null) return;
+      if (!child) return;
+      const gone = () => child.exitCode !== null || child.signalCode !== null;
       // The exit is awaited from before the stop request, so the deadline counts from the request.
-      const exited = new Promise((resolve) => child.once('exit', resolve));
-      if (this.doc) await post(this.doc, '/stop', { force: true }, 15_000).catch(() => {});
-      try {
-        await withDeadline(exited, 'the daemon to exit after its stop', 60_000);
-      } catch (error) {
-        // Its process tree (the memory child it forked) ends by its pid.
-        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 15_000, windowsHide: true });
-        throw error;
+      const exited = new Promise((resolve) => (gone() ? resolve() : child.once('exit', resolve)));
+      if (!gone()) {
+        if (this.doc) await post(this.doc, '/stop', { force: true }, 15_000).catch(() => {});
+        try {
+          await withDeadline(exited, 'the daemon to exit after its stop', 60_000);
+        } catch (error) {
+          // Its process tree (the memory child it forked) ends by its pid; the handle is kept until the exit is seen.
+          const kill = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 15_000, windowsHide: true });
+          if (kill.status !== 0) throw new Error(`${error.message}; taskkill of pid ${child.pid} failed (${kill.error?.message ?? `exit ${kill.status}`})`);
+          await withDeadline(exited, `the daemon pid ${child.pid} to exit after taskkill`, 15_000);
+          throw error;
+        } finally {
+          if (gone()) {
+            this.child = null;
+            this.doc = null;
+          }
+        }
       }
+      this.child = null;
+      this.doc = null;
     });
     await step('the postmaster', async () => {
       const pgdata = this.env && join(this.env.MIXDOG_DATA_DIR, 'pgdata');
-      if (!this.runtimeDir || !existsSync(join(pgdata, 'postmaster.pid'))) return;
+      // A daemon still running owns its cluster: it is left alone with the daemon (the failure above names the pid).
+      if (this.child || !this.runtimeDir || !existsSync(join(pgdata, 'postmaster.pid'))) return;
       const stop = spawnSync(join(this.runtimeDir, 'bin', 'pg_ctl.exe'), ['stop', '-m', 'fast', '-w', '-t', '30', '-D', pgdata], { stdio: 'ignore', timeout: 40_000, windowsHide: true });
       // pg_ctl has no children of its own; a postmaster it failed to end is named so the run fails instead of leaving it unnoticed.
       if (stop.status !== 0 && existsSync(join(pgdata, 'postmaster.pid'))) {

@@ -254,3 +254,15 @@ fn the_start_output_keeps_a_failure_whole_and_only_the_tail_of_a_flood() {
     assert_eq!(kept.len(), OUTPUT_TAIL);
     assert!(kept.ends_with(b"the last line"));
 }
+
+/// The start failure's output text is Node's `r.stderr || r.stdout` trimmed after the choice (`process.mjs:459-467`): a stderr of only whitespace is
+/// chosen, so stdout is not shown; an empty stderr falls back to stdout.
+#[test]
+fn the_start_output_chooses_stderr_before_trimming_as_node() {
+    let output = StartOutput::default();
+    output.stderr.lock().unwrap().extend_from_slice(b" \r\n");
+    output.stdout.lock().unwrap().extend_from_slice(b"waiting for server to start....\n");
+    assert_eq!(output.text(), None);
+    output.stderr.lock().unwrap().clear();
+    assert_eq!(output.text().as_deref(), Some("waiting for server to start...."));
+}
