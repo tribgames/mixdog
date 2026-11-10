@@ -2008,7 +2008,7 @@ mod tests {
 
     // ---- the real assembly -------------------------------------------------------------------------
 
-    struct OneProvider(Arc<Scripted>);
+    struct OneProvider(Arc<dyn ProviderAdapter>);
 
     #[async_trait]
     impl mixdog_ai::registry::providers::ProviderBuilder for OneProvider {
@@ -2244,28 +2244,30 @@ mod tests {
         Arc::new(Echo(spec))
     }
 
-    /// The done-when turn: `TurnPath::new` over test implementations of the missing owner traits, a
-    /// scripted provider behind the accounted registry, a tool call, the stored rows and the ledger row.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_turn_runs_through_the_turn_path() {
-        let provider = Arc::new(Scripted {
-            id: ProviderId::from("scripted"),
-            policy: RetryPolicy::codex_default(),
-            keepalive: KeepaliveSchedule::SPEC,
-            codec: MockCodec,
-            script: Mutex::new(VecDeque::from([
-                vec![
-                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
-                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
-                ],
-                vec![StreamEvent::TextDelta("listed".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-                // The side question's answer, then the answer after the saved request was forgotten.
-                vec![StreamEvent::TextDelta(" it listed the path ".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-                vec![StreamEvent::TextDelta("rebuilt".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
-            ])),
-            requests: Mutex::new(Vec::new()),
-            fail_first: std::sync::atomic::AtomicBool::new(false),
-        });
+    /// Notes every thread the assembly asks where its approvals go.
+    #[derive(Default)]
+    struct AskedFor(Mutex<Vec<String>>);
+    impl crate::run_host::run_approvals::RunApprovals for AskedFor {
+        fn gate_for(&self, thread: &ThreadId, own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
+            lock(&self.0).push(thread.as_str().to_owned());
+            own
+        }
+    }
+
+    /// The composition of a turn: TurnPath::new over test implementations of the missing owner traits and the scripted
+    /// provider behind the accounted registry.
+    struct World {
+        workspace: tempfile::TempDir,
+        rig: Rig,
+        ledger: Arc<Ledger>,
+        asked: Arc<AskedFor>,
+        store: Arc<super::super::side_question_store::SideQuestionStore>,
+        next: Arc<super::super::next_request_source::NextRequestSource>,
+        path: super::super::turn_path::TurnPath,
+        directory: Arc<SessionDirectory>,
+    }
+
+    async fn turn_world(provider: Arc<dyn ProviderAdapter>) -> World {
         let workspace = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let tokens = mixdog_rt::testing::tokens();
@@ -2292,15 +2294,6 @@ mod tests {
         let next = super::super::next_request_source::NextRequestSource::new();
         let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
         let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
-        /// Notes every thread the assembly asks where its approvals go.
-        #[derive(Default)]
-        struct AskedFor(Mutex<Vec<String>>);
-        impl crate::run_host::run_approvals::RunApprovals for AskedFor {
-            fn gate_for(&self, thread: &ThreadId, own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
-                lock(&self.0).push(thread.as_str().to_owned());
-                own
-            }
-        }
         let asked = Arc::new(AskedFor::default());
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
@@ -2316,7 +2309,7 @@ mod tests {
                 facts: compaction.attachment_facts.clone(),
                 clock: clock.clone(),
             },
-            next,
+            next: next.clone(),
             files: Arc::new(MockFileService::default()),
             processes,
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
@@ -2389,6 +2382,31 @@ mod tests {
             }
         }
         assert!(path.turn_settings.bind(Arc::new(AsIs(directory.clone()))).is_ok());
+        World { workspace, rig, ledger, asked, store, next, path, directory }
+    }
+    /// The done-when turn: `TurnPath::new` over test implementations of the missing owner traits, a
+    /// scripted provider behind the accounted registry, a tool call, the stored rows and the ledger row.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_runs_through_the_turn_path() {
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "list".into(), arguments: json!({ "path": "." }), native_type: None }),
+                    StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                ],
+                vec![StreamEvent::TextDelta("listed".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                // The side question's answer, then the answer after the saved request was forgotten.
+                vec![StreamEvent::TextDelta(" it listed the path ".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+                vec![StreamEvent::TextDelta("rebuilt".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
+            ])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let World { workspace, rig, ledger, asked, store, path, directory, .. } = turn_world(provider.clone()).await;
         let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.path() }), "op-start")).await.expect("thread/start");
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
@@ -2455,5 +2473,163 @@ mod tests {
         let fork = requests.last().expect("the rebuilt fork");
         assert_eq!(fork.messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User]);
         assert_eq!((fork.model.as_str(), fork.options.session_id.as_deref()), ("m", Some(id.as_str())));
+    }
+
+    /// A provider that hands each request it is asked to send to `sent` and answers with a text. Its codec is Grok's, so
+    /// the body of a request is what a Grok turn puts on the wire.
+    struct Handing {
+        id: ProviderId,
+        policy: RetryPolicy,
+        keepalive: KeepaliveSchedule,
+        codec: Arc<dyn WireCodec>,
+        sent: tokio::sync::mpsc::UnboundedSender<Arc<ModelRequest>>,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for Handing {
+        fn id(&self) -> &ProviderId {
+            &self.id
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            &*self.codec
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            &self.policy
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            &self.keepalive
+        }
+        async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            self.sent.send(request).expect("the test is listening");
+            Ok(Box::new(Steps(
+                VecDeque::from([StreamEvent::TextDelta("ok".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]),
+            )))
+        }
+    }
+
+    /// The surface host of the daemon reduced to what a `tools/toolsStatus` call touches: the mode, and the reconcile,
+    /// which brings an empty thread to the current settings by writing its header.
+    struct Reconciling(Arc<SessionDirectory>);
+
+    #[async_trait]
+    impl mixdog_core_ports::ports::tools_status::SurfaceHost for Reconciling {
+        fn mode(&self, _: Option<&mixdog_store::schema::record::Header>) -> String {
+            "lead".into()
+        }
+        async fn preview(&self) -> Result<mixdog_tools::orch::status::StatusSurface, mixdog_core_api::CoreError> {
+            Ok(mixdog_tools::orch::status::StatusSurface::default())
+        }
+        async fn reconcile_empty(&self, thread: &ThreadId) -> Result<(), mixdog_core_api::CoreError> {
+            use mixdog_core_ports::ports::threads::ThreadState;
+            let set = json!({ "settingsReconciledAt": 1 }).as_object().unwrap().clone();
+            mixdog_core_session::session::thread_state::SessionThreads::new(self.0.clone())
+                .patch_header(thread, set, Vec::new())
+                .await
+                .map_err(|_| mixdog_core_api::CoreError::ThreadNotFound { thread_id: thread.clone() })
+        }
+    }
+
+    /// The production `tools/toolsStatus` service over the world's threads and its request source.
+    fn tools_status(world: &World) -> mixdog_tools::orch::status::ToolsService {
+        let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(world.directory.clone()));
+        let surface = mixdog_core_ports::ports::tools_status::SessionToolStatus::new(threads, Arc::new(Reconciling(world.directory.clone()))).with_snapshots(world.next.clone());
+        mixdog_tools::orch::status::ToolsService::new(Arc::new(surface))
+    }
+
+    async fn snapshot_call(service: &mixdog_tools::orch::status::ToolsService, thread: &ThreadId, message: &str) -> Value {
+        use mixdog_core_api::DomainService;
+        let call = CoreRequest { method: Method("tools/toolsStatus"), params: json!({ "threadId": thread, "snapshot": true, "snapshotUserMessage": message }), op: None, ctx: CallContext::internal("test") };
+        let Ok(Reply::Value(status)) = service.call(call).await else { panic!("tools/toolsStatus answers a value") };
+        status
+    }
+
+    async fn started_thread(world: &World, header: Value) -> (ThreadId, Arc<mixdog_core_session::session::SessionHandle>) {
+        let reply = world.directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": world.workspace.path() }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = world.directory.handle(&id).expect("loaded");
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": header }), op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("route");
+        (id, handle)
+    }
+
+    fn handing() -> (Arc<Handing>, tokio::sync::mpsc::UnboundedReceiver<Arc<ModelRequest>>) {
+        let (sent, heard) = tokio::sync::mpsc::unbounded_channel();
+        let provider = Arc::new(Handing { id: ProviderId::from("scripted"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, codec: mixdog_ai::providers::grok::codec("1.0.70"), sent });
+        (provider, heard)
+    }
+
+    /// What `tools/toolsStatus` with `snapshot` returns for a thread that has not been sent to is the request its first
+    /// turn then hands the provider: the same messages (the turn it answers, then the tail reminder when the model has
+    /// one), the same tools, the same wire body. Run for a model whose rules give a reminder and for one whose do not.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_snapshot_is_the_request_a_real_turn_hands_the_provider() {
+        let korean = json!({ "id": "ko", "name": "Korean" });
+        for (model, language, reminder) in [("claude-opus-5-5", Some(korean), true), ("m", None, false)] {
+            let (provider, mut heard) = handing();
+            let world = turn_world(provider.clone()).await;
+            let mut header = json!({ "provider": "scripted", "model": model });
+            if let Some(language) = language {
+                header["responseLanguage"] = language;
+            }
+            let (id, handle) = started_thread(&world, header).await;
+
+            let status = snapshot_call(&tools_status(&world), &id, "go").await;
+
+            let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+            let Reply::Value(started) = started else { panic!("turn/start answers a value") };
+            assert_eq!(started["kind"], "started");
+            let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
+                .await
+                .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request the turn hands the provider ({model})"))
+                .expect("the provider is alive");
+
+            let header = handle.live_header().header();
+            let handed = super::super::request_snapshot::snapshot(&header, &*provider, &sent).expect("the sent request encodes");
+            assert_eq!(status["requestSnapshot"], handed, "{model}: the snapshot is not the request the turn handed the provider");
+            let last = sent.messages.last().expect("a request has messages");
+            assert_eq!(last.source == Some(mixdog_core_api::domain::provider::MessageSource::TailReminder), reminder, "{model}: the tail reminder of the sent request");
+            assert_eq!(sent.messages.iter().filter(|m| m.role == Role::User).count(), 1 + usize::from(reminder), "{model}: the turn and the reminder are the user messages");
+        }
+    }
+
+    /// The whole of what is stored for a thread and its session directory, as Debug text: every record of the store (header,
+    /// transcript items, ends), the live header, the accounting rows, and every file under the workspace with its bytes.
+    fn stored_state(world: &World, id: &ThreadId, handle: &Arc<mixdog_core_session::session::SessionHandle>) -> String {
+        fn files(dir: &std::path::Path, out: &mut Vec<String>) {
+            let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+            entries.sort();
+            for path in entries {
+                if path.is_dir() {
+                    files(&path, out);
+                } else {
+                    out.push(format!("{}={:?}", path.display(), std::fs::read(&path).unwrap()));
+                }
+            }
+        }
+        let mut on_disk = Vec::new();
+        files(world.workspace.path(), &mut on_disk);
+        format!("{:#?}\n{:#?}\n{:#?}\n{:#?}", world.rig.store.records(id), handle.live_header().header(), lock(&world.ledger.0), on_disk)
+    }
+
+    /// Asking for a snapshot reads. A stored thread with no conversation is the one the reconcile would change, so its
+    /// whole stored state (records, live header, accounting, files) is the same after the call as before it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_snapshot_call_leaves_the_stored_thread_exactly_as_it_was() {
+        let (provider, _heard) = handing();
+        let world = turn_world(provider).await;
+        let (id, handle) = started_thread(&world, json!({ "provider": "scripted", "model": "m" })).await;
+        let before = stored_state(&world, &id, &handle);
+        let status = snapshot_call(&tools_status(&world), &id, "go").await;
+        assert!(status["requestSnapshot"]["body"].is_object(), "the call built the request");
+        assert_eq!(stored_state(&world, &id, &handle), before, "the snapshot call wrote to the stored thread");
+        // The reconcile the other readout runs does change it: the comparison sees a write.
+        let service = tools_status(&world);
+        use mixdog_core_api::DomainService;
+        let plain = CoreRequest { method: Method("tools/toolsStatus"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
+        service.call(plain).await.expect("a plain readout");
+        assert_ne!(stored_state(&world, &id, &handle), before, "a reconciling readout is a write, and the state comparison sees it");
     }
 }

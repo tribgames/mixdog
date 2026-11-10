@@ -66,8 +66,16 @@ fn push_unique(out: &mut Vec<Value>, value: Value) {
 /// `new Set([...])` membership (SameValueZero): primitives are the same by value, an object or array is only ever the same
 /// as itself, so two equal-looking ones both stay.
 fn push_set_member(out: &mut Vec<Value>, value: Value) {
-    if value.is_object() || value.is_array() || !out.contains(&value) {
-        out.push(value);
+    // A number is its value (`1` and `1.0` are one, `-0` is stored as `0`); a string is not a number.
+    let same = |a: &Value, b: &Value| match (a, b) {
+        (Value::Number(a), Value::Number(b)) => a.as_f64() == b.as_f64(),
+        _ => a == b,
+    };
+    if value.is_object() || value.is_array() || !out.iter().any(|seen| same(seen, &value)) {
+        out.push(match &value {
+            Value::Number(n) if n.as_f64() == Some(0.0) => json!(0),
+            _ => value,
+        });
     }
 }
 
@@ -329,11 +337,11 @@ fn normalize_tool_schema(schema: &Value) -> Value {
     normalize_property_schema(&Value::Object(out))
 }
 
-/// The encoded request body with each tool's `parameters` flattened for Grok; `None` when no tool changes.
-pub fn flatten_body(body: &[u8]) -> Option<Vec<u8>> {
-    let mut parsed: Value = serde_json::from_slice(body).ok()?;
+/// Flattens each tool's `parameters` of a parsed request body for Grok; whether any tool changed.
+pub fn flatten_tools(body: &mut Value) -> bool {
+    let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) else { return false };
     let mut changed = false;
-    for tool in parsed.get_mut("tools")?.as_array_mut()? {
+    for tool in tools {
         if let Some(parameters) = tool.get_mut("parameters") {
             let flat = normalize_tool_schema(parameters);
             if flat != *parameters {
@@ -342,8 +350,7 @@ pub fn flatten_body(body: &[u8]) -> Option<Vec<u8>> {
             }
         }
     }
-    changed.then(|| serde_json::to_vec(&parsed).ok()).flatten()
+    changed
 }
-
 #[cfg(test)]
 mod tests;

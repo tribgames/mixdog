@@ -624,6 +624,13 @@
       "variant": "internal",
       "hash": "f07f95f658ba313b"
     },
+    "session#2": {
+      "$tool": "session",
+      "hash": "c9770ad9cf12d9ec",
+      "override": {
+        "deferLoading": true
+      }
+    },
     "code_graph#2": {
       "$tool": "code_graph",
       "variant": "internal",
@@ -5105,6 +5112,1751 @@
         {
           "name": "call_tool",
           "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, interactive profile, openai",
+      "input": {
+        "kind": "lead",
+        "provider": "openai",
+        "model": "gpt-5",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": null,
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "interactive"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": null,
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "surface": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "web_search",
+        "load_tool",
+        "Skill"
+      ],
+      "provider": [
+        {
+          "name": "find",
+          "definition": "find"
+        },
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "list",
+          "definition": "list"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search#2"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "Skill",
+          "definition": "Skill#2"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, interactive profile, gemini",
+      "input": {
+        "kind": "lead",
+        "provider": "gemini",
+        "model": "gemini-3-pro",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": null,
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "interactive"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": null,
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "surface": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "web_search",
+        "Skill",
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "find",
+          "definition": "find"
+        },
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "list",
+          "definition": "list"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search#2"
+        },
+        {
+          "name": "Skill",
+          "definition": "Skill#2"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, headless profile, anthropic",
+      "input": {
+        "kind": "lead",
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore"
+        ],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "headless"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "disallowedTools": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore",
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read"
+      ],
+      "surface": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "web_search",
+        "load_tool"
+      ],
+      "provider": [
+        {
+          "name": "find",
+          "definition": "find"
+        },
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "list",
+          "definition": "list"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search#2"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "web_fetch",
+          "definition": "web_fetch",
+          "deferLoading": true
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, headless profile, openai",
+      "input": {
+        "kind": "lead",
+        "provider": "openai",
+        "model": "gpt-5",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore"
+        ],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "headless"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "disallowedTools": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore",
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read"
+      ],
+      "surface": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "web_search",
+        "load_tool"
+      ],
+      "provider": [
+        {
+          "name": "find",
+          "definition": "find"
+        },
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "list",
+          "definition": "list"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search#2"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, headless profile, xai",
+      "input": {
+        "kind": "lead",
+        "provider": "xai",
+        "model": "grok-4",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore"
+        ],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "headless"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "disallowedTools": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore",
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read"
+      ],
+      "surface": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "web_search",
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "find",
+          "definition": "find"
+        },
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "list",
+          "definition": "list"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search#2"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, headless profile, gemini",
+      "input": {
+        "kind": "lead",
+        "provider": "gemini",
+        "model": "gemini-3-pro",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore"
+        ],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "headless"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "apply_patch",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "web_search",
+          "web_fetch",
+          "office",
+          "tidy"
+        ],
+        "disallowedTools": [
+          "memory",
+          "recall",
+          "github",
+          "browser",
+          "browser_devtools",
+          "computer",
+          "terminal",
+          "office",
+          "tidy",
+          "visualize",
+          "explore",
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read"
+      ],
+      "surface": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "web_search",
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "find",
+          "definition": "find"
+        },
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "list",
+          "definition": "list"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search#2"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, heartbeat profile, anthropic",
+      "input": {
+        "kind": "lead",
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "heartbeat"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [],
+      "surface": [
+        "load_tool"
+      ],
+      "provider": [
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "session",
+          "definition": "session#2",
+          "deferLoading": true
+        }
+      ]
+    },
+    {
+      "name": "grid: lead full, heartbeat profile, openai",
+      "input": {
+        "kind": "lead",
+        "provider": "openai",
+        "model": "gpt-5",
+        "mode": "full",
+        "agent": null,
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "heartbeat"
+      },
+      "hiddenAgent": false,
+      "toolSpec": "full",
+      "persisted": {
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "apply_patch",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "load_tool",
+        "session",
+        "setup"
+      ],
+      "surface": [
+        "load_tool"
+      ],
+      "provider": [
+        {
+          "name": "load_tool",
+          "definition": "load_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, heartbeat profile, openai",
+      "input": {
+        "kind": "lead",
+        "provider": "openai",
+        "model": "gpt-5",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "heartbeat"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [],
+      "surface": [
+        "load_tool"
+      ],
+      "provider": [
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead full, heartbeat profile, xai",
+      "input": {
+        "kind": "lead",
+        "provider": "xai",
+        "model": "grok-4",
+        "mode": "full",
+        "agent": null,
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "heartbeat"
+      },
+      "hiddenAgent": false,
+      "toolSpec": "full",
+      "persisted": {
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "load_tool",
+        "session",
+        "setup"
+      ],
+      "surface": [
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, heartbeat profile, xai",
+      "input": {
+        "kind": "lead",
+        "provider": "xai",
+        "model": "grok-4",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "heartbeat"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [],
+      "surface": [
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead full, heartbeat profile, gemini",
+      "input": {
+        "kind": "lead",
+        "provider": "gemini",
+        "model": "gemini-3-pro",
+        "mode": "full",
+        "agent": null,
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "heartbeat"
+      },
+      "hiddenAgent": false,
+      "toolSpec": "full",
+      "persisted": {
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "load_tool",
+        "session",
+        "setup"
+      ],
+      "surface": [
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: lead readonly, heartbeat profile, gemini",
+      "input": {
+        "kind": "lead",
+        "provider": "gemini",
+        "model": "gemini-3-pro",
+        "mode": "readonly",
+        "agent": null,
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "heartbeat"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:readonly"
+      ],
+      "persisted": {
+        "schemaAllowedTools": [
+          "session",
+          "setup",
+          "load_tool"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "todo"
+      ],
+      "finalized": [],
+      "surface": [
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: hidden worker with allowlist, anthropic",
+      "input": {
+        "kind": "worker",
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "mode": "full",
+        "agent": "explore-agent",
+        "schemaAllowedTools": [
+          "grep",
+          "read",
+          "glob",
+          "todo"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "interactive"
+      },
+      "hiddenAgent": true,
+      "toolSpec": "full",
+      "persisted": {
+        "schemaAllowedTools": [
+          "grep",
+          "read",
+          "glob",
+          "todo"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "glob",
+        "grep",
+        "read",
+        "todo"
+      ],
+      "surface": [
+        "glob",
+        "grep",
+        "read",
+        "todo"
+      ],
+      "provider": [
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "todo",
+          "definition": "todo"
+        }
+      ]
+    },
+    {
+      "name": "grid: hidden worker with allowlist, openai",
+      "input": {
+        "kind": "worker",
+        "provider": "openai",
+        "model": "gpt-5",
+        "mode": "full",
+        "agent": "explore-agent",
+        "schemaAllowedTools": [
+          "grep",
+          "read",
+          "glob",
+          "todo"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "interactive"
+      },
+      "hiddenAgent": true,
+      "toolSpec": "full",
+      "persisted": {
+        "schemaAllowedTools": [
+          "grep",
+          "read",
+          "glob",
+          "todo"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "apply_patch",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "glob",
+        "grep",
+        "read",
+        "todo"
+      ],
+      "surface": [
+        "glob",
+        "grep",
+        "read",
+        "todo"
+      ],
+      "provider": [
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "todo",
+          "definition": "todo"
+        }
+      ]
+    },
+    {
+      "name": "grid: worker, gemini",
+      "input": {
+        "kind": "worker",
+        "provider": "gemini",
+        "model": "gemini-3-pro",
+        "mode": "full",
+        "agent": null,
+        "schemaAllowedTools": null,
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "interactive"
+      },
+      "hiddenAgent": false,
+      "toolSpec": "full",
+      "persisted": {
+        "schemaAllowedTools": null,
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": "bridge-v1",
+      "resolved": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "recall",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "surface": [
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "web_search",
+        "Skill",
+        "todo",
+        "load_tool",
+        "call_tool"
+      ],
+      "provider": [
+        {
+          "name": "find",
+          "definition": "find"
+        },
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "list",
+          "definition": "list"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "edit",
+          "definition": "edit"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search"
+        },
+        {
+          "name": "Skill",
+          "definition": "Skill"
+        },
+        {
+          "name": "todo",
+          "definition": "todo"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool#2"
+        },
+        {
+          "name": "call_tool",
+          "definition": "call_tool"
+        }
+      ]
+    },
+    {
+      "name": "grid: hidden worker with allowlist, gemini",
+      "input": {
+        "kind": "worker",
+        "provider": "gemini",
+        "model": "gemini-3-pro",
+        "mode": "full",
+        "agent": "explore-agent",
+        "schemaAllowedTools": [
+          "grep",
+          "read",
+          "glob",
+          "todo"
+        ],
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": false,
+        "sessionId": "sess_recorder",
+        "toolProfile": "interactive"
+      },
+      "hiddenAgent": true,
+      "toolSpec": "full",
+      "persisted": {
+        "schemaAllowedTools": [
+          "grep",
+          "read",
+          "glob",
+          "todo"
+        ],
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "explore",
+        "find",
+        "glob",
+        "list",
+        "grep",
+        "code_graph",
+        "read",
+        "edit",
+        "git",
+        "github",
+        "shell",
+        "task",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "glob",
+        "grep",
+        "read",
+        "todo"
+      ],
+      "surface": [
+        "glob",
+        "grep",
+        "read",
+        "todo"
+      ],
+      "provider": [
+        {
+          "name": "glob",
+          "definition": "glob"
+        },
+        {
+          "name": "grep",
+          "definition": "grep"
+        },
+        {
+          "name": "read",
+          "definition": "read"
+        },
+        {
+          "name": "todo",
+          "definition": "todo"
         }
       ]
     },

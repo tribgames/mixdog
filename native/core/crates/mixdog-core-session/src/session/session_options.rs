@@ -227,7 +227,7 @@ mod tests {
             assert_eq!(names(model_tool_allowlist(profile).expect("narrowed")), recorded, "{}", case["name"]);
             *seen.entry(input["toolProfile"].as_str().unwrap().to_owned()).or_insert(0) += 1;
         }
-        assert_eq!(seen, [("headless".to_owned(), 4), ("heartbeat".to_owned(), 1)].into());
+        assert_eq!(seen, [("headless".to_owned(), 8), ("heartbeat".to_owned(), 8)].into());
     }
 
     #[test]

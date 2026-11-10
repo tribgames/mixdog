@@ -82,10 +82,10 @@ impl NextRequestSource {
         let surface = handle.surface().borrow().clone();
         let prior = directory.model_context(thread).read().await.map_err(|_| "the thread's rows could not be read".to_owned())?;
         let (provider, request) = parts
-            .first_request(thread, &header, &surface, prior, handle.thread_window())
+            .first_request(thread, &header, &surface, prior, handle.thread_window(), user_message)
             .await
             .ok_or("the thread has no provider request: its provider is not available, or it is an agent's")?;
-        super::request_snapshot::snapshot(&header, &*provider, &request, user_message)
+        super::request_snapshot::snapshot(&header, &*provider, &request)
     }
 
     /// The tail reminder text for `thread` and `model` from the thread's live header, read now:
