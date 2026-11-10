@@ -173,7 +173,7 @@ const SCENARIOS = [
       const { writeFileSync } = await import('node:fs');
       const dir = join(work, 'repo');
       mkdirSync(dir);
-      const git = (args) => spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
+      const git = (args) => spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
       git(['init', '-q']);
       git(['config', 'user.email', 't@t']);
       git(['config', 'user.name', 't']);
