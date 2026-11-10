@@ -109,7 +109,7 @@ pub(super) struct Grant {
 /// Removes the listener it was returned for.
 pub(super) type Unsub = Box<dyn FnOnce() + Send>;
 
-type Listener<T> = Arc<dyn Fn(&T) + Send + Sync>;
+pub(super) type Listener<T> = Arc<dyn Fn(&T) + Send + Sync>;
 
 /// The helper client behind the lease, with the surface a screen session needs.
 pub(super) trait HelperAdapter<F>: Send + Sync {
@@ -170,12 +170,12 @@ pub(super) struct HelperDeps<F> {
     pub installer: Arc<dyn InstallPort>,
 }
 
-struct ListenerSet<T> {
+pub(super) struct ListenerSet<T> {
     entries: Mutex<(u64, Vec<(u64, Listener<T>)>)>,
 }
 
 impl<T> ListenerSet<T> {
-    fn new() -> Arc<Self> {
+    pub(super) fn new() -> Arc<Self> {
         Arc::new(Self { entries: Mutex::new((0, Vec::new())) })
     }
 
@@ -183,7 +183,7 @@ impl<T> ListenerSet<T> {
         self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn add(self: &Arc<Self>, listener: Listener<T>) -> Unsub
+    pub(super) fn add(self: &Arc<Self>, listener: Listener<T>) -> Unsub
     where
         T: 'static,
     {
@@ -203,7 +203,7 @@ impl<T> ListenerSet<T> {
         self.lock().1.iter().map(|(_, listener)| listener.clone()).collect()
     }
 
-    fn call(&self, value: &T) {
+    pub(super) fn call(&self, value: &T) {
         for listener in self.snapshot() {
             listener(value);
         }

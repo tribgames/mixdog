@@ -25,6 +25,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::task::Context;
+use std::task::Poll;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::computer::DesktopIdentity;
@@ -34,6 +36,25 @@ use tokio::sync::oneshot;
 use tokio::sync::watch;
 
 pub(super) type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
+
+/// Pending once, then ready: one turn of the runtime's queue, behind the tasks that were ready before it. Node
+/// delivers a settled promise's result, and an async function's result to its caller, one microtask later; where
+/// the recorded order depends on such a hop, the port takes it here.
+pub(super) fn next_turn() -> impl Future<Output = ()> + Send {
+    struct Turn(bool);
+    impl Future for Turn {
+        type Output = ();
+        fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
+            if self.0 {
+                return Poll::Ready(());
+            }
+            self.0 = true;
+            context.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
+    Turn(false)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BackendId {

@@ -1,6 +1,6 @@
 {
   "command": "index of the sub-directories: each one has its own MANIFEST.json naming its recorder",
-  "fileCount": 12,
+  "fileCount": 14,
   "files": [
     {
       "bytes": 3710,
@@ -31,6 +31,16 @@
       "bytes": 143546,
       "path": "router/scenarios.json",
       "sha256": "97bdea2a97b10048ca44d383a3d476a1efc6f7a1d3ce232f3309180775c5fba9"
+    },
+    {
+      "bytes": 3888,
+      "path": "session/MANIFEST.json",
+      "sha256": "29188cbc5137f99d28b8de5f499bc6dfd7fb6a945d1ecfb863bd438cd874ebb4"
+    },
+    {
+      "bytes": 131084,
+      "path": "session/scenarios.json",
+      "sha256": "b5296687feb8f823fc0ef58c02f46b79a35599267e25929d50acfec9906a1d71"
     },
     {
       "bytes": 1988,
@@ -82,5 +92,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
   "set": "screen-control",
-  "totalBytes": 527117
+  "totalBytes": 662089
 }

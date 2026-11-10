@@ -182,23 +182,7 @@ impl Replay {
     }
 }
 
-/// Pending once, then ready: an answer delivered one turn later, behind what was ready before it (a Node
-/// promise's reaction, which runs as a microtask even when the promise is already settled).
-pub(super) fn next_turn() -> impl Future<Output = ()> + Send {
-    struct Turn(bool);
-    impl Future for Turn {
-        type Output = ();
-        fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
-            if self.0 {
-                return Poll::Ready(());
-            }
-            self.0 = true;
-            context.waker().wake_by_ref();
-            Poll::Pending
-        }
-    }
-    Turn(false)
-}
+pub(super) use super::router::next_turn;
 
 /// A closed door a fake backend's send waits at until the script opens it. A hung gate never opens.
 pub(super) struct Gate {
