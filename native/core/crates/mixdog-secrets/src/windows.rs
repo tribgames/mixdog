@@ -74,6 +74,8 @@ fn unprotect(cipher: &[u8]) -> Result<Vec<u8>, SecretError> {
 }
 
 fn read(dir: &Path, account: &str) -> Result<Option<String>, SecretError> {
+    #[cfg(feature = "count-work")]
+    crate::work::secret_read();
     let path = file(dir, account);
     let text = match std::fs::read(&path) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),

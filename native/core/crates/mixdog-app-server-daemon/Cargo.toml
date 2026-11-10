@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
+replay-controls = ["mixdog-workspace/replay-controls"]
+
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server = { workspace = true }
@@ -79,9 +83,16 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The credential-read counter (`mixdog_ai::work`) seen from a crate that only depends on the crates that read: the
+# `credential_reads_tests` integration test. Only this crate's test builds turn the features on.
+mixdog-core = { workspace = true, features = ["count-work"] }
+mixdog-core-domains = { workspace = true, features = ["count-work"] }
+mixdog-ai = { workspace = true, features = ["count-work"] }
 # The mock seams and the inline lane backend are test fixtures only; the daemon runs on `mixdog_rt::exec`.
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
+# The unpair replay drives the downloads' clock by file, which only a build with this feature reads.
+mixdog-workspace = { workspace = true, features = ["replay-controls"] }
 # The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
 mixdog-core-session = { workspace = true, features = ["test-support"] }
 # The op scopes of the remote access service in the composed test (support::testing::scopes).

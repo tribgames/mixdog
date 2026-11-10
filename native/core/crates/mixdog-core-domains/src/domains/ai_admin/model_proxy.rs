@@ -292,7 +292,7 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         prompt_cache_scope: o.prompt_cache_scope,
         xai_responses_cache_scope: o.xai_responses_cache_scope,
         model_parameters: o.model_parameters,
-        thread: o.thread.map(|t| p::RequestThread { id: ThreadId::from(t.id.as_str()), window: t.window, turn: t.turn.map(|t| TurnId::from(t.as_str())) }),
+        thread: o.thread.map(|t| p::RequestThread { id: ThreadId::from(t.id.as_str()), window: t.window, turn: t.turn.map(|t| TurnId::from(t.as_str())), turn_started_at_ms: None }),
         parent_session_id: o.parent_session_id,
         parallel_tool_calls: o.parallel_tool_calls,
         temperature: match o.temperature {

@@ -120,7 +120,7 @@ pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str
 /// stored them: the classification (stored, else a legacy row with a folder outside the host's task workspace is a project), the
 /// project path (workspace record, then folder, then stored path; none for a task), the activity time (`lastUsedAt`, else
 /// `updatedAt`) and the creation time when positive.
-fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<String, Value>, task_workspace: &str) -> mixdog_protocol::ThreadSummary {
+pub(super) fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<String, Value>, task_workspace: &str) -> mixdog_protocol::ThreadSummary {
     let number = |key: &str| row.get(key).and_then(Value::as_f64).filter(|n| n.is_finite() && *n != 0.0);
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::trim).unwrap_or_default().to_owned();
     let meta = row.get("desktopSession").and_then(Value::as_object);
@@ -142,14 +142,70 @@ fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<S
     thread.provider = Some(word("provider")).filter(|s| !s.is_empty());
     thread.model = Some(word("model")).filter(|s| !s.is_empty());
     thread.agent_session = (word("visibility") == "agent-only" || (word("owner") == "agent" && word("agent") != "lead")).then_some(true);
+    thread.agent_home = Some(mixdog_store::agent_mode::agent_id_of_home_session(thread.id.as_str())).filter(|agent| !agent.is_empty());
     thread.created_at = number("createdAt").filter(|at| *at > 0.0).map(|at| at as i64);
+    // `sessionWorkspace` (`desktop-state.ts:25-48`): the catalog's workspace record, its transition cut down to a state and the
+    // transaction a non-idle state names.
+    thread.workspace = workspace.map(|w| {
+        let transition = w.get("transition").and_then(Value::as_object);
+        let state = transition.and_then(|t| t.get("state")).and_then(Value::as_str).filter(|s| ["idle", "provisioning", "switching", "removing", "recovery"].contains(s)).unwrap_or("idle");
+        let tx_id = if state == "idle" { None } else { valid(transition.and_then(|t| t.get("txId"))) };
+        let field = |key: &str| valid(w.get(key)).map_or(Value::Null, Value::String);
+        let revision = w.get("revision").and_then(Value::as_f64).filter(|n| n.fract() == 0.0 && *n >= 0.0 && *n <= 9007199254740991.0).unwrap_or(0.0);
+        serde_json::json!({
+            "projectPath": field("projectPath"),
+            "repoCommonDir": field("repoCommonDir"),
+            "cwd": field("cwd"),
+            "worktreeId": field("worktreeId"),
+            "branch": field("branch"),
+            "baseCommit": field("baseCommit"),
+            "mergeTarget": field("mergeTarget"),
+            "revision": revision as i64,
+            "transition": match tx_id { Some(tx) => serde_json::json!({ "state": state, "txId": tx }), None => serde_json::json!({ "state": "idle", "txId": null }) },
+        })
+    });
     thread
+}
+
+/// The one way `thread/deleted` leaves for the app feed: the explicit delete (`purge.rs`) and a row that stopped being listed (below) both
+/// publish through it. What must end with a conversation's presence in the catalog (a paired phone's downloads, Node's `retainSessions`
+/// from `onSessions`, `remote-relay.ts:450`) is told in the same step, before the notification leaves, so no publication of a removal
+/// exists without it.
+pub struct ThreadDeletions {
+    app: Arc<SectionFeedState>,
+    gone: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+}
+
+impl ThreadDeletions {
+    pub fn new(app: Arc<SectionFeedState>) -> Arc<Self> {
+        Arc::new(Self { app, gone: std::sync::OnceLock::new() })
+    }
+
+    /// Connects what is told a conversation that left the catalog. Set once; `Err` when it was set already.
+    pub fn on_gone(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), ()> {
+        self.gone.set(hook).map_err(|_| ())
+    }
+
+    /// The conversation left the catalog, before its `thread/deleted` is published: an explicit delete tells it the moment its
+    /// tombstone lands (a list no longer shows it from then on), ahead of the purge. Telling it again is harmless.
+    pub fn tell(&self, thread: &ThreadId) {
+        if let Some(gone) = self.gone.get() {
+            gone(thread.as_str());
+        }
+    }
+
+    /// The conversation left the catalog: told, then `thread/deleted`.
+    pub fn publish(&self, thread: &ThreadId) {
+        self.tell(thread);
+        self.app.notify(DELETED, &ThreadIdParams { thread_id: thread.clone() });
+    }
 }
 
 /// Decides and publishes what one row write means to the app feed.
 pub struct ThreadEdgePublisher {
     list: Arc<ThreadListService>,
     app: Arc<SectionFeedState>,
+    deleted: Arc<ThreadDeletions>,
     task_workspace: Arc<dyn TaskWorkspace>,
     /// The writes of refreshes whose task workspace lookup failed, one per session (the first `before`, the last `after`): the
     /// next refresh that can look the workspace up publishes what changed since the last roster it published.
@@ -157,8 +213,8 @@ pub struct ThreadEdgePublisher {
 }
 
 impl ThreadEdgePublisher {
-    pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { list, app, task_workspace, held: std::sync::Mutex::new(Vec::new()) }
+    pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, deleted: Arc<ThreadDeletions>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
+        Self { list, app, deleted, task_workspace, held: std::sync::Mutex::new(Vec::new()) }
     }
 
     /// One catalog refresh (`publishCatalogs`, `session-host-catalog.ts:217-244`): it asks the host for the task workspace first
@@ -213,16 +269,16 @@ impl ThreadEdgePublisher {
                 }
             }
             // A delete is announced by the delete (`purge.rs`); a row that stopped being listed otherwise is gone from the roster.
-            (Some(_), None) if !edge.after.deleted => self.app.notify(DELETED, &ThreadIdParams { thread_id: id }),
+            (Some(_), None) if !edge.after.deleted => self.deleted.publish(&id),
             (Some(_), None) | (None, None) => {}
         }
     }
 
     /// The row `thread/list` shows for the written row, under `method`; none when the rooms leave it out.
     async fn send<P: serde::Serialize>(&self, id: &ThreadId, now: &LeadRow, workspace: &str, params: impl FnOnce(mixdog_protocol::ThreadSummary) -> (&'static str, P)) {
-        match self.list.summary_of(id, now).await {
+        match self.list.summary_of(id, now, workspace).await {
             Ok(Some(thread)) => {
-                let (method, params) = params(on_roster(thread, &now.row, workspace));
+                let (method, params) = params(thread);
                 self.app.notify(method, &params);
             }
             Ok(None) => {}

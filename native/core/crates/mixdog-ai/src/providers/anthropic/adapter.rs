@@ -188,6 +188,8 @@ impl AnthropicAdapter {
         retry_429: bool,
         gzip_lane: CpuBulk,
     ) -> Self {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         Self {
             id: ProviderId::from(flavor.provider_name()),
             codec: AnthropicCodec::new(flavor, config),

@@ -157,6 +157,22 @@ impl SessionDirectory {
             set.insert("title".into(), json!(source_title));
         }
         let count = carried.len();
+        // `recordInheritanceBoundary`: display-only, on the last carried row, naming the source, the heir and the route the heir holds.
+        let boundary = json!({
+            "sourceSessionId": source.as_str(),
+            "sessionId": heir.as_str(),
+            "provider": held.get("provider").cloned().unwrap_or(Value::Null),
+            "modelId": held.get("model").cloned().unwrap_or(Value::Null),
+            "at": self.deps().clock.now_ms(),
+        });
+        if let Some(Value::Object(last)) = carried.last_mut() {
+            let meta = last.entry("meta").or_insert_with(|| json!({}));
+            if !meta.is_object() {
+                *meta = json!({});
+            }
+            let earlier = meta.get("sessionInheritances").and_then(Value::as_array).cloned().unwrap_or_default();
+            meta["sessionInheritances"] = Value::Array(earlier.into_iter().chain([boundary]).collect());
+        }
         for (method, params) in [
             ("thread/inheritedRows/append", json!({ "messages": carried })),
             ("thread/header/patch", json!({ "threadId": heir, "set": set, "unset": [] })),

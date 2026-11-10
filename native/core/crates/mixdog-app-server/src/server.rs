@@ -40,7 +40,6 @@ use mixdog_app_protocol::v2::op::OpState;
 use mixdog_app_protocol::v2::op::OpStatusEntry;
 use mixdog_app_protocol::v2::op::OpStatusResponse;
 use mixdog_app_protocol::v2::thread::TurnInterruptParams;
-use mixdog_app_protocol::v2::thread::TurnInterruptResponse;
 use mixdog_app_protocol::v2::thread::TurnSteerParams;
 use mixdog_app_protocol::v2::thread::TurnSteerResponse;
 use mixdog_core_api::CallContext;
@@ -68,6 +67,8 @@ use mixdog_core_api::ops::OpScope;
 use mixdog_core_api::ops::OpStatus;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::thread::Decision;
+use mixdog_core_api::thread::Stop;
+use mixdog_core_api::thread::stop_reply;
 use mixdog_protocol::Origin;
 use mixdog_rt::TaskClass;
 use serde_json::Value;
@@ -599,7 +600,7 @@ impl Shared {
                 Dispatch::Ready(self.unsubscribe(conn, &feed))
             }
             ClientRequest::TurnInterrupt { params, .. } => {
-                Dispatch::Ready(self.interrupt(params))
+                self.interrupt(CallContext::connection(conn.id, origin, conn.cancel.clone()), params)
             }
             ClientRequest::TurnSteer { params, .. } => {
                 Dispatch::Ready(self.steer(conn.id, id, params))
@@ -716,18 +717,28 @@ impl Shared {
     }
 
     /// `turn/interrupt` (C0, R12): the control plane of a loaded thread, never a load.
-    fn interrupt(&self, params: TurnInterruptParams) -> Result<Reply, CoreError> {
-        let Some(turn) = params.turn_id else {
-            return Err(CoreError::InvalidParams {
-                path: "turnId".into(),
-                expected: "the active turn's id".into(),
-            });
+    /// A turn that is named must be the running one of a loaded thread; none named stops the thread's active turn, and a
+    /// thread with none (or not loaded) is idle: its answer is Node's `aborted: false` (SPEC R12, amended).
+    fn interrupt(&self, ctx: CallContext, params: TurnInterruptParams) -> Dispatch {
+        let TurnInterruptParams { thread_id, turn_id, restore_prompt, submission_id } = params;
+        let thread = match &turn_id {
+            Some(turn) => match self.loaded_thread(&thread_id, turn) {
+                Ok(thread) => Some(thread),
+                Err(error) => return Dispatch::Ready(Err(error)),
+            },
+            None => self.core.threads().get(&thread_id),
         };
-        self.loaded_thread(&params.thread_id, &turn)?.interrupt(&turn, params.restore_prompt)?;
-        reply_value(&TurnInterruptResponse {
-            cancel_requested: true,
-            turn_id: Some(turn),
-        })
+        let Some(thread) = thread else {
+            return Dispatch::Ready(Ok(Reply::Value(stop_reply(None, false))));
+        };
+        let stop = Stop { turn: turn_id, restore_prompt, submission_id, ctx };
+        Dispatch::Later(
+            TaskClass::Control,
+            Box::pin(async move {
+                let reply = thread.stop(stop).await?;
+                Ok(Reply::Value(reply))
+            }),
+        )
     }
 
     /// `turn/steer` (C0, R10, R12).

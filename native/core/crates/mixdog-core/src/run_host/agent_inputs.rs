@@ -170,6 +170,146 @@ mod tests {
         assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
     }
 
+    /// The work `decisions.md` "Node daemon hot paths found by profiling" 6 forbids a reader of non-credential settings,
+    /// counted where every route passes (the `work` modules of the two crates, on only in this crate's test builds): a
+    /// config file read by any instance, a rebuild of the agent section, a load of the provider map, the construction of
+    /// a provider, a credential read (a credential file, the account roster, the keychain, a key variable). The counters
+    /// are process-wide: the suite runs under nextest, one process per test.
+    const FORBIDDEN: [&str; 5] = ["config file reads", "agent-section rebuilds", "provider-map loads", "providers built", "credential reads"];
+
+    fn forbidden_work() -> [u64; 5] {
+        [
+            mixdog_core_config::work::file_reads(),
+            mixdog_core_config::work::agent_rebuilds(),
+            mixdog_ai::work::provider_loads(),
+            mixdog_ai::work::providers_built(),
+            mixdog_ai::work::credential_reads(),
+        ]
+    }
+
+    /// `decisions.md` "Node daemon hot paths found by profiling" 6: the stale-row deadline needs only `autoClear`; it reads the
+    /// published snapshot, so it neither reloads the config nor goes through the provider loader that probes credentials.
+    #[tokio::test]
+    async fn the_reap_window_read_neither_reloads_the_config_nor_probes_credentials() {
+        let world = crate::run_host::process_tests::world(&[], json!({}), Vec::new()).await;
+        let config = world.services.config.clone();
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), serde_json::json!({ "autoClear": { "providerIdleMs": { "openai": 120_000 } } }));
+                Ok(())
+            })
+            .await
+            .expect("saved");
+        let reap = ConfigReap::new(config.clone());
+        let (revision, before) = (config.revision(), forbidden_work());
+        for _ in 0..5 {
+            assert_eq!(reap.terminal_reap_ms("openai"), 120_000.0);
+        }
+        let after = forbidden_work();
+        for ((name, before), after) in FORBIDDEN.iter().zip(before).zip(after) {
+            assert_eq!(after, before, "a reap-window read did {name}");
+        }
+        assert_eq!(config.revision(), revision, "a reap-window read installed a document");
+    }
+
+    /// The counters of the test above are live on every route the forbidden work can take, including the ones that do not
+    /// pass through the instance under test: another `Config` opening or reloading the file, each provider adapter's
+    /// constructor (`build`, `build_custom_parts`), `custom_key_ids`, a credential file, the gcloud login, the keychain and
+    /// the key variables.
+    #[tokio::test]
+    async fn every_route_to_the_forbidden_work_moves_its_counter() {
+        use mixdog_ai::registry::builder::DefaultProviderBuilder;
+        use mixdog_ai::registry::effective::EffectiveProviders;
+        use mixdog_ai::registry::keys::{ApiKeyStore, KeyConfig};
+        use mixdog_ai::registry::providers::ProviderBuilder;
+        use mixdog_core_config::config::ConfigLanes;
+
+        let world = crate::run_host::process_tests::world(&[("OPENAI_API_KEY", "k"), ("CUSTOM_KEY", "v")], json!({}), Vec::new()).await;
+        let services = &world.services;
+        let builder = Arc::new(DefaultProviderBuilder::new(crate::run_host::builder_env::builder_env(services)));
+        let keys = ApiKeyStore::new(services.vault.clone(), services.env.clone(), false);
+        let effective = EffectiveProviders::new(builder.clone(), ApiKeyStore::new(services.vault.clone(), services.env.clone(), false), services.env.clone());
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let other = tempfile::tempdir().expect("dir");
+        let agent = services.config.agent();
+
+        let moved = |name: &str, before: [u64; 5], counter: usize| {
+            assert!(forbidden_work()[counter] > before[counter], "{name} moved no {} counter", FORBIDDEN[counter]);
+        };
+        let before = forbidden_work();
+        Config::open(other.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("another instance");
+        moved("opening another Config", before, 0);
+        let before = forbidden_work();
+        services.config.reload().await.expect("reload");
+        moved("Config::reload", before, 0);
+        let before = forbidden_work();
+        services.config.loaded_agent().await.expect("rebuilt");
+        moved("Config::loaded_agent", before, 1);
+        let before = forbidden_work();
+        effective.load(&agent, false).await.expect("loaded");
+        moved("EffectiveProviders::load", before, 2);
+        // Each adapter's constructor counts, whichever function reaches it: the setup probes call `build_custom_parts` itself,
+        // and a keyless provider reads no credential.
+        for (name, cfg) in [
+            ("openai", json!({ "apiKey": "k" })),
+            ("openai-oauth", json!({})),
+            ("anthropic", json!({ "apiKey": "k" })),
+            ("xai", json!({ "apiKey": "k" })),
+            ("gemini", json!({ "apiKey": "k" })),
+            ("grok-oauth", json!({})),
+            ("cursor-api", json!({ "apiKey": "k" })),
+            ("devin-oauth", json!({})),
+        ] {
+            let before = forbidden_work();
+            builder.build(name, &cfg).await.unwrap_or_else(|error| panic!("{name}: {error}"));
+            moved(&format!("DefaultProviderBuilder::build {name}"), before, 3);
+        }
+        for (name, cfg) in [
+            ("custom-one-wire", json!({ "type": "custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
+            ("custom-anthropic", json!({ "type": "custom", "protocol": "anthropic", "baseURL": "http://127.0.0.1:1", "auth": "none" })),
+            ("custom-two-wires", json!({ "type": "custom", "protocol": "openai-chat", "wires": ["chat", "responses"], "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
+        ] {
+            let (before, credentials) = (forbidden_work(), mixdog_ai::work::credential_reads());
+            builder.build_custom_parts(name, &cfg).unwrap_or_else(|error| panic!("{name}: {error}"));
+            moved(&format!("DefaultProviderBuilder::build_custom_parts {name}"), before, 3);
+            assert_eq!(mixdog_ai::work::credential_reads(), credentials, "{name} is keyless: nothing reads a credential");
+        }
+        // The gcloud login file is read by the settings view alone: no provider is built, no provider map loaded.
+        for read in 1..=2 {
+            let before = forbidden_work();
+            builder.adc_describe("", false).await;
+            moved(&format!("DefaultProviderBuilder::adc_describe, read {read}"), before, 4);
+            assert_eq!(forbidden_work()[1..4], before[1..4], "adc_describe built or loaded nothing");
+        }
+        let before = forbidden_work();
+        let configured = KeyConfig { api_key: None, api_key_env: Some("CUSTOM_KEY".into()) };
+        assert_eq!(keys.resolve("custom-one", &configured).await.expect("env key"), "v");
+        moved("ApiKeyStore::resolve of a key variable", before, 4);
+        let before = forbidden_work();
+        assert_eq!(keys.reload("custom-one", &configured).await.expect("env key"), "v");
+        moved("ApiKeyStore::reload of a key variable", before, 4);
+        let before = forbidden_work();
+        let vault = crate::run_host::vault::KeychainVault::new(Arc::new(mixdog_secrets::MemoryStore::default()));
+        mixdog_ai::registry::keys::SecretVault::get(&vault, "agent.openai.apiKey").await.expect("keychain");
+        moved("KeychainVault::get", before, 4);
+        let before = forbidden_work();
+        builder.custom_key_ids("custom-acme").await.expect("roster");
+        moved("DefaultProviderBuilder::custom_key_ids", before, 4);
+        let before = forbidden_work();
+        builder.oauth_credentials_usable("openai-oauth").await.expect("probe");
+        moved("DefaultProviderBuilder::oauth_credentials_usable", before, 4);
+        let before = forbidden_work();
+        builder.oauth_credential_state("openai-oauth").await.expect("state");
+        moved("DefaultProviderBuilder::oauth_credential_state", before, 4);
+        let before = forbidden_work();
+        keys.get("openai").await.expect("key");
+        moved("ApiKeyStore::get", before, 4);
+        let before = forbidden_work();
+        effective.load(&agent, true).await.expect("loaded with secrets");
+        moved("EffectiveProviders::load with secrets", before, 4);
+    }
+
     /// `resolveAgentTerminalReapMs`: openai-oauth keeps the finite hour its unlimited cache needs, a
     /// provider with an override uses it, an unknown provider the `default` row.
     #[test]

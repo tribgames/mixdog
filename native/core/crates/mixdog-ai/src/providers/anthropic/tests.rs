@@ -753,6 +753,32 @@ fn a_stream_cut_after_text_is_truncated_with_exposure() {
     assert!(!err.exposure.tool_dispatched);
 }
 
+/// Node's adapter over a stream cut while the third call's arguments were arriving (`fixtures/provider-tool-cut`,
+/// `record-provider-tool-cut.mjs`): it dispatches the two complete calls as they end, then throws `TRUNCATED_STREAM` with them as
+/// `partialToolCalls` and `pendingToolUse`. The decoder hands the loop the same calls as they end, and ends with the cut, flagged as a
+/// call's input cut after calls were dispatched (what the loop's recovery reads).
+#[test]
+fn a_cut_tool_stream_dispatches_the_complete_calls_as_node_does() {
+    let body = read_text("provider-tool-cut/response.sse");
+    let node = read_json("provider-tool-cut/result.json");
+    let mut decoder = api_codec().decoder(&request(Vec::new(), RequestOptions::default()));
+    let events = decoder.feed(body.as_bytes()).expect("the complete calls decode");
+    let calls: Vec<Value> = events
+        .iter()
+        .filter_map(|event| match event {
+            StreamEvent::ToolCallDone(call) => Some(json!({ "id": call.id, "name": call.name, "arguments": call.arguments })),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(json!(calls), node["dispatchedToolCalls"]);
+    assert_eq!(json!(calls), node["error"]["partialToolCalls"]);
+    let err = decoder.finish().expect_err("a cut stream");
+    assert_eq!((node["error"]["code"].as_str(), node["error"]["truncatedStream"].as_bool()), (Some("TRUNCATED_STREAM"), Some(true)));
+    assert_eq!(err.transport, Some(TransportFault::TruncatedStream));
+    assert_eq!(Some(err.exposure.tool_input_cut), node["error"]["pendingToolUse"].as_bool());
+    assert_eq!(err.exposure.tool_dispatched, !calls.is_empty());
+}
+
 #[test]
 fn a_stop_with_tool_input_still_streaming_is_a_cut() {
     let body = concat!(

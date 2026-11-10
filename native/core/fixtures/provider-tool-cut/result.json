@@ -1,0 +1,39 @@
+{
+  "dispatchedToolCalls": [
+    {
+      "id": "toolu_1",
+      "name": "lookup",
+      "arguments": {
+        "key": "a"
+      }
+    },
+    {
+      "id": "toolu_2",
+      "name": "lookup",
+      "arguments": {
+        "key": "b"
+      }
+    }
+  ],
+  "error": {
+    "code": "TRUNCATED_STREAM",
+    "truncatedStream": true,
+    "pendingToolUse": true,
+    "partialToolCalls": [
+      {
+        "id": "toolu_1",
+        "name": "lookup",
+        "arguments": {
+          "key": "a"
+        }
+      },
+      {
+        "id": "toolu_2",
+        "name": "lookup",
+        "arguments": {
+          "key": "b"
+        }
+      }
+    ]
+  }
+}
