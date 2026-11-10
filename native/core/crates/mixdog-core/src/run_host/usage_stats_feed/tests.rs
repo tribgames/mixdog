@@ -149,18 +149,16 @@ async fn a_failed_read_with_no_later_change_is_never_retried() {
     let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
 
     next("the failing read to begin", &mut reads, &mut feed).await;
-    // The first advance gives the feed its turn to take the failure and arm whatever a retry would wait on; the second goes far
-    // past the end of the interval, and gives that timer its turn before it returns.
-    tokio::time::advance(Duration::from_millis(1)).await;
+    // The failure was taken in the very poll that began the read (the source answers without awaiting), so by now the feed is
+    // either parked for the next change or waiting on a timer a retry would need. Going far past the end of the interval makes
+    // any such timer due.
     tokio::time::advance(REFRESH_INTERVAL * 100).await;
-    // A timer that fired on that advance is woken by the runtime's next turn, and the feed reads on the one after it: one more
-    // explicit advance lets both happen before the count is taken.
-    tokio::time::advance(Duration::from_millis(1)).await;
-    tokio::time::advance(Duration::from_millis(1)).await;
+    // Closing the writer ends a feed that is parked for a change; one still waiting on a retry timer cannot see it before it has
+    // read, so its end is after any read it makes, and the count below is complete when the feed has ended, in no count of turns.
+    drop(changed);
+    awaiting("the feed to end once its writer is gone", feed).await.expect("a retry read has no scripted answer and would panic the feed");
     assert_eq!(began(&mut reads), 0, "no timer retries a failure");
     assert!(published.try_recv().is_err());
-    assert!(!feed.is_finished());
-    drop(changed);
 }
 
 /// A failure clears what was pending and starts the interval like any read: the next change reads again, but only at the
