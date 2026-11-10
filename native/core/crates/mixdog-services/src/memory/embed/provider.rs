@@ -1,14 +1,20 @@
-//! The embedding model as recall sees it. A recall waits for the model's
-//! real readiness: the load it needs completes or fails, and nothing here
-//! counts time. Three defined states give a vector or none:
+//! The embedding model as recall sees it. Three defined states give a vector or none:
 //!
-//! - ready: the query is embedded;
+//! - ready: the query is embedded; a recall that finds the model still loading
+//!   waits for it at most `MIXDOG_RECALL_COLD_EMBED_WAIT_MS` (3 s,
+//!   `recall-embedding-readiness.mjs`), then runs on its text lanes while the
+//!   load goes on;
 //! - not installed: no vector, so the recall runs on its text lanes. Installing
 //!   is a separate, progress-driven step ([`EmbeddingProvider::install`]) the
 //!   host starts; a recall never waits for a download;
 //! - failed: the load failed; the failure is remembered for this instance (a
 //!   new instance, after an install or repair, is the retry) and recall runs on
 //!   its text lanes.
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
 
 use mixdog_js::{js_trim};
 use async_trait::async_trait;
@@ -24,11 +30,23 @@ use crate::memory::recall::QueryEmbedder;
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
 
+type Loaded = Arc<OnceCell<Result<Embedder, String>>>;
+type Load = Arc<dyn Fn(EmbedConfig) -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync>;
+
+/// `envNonNegativeInt('MIXDOG_RECALL_COLD_EMBED_WAIT_MS', 3_000)`.
+fn cold_embed_wait() -> Duration {
+    let ms = std::env::var("MIXDOG_RECALL_COLD_EMBED_WAIT_MS").ok().map(|raw| mixdog_js::string_to_number(&raw).floor()).filter(|ms| ms.is_finite() && *ms >= 0.0);
+    Duration::from_millis(ms.map_or(3_000, |ms| ms as u64))
+}
+
 pub struct EmbeddingProvider {
     config: EmbedConfig,
     hub: String,
-    /// The load, shared by every caller; a failure stays.
-    loaded: OnceCell<Result<Embedder, String>>,
+    /// The load, shared by every caller; a failure stays. Shared with the task that runs it, so a
+    /// recall that stops waiting does not end it.
+    loaded: Loaded,
+    load: Load,
+    cold_wait: Duration,
     /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
     installing: Gate,
     tick: StateTick,
@@ -41,7 +59,15 @@ impl EmbeddingProvider {
 
     /// `tick` is bumped whenever `info()` may have changed.
     pub fn with_tick(config: EmbedConfig, tick: StateTick) -> Self {
-        Self { config, hub: install::HUB.to_owned(), loaded: OnceCell::new(), installing: Gate::new(), tick }
+        Self {
+            config,
+            hub: install::HUB.to_owned(),
+            loaded: Loaded::default(),
+            load: Arc::new(|config| Box::pin(async move { Embedder::load(config).await.map_err(|e| e.message()) })),
+            cold_wait: cold_embed_wait(),
+            installing: Gate::new(),
+            tick,
+        }
     }
 
     /// `getEmbeddingInfo()`: metadata only, never loads the model.
@@ -95,17 +121,35 @@ impl EmbeddingProvider {
         if !self.is_installed().await.map_err(|e| e.to_string())? {
             return Ok(None);
         }
-        let config = self.config.clone();
-        let tick = self.tick.clone();
-        self.loaded
-            .get_or_init(|| async move {
-                let outcome = Embedder::load(config).await.map_err(|e| e.message());
-                tick.bump();
-                outcome
-            })
-            .await
-            .clone()
-            .map(Some)
+        self.load_future().await.map(Some)
+    }
+
+    /// The shared load, as an owned future a task can run to its end.
+    fn load_future(&self) -> impl Future<Output = Result<Embedder, String>> + Send + 'static {
+        let (loaded, load, config, tick) = (self.loaded.clone(), self.load.clone(), self.config.clone(), self.tick.clone());
+        async move {
+            loaded
+                .get_or_init(|| async move {
+                    let outcome = load(config).await;
+                    tick.bump();
+                    outcome
+                })
+                .await
+                .clone()
+        }
+    }
+
+    /// The model for a recall: loaded already, or the load started (or joined) in its own task and
+    /// waited for at most the cold wait. `None` sends the recall to its text lanes.
+    async fn recall_embedder(&self) -> Option<Embedder> {
+        if let Some(loaded) = self.loaded.get() {
+            return loaded.clone().ok();
+        }
+        if !self.is_installed().await.ok()? {
+            return None;
+        }
+        let load = mixdog_rt::spawn("embedding-model-load", mixdog_rt::TaskClass::Work, self.load_future());
+        tokio::time::timeout(self.cold_wait, load).await.ok()?.ok()?.ok()
     }
 
     /// Downloads whatever is missing or damaged, reporting bytes as they
@@ -135,7 +179,7 @@ impl EmbeddingProvider {
 #[async_trait]
 impl QueryEmbedder for EmbeddingProvider {
     async fn query_vector(&self, text: &str) -> Option<Vec<f32>> {
-        let embedder = self.warmup().await.ok().flatten()?;
+        let embedder = self.recall_embedder().await?;
         let vector = embedder.embed(text, InputType::Query).await.ok()?;
         (!vector.is_empty()).then(|| vector.to_vec())
     }
@@ -155,6 +199,50 @@ fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, ready: b
 #[cfg(test)]
 mod unbuilt_tests {
     use super::*;
+
+    /// A recall during a slow load answers without a vector after the cold wait, and the load it
+    /// started keeps running to its end (`embedRecallQuery`'s `timeout` state).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cold_recall_stops_waiting_and_the_load_goes_on() {
+        let cache = tempfile::tempdir().unwrap();
+        let config = EmbedConfig {
+            model_id: config::DEFAULT_MODEL_ID.to_owned(),
+            cache_dir: cache.path().to_path_buf(),
+            ort_library: std::path::PathBuf::new(),
+            dtype: None,
+            sessions: 1,
+            lane: mixdog_rt::testing::tokens().cpu_bulk,
+        };
+        let graph = install::required_files(&config).graph;
+        for (file, body) in [("tokenizer.json", "{}"), ("tokenizer_config.json", "{}"), (graph.as_str(), "graph")] {
+            let path = install::model_path(&config.cache_dir, config::DEFAULT_MODEL_ID, file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let release = Arc::new(tokio::sync::Notify::new());
+        let mut provider = EmbeddingProvider::new(config);
+        let held = release.clone();
+        provider.load = Arc::new(move |_| {
+            let held = held.clone();
+            Box::pin(async move {
+                held.notified().await;
+                Err("loaded late".to_owned())
+            })
+        });
+        provider.cold_wait = Duration::from_millis(50);
+        let answered = tokio::time::timeout(Duration::from_secs(10), provider.query_vector("cold")).await;
+        assert_eq!(answered, Ok(None), "the recall answered without waiting for the load");
+        assert!(provider.loaded.get().is_none(), "the load is still running");
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while provider.loaded.get().is_none() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the load the recall started ran to its end");
+        assert_eq!(provider.loaded.get().cloned().map(|loaded| loaded.err()), Some(Some("loaded late".to_owned())));
+    }
 
     /// What Node's `getEmbeddingInfo()` answered for the default model before anything loaded (recorded by the capability
     /// harness: `getToolModuleSettings` `memory.info`).
