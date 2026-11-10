@@ -101,13 +101,21 @@ const asRecorded = (m) => ({
   ...Object.fromEntries(Object.entries(m).filter(([key]) => !WIRE_FIELDS.has(key))),
   role: m.role,
   content: m.content ?? '',
-  ...(m.tool_calls?.length ? { toolCalls: m.tool_calls.map((c) => ({ id: c.id, name: c.function.name, arguments: JSON.parse(c.function.arguments) })) } : {}),
+  ...(m.tool_calls?.length ? { toolCalls: m.tool_calls.map(asRecordedCall) } : {}),
   ...(m.tool_call_id ? { toolCallId: m.tool_call_id } : {}),
 });
-// A tool definition the core sent, in the names of Node's `sendTools`.
+// A tool call of that message, likewise: `type: "function"` is the wire's own envelope and says nothing; any other type, and any
+// field of the call or of its function the recording has no name for, is kept and fails the comparison.
+const asRecordedCall = (call) => {
+  const { id, type, function: fn, ...envelope } = call;
+  const { name, arguments: args, ...rest } = fn;
+  return { ...envelope, ...(type === 'function' ? {} : { type }), ...rest, id, name, arguments: JSON.parse(args) };
+};
+// A tool definition the core sent, in the names of Node's `sendTools`; an unknown field of the envelope or of the function is kept.
 const asSendTool = (tool) => {
-  const { name, description, parameters, ...rest } = tool.function;
-  return { ...(tool.type === 'function' ? {} : { type: tool.type }), ...rest, name, description, inputSchema: parameters };
+  const { type, function: fn, ...envelope } = tool;
+  const { name, description, parameters, ...rest } = fn;
+  return { ...envelope, ...(type === 'function' ? {} : { type }), ...rest, name, description, inputSchema: parameters };
 };
 // Where two values first differ, as a path and the two leaves.
 const firstDifference = (node, core, path) => {
@@ -346,8 +354,11 @@ try {
   const wantTools = recorded.callbacks.filter((c) => c.ev === 'onUsageDelta').map((c) => c.args[0].sendTools.map((tool) => without(tool, NOT_IN_A_DEFINITION)));
   const shared = sentTools.map((tools) => tools.filter((tool) => !CORE_ONLY_TOOLS.includes(tool.name)));
   if (!isDeepStrictEqual(shared, wantTools)) failures.push(`the tools both sessions offer differ from the recording: ${firstDifference(wantTools, shared, 'tools')}`);
-  const extra = [...new Set(sentTools.flat().map((tool) => tool.name).filter((name) => CORE_ONLY_TOOLS.includes(name)))];
-  if (!isDeepStrictEqual(extra, CORE_ONLY_TOOLS)) failures.push(`the core's thread was to offer exactly ${CORE_ONLY_TOOLS.join(', ')} beyond Node's, and offered ${extra.join(', ')}`);
+  // Request by request: each offers every one of them once, so one missing from a request, or offered twice, fails.
+  for (const [n, tools] of sentTools.entries()) {
+    const extra = tools.map((tool) => tool.name).filter((name) => CORE_ONLY_TOOLS.includes(name));
+    if (!isDeepStrictEqual(extra, CORE_ONLY_TOOLS)) failures.push(`request ${n}: the core's thread was to offer exactly ${CORE_ONLY_TOOLS.join(', ')} beyond Node's, and offered ${extra.join(', ')}`);
+  }
   // ---- the answer: the turn's last assistant message, as the client's feed completes it ----
   const messages = threadNotes.filter((n) => n.method === 'item/completed' && n.params?.item?.type === 'agentMessage').map((n) => n.params.item);
   const answer = messages.at(-1)?.text ?? null;
