@@ -1,0 +1,166 @@
+{
+  "runs": 5,
+  "order": {
+    "entries": [
+      99,
+      101,
+      99,
+      99,
+      99
+    ],
+    "entriesWithoutData": [
+      84,
+      84,
+      84,
+      84,
+      84
+    ],
+    "distinctSequencesWithoutData": 1,
+    "afterLastDispose": [
+      [
+        "termAttach",
+        "termActivity",
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "termAttach",
+        "termActivity",
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "termAttach",
+        "termActivity",
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "termAttach",
+        "termActivity",
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "termAttach",
+        "termActivity",
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ]
+    ],
+    "perTab": {
+      "term_ph2a": {
+        "slotsWithData": 7,
+        "slotsWhereDataPresenceDiffers": [
+          43
+        ],
+        "slotsWhereBytesDiffer": 4,
+        "concatenatedBytesDistinct": 3
+      },
+      "term_ph2b": {
+        "slotsWithData": 2,
+        "slotsWhereDataPresenceDiffers": [],
+        "slotsWhereBytesDiffer": 1,
+        "concatenatedBytesDistinct": 3
+      }
+    }
+  },
+  "claims.order": {
+    "entries": [
+      197,
+      193,
+      193,
+      194,
+      192
+    ],
+    "entriesWithoutData": [
+      146,
+      142,
+      142,
+      142,
+      142
+    ],
+    "distinctSequencesWithoutData": 2,
+    "afterLastDispose": [
+      [
+        "term_ph2_l5 running",
+        "term_ph2_l6 running",
+        "term_ph2_l5 null",
+        "term_ph2_l6 null",
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ]
+    ],
+    "perTab": {
+      "term_ph2_l1": {
+        "slotsWithData": 8,
+        "slotsWhereDataPresenceDiffers": [
+          143
+        ],
+        "slotsWhereBytesDiffer": 2,
+        "concatenatedBytesDistinct": 1
+      },
+      "term_ph2_l2": {
+        "slotsWithData": 10,
+        "slotsWhereDataPresenceDiffers": [
+          51,
+          52,
+          143
+        ],
+        "slotsWhereBytesDiffer": 8,
+        "concatenatedBytesDistinct": 5
+      },
+      "term_ph2_l4": {
+        "slotsWithData": 8,
+        "slotsWhereDataPresenceDiffers": [
+          142
+        ],
+        "slotsWhereBytesDiffer": 2,
+        "concatenatedBytesDistinct": 1
+      },
+      "term_ph2_l5": {
+        "slotsWithData": 9,
+        "slotsWhereDataPresenceDiffers": [
+          140,
+          141,
+          143
+        ],
+        "slotsWhereBytesDiffer": 3,
+        "concatenatedBytesDistinct": 1
+      },
+      "term_ph2_l6": {
+        "slotsWithData": 9,
+        "slotsWhereDataPresenceDiffers": [
+          43,
+          44,
+          140,
+          142,
+          144
+        ],
+        "slotsWhereBytesDiffer": 5,
+        "concatenatedBytesDistinct": 1
+      }
+    }
+  }
+}

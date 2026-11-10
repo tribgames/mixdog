@@ -40,11 +40,11 @@ use serde_json::Value;
 use serde_json::json;
 
 use crate::manager::LocalProcessManager;
+use crate::terminal::REPLAY_BUFFER_LIMIT;
+use crate::terminal::ReplayBuffer;
 
 /// Exited processes whose feed stays attachable (replay of a finished run).
 const RETAINED_FEEDS: usize = 256;
-/// The screen text a terminal feed's snapshot carries: the tail of the output.
-const SNAPSHOT_TEXT_BYTES: usize = 256 * 1024;
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -270,11 +270,17 @@ impl ProcessFeeds {
         }
     }
 
-    /// Ends the feed of a disposed tab: its subscribers are detached.
+    /// Retires the feed of a disposed tab: a new tab of the same id gets a feed of its own, and this one stays attached until it is evicted like
+    /// any finished feed, so a subscriber still gets what the shell wrote while it was killed (Node's pty keeps delivering after dispose:
+    /// golden.json, trace.order, the output of term_ph2b after its termDispose). Closing it at the exit would drop frames still queued.
     pub(crate) fn close(&self, handle: &str) {
         let removed = self.entries.lock().unwrap_or_else(|e| e.into_inner()).remove(handle);
         if let Some(entry) = removed {
-            entry.publisher.close();
+            if entry.finished.load(Ordering::SeqCst) {
+                entry.publisher.close();
+            } else {
+                self.finished.lock().unwrap_or_else(|e| e.into_inner()).push_back(entry);
+            }
         }
     }
 
@@ -295,20 +301,15 @@ impl ProcessFeeds {
             },
             Err(_) => return self.finish(entry),
         };
-        let mut screen = String::new();
+        // The window a late subscriber is given: Node's replay buffer, the last 200,000 UTF-16 units (a cut may fall inside a non-BMP
+        // character, which then reads as U+FFFD at the window's start).
+        let mut screen = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
         while let Some(event) = events.next().await {
             match event {
                 ProcessEvent::Output { bytes, .. } => {
                     let state = if entry.text {
-                        screen.push_str(&String::from_utf8_lossy(&bytes));
-                        if screen.len() > SNAPSHOT_TEXT_BYTES {
-                            let mut cut = screen.len() - SNAPSHOT_TEXT_BYTES;
-                            while !screen.is_char_boundary(cut) {
-                                cut += 1;
-                            }
-                            screen.drain(..cut);
-                        }
-                        json!({ "text": screen })
+                        screen.append(&String::from_utf8_lossy(&bytes));
+                        json!({ "text": screen.read() })
                     } else {
                         json!({})
                     };
@@ -320,7 +321,7 @@ impl ProcessFeeds {
                 }
                 ProcessEvent::Exited { exit, .. } => {
                     let state = if entry.text {
-                        json!({ "text": screen, "exited": true })
+                        json!({ "text": screen.read(), "exited": true })
                     } else {
                         json!({ "exited": true })
                     };

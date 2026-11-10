@@ -32,6 +32,9 @@ const RESIZE_REPORT = /(\x1b\[8;\d+;\d+t)/;
 
 function played(text) {
   const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: 5000, allowProposedApi: true, ...CURSOR_OPTIONS });
+  // The window title the stream sets (OSC 0 and 2) is shown by the app; the emulator reports it synchronously as it parses.
+  term.title = '';
+  term.onTitleChange((title) => (term.title = title));
   // Synchronous: the emulator's async write is timer-driven, and the recording holds Node's timers on a virtual clock.
   for (const part of String(text).split(RESIZE_REPORT)) {
     const size = /^\x1b\[8;(\d+);(\d+)t$/.exec(part);
@@ -48,8 +51,11 @@ const FLAGS = ['isBold', 'isItalic', 'isDim', 'isUnderline', 'isBlink', 'isInver
 /** One row: its text, and a run `[from, length, fg, bg, flags, underline style, underline colour, link]` for each stretch of cells that is not in the default style. */
 function row(line, cols, cell, links) {
   const runs = [];
+  // Where a double-width character is drawn: its first cell has width 2 (the next is its continuation, width 0). The text alone does not say it.
+  const wide = [];
   for (let x = 0; x < cols; x += 1) {
     line.getCell(x, cell);
+    if (cell.getWidth() === 2) wide.push(x);
     // The underline's style (straight, double, curly, dotted, dashed) and colour show only on an underlined cell; a link is its target.
     const underline = cell.isUnderline() ? [cell.getUnderlineStyle(), cell.getUnderlineColorMode(), cell.getUnderlineColor(), cell.getUnderlineVariantOffset()] : [0, 0, 0, 0];
     const link = cell.extended.urlId ? (links.getLinkData(cell.extended.urlId)?.uri ?? '') : '';
@@ -67,30 +73,37 @@ function row(line, cols, cell, links) {
   // Blanks at the end of a row are not seen unless they carry what a blank shows (the runs keep those); whether a shell wrote the space after
   // its prompt or left the cell empty is not a difference on screen (two Node recordings differ in just that).
   const text = line.translateToString(true).trimEnd();
-  return runs.length ? { text, runs } : { text };
+  return { text, ...(runs.length ? { runs } : {}), ...(wide.length ? { wide } : {}) };
 }
 
-/** The screen the text draws: the rows of the buffer (scrollback included, trailing blank rows dropped), the cursor (place, whether it shows,
- *  its shape and whether it blinks), which buffer is showing, the size. */
+/** The rows of one buffer (scrollback included), trailing blank rows dropped. */
+function rowsOf(buffer, cols, links) {
+  const cell = buffer.getNullCell();
+  const rows = [];
+  for (let y = 0; y < buffer.length; y += 1) rows.push(row(buffer.getLine(y), cols, cell, links));
+  while (rows.length && rows.at(-1).text === '' && !rows.at(-1).runs && !rows.at(-1).wide) rows.pop();
+  return rows;
+}
+
+/** The screen the text draws: the rows of the buffer showing (scrollback included, trailing blank rows dropped), the cursor (place, whether
+ *  it shows, its shape and whether it blinks), which buffer is showing, the size, the title, and the rows of the buffer that is not showing
+ *  (what a full-screen program left behind, or the shell's own screen beneath it: seen again when the program ends). */
 export function screenOf(text) {
   const term = played(text);
   const buffer = term.buffer.active;
-  const cell = buffer.getNullCell();
-  const rows = [];
   const links = term._core._oscLinkService;
-  for (let y = 0; y < buffer.length; y += 1) rows.push(row(buffer.getLine(y), term.cols, cell, links));
-  while (rows.length && rows.at(-1).text === '' && !rows.at(-1).runs) rows.pop();
+  const rows = rowsOf(buffer, term.cols, links);
+  const hidden = buffer.type === 'alternate' ? term.buffer.normal : term.buffer.alternate;
   const cursor = {
     at: [buffer.cursorX, buffer.baseY + buffer.cursorY],
     visible: !term._core.coreService.isCursorHidden,
     style: term.options.cursorStyle,
     blink: term.options.cursorBlink,
   };
-  const screen = { size: [term.cols, term.rows], buffer: buffer.type, cursor, rows };
+  const screen = { size: [term.cols, term.rows], title: term.title, buffer: buffer.type, cursor, rows, inactive: rowsOf(hidden, term.cols, links) };
   term.dispose();
   return screen;
 }
-
 /** The lines of the screen as typed, not as the width cut them: a row the terminal wrapped is joined to the one before it. */
 export function linesOf(text) {
   const term = played(text);

@@ -86,6 +86,8 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
         if (checked) ctx.fanOut(ctx.termActivityListeners, checked);
       }
     };
+    const feedsOpen = new Set<string>();
+    const declareFeeds = (): void => host.declareLane(TERMINAL_LANE, [...feedsOpen].map((id) => `process:${id}`));
     const readTabs = (): void => {
       const tabs = Array.isArray(sectionValue(client, 'terminalTabs')) ? (sectionValue(client, 'terminalTabs') as Record<string, any>[]) : [];
       const next = new Map<string, { cols: number; rows: number; owner: string }>();
@@ -103,11 +105,10 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
         ...[...owners.keys()].filter((id) => !next.has(id) && listed.has(id)).map((id) => ({ id, cols: 0, rows: 0, own: false })),
       ];
       owners = next;
-      // The output of every running terminal rides the terminal lane (Node pushed `termData` for all of them).
-      host.declareLane(
-        TERMINAL_LANE,
-        tabs.filter((tab) => tab.running !== false).map((tab) => `process:${String(tab.id)}`)
-      );
+      // The output of every running terminal rides the terminal lane (Node pushed `termData` for all of them), and a disposed one's goes on
+      // until its process has exited: its shell still writes while it is killed (Node's pty delivers that after `dispose`).
+      for (const tab of tabs) if (tab.running !== false) feedsOpen.add(String(tab.id));
+      declareFeeds();
       if (!laneInUse()) return;
       for (const event of events) ctx.fanOut(ctx.termSizeOwnerListeners, event);
     };
@@ -134,6 +135,7 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
         if (data && laneInUse()) ctx.fanOut(ctx.termListeners, { id, data });
       } else if (method === 'process/exited' && feed?.id.startsWith('process:')) {
         decoders.delete(feed.id.slice('process:'.length));
+        if (feedsOpen.delete(feed.id.slice('process:'.length))) declareFeeds();
       } else if (method === 'fs/changed' && feed?.id.startsWith('fs:')) {
         const dir = watchDirs().get(feed.id.slice('fs:'.length));
         if (dir !== undefined && ctx.activeLanes.has(FILES_LANE)) ctx.fanOut(ctx.folderChangeListeners, dir);

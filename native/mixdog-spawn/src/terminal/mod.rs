@@ -407,6 +407,8 @@ impl Drop for SpawnGuard {
 /// How long a size claim holds without being renewed (`SIZE_OWNER_LEASE_MS`): a phone renews every
 /// 10 s while it shows the terminal, so a claim that stops renewing (a lost connection) lapses
 /// and the PC fits its own pane again.
+/// How many gates the operations on claims are spread over (an id always takes the same one).
+const GATES: usize = 16;
 pub const SIZE_OWNER_LEASE: std::time::Duration = std::time::Duration::from_secs(30);
 
 struct SizeClaim {
@@ -434,6 +436,10 @@ struct ManualLeaseClock {
 /// the tab exists stands, and only a dispose forgets it.
 struct Claims {
     map: Mutex<HashMap<String, Vec<SizeClaim>>>,
+    /// Orders the operations on one id from the change of its claims to the end of its announcement. Node does this by being one thread:
+    /// a claim changes the map, fits the PTY and tells its listeners before any other call runs. The map's own lock is held only to change
+    /// the map, so a PTY fit that blocks holds back the ids that share its gate, not every tab.
+    gates: [Mutex<()>; GATES],
     tabs: Arc<Mutex<HashMap<String, Slot>>>,
     events: Arc<dyn TerminalEvents>,
     epoch: AtomicU64,
@@ -519,6 +525,13 @@ impl Claims {
         self.manual.as_ref().map(|clock| *clock.now.lock().unwrap_or_else(|e| e.into_inner()) + SIZE_OWNER_LEASE)
     }
 
+    fn gate(&self, id: &str) -> MutexGuard<'_, ()> {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        id.hash(&mut hasher);
+        self.gates[hasher.finish() as usize % GATES].lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Vec<SizeClaim>>> {
         self.map.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -548,7 +561,7 @@ impl Claims {
         tab.sync_size();
     }
 
-    /// Applies and announces the new effective owner when it differs. Called under the claims lock,
+    /// Applies and announces the new effective owner when it differs. Called under the id's gate,
     /// so the PTY sizes and the announcements keep the order of the changes.
     fn changed(&self, id: &str, before: Option<SizeOwner>, after: Option<SizeOwner>) {
         if before == after {
@@ -584,6 +597,8 @@ impl Claims {
 
     /// `client` claims (or renews its claim on) the size; a renewal keeps the claim's place in the order.
     fn claim(self: &Arc<Self>, id: &str, client: &str, cols: u16, rows: u16) {
+        let _gate = self.gate(id);
+        let (before, after) = {
         let mut map = self.lock();
         let list = map.entry(id.to_owned()).or_default();
         let before = Self::owner_in(list);
@@ -616,11 +631,15 @@ impl Claims {
             }),
         }
         let after = Self::owner_in(list);
+        (before, after)
+        };
         self.changed(id, before, after);
     }
 
     /// Ends `client`'s claim: by its own release (`epoch` none) or by its lease lapsing.
     fn release(&self, id: &str, client: &str, epoch: Option<u64>) {
+        let _gate = self.gate(id);
+        let (before, after) = {
         let mut map = self.lock();
         let Some(list) = map.get_mut(id) else {
             return;
@@ -639,24 +658,26 @@ impl Claims {
         if list.is_empty() {
             map.remove(id);
         }
+        (before, after)
+        };
         self.changed(id, before, after);
     }
 
     /// A resize no phone claimed: ignored while any claim stands.
     fn resize_unclaimed(&self, id: &str, cols: u16, rows: u16) {
-        let map = self.lock();
-        if map.contains_key(id) {
+        let _gate = self.gate(id);
+        if self.lock().contains_key(id) {
             return;
         }
         self.apply_size(id, cols, rows);
     }
 
     /// The tab was disposed: its claims go with it, and no owner change is announced (Node's `forgetSizeClaims`,
-    /// terminal-manager.ts:490, emits nothing). The consumer is told under the claims lock, so a claim made right
+    /// terminal-manager.ts:490, emits nothing). The consumer is told under the id's gate, so a claim made right
     /// after is queued behind it and is not undone by it.
     fn forget(&self, id: &str) {
-        let mut map = self.lock();
-        let Some(list) = map.remove(id) else {
+        let _gate = self.gate(id);
+        let Some(list) = self.lock().remove(id) else {
             return;
         };
         for claim in list {
@@ -695,6 +716,7 @@ impl TerminalTabs {
         let tabs = Arc::new(Mutex::new(HashMap::new()));
         let claims = Arc::new(Claims {
             map: Mutex::new(HashMap::new()),
+            gates: std::array::from_fn(|_| Mutex::new(())),
             tabs: Arc::clone(&tabs),
             events: Arc::clone(&config.events),
             epoch: AtomicU64::new(0),

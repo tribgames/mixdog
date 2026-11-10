@@ -1,12 +1,17 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
-  "entries": 96,
-  "fileCount": 1,
+  "entries": 99,
+  "fileCount": 2,
   "files": [
     {
-      "bytes": 172720,
+      "bytes": 185450,
       "path": "golden.json",
-      "sha256": "06799cf2040858f98390e96daad8fab49f5d4e23a0d5a8f73eefcae945f2828f"
+      "sha256": "0e678497b7f8ed607a8292b5dfdfadada7d24e5929d2fcf618e8172ee9f36fc4"
+    },
+    {
+      "bytes": 3346,
+      "path": "variance.json",
+      "sha256": "13d1193b75b28a6a1c67161cb755a2a133bb2099087d5458406511a23c8e2e49"
     }
   ],
   "product": {
@@ -28,5 +33,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-terminal.mjs",
   "set": "phone-terminal",
-  "totalBytes": 172720
+  "totalBytes": 188796
 }

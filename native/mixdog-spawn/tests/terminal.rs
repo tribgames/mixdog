@@ -1288,3 +1288,61 @@ async fn scripted_rig(name: &str) -> Rig {
     let tabs = Arc::new(TerminalTabs::new(manager.clone(), config));
     Rig { tabs, manager, events, clock_reads, profile: mixdog_spawn::scripted::profile(), dir: scratch_dir(name) }
 }
+
+/// The window a late reader gets is Node's `TerminalReplayBuffer` at its boundary (golden.json, trace.replayWindow, recorded from Node): 200,000
+/// UTF-16 units, so two-byte characters count as one and a non-BMP character on the cut loses its first unit. A string cannot hold the lone
+/// surrogate Node keeps there; it reads as U+FFFD, one unit in place of one.
+#[test]
+fn the_replay_window_is_nodes_at_its_boundary() {
+    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
+    let cases = golden["trace"]["replayWindow"].as_array().unwrap();
+    assert_eq!(cases.len(), 6);
+    for case in cases {
+        let mut buffer = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
+        for chunk in case["chunks"].as_array().unwrap() {
+            let text: String = chunk.as_array().unwrap().iter().map(|part| part[0].as_str().unwrap().repeat(part[1].as_u64().unwrap() as usize)).collect();
+            buffer.append(&text);
+        }
+        let units: Vec<u64> = buffer.read().encode_utf16().map(u64::from).collect();
+        // Node's lone surrogates are what a string cannot hold: the replacement character stands for each.
+        let node = |at: &Value| -> Vec<u64> { at.as_array().unwrap().iter().map(|u| u.as_u64().unwrap()).map(|u| if (0xd800..0xe000).contains(&u) && !pair(at, u) { 0xfffd } else { u }).collect() };
+        let name = case["name"].as_str().unwrap();
+        assert_eq!(units.len() as u64, case["length"].as_u64().unwrap(), "{name}: length in units");
+        assert_eq!(buffer.cursor(), case["cursor"].as_u64().unwrap(), "{name}: cursor");
+        assert_eq!(buffer.trimmed(), case["trimmed"].as_bool().unwrap(), "{name}: trimmed");
+        assert_eq!(&units[..4], node(&case["head"]).as_slice(), "{name}: first units");
+        assert_eq!(&units[units.len() - 4..], node(&case["tail"]).as_slice(), "{name}: last units");
+    }
+}
+
+/// Whether the surrogate `unit` of the four `units` is half of a pair there.
+fn pair(units: &Value, unit: u64) -> bool {
+    let all: Vec<u64> = units.as_array().unwrap().iter().map(|u| u.as_u64().unwrap()).collect();
+    let at = all.iter().position(|u| *u == unit).unwrap();
+    if (0xd800..0xdc00).contains(&unit) { all.get(at + 1).is_some_and(|n| (0xdc00..0xe000).contains(n)) } else { at > 0 && (0xd800..0xdc00).contains(&all[at - 1]) }
+}
+
+/// Node is one thread, so a claim's change, its PTY fit and its announcement are one step. Here they are one step per id (a gate), and the claims
+/// map's own lock is held only to change the map: an announcement held for one tab does not hold back the claims of another.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_held_announcement_does_not_hold_back_another_tabs_claims() {
+    let rig = rig("gate-other").await;
+    rig.tabs.ensure(Some("term_held"), rig.request()).await.unwrap();
+    rig.tabs.ensure(Some("term_free"), rig.request()).await.unwrap();
+    rig.tabs.resize("term_held", 50, 20, "A");
+    let (held, open) = rig.events.hold_next_forgotten();
+    let tabs = Arc::clone(&rig.tabs);
+    let disposing = std::thread::spawn(move || tabs.dispose("term_held"));
+    held.recv_timeout(Duration::from_secs(10)).expect("the disposal never announced the forgetting of the claims");
+    let tabs = Arc::clone(&rig.tabs);
+    let (claimed, claim_done) = std::sync::mpsc::channel();
+    let claiming = std::thread::spawn(move || {
+        tabs.resize("term_free", 60, 25, "B");
+        claimed.send(()).unwrap();
+    });
+    claim_done.recv_timeout(Duration::from_secs(10)).expect("a claim on another tab waited for the announcement held for this one");
+    open.send(()).unwrap();
+    disposing.join().unwrap();
+    claiming.join().unwrap();
+    rig.tabs.dispose_all();
+}
