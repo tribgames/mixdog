@@ -303,7 +303,7 @@ impl ManualCompaction for HostManualCompaction {
         // request's media alone would need the compaction.
         compactor.prepare(&messages).await;
         let require = require_reduction && !compactor.request_media(&messages);
-        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false };
+        let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false, active_turn: false };
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
@@ -366,6 +366,15 @@ impl ManualCompaction for HostManualCompaction {
             commit_started_at,
             committed_at: Arc::new(move || clock.now_ms() as f64),
         };
+        // `!changed` (`compaction-runner.mjs:690-731`): Node keeps the transcript, the provider
+        // continuation and the display as they are and writes only the header's compaction record.
+        let (mut working, result) = committed_header(&facts, &snapshot.header, &[]);
+        if result.get("changed") == Some(&Value::Bool(false)) {
+            manual_tail(&mut working, facts.now);
+            let change = header_change(&snapshot.header, &working);
+            self.parts.threads.patch_header(thread, change.set, change.unset).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+            return Ok(Some(result));
+        }
         let answer = Arc::new(Mutex::new(None));
         let slot = answer.clone();
         let header: CompactionHeader = Box::new(move |header, appended| {
@@ -412,7 +421,7 @@ impl ManualCompaction for HostManualCompaction {
         };
         let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
         compactor.prepare(&messages).await;
-        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
+        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false };
         let output = compactor.compact(request).await.map_err(|error| match error {
             CompactError::Overflow(message) | CompactError::Failed(message) => failed(DOMAIN, message),
             CompactError::Aborted => failed(DOMAIN, "compact aborted"),

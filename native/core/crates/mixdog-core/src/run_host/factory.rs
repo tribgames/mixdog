@@ -2223,10 +2223,27 @@ mod tests {
         }
     }
 
-    struct NoHopSessions;
-    impl mixdog_core_run::run_host::hop_host::HopSessions for NoHopSessions {
+    /// Every thread is open for a hop; a hop never runs here (the scripted provider never fails), so the session's writes refuse.
+    struct OpenHopSessions;
+    impl mixdog_core_run::run_host::hop_host::HopSessions for OpenHopSessions {
         fn open(&self, _: &ThreadId) -> Option<Arc<dyn mixdog_core_run::run_host::hop_host::HopSession>> {
+            Some(Arc::new(NoHopWrites))
+        }
+    }
+    struct NoHopWrites;
+    #[async_trait]
+    impl mixdog_core_run::run_host::hop_host::HopSession for NoHopWrites {
+        fn header(&self) -> Option<Arc<mixdog_store::schema::record::Header>> {
             None
+        }
+        async fn write_hop(&self, _: mixdog_core_ports::ports::domain_sessions::Obj, _: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
+        }
+        async fn write_wire_pin(&self, _: Value) -> Result<(), mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
+        }
+        async fn rebuild_tool_surface(&self, _: &str) -> Result<(), mixdog_tools::orch::util::PortError> {
+            unreachable!("no hop in this test")
         }
     }
 
@@ -2438,13 +2455,14 @@ mod tests {
                             errors: Arc::new(|e| e.message.clone()),
                             wiring: Arc::new(NoWiring),
                         },
-                        Arc::new(NoHopSessions),
+                        Arc::new(OpenHopSessions),
                     )
                 }
             }),
         };
         let path = super::super::turn_path::TurnPath::new(parts).expect("turn path");
-        path.registry.init_providers(&mixdog_ai::service::admin_route::ensure_provider_enabled(&serde_json::Map::new(), "scripted")).await.unwrap();
+        // No provider is registered ahead: as after a restart, the turn's first request readies the thread's provider.
+        assert!(path.registry.get("scripted").await.is_none());
         let directory = path.directory.clone();
         // The settings host the composition binds: here one that leaves the thread's header as it is.
         struct AsIs(Arc<SessionDirectory>);

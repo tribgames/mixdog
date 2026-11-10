@@ -40,6 +40,8 @@ const sse = (res, chunks) => {
   res.end();
 };
 const chunk = (delta, finish = null) => ({ id: 's', object: 'chat.completion.chunk', created: 0, model: MODEL, choices: [{ index: 0, delta, finish_reason: finish }] });
+// The usage Node's recording reported per call (record-sensitive-writes.mjs: `usage: { inputTokens: 1, outputTokens: 1 }`).
+const USAGE = { id: 's', object: 'chat.completion.chunk', created: 0, model: MODEL, choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } };
 
 /** The scripted provider: REPLIES in order across both cores; `requests` gets every request body. */
 function provider(requests) {
@@ -54,10 +56,10 @@ function provider(requests) {
       const parsed = JSON.parse(Buffer.concat(body).toString('utf8'));
       requests.push(parsed);
       const step = REPLIES[requests.length - 1];
-      if (!step) return sse(res, [chunk({ role: 'assistant', content: 'extra' }), chunk({}, 'stop'), '[DONE]']);
-      if (!step.calls.length) return sse(res, [chunk({ role: 'assistant', content: step.text }), chunk({}, 'stop'), '[DONE]']);
+      if (!step) return sse(res, [chunk({ role: 'assistant', content: 'extra' }), chunk({}, 'stop'), USAGE, '[DONE]']);
+      if (!step.calls.length) return sse(res, [chunk({ role: 'assistant', content: step.text }), chunk({}, 'stop'), USAGE, '[DONE]']);
       const tool_calls = step.calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args) } }));
-      sse(res, [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls'), '[DONE]']);
+      sse(res, [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls'), USAGE, '[DONE]']);
     });
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ baseURL: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((c) => { server.closeAllConnections(); server.close(c); }) })));
@@ -92,7 +94,7 @@ async function runCore(p, bin, log, script) {
   try {
     const env = {};
     for (const [k, v] of Object.entries(process.env)) if (!DROP.test(k)) env[k] = v;
-    Object.assign(env, { MIXDOG_DATA_DIR: p.data, MIXDOG_HOME: p.mixdogHome, MIXDOG_CONFIG_DIR: p.mixdogHome, MIXDOG_DESKTOP_USER_DATA: join(p.appData, 'Mixdog'), MIXDOG_RUNTIME_ROOT: p.runtime, MIXDOG_SKIP_USER_DATA_BACKUP: '1', HOME: p.home, USERPROFILE: p.home, APPDATA: p.appData, LOCALAPPDATA: p.local, TEMP: p.tmp, TMP: p.tmp, NO_PROXY: '127.0.0.1,localhost', RUST_LOG: 'debug' });
+    Object.assign(env, { MIXDOG_DATA_DIR: p.data, MIXDOG_HOME: p.mixdogHome, MIXDOG_CONFIG_DIR: p.mixdogHome, MIXDOG_DESKTOP_USER_DATA: join(p.appData, 'Mixdog'), MIXDOG_RUNTIME_ROOT: p.runtime, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_BRIDGE_DISCOVERY_DIR: p.bridge, HOME: p.home, USERPROFILE: p.home, APPDATA: p.appData, LOCALAPPDATA: p.local, TEMP: p.tmp, TMP: p.tmp, NO_PROXY: '127.0.0.1,localhost', RUST_LOG: 'debug' });
     const stderr = openSync(log, 'a');
     child = spawnInJob(p.exe, ['serve'], { env, cwd: p.root, stdio: ['ignore', 'ignore', stderr], report: join(p.root, `job-${Date.now()}.json`) });
     closeSync(stderr);
@@ -107,7 +109,6 @@ async function runCore(p, bin, log, script) {
     }), 120_000, 'the core serving');
     const { ws: WebSocket, client: lib } = await loadLibs();
     const turnWaiters = [];
-    const compactionWaiters = [];
     const notifications = [];
     cleanups.push(() => writeFileSync(join(p.root, `notifications-${Date.now()}.json`), JSON.stringify(notifications, null, 1)));
     client = await deadline(lib.connect({
@@ -128,8 +129,6 @@ async function runCore(p, bin, log, script) {
         apply(state, notification) {
           notifications.push({ method: notification.method, params: notification.params });
           if (notification.method === 'turn/completed') for (const w of turnWaiters.splice(0)) w();
-          // A compaction ends with its divider item (no turn of its own).
-          if (notification.method === 'item/completed' && notification.params?.item?.type === 'contextCompaction') for (const w of compactionWaiters.splice(0)) w(notification.params.item);
           return lib.sessionReducer.apply(state, notification);
         },
       },
@@ -161,8 +160,7 @@ async function runCore(p, bin, log, script) {
       client.respond(id, { error: { code: -32601, message: `the replay does not serve ${method}` } });
     }));
     const turnCompleted = () => new Promise((r) => turnWaiters.push(r));
-    const compactionCompleted = () => new Promise((r) => compactionWaiters.push(r));
-    await script({ client, turnCompleted, compactionCompleted, serverRequests });
+    await script({ client, turnCompleted, serverRequests, notifications });
     await deadline(client.close(), 30_000, 'the client closing');
     client = null;
     const stopping = new AbortController();
@@ -212,20 +210,26 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const ws = join(base, 'ws');
   mkdirSync(ws);
   const profile = join(base, 'profile');
-  const p = { root: base, profile, home: join(profile, 'home'), mixdogHome: join(profile, 'home', '.mixdog'), data: join(profile, 'home', '.mixdog', 'data'), runtime: join(profile, 'runtime'), appData: join(profile, 'home', 'AppData', 'Roaming'), local: join(profile, 'home', 'AppData', 'Local'), tmp: join(profile, 'tmp') };
-  for (const d of [p.data, p.runtime, p.appData, p.local, p.tmp, join(base, 'bin')]) mkdirSync(d, { recursive: true });
+  const p = { root: base, profile, home: join(profile, 'home'), mixdogHome: join(profile, 'home', '.mixdog'), data: join(profile, 'home', '.mixdog', 'data'), runtime: join(profile, 'runtime'), appData: join(profile, 'home', 'AppData', 'Roaming'), local: join(profile, 'home', 'AppData', 'Local'), tmp: join(profile, 'tmp'), bridge: join(base, 'bridge') };
+  for (const d of [p.data, p.runtime, p.appData, p.local, p.tmp, p.bridge, join(base, 'bin')]) mkdirSync(d, { recursive: true });
   p.exe = join(base, 'bin', 'mixdogd.exe');
   copyFileSync(bin, p.exe);
   writeFileSync(join(base, 'bin', 'js-runtime.json'), JSON.stringify({ program: process.execPath, packageRoot: repo }));
   const requests = [];
   const prov = await provider(requests);
-  writeFileSync(join(p.data, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { [CUSTOM]: { type: 'custom', name: 'sw', protocol: 'openai-chat', baseURL: prov.baseURL, auth: 'none', models: [{ id: MODEL }] } } } }));
+  // A custom provider as the desktop saves it (`enabled: true`, custom_admin.rs).
+  writeFileSync(join(p.data, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { [CUSTOM]: { type: 'custom', name: 'sw', enabled: true, protocol: 'openai-chat', baseURL: prov.baseURL, auth: 'none', models: [{ id: MODEL }] } } } }));
+  // The desktop's browser bridge advertisement, as the recording had it (`browser-bridge.json`, outside the profile): the core
+  // reads it to offer `browser` (mcp_surface.rs `BridgeFiles`); the commands themselves reach this client as the claimed host.
+  writeFileSync(join(p.bridge, 'browser-bridge.json'), JSON.stringify({ version: 1, port: Number(new URL(prov.baseURL).port), token: 'bridge-token-sensitive-writes', pid: process.pid }));
   const log = join(base, 'core.log');
   let bad = 0;
   let threadId = null;
   try {
-    const first = await runCore(p, bin, log, async ({ client, turnCompleted, compactionCompleted }) => {
-      const started = await deadline(client.call('thread/start', { kind: 'task', session: { toolMode: 'full', autoWakeCompletions: false, webSearch: false, memory: false }, projectPath: ws, draft: { projectPath: ws, route: { provider: CUSTOM, model: MODEL }, orchestrationMode: 'none' } }), 60_000, 'thread/start');
+    const first = await runCore(p, bin, log, async ({ client, turnCompleted, notifications }) => {
+      // No settings gate on the thread, as Node's session had none (`featureDisallowedTools: () => []`): a gate set here is
+      // reopened by the second core's availability stage, which would announce the tools as added.
+      const started = await deadline(client.call('thread/start', { kind: 'task', session: { toolMode: 'full', autoWakeCompletions: false }, projectPath: ws, draft: { projectPath: ws, route: { provider: CUSTOM, model: MODEL }, orchestrationMode: 'none' } }), 60_000, 'thread/start');
       threadId = started.thread.id;
       await deadline(client.resumeThread(threadId, { lastItems: 10 }), 30_000, 'thread/resume');
       for (const turn of TURNS.filter((t) => t.phase === 1)) {
@@ -233,9 +237,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         await deadline(client.call('turn/start', { threadId, input: { prompt: turn.prompt, options: {} } }), 60_000, 'turn/start');
         await deadline(done, 120_000, `the turn "${turn.prompt}"`);
       }
-      const compacted = compactionCompleted();
-      await deadline(client.call('thread/compact/start', { threadId, opId: 'op-compact' }), 60_000, 'thread/compact/start');
-      console.log(`the compaction: ${JSON.stringify(await deadline(compacted, 60_000, 'the compaction'))}`);
+      // The answer comes once the compaction has ended; Node's pass changed nothing ("nothing to compact"), so no divider.
+      const answer = await deadline(client.call('thread/compact/start', { threadId, opId: 'op-compact' }), 120_000, 'thread/compact/start');
+      console.log(`the compaction: ${JSON.stringify(answer)}`);
+      // Node's pass that changes nothing keeps the transcript and shows no divider (`compaction-runner.mjs` `if (changed)`).
+      const dividers = notifications.filter((n) => n.params?.item?.type === 'contextCompaction');
+      if (answer?.changed !== false || answer?.reason !== 'nothing to compact' || dividers.length) throw new Error(`the compaction differs from Node's "nothing to compact": ${JSON.stringify({ answer, dividers })}`);
     });
     const second = await runCore(p, bin, log, async ({ client, turnCompleted }) => {
       await deadline(client.resumeThread(threadId, { lastItems: 10 }), 30_000, 'thread/resume after the reload');
@@ -265,12 +272,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       } else console.log(`SAME model input of call ${i}`);
     }
     // 3. The files both runtimes write in the same format, whole after the same normalisation.
-    const normalized = normalizeTree(profile, { sessionId: threadId, workspace: ws });
+    // The core takes a custom provider under a `custom-<uuid>` id; Node's recording registered it as `sensitive-writes`. The
+    // secret card's audit row names the answering client (this one); Node's recording answered in process, with no client.
+    const aliases = [[CUSTOM, 'sensitive-writes'], ['"device":"sw-replay"', '"device":""']];
+    const normalized = normalizeTree(profile, { sessionId: threadId, workspace: ws, aliases });
     const coreFiles = Object.keys(normalized.files);
     writeFileSync(join(base, 'files.json'), JSON.stringify(normalized.files, null, 1));
     console.log(`the cores wrote ${coreFiles.length} files:\n  ${coreFiles.join('\n  ')}`);
     for (const [name, want] of Object.entries(golden.files)) {
-      if (typeof want !== 'string') continue;
+      if (typeof want !== 'string' || Object.hasOwn(golden.noCoreCounterpart ?? {}, name) || Object.hasOwn(golden.notCompared ?? {}, name)) continue;
       const core = coreFiles.find((file) => file.endsWith(name.replace(/^mixdog_data_dir\//, '.mixdog/data/')));
       if (!core) {
         console.log(`NODE-ONLY ${name}`);

@@ -1510,6 +1510,7 @@ impl SessionActor {
             // the search rows get a replacement under the new version, once what the turn
             // committed so far is durable.
             JobDone::SensitiveMarked => {
+                self.redact_prompts();
                 if self.run.is_some() {
                     let ack = self.ingest_when_durable();
                     self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
@@ -5378,12 +5379,14 @@ impl SessionActor {
     /// (`JobDropped`) wrote nothing, so retrying it duplicates nothing.
     fn flush_prompts(&mut self, batch: Vec<String>) {
         let (prompts, jobs, cwd, lanes) = (self.deps.prompts.clone(), self.jobs_tx.clone(), self.cwd(), self.deps.lanes);
+        let (marks, thread) = (self.deps.sensitive.clone(), self.id.clone());
         drop(mixdog_rt::spawn("prompt-history-append", TaskClass::Work, async move {
             let kept = batch.clone();
             let submitted = lanes.durability.submit(&CancellationToken::new(), move |lane| {
                 let mut list = None;
                 for (at, text) in batch.iter().enumerate() {
-                    let done = prompts.append(lane, &cwd, text);
+                    // A value the thread marked sensitive is stored as the marker, as in its log.
+                    let done = prompts.append(lane, &cwd, &marks.redact_text(&thread, text));
                     list = Some(done.list);
                     if !done.written {
                         return (list, batch[at..].to_vec());
@@ -5397,6 +5400,14 @@ impl SessionActor {
             };
             let _ = jobs.send(JobDone::PromptFlushed { list, unwritten });
         }));
+    }
+
+    /// A mark: the cwd's persisted prompt history keeps the marked values as the marker, entries written before included.
+    fn redact_prompts(&mut self) {
+        let (prompts, cwd, marks, thread) = (self.deps.prompts.clone(), self.cwd(), self.deps.sensitive.clone(), self.id.clone());
+        let _ = self.deps.lanes.durability.submit(&CancellationToken::new(), move |lane| {
+            prompts.redact(lane, &cwd, &|text| marks.redact_text(&thread, text));
+        });
     }
 
     /// The session part over the remaining lineage after a history mutation.

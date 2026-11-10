@@ -120,6 +120,9 @@ enum Projecting {
     Frames(Box<Projection>),
     /// Answered once every projection sent before it is committed.
     Flush(tokio::sync::oneshot::Sender<()>),
+    /// Answers `reached` once every projection sent before it is committed, then takes nothing more until `release`
+    /// resolves (dropped included): a log rewrite changes the files and the rows meanwhile.
+    Hold { reached: tokio::sync::oneshot::Sender<()>, release: tokio::sync::oneshot::Receiver<()> },
 }
 
 /// Marks the projector stopped when its task ends, and says so once when a panic ended it.
@@ -163,10 +166,28 @@ impl Projector {
                         done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     }
                     Projecting::Flush(done) => drop(done.send(())),
+                    Projecting::Hold { reached, release } => {
+                        drop(reached.send(()));
+                        drop(release.await);
+                        done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    }
                 }
             }
         });
         Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND }
+    }
+
+    /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
+    /// when the projector is gone), and nothing sent later is taken, an exact read waiting included, until `release` is
+    /// sent or dropped.
+    fn hold(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
+        let (reached, reached_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = tokio::sync::oneshot::channel();
+        self.pending.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.queue.send(Projecting::Hold { reached, release: release_rx }).is_err() {
+            self.pending.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        (reached_rx, release)
     }
 
     fn send(&self, projection: Projection) {
@@ -224,8 +245,87 @@ fn barrier(error: AppendError) -> BarrierError {
 
 /// [`SessionLog`] over a `LogWriter` (which places checkpoints and rotates by itself).
 struct StoreLog {
-    writer: LogWriter,
+    /// `None` once a log rewrite failed past its commit: the next start finishes it (`log_rewrite::recover`).
+    writer: Option<LogWriter>,
     projector: Projector,
+    redaction: Option<Redaction>,
+}
+
+/// What the writer of a thread needs to take a value marked sensitive out of what it wrote before the mark
+/// (`redactSessionFiles`, `session-writers.mjs`): the log rewritten (`log_rewrite`), the thread's index rows rebuilt
+/// from it, and the writer reopened on it, between two barriers.
+struct Redaction {
+    marks: Arc<dyn super::seams::SensitiveMarks>,
+    thread: ThreadId,
+    data: PathBuf,
+    index: SqliteStore,
+    deps: WriterDeps,
+    runtime: tokio::runtime::Handle,
+    /// The marks' version the log was rewritten for.
+    seen: u64,
+}
+
+fn writer_lost() -> BarrierError {
+    BarrierError::Indeterminate { io_kind: "writerLost".into() }
+}
+
+impl StoreLog {
+    /// Runs before the barrier of a batch when the thread took a mark since the last rewrite. The index takes no
+    /// projection meanwhile, so a read that waits for it sees the new rows. A rewrite that fails before its commit leaves
+    /// the log as it was and is tried again at the next barrier.
+    #[allow(clippy::disallowed_methods, reason = "runs inside the io-durability job (lane proof argument)")]
+    fn redact_written(&mut self, lane: &InLane<DurabilityIo>) {
+        let Some(redaction) = &mut self.redaction else { return };
+        let version = redaction.marks.version(&redaction.thread);
+        if version == redaction.seen {
+            return;
+        }
+        let runtime = redaction.runtime.clone();
+        // As `StoreThreads::wait`: a lane thread is no runtime thread; an inline lane (tests) runs on a runtime worker.
+        let wait = |future: futures::future::BoxFuture<'static, Result<(), String>>| -> Result<(), String> {
+            let block = || runtime.block_on(future);
+            if tokio::runtime::Handle::try_current().is_ok() { tokio::task::block_in_place(block) } else { block() }
+        };
+        let (reached, release) = self.projector.hold();
+        let session = redaction.thread.as_str().to_owned();
+        if wait(Box::pin(async move { reached.await.map_err(|_| "the index projector is gone".to_owned()) })).is_err() {
+            return;
+        }
+        let mut replace = redaction.marks.rewriter(&redaction.thread);
+        let staged = mixdog_store::log_rewrite::stage(lane, &redaction.data, &session, &*redaction.deps.io, &redaction.deps.blobs, &mut *replace);
+        drop(replace);
+        let staged = match staged {
+            Ok(None) => {
+                redaction.seen = version;
+                return;
+            }
+            Ok(Some(staged)) => staged,
+            Err(error) => {
+                tracing::warn!(thread = %session, "the sensitive rewrite of the log failed before its commit: {error}");
+                return;
+            }
+        };
+        // The writer's handle goes before its file is replaced.
+        self.writer = None;
+        let (data, index, deps) = (redaction.data.clone(), redaction.index.clone(), redaction.deps.clone());
+        let reopened = (|| -> Result<LogWriter, String> {
+            let pins = staged.commit(lane).map_err(|e| e.to_string())?;
+            let (reproject_data, reproject_session, reproject_index) = (data.clone(), session.clone(), index.clone());
+            wait(Box::pin(async move { reproject_index.reproject(&reproject_data, &reproject_session, DirtyMark::Set).await.map_err(|e| e.to_string()) }))?;
+            drop(pins);
+            mixdog_store::log_rewrite::clear(lane, &data, &session).map_err(|e| e.to_string())?;
+            let opened = log::open_log(lane, &data.join("sessions").join(&session), &deps.blobs, &*deps.index).map_err(|e| e.to_string())?;
+            LogWriter::open(lane, opened, deps).map_err(|e| e.to_string())
+        })();
+        match reopened {
+            Ok(writer) => {
+                self.writer = Some(writer);
+                redaction.seen = version;
+            }
+            Err(error) => tracing::error!(thread = %session, "the sensitive rewrite of the log stopped past its commit; the next start finishes it: {error}"),
+        }
+        drop(release);
+    }
 }
 
 impl SessionLog for StoreLog {
@@ -234,15 +334,17 @@ impl SessionLog for StoreLog {
         lane: &InLane<DurabilityIo>,
         batch: &[CommitRecord],
     ) -> Result<Vec<u64>, BarrierError> {
+        self.redact_written(lane);
+        let writer = self.writer.as_mut().ok_or_else(writer_lost)?;
         let encoded: Vec<Encoded> = batch.iter().map(|c| c.encoded.0.clone()).collect();
-        let ack = self.writer.append_barrier(lane, encoded).map_err(barrier)?;
+        let ack = writer.append_barrier(lane, encoded).map_err(barrier)?;
         let ordinals = ack.positions.iter().map(|p| p.ordinal).collect();
         self.projector.send(ack.projection);
         Ok(ordinals)
     }
 
     fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
-        self.writer.retry_storage(lane).map_err(barrier)
+        self.writer.as_mut().ok_or_else(writer_lost)?.retry_storage(lane).map_err(barrier)
     }
 }
 
@@ -256,6 +358,8 @@ pub struct StoreThreads {
     projector: Projector,
     maintenance: MaintenanceIo,
     runtime: tokio::runtime::Handle,
+    /// The marks whose values the logs keep out of what they wrote before (bound once, by the composition).
+    sensitive: std::sync::OnceLock<Arc<dyn super::seams::SensitiveMarks>>,
 }
 
 impl super::thread_list::ListFence for StoreThreads {
@@ -278,7 +382,27 @@ impl StoreThreads {
             writer,
             maintenance,
             runtime: tokio::runtime::Handle::current(),
+            sensitive: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The marks the session actors take (`SessionDeps::sensitive`, the same instance): a log rewrites what it wrote before
+    /// a mark at its next barrier. A second bind is refused.
+    pub fn redact_with(&self, marks: Arc<dyn super::seams::SensitiveMarks>) -> Result<(), Arc<dyn super::seams::SensitiveMarks>> {
+        self.sensitive.set(marks)
+    }
+
+    fn store_log(&self, id: &ThreadId, writer: LogWriter) -> Box<dyn SessionLog> {
+        let redaction = self.sensitive.get().map(|marks| Redaction {
+            marks: marks.clone(),
+            thread: id.clone(),
+            data: self.data.clone(),
+            index: self.index.clone(),
+            deps: self.writer.clone(),
+            runtime: self.runtime.clone(),
+            seen: 0,
+        });
+        Box::new(StoreLog { writer: Some(writer), projector: self.projector.clone(), redaction })
     }
 
     /// Over the data dir's stores: `index` is the core's one `SqliteStore` (WP-STORE opens it,
@@ -630,25 +754,41 @@ impl SensitiveMarksOf {
     fn held_bodies(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, std::collections::HashMap<String, Value>>> {
         self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-}
 
-impl super::seams::SensitiveMarks for SensitiveMarksOf {
-    fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
-        Box::new(self.store.on_marked(thread.as_str(), move |_| listener()))
+    /// `_withSensitiveHeaderRedacted` (`store/serialize.mjs`, the Node fix `node-fix-sensitive-header-summary.patch`): the
+    /// header fields that hold the conversation's text (the title, from the first prompt) or a tool call's arguments (the
+    /// repeat-failure guards keep each failed call's signature) take the marker. True when one changed.
+    fn header_redacted(&self, session: &str, header: &mut mixdog_store::schema::record::Header) -> bool {
+        let mut changed = false;
+        let mut text = |value: &mut Value| {
+            if let Value::String(text) = value {
+                let next = self.store.redact_text(session, text);
+                if next != *text {
+                    *text = next;
+                    changed = true;
+                }
+            }
+        };
+        if let Some(title) = header.get_mut("title") {
+            text(title);
+        }
+        for key in ["_repeatFailGuard", "_repeatArgShapeFailGuard"] {
+            if let Some(sig) = header.get_mut(key).and_then(|guard| guard.get_mut("sig")) {
+                text(sig);
+            }
+        }
+        if let Some(Value::Array(history)) = header.get_mut("_repeatFailHistory") {
+            history.iter_mut().for_each(&mut text);
+        }
+        changed
     }
 
-    fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool {
-        self.store.remember(thread.as_str(), calls)
-    }
-
-    fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {
+    /// `record` as the log stores it, and each message body it carries with the body as committed when the projection
+    /// changed it (`None`: stored as it is). `None` for a record stored as it is.
+    #[allow(clippy::type_complexity)]
+    fn projected(&self, session: &str, record: &mixdog_store::schema::record::Record) -> (Option<mixdog_store::schema::record::Record>, Vec<(String, Option<Value>)>) {
         use mixdog_store::schema::blob::Slot;
         use mixdog_store::schema::record::Record;
-        let session = thread.as_str();
-        // A thread with no marked value holds no redacted body either (both live for the process).
-        if self.store.version(session) == 0 {
-            return None;
-        }
         let mut out = record.clone();
         // (item id, the body as committed when the projection changed it).
         let mut bodies: Vec<(String, Option<Value>)> = Vec::new();
@@ -687,9 +827,44 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
                     }
                 }
             }
-            _ => return None,
+            Record::Meta(meta) => {
+                if let Slot::Inline(change) = &mut meta.change {
+                    prompt_changed = self.header_redacted(session, &mut change.set);
+                }
+            }
+            Record::Session(start) => {
+                if let Slot::Inline(header) = &mut start.header {
+                    prompt_changed = self.header_redacted(session, header);
+                }
+            }
+            Record::Checkpoint(checkpoint) => {
+                if let Slot::Inline(state) = &mut checkpoint.state {
+                    prompt_changed = self.header_redacted(session, &mut state.header);
+                }
+            }
+            _ => return (None, Vec::new()),
         }
         let changed = prompt_changed || bodies.iter().any(|(_, body)| body.is_some());
+        (changed.then_some(out), bodies)
+    }
+}
+
+impl super::seams::SensitiveMarks for SensitiveMarksOf {
+    fn on_marked(&self, thread: &ThreadId, listener: Box<dyn Fn() + Send + Sync>) -> Box<dyn Send> {
+        Box::new(self.store.on_marked(thread.as_str(), move |_| listener()))
+    }
+
+    fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool {
+        self.store.remember(thread.as_str(), calls)
+    }
+
+    fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {
+        let session = thread.as_str();
+        // A thread with no marked value holds no redacted body either (both live for the process).
+        if self.store.version(session) == 0 {
+            return None;
+        }
+        let (out, bodies) = self.projected(session, record);
         let mut held = self.held_bodies();
         let thread_held = held.entry(session.to_owned()).or_default();
         for (iid, body) in bodies {
@@ -703,7 +878,42 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
                 }
             }
         }
-        changed.then_some(out)
+        out
+    }
+
+    fn version(&self, thread: &ThreadId) -> u64 {
+        self.store.version(thread.as_str())
+    }
+
+    fn redact_text(&self, thread: &ThreadId, text: &str) -> String {
+        self.store.redact_text(thread.as_str(), text)
+    }
+
+    fn rewriter<'a>(&'a self, thread: &ThreadId) -> Box<dyn FnMut(&mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> + 'a> {
+        let session = thread.as_str().to_owned();
+        // The rows whose body this pass took out; a later body of one of them that holds no value is read as stored.
+        let mut taken = std::collections::HashSet::new();
+        Box::new(move |record| {
+            if self.store.version(&session) == 0 {
+                return None;
+            }
+            let (out, bodies) = self.projected(&session, record);
+            let mut held = self.held_bodies();
+            let thread_held = held.entry(session.clone()).or_default();
+            for (iid, body) in bodies {
+                match body {
+                    Some(body) => {
+                        thread_held.insert(iid.clone(), body);
+                        taken.insert(iid);
+                    }
+                    None if taken.contains(&iid) => {
+                        thread_held.remove(&iid);
+                    }
+                    None => {}
+                }
+            }
+            out
+        })
     }
 
     fn redacted(&self, thread: &ThreadId, messages: &[Value]) -> Vec<Value> {
@@ -1137,10 +1347,7 @@ impl ThreadStore for StoreThreads {
                 io_kind: e.op.to_string().into(),
             },
         })?;
-        Ok(Box::new(StoreLog {
-            writer,
-            projector: self.projector.clone(),
-        }))
+        Ok(self.store_log(id, writer))
     }
 
     /// RL §9.2 rule 4: the catalog row (dirty) is committed before `log.000000` is published.
@@ -1190,13 +1397,7 @@ impl ThreadStore for StoreThreads {
         .map_err(barrier)?;
         let ordinal = ack.positions[0].ordinal;
         self.projector.send(ack.projection);
-        Ok((
-            Box::new(StoreLog {
-                writer,
-                projector: self.projector.clone(),
-            }),
-            ordinal,
-        ))
+        Ok((self.store_log(id, writer), ordinal))
     }
 }
 

@@ -65,7 +65,8 @@ const SCRATCH = /\bs\.[0-9a-f]{16}\b|\bmsg_[0-9a-f]{32}\b/g;
 // Measured values (a duration on this machine's clock: a key ending in `Ms` or `_ms`, or `duration`; a process id: ending in
 // `Pid`; a file's size, `storageSize`, which follows when the saves ran): `<measured>`, in plain and escaped JSON. Epoch times
 // are `<ms>` before this runs.
-const MEASURED_KEY = /(?:Ms|_ms|Pid|_bytes)$|^(?:duration|storageSize|requestOutputTokens)$/;
+// The trace's `totalBytes` and `messagesBytes` are sizes of the messages, which hold a measured `elapsedMs`.
+const MEASURED_KEY = /(?:Ms|_ms|Pid|_bytes)$|^(?:duration|storageSize|requestOutputTokens|totalBytes|messagesBytes)$/;
 // A hash over a provider projection that holds measured values (a message's `elapsedMs`): `<measured>`.
 const MEASURED_HASH_KEY = /^contextPressureBaseline\w*Signature$/;
 const MEASURED = /(\\*"([A-Za-z_]*)\\*":)\d+(?:\.\d+)?/g;
@@ -87,10 +88,12 @@ const isText = (data) => !data.includes(0) && Buffer.from(data.toString('utf8'),
  * profile as `<profile>` (each in its plain, forward-slash and JSON-escaped spelling), every uuid as `<id:N>` by first
  * appearance (file order, names before contents), every ISO time as `<iso>` and every epoch time in ms as `<ms>`. A binary file
  * is `{ binary: bytes }`. `mask(text)` applies the same substitutions (the same id numbering) to other text of the run.
+ * `aliases`: further [setup name, recorded name] pairs read first (a provider the two runs configure under different ids).
  */
-export function normalizeTree(profile, { sessionId, workspace }) {
+export function normalizeTree(profile, { sessionId, workspace, aliases = [] }) {
   const ids = new Map();
   const paths = [
+    ...aliases,
     [workspace, '<ws>'],
     [profile, '<profile>'],
   ].flatMap(([path, name]) => [
@@ -138,6 +141,6 @@ export function normalizeTree(profile, { sessionId, workspace }) {
     files,
     mask,
     maskValue,
-    names: { session: '<session>', workspace: '<ws>', profile: '<profile>', ids: '<id:N> (uuids, session log ids, scratch folders, message ids msg_<32 hex>)', iso: '<iso>', epochMs: '<ms>', measured: 'the number of a key ending in Ms, _ms, Pid or _bytes, or named duration, storageSize or requestOutputTokens (the count of the usage readout, which follows when the saves ran), and a loaded session\'s contextPressureBaseline*Signature hashes (over text holding measured values), as <measured>', postgres: 'pgdata/ and pg.log: named only', programs: 'runtime/ and patch-bin/: named only', summaryIndex: 'session-summaries.json and .log: named only, compared folded', sessionLog: 'sessions/<id>.log.jsonl: named only, compared as the loaded session' },
+    names: { session: '<session>', workspace: '<ws>', profile: '<profile>', ids: '<id:N> (uuids, session log ids, scratch folders, message ids msg_<32 hex>)', iso: '<iso>', epochMs: '<ms>', measured: 'the number of a key ending in Ms, _ms, Pid or _bytes, or named duration, storageSize or requestOutputTokens (the count of the usage readout, which follows when the saves ran), totalBytes or messagesBytes (the trace\'s sizes of messages holding a measured elapsedMs), and a loaded session\'s contextPressureBaseline*Signature hashes (over text holding measured values), as <measured>', postgres: 'pgdata/ and pg.log: named only', programs: 'runtime/ and patch-bin/: named only', summaryIndex: 'session-summaries.json and .log: named only, compared folded', sessionLog: 'sessions/<id>.log.jsonl: named only, compared as the loaded session' },
   };
 }

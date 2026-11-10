@@ -472,6 +472,10 @@ pub struct CompactRequest<'a> {
     /// The provider refused the request as too long: the latest request's
     /// attachments now travel by reference.
     pub reference_latest_attachments: bool,
+    /// The pass runs inside a turn (`activeTurn: true` of the pre-send compaction): a turn in
+    /// progress gets the active-turn continuation. A manual or handoff pass between turns
+    /// (`runHandoffCompaction`) passes none.
+    pub active_turn: bool,
 }
 
 pub struct CompactOutput {
