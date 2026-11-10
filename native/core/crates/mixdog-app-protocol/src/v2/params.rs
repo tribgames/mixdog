@@ -4813,6 +4813,11 @@ pub enum DownloadSource {
     File { rel: String },
     /// A file the conversation names, by its absolute path or its path in the conversation's folder.
     SessionFile { path: String },
+    /// A media asset of the host's media store, by its id; the conversation must still be in the catalog.
+    MediaAsset {
+        #[serde(rename = "assetId")]
+        asset_id: String,
+    },
 }
 
 /// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.

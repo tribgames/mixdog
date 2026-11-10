@@ -36,10 +36,15 @@ use crate::service::WorkspaceService;
 const RECORDING: &str = include_str!("../../../../fixtures/file-downloads/file-downloads.json");
 
 /// The conversations the host's catalog lists now: `s1` a project conversation of the world's project, `s2` a task conversation.
-struct Present(Mutex<HashSet<String>>, PathBuf);
+struct Present(Mutex<HashSet<String>>, PathBuf, Mutex<std::collections::HashMap<String, crate::grants::MediaEntry>>);
 
 #[async_trait::async_trait]
 impl crate::grants::SessionCatalog for Present {
+    /// The host's media store, as the recorder's stub of it: an asset it was told of whose file is still there.
+    async fn media(&self, asset: &str) -> WsResult<Option<crate::grants::MediaEntry>> {
+        Ok(self.2.lock().unwrap().get(asset).filter(|entry| Path::new(&entry.path).exists()).cloned())
+    }
+
     async fn has(&self, session: &str) -> WsResult<bool> {
         Ok(self.0.lock().unwrap().contains(session))
     }
@@ -70,7 +75,7 @@ impl crate::zip::TrackedFiles for NoGit {
 }
 
 /// The two paired devices of the recording: each is one connection of the service, paired as the credential the recording names.
-const DEVICES: [(&str, u64, &str); 4] = [("phone", 1, "aaaaaaa1"), ("tablet", 2, "bbbbbbb2"), ("connection:c1", 3, ""), ("connection:c2", 4, "")];
+const DEVICES: [(&str, u64, &str); 5] = [("phone", 1, "aaaaaaa1"), ("tablet", 2, "bbbbbbb2"), ("connection:c1", 3, ""), ("connection:c2", 4, ""), ("digits", 5, "6")];
 
 /// Binds the recording's `<kind#n>` tokens to the values this run made, and checks every later sighting against them.
 #[derive(Default)]
@@ -106,6 +111,29 @@ impl Tokens {
             Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), self.resolve(item))).collect()),
             other => other.clone(),
         }
+    }
+}
+
+/// The request the core is asked for one service call Node's method table made (the recording's `service` of a call, from Node itself):
+/// the phone adapter's mapping of Node's five service methods onto the core's, one for one. The arguments are Node's own.
+fn core_request(reached: &Value) -> (&'static str, Value) {
+    let args = &reached["args"];
+    match reached["method"].as_str().unwrap() {
+        "authorize" => {
+            let (request, source) = (&args[0], &args[0]["source"]);
+            let source = match source["kind"].as_str().unwrap() {
+                "project" => json!({ "kind": "file", "rel": source["relPath"] }),
+                "session" => json!({ "kind": "sessionFile", "path": source["path"] }),
+                "media" => json!({ "kind": "mediaAsset", "assetId": source["assetId"] }),
+                other => panic!("a source of kind {other} has no request"),
+            };
+            ("transfer/authorizeRead", json!({ "sessionId": args[0]["source"]["sessionId"], "source": source, "purpose": request["purpose"] }))
+        }
+        "begin" => ("transfer/redeemGrant", json!({ "grantId": args[0] })),
+        "readRange" => ("transfer/readRange", json!({ "transferId": args[0], "offset": args[1], "length": args[2], "version": args[3] })),
+        "finish" => ("transfer/finishRead", json!({ "transferId": args[0] })),
+        "abort" => ("transfer/endRead", json!({ "transferId": args[0] })),
+        other => panic!("{other}"),
     }
 }
 
@@ -152,17 +180,16 @@ impl World {
         }
     }
 
-    /// One recorded phone call: the request the adapter made of the core for it (`core-requests.json`, which the adapter replay
-    /// compares with what the adapter really sends), and the reply as the phone's page sees it. A call the adapter answers itself, with
-    /// no request, is `None`: that is the adapter replay's to prove.
-    async fn call(&self, device: &str, method: &str, requests: &Value) -> Option<Value> {
-        let requests = requests.as_array().expect("a call has its requests");
-        assert!(requests.len() <= 1, "{method}: {requests:?}");
-        let request = requests.first()?;
-        let params = self.swap_dir(&self.tokens.resolve(&request["params"]));
-        let core = request["method"].as_str().unwrap();
+    /// One recorded phone call: the request the core is asked for the service call Node's method table made for it (`core_request`), and
+    /// the reply as the phone's page sees it. A call Node's table refused before the service, with no service call, is `None`: the
+    /// adapter answers it itself, and the adapter replay proves that.
+    async fn call(&self, device: &str, method: &str, service: &Value) -> Option<Value> {
+        let reached = service.as_array().expect("a call has the service calls Node's table made");
+        assert!(reached.len() <= 1, "{method}: {reached:?}");
+        let (core, request) = core_request(reached.first()?);
+        let params = self.swap_dir(&self.tokens.resolve(&request));
         let request = CoreRequest {
-            method: Method(Box::leak(core.to_owned().into_boxed_str())),
+            method: Method(core),
             params,
             op: None,
             ctx: CallContext::connection(ConnectionId(Self::connection(device)), Origin::Relay, CancellationToken::new()),
@@ -199,9 +226,28 @@ impl World {
 
     /// The host publishes its catalog listing exactly `ids`.
     fn publish(&self, ids: &[String]) {
-        *self.present.0.lock().unwrap() = ids.iter().cloned().collect();
-        let listed: Vec<&str> = ids.iter().map(String::as_str).collect();
-        mixdog_core_api::state::CatalogObserver::published(&*self.store, &listed);
+        publish(&self.present, &self.store, &self.service, ids);
+    }
+
+    /// A recorded `media` step: the store gets a file `assets/<name>` and resolves the asset to it.
+    fn media(&self, step: &Value) {
+        let file = self.dir.join("media/assets").join(step["name"].as_str().unwrap());
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, step["text"].as_str().unwrap()).unwrap();
+        let entry = crate::grants::MediaEntry { path: file.to_string_lossy().into_owned(), mime: Some(step["mime"].as_str().unwrap().to_owned()) };
+        self.present.2.lock().unwrap().insert(step["id"].as_str().unwrap().to_owned(), entry);
+    }
+}
+
+/// The host publishes its catalog listing exactly `ids`: every conversation of it is seen, and one it listed before and lists no more is
+/// removed, which the deletion that dropped it tells the service in its own step.
+fn publish(present: &Present, store: &crate::grants::GrantStore, service: &WorkspaceService, ids: &[String]) {
+    let before: Vec<String> = present.0.lock().unwrap().iter().cloned().collect();
+    *present.0.lock().unwrap() = ids.iter().cloned().collect();
+    let listed: Vec<&str> = ids.iter().map(String::as_str).collect();
+    mixdog_core_api::state::CatalogObserver::published(store, &listed);
+    for gone in before.iter().filter(|id| !ids.contains(id)) {
+        service.session_removed(gone);
     }
 }
 
@@ -269,7 +315,7 @@ async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>
     )
     .unwrap();
     service.catalog().add(&base.join("project").to_string_lossy(), &CancellationToken::new(), None).await.unwrap();
-    let present = Arc::new(Present(Mutex::default(), base.clone()));
+    let present = Arc::new(Present(Mutex::default(), base.clone(), Mutex::default()));
     let store = Arc::new(crate::grants::GrantStore::new(manual.clone(), present.clone()));
     service.set_phone_grants(
         store.clone(),
@@ -285,9 +331,9 @@ async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>
     (world, sweeping)
 }
 
-/// The requests the phone's adapter makes of the core for each recorded call (`record-file-downloads.mjs --replay --write-requests`, which
-/// the adapter replay compares with what the adapter really sends): the same ones this replay sends.
-const REQUESTS: &str = include_str!("../../../../fixtures/file-download-requests/core-requests.json");
+/// The scenarios recorded on Windows alone (their `platform`): their path rules are that system's, so another system does not run them,
+/// and says so. On the system a scenario was recorded for, none may be left out.
+const WINDOWS_ONLY: [&str; 1] = ["windows path names"];
 
 /// Every recorded scenario, every step: the file operations, the clock, the unpair, the catalog, each call as the adapter makes it of the
 /// production service dispatch (reply compared whole with the frame Node's phone got), each call held at a point of the service while the
@@ -295,7 +341,6 @@ const REQUESTS: &str = include_str!("../../../../fixtures/file-download-requests
 #[tokio::test(flavor = "multi_thread")]
 async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_did() {
     let recording: Value = serde_json::from_str(RECORDING).unwrap();
-    let golden: Value = serde_json::from_str(REQUESTS).unwrap();
     let start = recording["clockStart"].as_i64().unwrap();
     let platform = if cfg!(windows) { "win32" } else if cfg!(target_os = "macos") { "darwin" } else { "linux" };
     let all = recording["scenarios"].as_array().unwrap();
@@ -306,21 +351,19 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
         assert_eq!(recorded, *next_id.get_or_insert(recorded), "{label}: the recorded call ids are not consecutive");
         next_id = Some(recorded + 1);
     };
-    let (mut compared, mut by_adapter, mut counted, mut held_calls, mut other_platform) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut compared, mut by_adapter, mut counted, mut held_calls) = (0usize, 0usize, 0usize, 0usize);
     let mut replayed_calls = 0usize;
+    let mut not_run: Vec<&str> = Vec::new();
     for scenario in all {
         let name = scenario["name"].as_str().unwrap();
         let steps = scenario["steps"].as_array().unwrap();
-        let sent = |step: &&Value| matches!(step["op"].as_str(), Some("call" | "send"));
         if scenario["platform"].as_str().is_some_and(|recorded| recorded != platform) {
-            other_platform += steps.iter().filter(sent).count();
+            not_run.push(name);
             for step in steps.iter().filter(|step| matches!(step["op"].as_str(), Some("call" | "answer"))) {
                 take_id(&step["frame"]["id"], name);
             }
             continue;
         }
-        let requests = golden["scenarios"].as_array().unwrap().iter().find(|g| g["name"] == name).unwrap_or_else(|| panic!("{name}: no recorded requests"))["steps"].as_array().unwrap();
-        assert_eq!(requests.len(), steps.len(), "{name}");
         let dir = tempfile::tempdir().unwrap();
         let (mut world, sweeping) = build(canonical(dir.path()).unwrap(), start).await;
         let mut at = 0;
@@ -344,9 +387,11 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                 }
                 // The relay leg closing or every device revoked: nothing in the daemon calls this yet (the remote domain's event).
                 "revokeAll" => world.transfers.revoke_all(),
-                "sessions" => {
-                    world.publish(&ids_of(step));
-                    world.service.retire_gone_download_sessions().await;
+                "sessions" => world.publish(&ids_of(step)),
+                "media" => world.media(step),
+                "unmedia" => {
+                    let entry = world.present.2.lock().unwrap().remove(step["id"].as_str().unwrap()).unwrap();
+                    std::fs::remove_file(entry.path).unwrap();
                 }
                 "handles" => {
                     assert_eq!(world.transfers.held_downloads() as u64, step["open"].as_u64().unwrap(), "{label}");
@@ -355,7 +400,7 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                 "call" => {
                     take_id(&step["frame"]["id"], &label);
                     replayed_calls += 1;
-                    match world.call(step["device"].as_str().unwrap(), step["method"].as_str().unwrap(), &requests[at - 1]).await {
+                    match world.call(step["device"].as_str().unwrap(), step["method"].as_str().unwrap(), &step["service"]).await {
                         Some(got) => {
                             compare(&mut world, &step["frame"], got, &label);
                             compared += 1;
@@ -389,10 +434,10 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                             })
                         }
                         "sessions" => {
-                            let (present, ids) = (world.present.clone(), ids_of(event));
+                            let (present, store, service, ids) = (world.present.clone(), world.store.clone(), world.service.clone(), ids_of(event));
                             Arc::new(move |reached: &str| {
                                 if reached == point {
-                                    *present.0.lock().unwrap() = ids.iter().cloned().collect();
+                                    publish(&present, &store, &service, &ids);
                                 }
                             })
                         }
@@ -406,7 +451,7 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                         }
                     };
                     world.transfers.on_point(Some(hook));
-                    let got = world.call(sent["device"].as_str().unwrap(), sent["method"].as_str().unwrap(), &requests[at]).await.unwrap_or_else(|| panic!("{label}: a held call reaches the core"));
+                    let got = world.call(sent["device"].as_str().unwrap(), sent["method"].as_str().unwrap(), &sent["service"]).await.unwrap_or_else(|| panic!("{label}: a held call reaches the core"));
                     world.transfers.on_point(None);
                     compare(&mut world, &answer["frame"], got, &label);
                     compared += 1;
@@ -426,7 +471,9 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
     assert_eq!(replayed_calls, of("call") + of("send"));
     assert_eq!(counted, of("handles"));
     assert!(held_calls >= 5 && counted >= 25, "{held_calls} {counted}");
-    let _ = other_platform;
+    // Where a scenario was recorded for this system, none is left out; elsewhere exactly the Windows-only ones are.
+    let expected: &[&str] = if cfg!(windows) { &[] } else { &WINDOWS_ONLY };
+    assert_eq!(not_run, expected, "the scenarios this system did not run");
 }
 /// What the unpair's `revoke_device` reaches, by the name it is given: the unpair walks the live connections of the device and names each by
 /// its id (`PairedDeviceCleanup::unpaired`), which owns the device's grants through its credential; a connection with no credential owns its
@@ -458,9 +505,9 @@ async fn an_unpair_ends_the_downloads_of_the_device_by_whichever_name_the_owner_
     let paired = authorize(1).await;
     world.service.revoke_device("1");
     assert!(expired(redeem(1, paired).await), "a connection id of a paired device ends the credential's grants");
-    // The credential names the grants of a device with no live connection.
+    // The grant store is told the credential of a device that unpairs, whether or not a connection of it is attached.
     let by_credential = authorize(2).await;
-    world.service.revoke_device("bbbbbbb2");
+    world.store.revoke_device("bbbbbbb2");
     assert!(expired(redeem(2, by_credential).await), "the credential ends its grants");
     // A connection with no credential owns its grants by its id.
     let anonymous = authorize(9).await;
@@ -511,5 +558,116 @@ async fn a_relay_caller_gets_nothing_the_catalog_does_not_give_it() {
     same(ask("s1", json!({ "kind": "sessionFile", "path": path("project/link/n.bin") })).await, recorded("ancestor swapped between resolving and opening", 1));
     // And the same through the project-relative form.
     same(ask("s1", json!({ "kind": "file", "rel": "link/n.bin" })).await, recorded("ancestor swapped between resolving and opening", 0));
+    sweeping.abort();
+}
+
+/// A phone whose connection is `connection`, with a transfer begun on `a.bin` of the world: its transfer id and version.
+async fn begun(world: &World, connection: u64) -> (String, String) {
+    let call = |method: &'static str, params: Value| {
+        let request = CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+        let service = world.service.clone();
+        async move {
+            match service.call(request).await.unwrap() {
+                Reply::Value(value) => value,
+                Reply::Subscribe(_) => unreachable!(),
+            }
+        }
+    };
+    let granted = call("transfer/authorizeRead", json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": world.dir.join("a.bin").to_string_lossy() }, "purpose": "save" })).await;
+    let leased = call("transfer/redeemGrant", json!({ "grantId": granted["grantId"] })).await;
+    (leased["transferId"].as_str().unwrap().to_owned(), leased["version"].as_str().unwrap().to_owned())
+}
+
+/// The frame Node's phone got for the held call of the scenario `name`.
+fn node_answer(name: &str) -> Value {
+    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"))["steps"].as_array().unwrap().clone();
+    let mut frame = steps.into_iter().find(|step| step["op"] == "answer").unwrap()["frame"].clone();
+    frame.as_object_mut().unwrap().remove("id");
+    frame
+}
+
+/// A range of the transfer as `connection` asks it, as the frame the phone would get.
+async fn range_frame(world: &World, connection: u64, transfer: &(String, String), offset: u64, length: u64) -> Value {
+    let params = json!({ "transferId": transfer.0, "offset": offset, "length": length, "version": transfer.1 });
+    let request = CoreRequest { method: Method("transfer/readRange"), params, op: None, ctx: CallContext::connection(ConnectionId(connection), Origin::Relay, CancellationToken::new()) };
+    frame_of("fileDownloadRange", world.service.call(request).await)
+}
+
+/// The conversation is deleted while a range read waits at the file: the deletion lands in the step the catalog drops it, and the read,
+/// which finds its transfer gone when it looks again, answers as Node's does (`session deleted during a range read`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deletion_while_a_range_is_read_ends_the_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
+    std::fs::write(world.dir.join("a.bin"), b"0123456789abcdef").unwrap();
+    world.publish(&["s1".to_owned(), "s2".to_owned()]);
+    let transfer = begun(&world, 1).await;
+    let (present, store, service) = (world.present.clone(), world.store.clone(), world.service.clone());
+    world.transfers.on_point(Some(Arc::new(move |reached: &str| {
+        if reached == "read.read" {
+            publish(&present, &store, &service, &["s2".to_owned()]);
+        }
+    })));
+    assert_eq!(range_frame(&world, 1, &transfer, 0, 4).await, node_answer("session deleted during a range read"));
+    world.transfers.on_point(None);
+    assert_eq!(world.transfers.held_downloads(), 0);
+    sweeping.abort();
+}
+
+/// A revoke that lands after the range took its last look, while the lane's answer waits to be taken up, is never followed by bytes:
+/// the service looks again before it answers. Node's answer for a revoke in a read is its `unpair during a read`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revoke_after_the_last_look_of_a_range_is_not_followed_by_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
+    std::fs::write(world.dir.join("a.bin"), b"0123456789abcdef").unwrap();
+    let transfer = begun(&world, 1).await;
+    let store = world.store.clone();
+    world.transfers.on_point(Some(Arc::new(move |reached: &str| {
+        if reached == "read.checked" {
+            store.revoke_device("aaaaaaa1");
+        }
+    })));
+    assert_eq!(range_frame(&world, 1, &transfer, 0, 4).await, node_answer("unpair during a read"));
+    world.transfers.on_point(None);
+    sweeping.abort();
+}
+
+/// The file is cut short while a range waits at it: the file ended before the window did, so the read answers `changed` as Node's does and
+/// the transfer is gone with its handle (`file truncated during a range read`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_cut_short_during_a_range_read_ends_the_transfer() {
+    let dir = tempfile::tempdir().unwrap();
+    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
+    std::fs::write(world.dir.join("a.bin"), b"0123456789abcdef").unwrap();
+    let transfer = begun(&world, 1).await;
+    let file = world.dir.join("a.bin");
+    world.transfers.on_point(Some(Arc::new(move |reached: &str| {
+        if reached == "read.read" {
+            std::fs::OpenOptions::new().write(true).open(&file).unwrap().set_len(10).unwrap();
+        }
+    })));
+    assert_eq!(range_frame(&world, 1, &transfer, 8, 8).await, node_answer("file truncated during a range read"));
+    world.transfers.on_point(None);
+    assert_eq!(world.transfers.held_downloads(), 0, "the dropped transfer's handle is closed");
+    sweeping.abort();
+}
+
+/// A connection of this machine and a paired phone are different owners whatever the phone's credential spells: a phone admitted as `6`
+/// owns its transfer as a device, and the local connection numbered 6 can neither read it nor end it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_local_connection_never_owns_what_a_phone_whose_credential_is_its_number_owns() {
+    let dir = tempfile::tempdir().unwrap();
+    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
+    std::fs::write(world.dir.join("a.bin"), b"0123456789abcdef").unwrap();
+    let transfer = begun(&world, 5).await;
+    let local = |method: &'static str, params: Value| CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(6), Origin::Local, CancellationToken::new()) };
+    let read = local("transfer/readRange", json!({ "transferId": transfer.0, "offset": 0, "length": 4, "version": transfer.1 }));
+    assert_eq!(frame_of("fileDownloadRange", world.service.call(read).await)["errorCode"], "file-download:expired");
+    let end = local("transfer/endRead", json!({ "transferId": transfer.0 }));
+    assert_eq!(frame_of("fileDownloadAbort", world.service.call(end).await), json!({ "ok": true, "value": false }));
+    assert_eq!(range_frame(&world, 5, &transfer, 0, 4).await["ok"], true, "the phone still reads its own");
+    assert_ne!(crate::transfer::Owner::device("6"), crate::transfer::Owner::connection(6));
     sweeping.abort();
 }
