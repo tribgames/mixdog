@@ -317,7 +317,7 @@ async fn task_matches_the_golden_twins_recorded_from_node() {
         "task-cancel-missing",
     ] {
         let golden = fixture("task", name);
-        assert_eq!(body(rig.task.call(&c, golden["input"].clone()).await), golden["text"].as_str().unwrap(), "{name}");
+        assert_eq!(body(rig.task.execute(&c, golden["input"].clone()).await), golden["text"].as_str().unwrap(), "{name}");
     }
     // The task Node registered: a running shell `sleep 100`, id task-gold.
     let started = body(
@@ -333,6 +333,26 @@ async fn task_matches_the_golden_twins_recorded_from_node() {
     let job = rig.runtime.get(&ThreadId::from("t"), "task-gold").unwrap();
     let shown = job.render(false, Some("")).replace(&super::jobs::shown_path(&rig.dir.path().join("l")), "/l");
     assert_eq!(shown, golden["text"].as_str().unwrap());
+}
+
+/// What Node's `executeBuiltinTool` answers a `task` call whose arguments are wrong (the guard, then the handler):
+/// every case of `fixtures/tools/arg-answers/answers.json` (`record-tool-arg-answers.mjs`), text for text.
+#[tokio::test]
+async fn task_arguments_are_answered_as_nodes_guard_answers_them() {
+    let rig = rig();
+    let c = ctx(&rig, "c0");
+    let answers = fixture("arg-answers", "answers");
+    let mut failures = Vec::new();
+    let mut compared = 0;
+    for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "task") {
+        let got = body(rig.task.call(&c, case["input"].clone()).await);
+        if got != case["text"].as_str().unwrap() {
+            failures.push(format!("{}: want {:?}, got {got:?}", case["name"], case["text"]));
+        }
+        compared += 1;
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(compared >= 37, "{compared}");
 }
 
 /// Replaces what differs per run: the task id, timestamps and log paths.
