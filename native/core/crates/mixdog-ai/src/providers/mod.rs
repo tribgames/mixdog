@@ -14,6 +14,9 @@ pub(crate) mod flat_schema;
 pub mod custom;
 pub mod google;
 pub mod grok;
+pub mod hosted;
+#[cfg(test)]
+mod hosted_wire_tests;
 pub(crate) mod js_value;
 pub mod leak;
 #[cfg(test)]
@@ -24,6 +27,8 @@ pub mod key_source;
 pub mod listing_row;
 pub mod local;
 pub mod openai;
+#[cfg(test)]
+pub(crate) mod wire_fixtures;
 
 /// Node's stream progress kinds (`golden/stream_progress.json`, recorded from Node's real decoders by
 /// `fixtures/agent/compact/record_usage.mjs`) against the ones a Rust decoder reports for the same wire events.

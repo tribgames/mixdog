@@ -1,0 +1,34 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "claude-sonnet-5-5-low",
+    "providerReplay": {
+      "version": 1,
+      "provider": "antigravity",
+      "items": [
+        {
+          "text": "The answer "
+        },
+        {
+          "text": "is 42."
+        }
+      ],
+      "requestContext": {
+        "model": "claude-sonnet-5-5-low"
+      }
+    },
+    "usage": {
+      "inputTokens": 20,
+      "outputTokens": 8,
+      "cachedTokens": 0,
+      "promptTokens": 20,
+      "totalTokens": 28,
+      "raw": {
+        "promptTokenCount": 20,
+        "candidatesTokenCount": 8,
+        "totalTokenCount": 28
+      }
+    }
+  },
+  "dispatchedToolCalls": []
+}

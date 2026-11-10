@@ -1,0 +1,94 @@
+{
+  "provider": "antigravity-oauth",
+  "model": "claude-sonnet-4-6",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "go"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "thought": true,
+            "text": "before",
+            "thoughtSignature": "sig-1"
+          },
+          {
+            "functionCall": {
+              "name": "glob",
+              "args": {
+                "pattern": "*"
+              },
+              "id": "toolu_9"
+            }
+          },
+          {
+            "thought": true,
+            "text": "after "
+          },
+          {
+            "thought": true,
+            "text": "call"
+          },
+          {
+            "thought": true,
+            "text": "",
+            "thoughtSignature": "sig-2"
+          },
+          {
+            "thought": true,
+            "text": "tail without signature"
+          }
+        ],
+        "requestContext": {
+          "model": "claude-sonnet-4-6"
+        }
+      },
+      "toolCalls": [
+        {
+          "id": "toolu_9",
+          "name": "glob",
+          "arguments": {
+            "pattern": "*"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "toolu_9",
+      "content": "ok"
+    },
+    {
+      "role": "user",
+      "content": "next"
+    }
+  ],
+  "tools": [
+    {
+      "name": "glob",
+      "description": "Find files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  ],
+  "opts": {}
+}

@@ -178,7 +178,7 @@ impl WireCodec for AnthropicCodec {
 
     fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
         let known = body_tool_names(self, request, ToolNames::Named);
-        Box::new(AnthropicDecoder::new(self.owner.clone()).with_known_tools(known))
+        Box::new(AnthropicDecoder::for_model(self.owner.clone(), &request.model).with_known_tools(known))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {

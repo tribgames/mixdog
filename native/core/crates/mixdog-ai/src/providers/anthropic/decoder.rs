@@ -170,6 +170,9 @@ pub(crate) struct AnthropicDecoder {
     leaked_dispatched: usize,
     /// Native tool_use blocks the dedupe dropped: they stay out of the replay.
     skipped: HashSet<u64>,
+    /// The model the turn is attributed to (Node `turn.model`): the requested one until `message_start` names the model
+    /// that answers or a `fallback` block hands the turn to the fallback model.
+    model: String,
 }
 
 /// Node `message.stop_reason || null`: an absent reason stays absent.
@@ -185,8 +188,10 @@ fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
 }
 
 impl AnthropicDecoder {
-    pub(crate) fn new(owner: ProviderId) -> Self {
+    /// A decoder for a request to `model`: a turn another model answers reports it ([`StreamEvent::ServedModel`]).
+    pub(crate) fn for_model(owner: ProviderId, model: &str) -> Self {
         Self {
+            model: model.to_owned(),
             owner,
             framer: SseFramer::default(),
             blocks: BTreeMap::new(),
@@ -344,6 +349,10 @@ impl AnthropicDecoder {
                     return Ok(());
                 };
                 self.saw_message_start = true;
+                // `onMessageStart`: `if (message.model) turn.model = message.model` (turn-events/message-events.mjs:17).
+                if let Some(model) = message.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+                    self.serve(model, out);
+                }
                 if let Some(usage) = message.get("usage") {
                     self.usage.update(usage);
                     out.push(StreamEvent::Usage(self.usage.usage()));
@@ -366,10 +375,33 @@ impl AnthropicDecoder {
         Ok(())
     }
 
+    /// The turn is now attributed to `model`; a change is reported.
+    fn serve(&mut self, model: &str, out: &mut Vec<StreamEvent>) {
+        if self.model != model {
+            self.model = model.to_owned();
+            out.push(StreamEvent::ServedModel(model.to_owned()));
+        }
+    }
+
     fn block_start(&mut self, index: u64, block: Option<&Value>, out: &mut Vec<StreamEvent>) {
         let Some(block) = block.filter(|b| b.is_object()) else {
             return;
         };
+        // A server-side fallback hands the turn to the fallback model (`parseAnthropicFallbackBlock`,
+        // anthropic-server-fallback.mjs:26-40, and content-block-start.mjs:52-58): the block carries no content.
+        if block.get("type").and_then(Value::as_str) == Some("fallback") {
+            let model_of = |side: &str| match block.get(side) {
+                Some(Value::String(id)) => mixdog_js::js_trim(id).to_owned(),
+                Some(Value::Object(map)) => map.get("model").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned(),
+                _ => String::new(),
+            };
+            let (from, to) = (model_of("from"), model_of("to"));
+            if !from.is_empty() && !to.is_empty() {
+                self.serve(&to, out);
+                out.push(StreamEvent::Progress(ProgressKind::Semantic));
+            }
+            return;
+        }
         let text_of = |field: &str| block.get(field).and_then(Value::as_str).unwrap_or("").to_owned();
         match block.get("type").and_then(Value::as_str).unwrap_or("") {
             "text" => {

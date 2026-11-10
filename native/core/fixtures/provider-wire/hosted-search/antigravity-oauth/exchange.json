@@ -1,0 +1,94 @@
+{
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app",
+      "method": "GET",
+      "path": "/manifest/latest-arm64-mac.yml",
+      "headers": {
+        "host": "antigravity-hub-auto-updater-974169037036.us-central1.run.app",
+        "connection": "keep-alive",
+        "cache-control": "no-cache",
+        "user-agent": "electron-builder",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "cache-control",
+        "user-agent",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding"
+      ],
+      "bodyText": "",
+      "served": "{\"object\":\"list\",\"data\":[],\"models\":[]}"
+    },
+    {
+      "transport": "http",
+      "origin": "https://daily-cloudcode-pa.googleapis.com",
+      "method": "POST",
+      "path": "/v1internal:streamGenerateContent?alt=sse",
+      "headers": {
+        "host": "daily-cloudcode-pa.googleapis.com",
+        "connection": "keep-alive",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/json",
+        "accept": "text/event-stream",
+        "user-agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "591"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "user-agent",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"project\":\"fixture-project\",\"model\":\"gemini-3-pro\",\"request\":{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"find x\"}]}],\"systemInstruction\":{\"role\":\"user\",\"parts\":[{\"text\":\"You are Mixdog native web search.\\nUse the hosted web_search tool for current or external facts.\\nAnswer concisely, cite source URLs, and do not request local tools or file edits.\"}]},\"tools\":[{\"googleSearch\":{}}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}},\"sessionId\":\"-2798275809207748213\"},\"requestType\":\"agent\",\"userAgent\":\"antigravity\",\"requestId\":\"agent-d75c3991-b416-48c9-af27-bc894e0cc647\"}",
+      "served": "data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"The answer \"}]}}],\"modelVersion\":\"fixture\"}}\n\ndata: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"is 42.\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":20,\"candidatesTokenCount\":8,\"totalTokenCount\":28},\"modelVersion\":\"fixture\"}}\n\n"
+    }
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "hosted-search/antigravity-oauth",
+      "seed": 2616160150,
+      "samples": []
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "d75c3991b41638c9ef27bc894e0cc647",
+          "site": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs#buildAntigravityRequest",
+          "n": 1
+        }
+      ]
+    },
+    "retrySleeps": [],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#Object.resetIdle",
+      "src/runtime/agent/orchestrator/providers/gemini-rest-stream/watchdogs.mjs#createRestStreamWatchdogs",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
+}

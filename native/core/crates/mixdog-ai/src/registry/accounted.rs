@@ -212,6 +212,9 @@ impl ProviderAdapter for AccountedAdapter {
     fn retry_policy(&self) -> &RetryPolicy {
         self.inner.retry_policy()
     }
+    fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
+        self.inner.retry_policy_for(model)
+    }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.inner.keepalive()
     }

@@ -1,0 +1,101 @@
+{
+  "provider": "antigravity-oauth",
+  "model": "claude-sonnet-4-6",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "go"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "toolu_a",
+          "name": "glob",
+          "arguments": {
+            "pattern": "*"
+          }
+        }
+      ],
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "thought": true,
+            "text": "unsigned head"
+          },
+          {
+            "functionCall": {
+              "name": "glob",
+              "args": {
+                "pattern": "*"
+              },
+              "id": "toolu_a"
+            }
+          }
+        ],
+        "requestContext": {
+          "model": "claude-sonnet-4-6"
+        }
+      }
+    },
+    {
+      "role": "tool",
+      "toolCallId": "toolu_a",
+      "content": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "done",
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "thought": true,
+            "text": "split "
+          },
+          {
+            "text": "interleaved"
+          },
+          {
+            "thought": true,
+            "text": "run",
+            "thoughtSignature": "sig-b"
+          }
+        ],
+        "requestContext": {
+          "model": "claude-sonnet-4-6"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "next"
+    }
+  ],
+  "tools": [
+    {
+      "name": "glob",
+      "description": "Find files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  ],
+  "opts": {}
+}

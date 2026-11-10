@@ -184,6 +184,8 @@ pub struct ChatDecoder {
     listed_finish: bool,
     /// One dispatch per call across the recovered and the streamed path.
     dedupe: Dedupe,
+    /// `Some` when the turn reports the model the chunks name (`chunk-events.mjs:56`, the last non-empty one wins).
+    served: Option<String>,
 }
 
 impl ChatDecoder {
@@ -213,7 +215,15 @@ impl ChatDecoder {
             normal_finish: false,
             listed_finish: false,
             dedupe: Dedupe::default(),
+            served: None,
         }
+    }
+
+    /// Reports the model the chunks name as the one that answered (`StreamEvent::ServedModel`), as Node's result
+    /// `model: response.model || useModel` does.
+    pub fn reporting_served_model(mut self) -> Self {
+        self.served = Some(String::new());
+        self
     }
 
     /// Recover tool calls leaked into the text, naming only these tools (the request body's).
@@ -423,6 +433,9 @@ impl ChatDecoder {
         if let Some(usage) = chunk.get("usage").filter(|u| u.is_object()) {
             self.usage = Some(usage.clone());
         }
+        if let (Some(served), Some(model)) = (self.served.as_mut(), chunk.get("model").and_then(JsonValue::as_str).filter(|m| !m.is_empty())) {
+            model.clone_into(served);
+        }
     }
 
     /// Calls are dispatched only once a normal finish confirms the turn ended.
@@ -545,6 +558,9 @@ impl ChatDecoder {
                 source,
                 details,
             )));
+        }
+        if let Some(served) = self.served.as_ref().filter(|m| !m.is_empty()) {
+            out.push(StreamEvent::ServedModel(served.clone()));
         }
         out.push(StreamEvent::Completed {
             pricing_model: None,

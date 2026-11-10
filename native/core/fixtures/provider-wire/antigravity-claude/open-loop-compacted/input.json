@@ -1,0 +1,75 @@
+{
+  "provider": "antigravity-oauth",
+  "model": "claude-opus-4-6-thinking",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "earlier"
+    },
+    {
+      "role": "assistant",
+      "content": "earlier answer",
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "thought": true,
+            "text": "old",
+            "thoughtSignature": "sig-old"
+          },
+          {
+            "text": "earlier answer"
+          }
+        ],
+        "requestContext": {
+          "model": "claude-opus-4-6-thinking"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "go"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "toolCalls": [
+        {
+          "id": "toolu_9",
+          "name": "glob",
+          "arguments": {
+            "pattern": "*"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "toolCallId": "toolu_9",
+      "content": "ok"
+    }
+  ],
+  "tools": [
+    {
+      "name": "glob",
+      "description": "Find files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  ],
+  "opts": {}
+}

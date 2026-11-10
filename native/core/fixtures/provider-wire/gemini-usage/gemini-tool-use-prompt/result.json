@@ -1,0 +1,34 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "gemini-2.5-pro",
+    "providerReplay": {
+      "version": 1,
+      "provider": "gemini",
+      "items": [
+        {
+          "text": "The answer "
+        },
+        {
+          "text": "is 42."
+        }
+      ],
+      "requestContext": {
+        "model": "gemini-2.5-pro"
+      }
+    },
+    "usage": {
+      "inputTokens": 120,
+      "outputTokens": 5,
+      "cachedTokens": 30,
+      "raw": {
+        "promptTokenCount": 100,
+        "toolUsePromptTokenCount": 20,
+        "cachedContentTokenCount": 30,
+        "candidatesTokenCount": 5
+      },
+      "promptTokens": 120
+    }
+  },
+  "dispatchedToolCalls": []
+}

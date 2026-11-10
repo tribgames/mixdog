@@ -1,0 +1,30 @@
+{
+  "provider": "gemini",
+  "model": "gemini-2.5-pro",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits."
+    },
+    {
+      "role": "user",
+      "content": "find x"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "role": "web-search",
+    "sessionId": "lead-1:native-web-search:loyw3v28",
+    "sourceType": "native-web-search",
+    "sourceName": "web_search",
+    "nativeTools": [
+      {
+        "type": "google_search"
+      }
+    ],
+    "nativeInclude": [],
+    "toolChoice": "auto",
+    "fast": false,
+    "modelParameters": {}
+  }
+}

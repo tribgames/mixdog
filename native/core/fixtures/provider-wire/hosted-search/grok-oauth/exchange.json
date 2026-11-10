@@ -1,0 +1,122 @@
+{
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://registry.npmjs.org",
+      "method": "GET",
+      "path": "/@xai-official/grok/latest",
+      "headers": {
+        "host": "registry.npmjs.org",
+        "connection": "keep-alive",
+        "accept": "*/*",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding"
+      ],
+      "bodyText": "",
+      "served": "{\"object\":\"list\",\"data\":[],\"models\":[]}"
+    },
+    {
+      "transport": "http",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "method": "POST",
+      "path": "/v1/responses",
+      "headers": {
+        "host": "cli-chat-proxy.grok.com",
+        "connection": "keep-alive",
+        "accept": "application/json",
+        "x-stainless-retry-count": "0",
+        "x-stainless-lang": "js",
+        "x-stainless-package-version": "6.49.0",
+        "x-stainless-os": "Windows",
+        "x-stainless-arch": "x64",
+        "x-stainless-runtime": "node",
+        "x-stainless-runtime-version": "v22.20.0",
+        "authorization": "Bearer <redacted>",
+        "x-grok-client-version": "1.0.70",
+        "x-grok-client-identifier": "grok-shell",
+        "user-agent": "xai-grok-build/1.0.70",
+        "x-grok-session-id": "lead-1:native-web-search:loyw3v28",
+        "x-grok-req-id": "4972f1fb-20d2-449a-a7b5-20b0a34b88f6",
+        "x-grok-model-override": "grok-4",
+        "content-type": "application/json",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "570"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "accept",
+        "x-stainless-retry-count",
+        "x-stainless-lang",
+        "x-stainless-package-version",
+        "x-stainless-os",
+        "x-stainless-arch",
+        "x-stainless-runtime",
+        "x-stainless-runtime-version",
+        "authorization",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "user-agent",
+        "x-grok-session-id",
+        "x-grok-req-id",
+        "x-grok-model-override",
+        "content-type",
+        "accept-language",
+        "sec-fetch-mode",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"grok-4\",\"input\":[{\"role\":\"system\",\"content\":[{\"type\":\"input_text\",\"text\":\"You are Mixdog native web search.\\nUse the hosted web_search tool for current or external facts.\\nAnswer concisely, cite source URLs, and do not request local tools or file edits.\"}]},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"find x\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"5c582f31-7664-484f-96df-856095a97d31\",\"tools\":[{\"type\":\"web_search\",\"filters\":{\"allowed_domains\":[\"a.com\",\"b.com\"]}}],\"parallel_tool_calls\":true,\"stream\":true}",
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The answer is 42.\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The answer is 42.\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"fixture\",\"status\":\"completed\",\"usage\":{\"input_tokens\":20,\"output_tokens\":8,\"total_tokens\":28},\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The answer is 42.\"}]}]}}\n\n"
+    }
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "hosted-search/grok-oauth",
+      "seed": 2750949023,
+      "samples": [
+        {
+          "n": 1,
+          "value": 0.012653720332309604,
+          "site": "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry"
+        }
+      ]
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "4972f1fb20d2f49aa7b520b0a34b88f6",
+          "site": "src/runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs#proxyHeaders",
+          "n": 1
+        }
+      ]
+    },
+    "retrySleeps": [],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/openai-compat-stream-common.mjs#armIdle",
+      "src/runtime/agent/orchestrator/providers/retry-executor.mjs#withRetry",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
+}

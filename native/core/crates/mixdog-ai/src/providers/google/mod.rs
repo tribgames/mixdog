@@ -20,6 +20,7 @@ pub mod error;
 pub mod json;
 pub mod models;
 pub mod policy;
+pub mod maas;
 pub mod redirect;
 pub mod request;
 pub mod schema;
@@ -28,11 +29,17 @@ pub mod tool_accept;
 pub mod traits;
 
 #[cfg(test)]
+mod claude_replay_wire_tests;
+#[cfg(test)]
 mod conformance;
 #[cfg(test)]
-mod wire_tests;
+pub(crate) mod wire_tests;
 #[cfg(test)]
 mod tool_accept_tests;
+#[cfg(test)]
+mod maas_wire_tests;
+#[cfg(test)]
+mod usage_wire_tests;
 
 use adapter::GoogleAdapter;
 use auth::ApiKeyAuth;
