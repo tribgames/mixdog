@@ -32,6 +32,9 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 # Test-only: a failure writer whose trace rows also reach a row sink the test holds (`FailureWriter::with_sink`). No normal build
 # enables it.
 test-support = []
+# Replay-only: the failure log's 1000 ms timer held when `MIXDOG_FAILURE_FLUSH_HELD` names a report file
+# (`FailureWriter::replay_held`), for the replay of record-tool-failures.mjs. No ordinary build enables it.
+replay-controls = []
 
 [dev-dependencies]
 tempfile = { workspace = true }

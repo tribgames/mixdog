@@ -50,8 +50,11 @@ pub struct FailureWriter {
     #[cfg(feature = "test-support")]
     appended: Option<Arc<dyn Fn(&'static str) + Send + Sync>>,
     /// Test-only: the 1000 ms timer is held (it is never started), so queued rows reach the file only through a flush.
-    #[cfg(feature = "test-support")]
+    #[cfg(any(feature = "test-support", feature = "replay-controls"))]
     timer_held: bool,
+    /// Replay-only (`replay-controls`): the file the held writer reports to, and the rows queued while its timer is held.
+    #[cfg(feature = "replay-controls")]
+    held_report: Option<(PathBuf, std::sync::atomic::AtomicUsize)>,
 }
 
 impl FailureWriter {
@@ -62,8 +65,25 @@ impl FailureWriter {
         let mut writers = writers.lock().unwrap_or_else(PoisonError::into_inner);
         writers
             .entry(data_dir.to_path_buf())
-            .or_insert_with(|| Arc::new(Self::new(&TraceConfig::from_env(data_dir, &|name| std::env::var(name).ok(), false), io, clock)))
+            .or_insert_with(|| Arc::new(Self::replay_held(Self::new(&TraceConfig::from_env(data_dir, &|name| std::env::var(name).ok(), false), io, clock))))
             .clone()
+    }
+
+    /// A build with `replay-controls` (an explicit opt-in: no ordinary build, debug or release, has it) whose environment names a file
+    /// in `MIXDOG_FAILURE_FLUSH_HELD` holds the 1000 ms timer of every writer it makes, so a queued row reaches the file only through a
+    /// full batch or the exit flush, and writes to that file the number of rows queued while held, after each append: the replay of
+    /// `record-tool-failures.mjs` reads it before it stops the core, to know the row is queued and not written.
+    #[cfg(feature = "replay-controls")]
+    fn replay_held(writer: Self) -> Self {
+        match std::env::var_os("MIXDOG_FAILURE_FLUSH_HELD").filter(|value| !value.is_empty()) {
+            Some(file) => Self { timer_held: true, held_report: Some((PathBuf::from(file), std::sync::atomic::AtomicUsize::new(0))), ..writer },
+            None => writer,
+        }
+    }
+
+    #[cfg(not(feature = "replay-controls"))]
+    fn replay_held(writer: Self) -> Self {
+        writer
     }
 
     pub fn new(config: &TraceConfig, io: ToolIo, clock: Arc<dyn Clock>) -> Self {
@@ -76,8 +96,10 @@ impl FailureWriter {
             warned: Mutex::new(HashSet::new()),
             #[cfg(feature = "test-support")]
             appended: None,
-            #[cfg(feature = "test-support")]
+            #[cfg(any(feature = "test-support", feature = "replay-controls"))]
             timer_held: false,
+            #[cfg(feature = "replay-controls")]
+            held_report: None,
         }
     }
 
@@ -101,10 +123,22 @@ impl FailureWriter {
     }
 
     fn timer_is_held(&self) -> bool {
-        #[cfg(feature = "test-support")]
+        #[cfg(any(feature = "test-support", feature = "replay-controls"))]
         return self.timer_held;
-        #[cfg(not(feature = "test-support"))]
+        #[cfg(not(any(feature = "test-support", feature = "replay-controls")))]
         false
+    }
+
+    /// `replay-controls`: the count of rows queued while held, written whole to the report file (temp file, then rename).
+    #[cfg(feature = "replay-controls")]
+    fn report_held(&self) {
+        if let Some((file, queued)) = &self.held_report {
+            let count = queued.fetch_add(1, Ordering::AcqRel) + 1;
+            let temp = file.with_extension("tmp");
+            if std::fs::write(&temp, count.to_string()).is_ok() {
+                let _ = std::fs::rename(&temp, file);
+            }
+        }
     }
 
     #[cfg(feature = "test-support")]
@@ -137,6 +171,8 @@ impl FailureWriter {
             let me = Arc::clone(self);
             drop(mixdog_rt::spawn("tool-failures-flush", TaskClass::Work, async move { me.flush().await }));
         } else if self.timer_is_held() {
+            #[cfg(feature = "replay-controls")]
+            self.report_held();
         } else if !self.armed.swap(true, Ordering::AcqRel) {
             let me = Arc::clone(self);
             drop(mixdog_rt::spawn("tool-failures-timer", TaskClass::Work, async move {

@@ -9,7 +9,7 @@ workspace = true
 
 [features]
 # Forwarded to mixdog-workspace: the controls a replay of the download recording drives a spawned core with. Never in an ordinary build.
-replay-controls = ["mixdog-workspace/replay-controls"]
+replay-controls = ["mixdog-workspace/replay-controls", "mixdog-core-run/replay-controls"]
 
 [dependencies]
 mixdog-app-protocol = { workspace = true }
