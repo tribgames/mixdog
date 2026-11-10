@@ -1389,6 +1389,10 @@ const NO_LOOP_EVENT: &str = "the core's loop raises no such event: the host deri
 
 /// Everything the recording holds that the replay does not compare: by construction the complete list, since every comparison is the
 /// recorded value less these paths.
+///
+/// An entry also stands for a parent object it leaves empty ([`subtract`]): a row whose `meta` held nothing but the host's stamps
+/// equals the loop's row with no `meta`. Only a removal empties a parent: an object that was empty before, or that one side has
+/// and the other lacks for any other reason, is still a difference (`an_emptied_parent_goes_and_an_empty_object_stays`).
 const NOT_COMPARED: &[Uncompared] = &[
     Uncompared { path: "stored[].createdAt", why: HOST_ROW, compared_in: NOT_YET },
     Uncompared { path: "stored[].meta.transcript.messageId", why: HOST_ROW, compared_in: NOT_YET },
@@ -1519,6 +1523,18 @@ fn subtract(value: &mut Value, steps: &[Step<'_>]) -> usize {
             items.iter_mut().filter(|item| matches(item)).map(|item| subtract(item, rest)).sum()
         }
     }
+}
+
+#[test]
+fn an_emptied_parent_goes_and_an_empty_object_stays() {
+    let path = steps("rows[].meta.stamp.id");
+    let mut stamped = json!({ "rows": [{ "meta": { "stamp": { "id": 1 } } }, { "meta": { "stamp": { "id": 2 }, "kept": true } }] });
+    assert_eq!(subtract(&mut stamped, &path), 2);
+    assert_eq!(stamped, json!({ "rows": [{}, { "meta": { "kept": true } }] }));
+    // Nothing removed, nothing pruned: an object that is empty on its own is compared as it is.
+    let mut empty = json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] });
+    assert_eq!(subtract(&mut empty, &path), 0);
+    assert_eq!(empty, json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] }));
 }
 
 /// The manifest's clock rule applied to the core's values: a number under one of its keys is 0.
