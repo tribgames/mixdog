@@ -394,14 +394,10 @@ async fn run(
         )));
     }
     let estimate = Arc::new(AtomicU64::new(INITIAL_BITRATE_BPS.to_bits()));
-    let setup = match media_setup(Arc::clone(&estimate)) {
-        Ok(setup) => setup,
-        Err(fault) => return emit(LiveViewEvent::Failed(fault)),
-    };
     let setup_deadline = tokio::time::sleep(peer::SETUP_BUDGET);
     tokio::pin!(setup_deadline);
     let opened = budget
-        .step("open", peer::open(&config, Some(setup)))
+        .step("open", peer::open(&config, || media_setup(Arc::clone(&estimate)).map(Some)))
         .await
         .and_then(|opened| opened);
     let peer::Opened { pc, events: mut peer_events } = match opened {

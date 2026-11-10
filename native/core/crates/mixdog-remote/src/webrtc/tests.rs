@@ -10,6 +10,7 @@ use mixdog_core_api::domain::media::EncodingParams;
 use mixdog_core_api::domain::media::FrameSourceKind;
 use mixdog_core_api::domain::media::PixelFormat;
 use mixdog_core_api::domain::media::VideoTrack;
+use rtc::ice::mdns::MulticastDnsMode;
 use rtc::peer_connection::configuration::media_engine::MIME_TYPE_VP8;
 use rtc::peer_connection::sdp::RTCSessionDescription;
 use rtc::rtcp::payload_feedbacks::picture_loss_indication::PictureLossIndication;
@@ -123,8 +124,11 @@ impl Phone {
                 .with_media_engine(engine)
                 .with_interceptor_registry(registry)
                 .with_setting_engine(
+                    // The phone signals IP candidates only (127.0.0.1), so it needs no mDNS socket,
+                    // whose multicast join depends on the machine's adapters.
                     SettingEngineBuilder::new()
                         .with_include_loopback_candidate(true)
+                        .with_multicast_dns_mode(MulticastDnsMode::Disabled)
                         .build(),
                 )
                 .with_handler(Arc::new(PhoneHandler { tx }))
@@ -150,6 +154,105 @@ impl Phone {
 
 fn to_candidate(init: RTCIceCandidateInit) -> Candidate {
     Candidate::from_init(init)
+}
+
+/// The crate's Tokio runtime on a machine that refuses the multicast socket the driver opens on
+/// the mDNS port (5353, RFC 6762) to resolve a peer's `.local` candidates, as this PC's adapters
+/// refused its group join in the merge run (`os error 10065`, host unreachable). Every other
+/// socket and timer is the real one.
+#[derive(Debug)]
+struct NoMulticast(webrtc::runtime::TokioRuntime);
+
+impl webrtc::runtime::Runtime for NoMulticast {
+    fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) -> Box<dyn webrtc::runtime::JoinHandle> {
+        self.0.spawn(future)
+    }
+
+    fn spawn_reactor(&self, size: usize, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) -> Box<dyn webrtc::runtime::JoinHandle> {
+        self.0.spawn_reactor(size, future)
+    }
+
+    fn wrap_udp_socket(&self, socket: std::net::UdpSocket) -> std::io::Result<Arc<dyn webrtc::runtime::AsyncUdpSocket>> {
+        if socket.local_addr()?.port() == 5353 {
+            return Err(std::io::Error::from(std::io::ErrorKind::HostUnreachable));
+        }
+        self.0.wrap_udp_socket(socket)
+    }
+
+    fn wrap_tcp_listener(&self, listener: std::net::TcpListener) -> std::io::Result<Arc<dyn webrtc::runtime::AsyncTcpListener>> {
+        self.0.wrap_tcp_listener(listener)
+    }
+
+    fn connect_tcp<'a>(
+        &'a self,
+        remote_addr: std::net::SocketAddr,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Arc<dyn webrtc::runtime::AsyncTcpStream>>> + Send + 'a>> {
+        self.0.connect_tcp(remote_addr)
+    }
+
+    fn resolve_host<'a>(&'a self, host: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<std::net::SocketAddr>>> + Send + 'a>> {
+        self.0.resolve_host(host)
+    }
+
+    fn now(&self) -> std::time::Instant {
+        self.0.now()
+    }
+
+    fn sleep(&self, duration: Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        self.0.sleep(duration)
+    }
+
+    fn interval(&self, period: Duration) -> Box<dyn webrtc::runtime::AsyncInterval> {
+        self.0.interval(period)
+    }
+
+    fn block_on(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + '_>>) {
+        self.0.block_on(future)
+    }
+
+    fn yield_now(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        self.0.yield_now()
+    }
+
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+}
+
+/// A machine that refuses the mDNS socket still connects the carrier: the connection comes up
+/// without that socket and opens over its loopback host candidates, as Node's Chromium peer
+/// comes up whatever mDNS can do (`peer::open`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_carrier_connects_on_a_machine_that_refuses_the_mdns_socket() {
+    mixdog_rt::testing::tokens();
+    let mut config = loopback();
+    config.runtime = Some(Arc::new(NoMulticast(webrtc::runtime::TokioRuntime)));
+    let (carrier, mut events) = CarrierConnection::spawn(config);
+    let mut phone = Phone::new(false).await;
+    carrier.offer(false);
+    let path = tokio::time::timeout(BOUND, async {
+        loop {
+            tokio::select! {
+                Some(event) = events.recv() => match event {
+                    CarrierEvent::Offer { sdp } => carrier.answer(phone.answer(sdp).await),
+                    CarrierEvent::Candidate { candidate: Some(candidate), .. } => {
+                        let _ = phone.pc.add_ice_candidate(candidate.into_init()).await;
+                    }
+                    CarrierEvent::Open { path, .. } => break path,
+                    CarrierEvent::Failed(fault) => panic!("carrier failed: {fault}"),
+                    _ => {}
+                },
+                Some(event) = phone.events.recv() => {
+                    if let PhoneEvent::Candidate(init) = event {
+                        carrier.candidate(Some(to_candidate(init)));
+                    }
+                }
+            }
+        }
+    })
+    .await
+    .expect("the carrier opens within the test bound");
+    assert_eq!(path, Some(CandidatePath::Direct));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
