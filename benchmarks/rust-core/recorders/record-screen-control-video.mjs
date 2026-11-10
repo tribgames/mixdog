@@ -28,6 +28,12 @@ const frame = (id) => ({ op: 'frame', id });
 const delivered = (epoch = 'current') => ({ op: 'delivered', epoch });
 const seen = (epoch = 'current') => ({ op: 'frameSeen', epoch });
 const advance = (ms) => ({ op: 'advance', ms });
+// The forced interleavings (Rust's video_tests, on a multi-threaded runtime): the `race: 'held'` step is held between
+// its check of the run and its update while each `race: 'meanwhile'` step is started, one after the other. Node runs
+// each handler whole, so the held step ends before the next one begins: the trace here is that order. The racing
+// steps log nothing of their own (`quiet`), only what the source does, so the trace is the source's alone.
+const held = (step) => ({ ...step, race: 'held' });
+const meanwhile = (step) => ({ ...step, quiet: true, race: 'meanwhile' });
 
 const SCENARIOS = [
   {
@@ -174,6 +180,21 @@ const SCENARIOS = [
     ],
   },
   {
+    name: 'a frame-seen of a run, then the stall watchdog’s new run, then that run’s first delivery: control is granted for the seen run only',
+    world: {},
+    steps: [...started, toHelper, delivered(), held(seen()), meanwhile(advance(216)), meanwhile(delivered())],
+  },
+  {
+    name: 'a delivery of the current run made before its stall watchdog fires clears it: the cleared watchdog starts no run',
+    world: {},
+    steps: [...started, toHelper, delivered(), advance(215), held(delivered()), meanwhile(advance(1))],
+  },
+  {
+    name: 'a frame-seen, then the session’s stop: control is granted before the stop, never after it',
+    world: {},
+    steps: [...started, toHelper, delivered(), held(seen()), meanwhile({ op: 'stopped' })],
+  },
+  {
     name: 'install and password requests reach the session',
     world: {},
     steps: [
@@ -288,7 +309,7 @@ async function play(scenario) {
           emit('frame', { id: step.id });
           break;
         case 'delivered':
-          log.push({ ev: 'delivered', epoch: epochOf(step.epoch) });
+          if (!step.quiet) log.push({ ev: 'delivered', epoch: epochOf(step.epoch) });
           source.delivered(epochOf(step.epoch));
           break;
         case 'repeatDelivered':
@@ -355,9 +376,11 @@ async function play(scenario) {
           running = false;
           emit('stop', 'user');
           break;
-        case 'advance':
-          log.push({ ev: 'advance', ms: step.ms, ran: await time.advance(step.ms) });
+        case 'advance': {
+          const ran = await time.advance(step.ms);
+          if (!step.quiet) log.push({ ev: 'advance', ms: step.ms, ran });
           break;
+        }
         case 'settle':
           await checkpoint();
           break;

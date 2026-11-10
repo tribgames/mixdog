@@ -181,37 +181,43 @@ impl Inner {
     }
 }
 
+/// What the helper sends arrives from the pipe's own thread: each event is an entry into the screen control and runs
+/// in its turn.
 impl PipeEvents for Inner {
     fn desktop_changed(&self, desktop: String, session: u32, locked: Option<bool>) {
-        {
-            let mut state = self.state();
-            if let Some(current) = state.session.as_mut() {
-                current.desktop = desktop.clone();
-                current.session = session;
-                current.locked = locked;
+        self.timers.turn().clone().enter(|| {
+            {
+                let mut state = self.state();
+                if let Some(current) = state.session.as_mut() {
+                    current.desktop = desktop.clone();
+                    current.session = session;
+                    current.locked = locked;
+                }
             }
-        }
-        self.desktop_changed.call(&HelperSession { session, desktop, locked });
+            self.desktop_changed.call(&HelperSession { session, desktop, locked });
+        });
     }
 
     fn grant_challenge(&self, challenge: Challenge) {
-        self.challenges.call(&challenge);
+        self.timers.turn().clone().enter(|| self.challenges.call(&challenge));
     }
 
     fn error(&self, code: String, message: String) {
-        self.errors.call(&(code, message));
+        self.timers.turn().clone().enter(|| self.errors.call(&(code, message)));
     }
 
     fn frame(&self, header: FrameHeader, pixels: Arc<Vec<u8>>) {
-        self.frames.call(&(header, pixels));
+        self.timers.turn().clone().enter(|| self.frames.call(&(header, pixels)));
     }
 
     fn closed(&self) {
-        self.end_session(CONNECTION_CLOSED);
-        self.closed.call(&());
-        let mut state = self.state();
-        state.pipe = None;
-        state.connecting = false;
+        self.timers.turn().clone().enter(|| {
+            self.end_session(CONNECTION_CLOSED);
+            self.closed.call(&());
+            let mut state = self.state();
+            state.pipe = None;
+            state.connecting = false;
+        });
     }
 }
 

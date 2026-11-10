@@ -28,6 +28,7 @@ use serde::Serialize;
 use tokio::sync::oneshot;
 
 use super::router::BoxFuture;
+use super::turn::Turn;
 
 /// Exit code of an elevated run whose prompt was declined (`ERROR_CANCELLED`).
 pub(super) const ELEVATION_DECLINED_EXIT: i32 = 1223;
@@ -290,20 +291,52 @@ pub(super) trait InstallerPort: Send + Sync {
     fn run_key_op(&self, op: KeyOp) -> BoxFuture<Result<i32, String>>;
 }
 
-/// Time for screen control: a clock, timers, and a place to run work that goes on whether or not its caller
-/// still waits (a launched elevation, a request, a queued input step), as Node's promises do.
+/// Time for screen control, and its one thread of control: a clock, timers, a place to run work that goes on
+/// whether or not its caller still waits (a launched elevation, a request, a queued input step), as Node's promises
+/// do, and the [`Turn`] every task and timer callback runs in. Every part of one screen control (its helper, its
+/// sessions, their video sources) shares one `Timers`, so one turn serialises them all, as Node's one thread does.
 pub(super) trait Timers: Send + Sync {
     /// Milliseconds on a monotonic clock (Node reads `Date.now()` only for differences).
     fn now_ms(&self) -> f64;
     /// Completes after `after`; dropping the future cancels the timer.
     fn sleep(&self, after: std::time::Duration) -> BoxFuture<()>;
-    fn spawn(&self, task: BoxFuture<()>);
-    /// Runs `callback` after `after` unless the handle is cleared first (Node's `setTimeout`).
-    fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle;
+    /// Runs `task` on the runtime as it is (see [`Timers::spawn`]).
+    fn run(&self, task: BoxFuture<()>);
+    /// Calls `callback` once after `after` unless the handle is cleared first (see [`Timers::set_timeout`]).
+    fn arm(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle;
+    fn turn(&self) -> &Arc<Turn>;
+
+    /// Runs `task`, polled in the turn.
+    fn spawn(&self, task: BoxFuture<()>) {
+        self.run(self.turn().guard(task));
+    }
+
+    /// Runs `callback` in the turn after `after` unless the handle is cleared first (Node's `setTimeout`). A
+    /// callback the runtime already started while the turn was busy still checks for a clear made meanwhile, in
+    /// the turn, so a cleared timer never runs.
+    fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
+        let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let turn = self.turn().clone();
+        let armed = cleared.clone();
+        let timer = self.arm(
+            after,
+            Box::new(move || {
+                turn.enter(|| {
+                    if !armed.load(std::sync::atomic::Ordering::SeqCst) {
+                        callback();
+                    }
+                });
+            }),
+        );
+        TimerHandle::new(move || {
+            cleared.store(true, std::sync::atomic::Ordering::SeqCst);
+            timer.clear();
+        })
+    }
 
     /// Node's `answer.then(reaction)` on an answer already asked for: `task` awaits the answer, then reacts. It is
-    /// polled once here, so an answer that is already settled is taken up by the task's first turn, as Node's
-    /// reaction job is; otherwise the task waits like any other.
+    /// polled once here (the caller is in the turn), so an answer that is already settled is taken up by the
+    /// task's first turn, as Node's reaction job is; otherwise the task waits like any other.
     fn react(&self, mut task: BoxFuture<()>) {
         let waker = futures::task::noop_waker();
         if task.as_mut().poll(&mut std::task::Context::from_waker(&waker)).is_pending() {
@@ -315,11 +348,12 @@ pub(super) trait Timers: Send + Sync {
 /// Timers on the tokio runtime the caller is in.
 pub(super) struct TokioTimers {
     origin: tokio::time::Instant,
+    turn: Arc<Turn>,
 }
 
 impl TokioTimers {
     pub(super) fn new() -> Self {
-        Self { origin: tokio::time::Instant::now() }
+        Self { origin: tokio::time::Instant::now(), turn: Turn::new() }
     }
 }
 
@@ -332,11 +366,15 @@ impl Timers for TokioTimers {
         Box::pin(tokio::time::sleep(after))
     }
 
-    fn spawn(&self, task: BoxFuture<()>) {
+    fn run(&self, task: BoxFuture<()>) {
         drop(tokio::spawn(task));
     }
 
-    fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
+    fn turn(&self) -> &Arc<Turn> {
+        &self.turn
+    }
+
+    fn arm(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
         let cleared = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let armed = cleared.clone();
         let task = tokio::spawn(async move {
