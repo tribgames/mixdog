@@ -15,7 +15,8 @@
 //
 // The reports are always checked against the job's own accounting, whatever was left: the job's TotalProcesses at its end must be
 // the joins reported, and its ActiveProcesses read just after the program's exit must be what the members' lifetimes give at that
-// instant (a member that started or ended while the count was read counts on either side). A disagreement means a report was lost,
+// instant (a member that started or ended while the count was read, or within one clock tick of it since process times are kept
+// at tick precision, counts on either side). A disagreement means a report was lost,
 // so membership at the program's exit is unknown: the report says so and `readJobReport` fails the run. The job is made with
 // KILL_ON_JOB_CLOSE, so ending the host (a caller's deadline, a failure) ends the whole tree.
 //
@@ -192,6 +193,13 @@ public static class JobRun {
     }
   }
   static long Now() { long now; GetSystemTimePreciseAsFileTime(out now); return now; }
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetSystemTimeAdjustment(out uint adjustment, out uint increment, out bool disabled);
+  /** The clock's tick in 100 ns units: how far a coarse system time may lie behind the precise one. */
+  static long TimeIncrement() {
+    uint adjustment, increment; bool disabled;
+    if (!GetSystemTimeAdjustment(out adjustment, out increment, out disabled)) throw new Exception("GetSystemTimeAdjustment failed: " + Marshal.GetLastWin32Error());
+    return increment;
+  }
   /** A member's creation and exit times (exit long.MaxValue while it runs). */
   static long[] Lifetime(IntPtr process) {
     long created, exited, kernel, user;
@@ -243,7 +251,10 @@ public static class JobRun {
       if (remaining <= 0 || !Next((uint)remaining)) throw new Exception("the job did not report that no member is left within " + endDeadlineMs + " ms of being ended (" + joins + " joins reported)");
     }
     long[] atEnd = Accounting();
-    // The members' lifetimes against the job's own counts.
+    // The members' lifetimes against the job's own counts. A process's creation and exit times are the system time as of the last
+    // clock tick (KeQuerySystemTime), up to one increment earlier than the instant itself, while 'before' and 'after' are precise: a
+    // member whose recorded exit is within one increment before 'before' may still have been counted.
+    long increment = TimeIncrement();
     long surely = 0, possibly = 0;
     List<long> left = new List<long>();
     List<string> problems = new List<string>();
@@ -251,8 +262,8 @@ public static class JobRun {
       IntPtr member;
       if (members.TryGetValue(pid, out member)) {
         long[] life = Lifetime(member);
-        if (life[0] <= before && life[1] > after) surely++;
-        if (life[0] <= after && life[1] > before) possibly++;
+        if (life[0] <= before - increment && life[1] > after) surely++;
+        if (life[0] <= after && life[1] > before - increment) possibly++;
         if (pid != Program && life[0] <= programExit && life[1] >= programExit) left.Add(pid);
       } else {
         long order;

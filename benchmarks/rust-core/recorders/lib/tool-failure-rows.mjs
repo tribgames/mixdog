@@ -38,6 +38,13 @@ const utf8 = (s) => Buffer.byteLength(s, 'utf8');
 const NODE_HELPERS = [/^mixdog-spawn-\d+\.\d+\.\d+$/, /^mixdog-patch-\d+\.\d+\.\d+$/];
 const isNodeHelper = (name) => NODE_HELPERS.some((pattern) => pattern.test(name ?? ''));
 
+// A console host is started by Windows' console driver, not by the program, for a console program that has none; the arguments
+// after its image path are the driver's choice and vary between runs of the same binary (one `mixdogd` build, scenario 9, two
+// replays: `conhost.exe 0x4`, then `conhost.exe 0xffffffff -ForceV1`). They are written `<console host arguments>`; the image path
+// stays compared.
+const CONSOLE_HOST = /^(\\\?\?\\[A-Za-z]:\\WINDOWS\\system32\\conhost\.exe) .*$/i;
+const consoleHost = (line) => (typeof line === 'string' ? line.replace(CONSOLE_HOST, '$1 <console host arguments>') : line);
+
 /**
  * What a run's job still held when its program exited (lib/job-run.mjs report), in join order, as `{ name, parent, commandLine }`: the
  * image name; its parent as `#k` (the k-th entry of this list), `<runtime>` (the program itself, or for Node one of its helpers: Node's
@@ -55,7 +62,7 @@ export function leftAtExit({ program, left }, { nodeHelpers = false, workspace, 
     if (m.parentPid === program || (nodeHelpers && isNodeHelper(m.parent))) return '<runtime>';
     return null;
   };
-  return kept.map((m) => ({ name: m.name, parent: parentOf(m), commandLine: ownFolders(m.commandLine) }));
+  return kept.map((m) => ({ name: m.name, parent: parentOf(m), commandLine: consoleHost(ownFolders(m.commandLine)) }));
 }
 
 /**
