@@ -290,6 +290,7 @@ fn snapshot_of(v: &Value) -> Snapshot {
             Some("reasoning") => Some(SemanticKind::Reasoning),
             _ => None,
         },
+        current_tool: text(v, "currentTool"),
     }
 }
 
