@@ -63,6 +63,8 @@ const recorderFiles = () => RECORDER_FILES.map((path) => ({ path, sha256: create
 }
 const script = JSON.parse(readFileSync(join(FIXTURES, 'gh-script.json'), 'utf8'));
 const clone = (value) => JSON.parse(JSON.stringify(value));
+/** A side of a difference as text: `JSON.stringify` prints `-0` as `0`, which would hide the one thing that differs. */
+const shown = (value) => JSON.stringify(value, (_, item) => (Object.is(item, -0) ? JSON.rawJSON('-0') : item));
 
 const MACHINE_PATH = process.env.PATH;
 rmSync(WORK, { recursive: true, force: true });
@@ -661,7 +663,8 @@ if (REPLAY) {
     get(target, key) {
       if (key !== 'call') return Reflect.get(target, key, target);
       return async (method, params, options) => {
-        const entry = { method, ...(params === undefined ? {} : { params: clone(params) }) };
+        // `text`: the request's params as the client writes them (a spelled argument's own bytes, `-0` included).
+        const entry = { method, ...(params === undefined ? {} : { params: clone(params), text: JSON.stringify(params) }) };
         wires.push(entry);
         await holder.hold?.(entry);
         try {
@@ -750,7 +753,7 @@ function replaySpelled(call, text) {
       throw replay.phoneCallError(error);
     }
   });
-  return { route: { method: route.method, params: JSON.parse(JSON.stringify(route.params)) }, answered: withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`) };
+  return { route: { method: route.method, params: JSON.parse(JSON.stringify(route.params)) }, text: JSON.stringify(route.params), answered: withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`) };
 }
 
 async function finishReplay() {
@@ -772,7 +775,7 @@ async function finishReplay() {
   const unreplayed = expected.filter((name) => !cases.includes(name));
   const ordering = ONLY !== null ? 'not part of this group' : replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed';
   console.log(`phone-scm replay over ${REPLAY}${ONLY === null ? '' : ` (group ${ONLY})`}: ${cases.length} cases and the ordering scenario compared (${ordering}), ${replay.differences.length} differ, ${unreplayed.length} of the recording not replayed${unreplayed.length ? `: ${unreplayed.join(', ')}` : ''}`);
-  for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
+  for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${shown(difference.node)}\n  core: ${shown(difference.core)}`);
   // A difference, a recorded case that was not replayed, or a tree that could not be ended (`endTree` set the code) fails the run.
   process.exit(replay.differences.length || unreplayed.length || (ONLY === null && !replay.compared.includes('ordering')) || process.exitCode ? 1 : 0);
 }
@@ -912,12 +915,14 @@ function opsDifference(ops, wires) {
 }
 /** A call sent as its spelled bytes makes one request of the core, `route`, the request its text stands for: it is answered
  *  with what Node's one operation answered, or refused with Node's text where Node's host refused before acting. */
-function spelledDifference(recorded, route, wires) {
+function spelledDifference(recorded, spelled, wires) {
   assert.ok(recorded.ops.length <= 1, `${recorded.name}: a call sent as its bytes stands for one operation`);
   const outcome = recorded.ops.length ? expectedWires(recorded.ops)[0].outcome : { failed: { message: recorded.frame.error } };
-  const expected = [{ ...route, outcome }];
-  const actual = actualWires(wires);
-  return isDeepStrictEqual(actual, expected) ? null : { node: expected, core: actual };
+  // The values are compared as read back (mapFlowIds prints `-0` as `0` on both sides); the bytes sent, by their text.
+  const expected = [{ ...mapFlowIds(spelled.route), text: spelled.text, outcome }];
+  const actual = actualWires(wires).map((wire, at) => ({ ...wire, text: wires[at].text }));
+  const order = (list) => list.map(({ method, params, text, outcome: told }) => ({ method, params, text, outcome: told }));
+  return isDeepStrictEqual(order(actual), order(expected)) ? null : { node: expected, core: actual };
 }
 
 // The clock steps taken since the last call: they belong to the next call recorded (a status after the remote-list minute went by).
@@ -1066,7 +1071,7 @@ async function rec(name, call, params, note, during, text) {
     const differ = (what, node, coreSide) => {
       replay.differences.push({ name: `${name} (${what})`, node, core: coreSide });
       // A later wait that never ends loses the list printed at the end; the first difference is the one to read.
-      console.error(`DIFF ${name} (${what})\n  node: ${JSON.stringify(node)}\n  core: ${JSON.stringify(coreSide)}`);
+      console.error(`DIFF ${name} (${what})\n  node: ${shown(node)}\n  core: ${shown(coreSide)}`);
     };
     const events = settingsChanges.slice(settingsBefore);
     if (!isDeepStrictEqual(events, recorded.events ?? [])) differ('events', recorded.events ?? [], events);
@@ -1081,7 +1086,7 @@ async function rec(name, call, params, note, during, text) {
     // The body each REST call fed the tool on stdin (`--input -`): what reached GitHub.
     const bodies = (list) => (list ?? []).filter((entry) => entry.stdin !== undefined).map(({ tool, argv, stdin }) => ({ tool, argv, stdin }));
     if (!isDeepStrictEqual(bodies(processes), bodies(recorded.processes))) differ('bodies fed to the tools', bodies(recorded.processes), bodies(processes));
-    const operations = spelled ? spelledDifference(recorded, spelled.route, replay.wires) : opsDifference(recorded.ops, replay.wires);
+    const operations = spelled ? spelledDifference(recorded, spelled, replay.wires) : opsDifference(recorded.ops, replay.wires);
     if (operations) differ('operations', operations.node, operations.core);
     // What the call left in the repository, read after the core's answer and every child it started ended.
     const left = repoState(R, ORIGIN);

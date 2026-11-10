@@ -12640,6 +12640,448 @@
       }
     },
     {
+      "name": "input-number-gitLog-offset-list-of-string",
+      "call": "gitLog",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+        "",
+        [
+          "1"
+        ],
+        40
+      ],
+      "paramsText": "[\"D:\\\\mixdog-build\\\\tmp\\\\phone-ph2-scm-rec\\\\input\",\"\",[\"1\"],40]",
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "hash": "8d3d701b75a213dfc706673bc52ca0dc5dcd7d22",
+            "shortHash": "8d3d701",
+            "subject": "input 2",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": false,
+            "parents": [
+              "c4b7b7c8fcae8588601bd0f827e01de7964c83f2"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "c4b7b7c8fcae8588601bd0f827e01de7964c83f2",
+            "shortHash": "c4b7b7c",
+            "subject": "input 1",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": false,
+            "parents": [],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          }
+        ]
+      },
+      "ops": [
+        {
+          "name": "gitLog",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "",
+            1,
+            40
+          ],
+          "result": [
+            {
+              "hash": "8d3d701b75a213dfc706673bc52ca0dc5dcd7d22",
+              "shortHash": "8d3d701",
+              "subject": "input 2",
+              "when": "10 months ago",
+              "author": "Fixture",
+              "authoredAt": "2026-01-02T03:04:05Z",
+              "pushed": false,
+              "parents": [
+                "c4b7b7c8fcae8588601bd0f827e01de7964c83f2"
+              ],
+              "refs": [],
+              "tags": [],
+              "branches": [],
+              "remotes": []
+            },
+            {
+              "hash": "c4b7b7c8fcae8588601bd0f827e01de7964c83f2",
+              "shortHash": "c4b7b7c",
+              "subject": "input 1",
+              "when": "10 months ago",
+              "author": "Fixture",
+              "authoredAt": "2026-01-02T03:04:05Z",
+              "pushed": false,
+              "parents": [],
+              "refs": [],
+              "tags": [],
+              "branches": [],
+              "remotes": []
+            }
+          ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "--all",
+            "--topo-order",
+            "--decorate=full",
+            "--skip=1",
+            "-n40",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "@{u}..HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+            "message": "Fixture\nfixture@example.invalid\nsecond: edit a\n\n",
+            "length": "2"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+            "message": "Fixture\nfixture@example.invalid\nsecond: edit a\n\n",
+            "length": "2"
+          }
+        ],
+        "remoteRefs": [],
+        "index": [
+          "100644 0\ta.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            "a.txt",
+            "db09dd9295b3d583abcd166e2077620f8c0dd7b154dd4b8b98a53fe3eb7ce6d1"
+          ],
+          [
+            "src/b.mjs",
+            "4d6c305aa3866c1d56beb6a3b2394fe9dc4b3ce5f3756a2357139efefbd969d0"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*"
+        ]
+      },
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "input-number-gitLog-limit-list-of-string",
+      "call": "gitLog",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+        "",
+        0,
+        [
+          "2"
+        ]
+      ],
+      "paramsText": "[\"D:\\\\mixdog-build\\\\tmp\\\\phone-ph2-scm-rec\\\\input\",\"\",0,[\"2\"]]",
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "hash": "3c1aa2cc7ac3a98b5aa223b70db6acb8a8f7d555",
+            "shortHash": "3c1aa2c",
+            "subject": "input 3",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": false,
+            "parents": [
+              "8d3d701b75a213dfc706673bc52ca0dc5dcd7d22"
+            ],
+            "refs": [
+              "main"
+            ],
+            "tags": [],
+            "branches": [
+              "main"
+            ],
+            "remotes": []
+          },
+          {
+            "hash": "8d3d701b75a213dfc706673bc52ca0dc5dcd7d22",
+            "shortHash": "8d3d701",
+            "subject": "input 2",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": false,
+            "parents": [
+              "c4b7b7c8fcae8588601bd0f827e01de7964c83f2"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          }
+        ]
+      },
+      "ops": [
+        {
+          "name": "gitLog",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            "",
+            0,
+            2
+          ],
+          "result": [
+            {
+              "hash": "3c1aa2cc7ac3a98b5aa223b70db6acb8a8f7d555",
+              "shortHash": "3c1aa2c",
+              "subject": "input 3",
+              "when": "10 months ago",
+              "author": "Fixture",
+              "authoredAt": "2026-01-02T03:04:05Z",
+              "pushed": false,
+              "parents": [
+                "8d3d701b75a213dfc706673bc52ca0dc5dcd7d22"
+              ],
+              "refs": [
+                "main"
+              ],
+              "tags": [],
+              "branches": [
+                "main"
+              ],
+              "remotes": []
+            },
+            {
+              "hash": "8d3d701b75a213dfc706673bc52ca0dc5dcd7d22",
+              "shortHash": "8d3d701",
+              "subject": "input 2",
+              "when": "10 months ago",
+              "author": "Fixture",
+              "authoredAt": "2026-01-02T03:04:05Z",
+              "pushed": false,
+              "parents": [
+                "c4b7b7c8fcae8588601bd0f827e01de7964c83f2"
+              ],
+              "refs": [],
+              "tags": [],
+              "branches": [],
+              "remotes": []
+            }
+          ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "--all",
+            "--topo-order",
+            "--decorate=full",
+            "--skip=0",
+            "-n2",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "@{u}..HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+            "message": "Fixture\nfixture@example.invalid\nsecond: edit a\n\n",
+            "length": "2"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+            "message": "Fixture\nfixture@example.invalid\nsecond: edit a\n\n",
+            "length": "2"
+          }
+        ],
+        "remoteRefs": [],
+        "index": [
+          "100644 0\ta.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            "a.txt",
+            "db09dd9295b3d583abcd166e2077620f8c0dd7b154dd4b8b98a53fe3eb7ce6d1"
+          ],
+          [
+            "src/b.mjs",
+            "4d6c305aa3866c1d56beb6a3b2394fe9dc4b3ce5f3756a2357139efefbd969d0"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*"
+        ]
+      },
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
       "name": "input-number-gitLog-offset-false",
       "call": "gitLog",
       "params": [
@@ -18436,6 +18878,112 @@
             "--no-optional-locks",
             "remote",
             "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+          "env": {
+            "set": {
+              "GIT_EDITOR": "true",
+              "GIT_SEQUENCE_EDITOR": "true"
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+            "message": "Fixture\nfixture@example.invalid\nsecond: edit a\n\n",
+            "length": "2"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "17ce48f8f5a1ada1cb04adbdbcd4e39646e130e9",
+            "message": "Fixture\nfixture@example.invalid\nsecond: edit a\n\n",
+            "length": "2"
+          }
+        ],
+        "remoteRefs": [],
+        "index": [
+          "100644 0\ta.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            "a.txt",
+            "db09dd9295b3d583abcd166e2077620f8c0dd7b154dd4b8b98a53fe3eb7ce6d1"
+          ],
+          [
+            "src/b.mjs",
+            "4d6c305aa3866c1d56beb6a3b2394fe9dc4b3ce5f3756a2357139efefbd969d0"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*"
+        ]
+      },
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "input-cwd-trimmed-and-staged",
+      "call": "gitStage",
+      "params": [
+        " D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input ",
+        [
+          "f.txt"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      },
+      "ops": [
+        {
+          "name": "gitStage",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
+            [
+              "f.txt"
+            ]
+          ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "add",
+            "-A",
+            "--",
+            "f.txt"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\input",
           "env": {
@@ -31979,7 +32527,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32003,7 +32551,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32026,7 +32574,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32052,7 +32600,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32077,7 +32625,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32137,7 +32685,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32209,7 +32757,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32256,7 +32804,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32301,7 +32849,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-uAygK7\\refresh.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-omh1zb\\refresh.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32730,7 +33278,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-RnwoAm\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-AbHzBT\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32754,7 +33302,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-RnwoAm\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-AbHzBT\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32777,7 +33325,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-RnwoAm\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-AbHzBT\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32803,7 +33351,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-RnwoAm\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-AbHzBT\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32828,7 +33376,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-RnwoAm\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-AbHzBT\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -32888,7 +33436,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-RnwoAm\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-AbHzBT\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33221,7 +33769,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33245,7 +33793,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33268,7 +33816,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33294,7 +33842,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33319,7 +33867,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33379,7 +33927,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33451,7 +33999,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33498,7 +34046,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\commit.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\commit.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -33543,7 +34091,7 @@
           "env": {
             "set": {
               "GIT_EDITOR": "true",
-              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-py6VMr\\refresh.index",
+              "GIT_INDEX_FILE": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\tmp\\mixdog-commit-4242-ODlHmJ\\refresh.index",
               "GIT_SEQUENCE_EDITOR": "true"
             },
             "remove": [
@@ -56913,6 +57461,1758 @@
       }
     },
     {
+      "name": "coerced-ghPrMerge-method-list",
+      "call": "ghPrMerge",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        12,
+        [
+          "squash"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": "✓ Squashed and merged pull request octo/demo#12\n"
+      },
+      "ops": [
+        {
+          "name": "ghPrMerge",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            12,
+            [
+              "squash"
+            ]
+          ],
+          "result": "✓ Squashed and merged pull request octo/demo#12\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "pr",
+            "merge",
+            "12",
+            "--squash"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0,
+            "stdout": "✓ Squashed and merged pull request octo/demo#12\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrMerge-method-null",
+      "call": "ghPrMerge",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        12,
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": "✓ Merged pull request octo/demo#12\n"
+      },
+      "ops": [
+        {
+          "name": "ghPrMerge",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            12,
+            null
+          ],
+          "result": "✓ Merged pull request octo/demo#12\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "pr",
+            "merge",
+            "12",
+            "--merge"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0,
+            "stdout": "✓ Merged pull request octo/demo#12\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrMerge-method-number",
+      "call": "ghPrMerge",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        12,
+        7
+      ],
+      "frame": {
+        "ok": false,
+        "error": "A valid merge method is required."
+      },
+      "ops": [
+        {
+          "name": "ghPrMerge",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            12,
+            7
+          ],
+          "error": {
+            "message": "A valid merge method is required."
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrMerge-method-boolean",
+      "call": "ghPrMerge",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        "x",
+        true
+      ],
+      "frame": {
+        "ok": false,
+        "error": "A valid merge method is required."
+      },
+      "ops": [
+        {
+          "name": "ghPrMerge",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "x",
+            true
+          ],
+          "error": {
+            "message": "A valid merge method is required."
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrMerge-number-list",
+      "call": "ghPrMerge",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        [
+          12
+        ],
+        "merge"
+      ],
+      "frame": {
+        "ok": true,
+        "value": "✓ Merged pull request octo/demo#12\n"
+      },
+      "ops": [
+        {
+          "name": "ghPrMerge",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            [
+              12
+            ],
+            "merge"
+          ],
+          "result": "✓ Merged pull request octo/demo#12\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "pr",
+            "merge",
+            "12",
+            "--merge"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0,
+            "stdout": "✓ Merged pull request octo/demo#12\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrView-number-list-of-string",
+      "call": "ghPrView",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        [
+          "12"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "number": 12,
+          "title": "Add retry",
+          "author": "ada",
+          "headRefName": "retry",
+          "baseRefName": "main",
+          "isDraft": false,
+          "state": "OPEN",
+          "url": "https://github.com/octo/demo/pull/12",
+          "updatedAt": "2026-01-02T03:04:05Z",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "checks": {
+            "total": 1,
+            "passing": 0,
+            "failing": 1,
+            "pending": 0
+          },
+          "body": "Retries the call.",
+          "additions": 10,
+          "deletions": 2,
+          "changedFiles": 2,
+          "files": [
+            {
+              "path": "src/a.rs",
+              "additions": 8,
+              "deletions": 1
+            }
+          ],
+          "mergeable": "MERGEABLE",
+          "mergeStateStatus": "CLEAN",
+          "createdAt": "2026-01-01T00:00:00Z",
+          "labels": [
+            "bug"
+          ],
+          "timeline": [
+            {
+              "kind": "comment",
+              "author": "bo",
+              "body": "Looks good",
+              "state": "",
+              "createdAt": "2026-01-01T12:00:00Z"
+            },
+            {
+              "kind": "review",
+              "author": "bo",
+              "body": "Please add a test",
+              "state": "CHANGES_REQUESTED",
+              "createdAt": "2026-01-01T14:00:00Z"
+            },
+            {
+              "kind": "review",
+              "author": "bo",
+              "body": "",
+              "state": "APPROVED",
+              "createdAt": "2026-01-02T01:00:00Z"
+            }
+          ],
+          "reviewers": [
+            {
+              "login": "bo",
+              "state": "APPROVED"
+            },
+            {
+              "login": "cy",
+              "state": "COMMENTED"
+            },
+            {
+              "login": "dee",
+              "state": "PENDING"
+            }
+          ]
+        }
+      },
+      "ops": [
+        {
+          "name": "ghPrView",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            [
+              "12"
+            ]
+          ],
+          "result": {
+            "number": 12,
+            "title": "Add retry",
+            "author": "ada",
+            "headRefName": "retry",
+            "baseRefName": "main",
+            "isDraft": false,
+            "state": "OPEN",
+            "url": "https://github.com/octo/demo/pull/12",
+            "updatedAt": "2026-01-02T03:04:05Z",
+            "reviewDecision": "REVIEW_REQUIRED",
+            "checks": {
+              "total": 1,
+              "passing": 0,
+              "failing": 1,
+              "pending": 0
+            },
+            "body": "Retries the call.",
+            "additions": 10,
+            "deletions": 2,
+            "changedFiles": 2,
+            "files": [
+              {
+                "path": "src/a.rs",
+                "additions": 8,
+                "deletions": 1
+              }
+            ],
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "labels": [
+              "bug"
+            ],
+            "timeline": [
+              {
+                "kind": "comment",
+                "author": "bo",
+                "body": "Looks good",
+                "state": "",
+                "createdAt": "2026-01-01T12:00:00Z"
+              },
+              {
+                "kind": "review",
+                "author": "bo",
+                "body": "Please add a test",
+                "state": "CHANGES_REQUESTED",
+                "createdAt": "2026-01-01T14:00:00Z"
+              },
+              {
+                "kind": "review",
+                "author": "bo",
+                "body": "",
+                "state": "APPROVED",
+                "createdAt": "2026-01-02T01:00:00Z"
+              }
+            ],
+            "reviewers": [
+              {
+                "login": "bo",
+                "state": "APPROVED"
+              },
+              {
+                "login": "cy",
+                "state": "COMMENTED"
+              },
+              {
+                "login": "dee",
+                "state": "PENDING"
+              }
+            ]
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "pr",
+            "view",
+            "12",
+            "--json",
+            "number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup,body,additions,deletions,changedFiles,files,mergeable,mergeStateStatus,createdAt,labels,comments,reviews,reviewRequests"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0,
+            "stdout": "{\"number\":12,\"title\":\"Add retry\",\"author\":{\"login\":\"ada\"},\"headRefName\":\"retry\",\"baseRefName\":\"main\",\"isDraft\":false,\"state\":\"OPEN\",\"url\":\"https://github.com/octo/demo/pull/12\",\"updatedAt\":\"2026-01-02T03:04:05Z\",\"reviewDecision\":\"REVIEW_REQUIRED\",\"statusCheckRollup\":[{\"conclusion\":\"FAILURE\"}],\"body\":\"Retries the call.\",\"additions\":10,\"deletions\":2,\"changedFiles\":2,\"files\":[{\"path\":\"src/a.rs\",\"additions\":8,\"deletions\":1},{\"path\":\"\",\"additions\":1,\"deletions\":1}],\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"createdAt\":\"2026-01-01T00:00:00Z\",\"labels\":[{\"name\":\"bug\"},{\"name\":\"\"}],\"comments\":[{\"body\":\"Looks good\",\"author\":{\"login\":\"bo\"},\"createdAt\":\"2026-01-01T12:00:00Z\"},{\"body\":\"  \",\"author\":{\"login\":\"x\"},\"createdAt\":\"2026-01-01T13:00:00Z\"}],\"reviews\":[{\"state\":\"CHANGES_REQUESTED\",\"body\":\"Please add a test\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-01T14:00:00Z\"},{\"state\":\"COMMENTED\",\"body\":\"\",\"author\":{\"login\":\"cy\"},\"submittedAt\":\"2026-01-01T15:00:00Z\"},{\"state\":\"APPROVED\",\"body\":\"\",\"author\":{\"login\":\"bo\"},\"submittedAt\":\"2026-01-02T01:00:00Z\"}],\"reviewRequests\":[{\"login\":\"dee\"}]}\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrDiff-number-boolean",
+      "call": "ghPrDiff",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        true
+      ],
+      "frame": {
+        "ok": false,
+        "error": "GraphQL: Could not resolve to a PullRequest with the number of 1.\n"
+      },
+      "ops": [
+        {
+          "name": "ghPrDiff",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            true
+          ],
+          "error": {
+            "message": "GraphQL: Could not resolve to a PullRequest with the number of 1.\n"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "pr",
+            "diff",
+            "1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 1,
+            "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 1.\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrDiff-number-padded-string",
+      "call": "ghPrDiff",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        " 12 "
+      ],
+      "frame": {
+        "ok": true,
+        "value": "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n"
+      },
+      "ops": [
+        {
+          "name": "ghPrDiff",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            " 12 "
+          ],
+          "result": "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "pr",
+            "diff",
+            "12"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 0,
+            "stdout": "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-ghPrCheckout-number-list",
+      "call": "ghPrCheckout",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        [
+          404
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n The write was not retried. Check the remote state before trying again."
+      },
+      "ops": [
+        {
+          "name": "ghPrCheckout",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            [
+              404
+            ]
+          ],
+          "error": {
+            "message": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n The write was not retried. Check the remote state before trying again."
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "pr",
+            "checkout",
+            "404"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "reply": {
+            "code": 1,
+            "stderr": "GraphQL: Could not resolve to a PullRequest with the number of 404.\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
       "name": "githubRequest-gate-off",
       "call": "githubRequest",
       "params": [
@@ -57747,6 +60047,2377 @@
       "frame": {
         "ok": false,
         "error": "A supported GitHub action is required."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-sha-list-merge",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.merge",
+          "repo": "octo/demo",
+          "number": 1,
+          "sha": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "action": "pr.merge",
+          "repo": "octo/demo",
+          "hostname": "github.com",
+          "data": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "merged": true,
+            "message": "Pull Request successfully merged"
+          }
+        }
+      },
+      "ops": [
+        {
+          "name": "githubRequest",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            {
+              "action": "pr.merge",
+              "repo": "octo/demo",
+              "number": 1,
+              "sha": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ]
+            }
+          ],
+          "result": {
+            "action": "pr.merge",
+            "repo": "octo/demo",
+            "hostname": "github.com",
+            "data": {
+              "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "merged": true,
+              "message": "Pull Request successfully merged"
+            }
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "api",
+            "repos/octo/demo/pulls/1/merge",
+            "--hostname",
+            "github.com",
+            "--method",
+            "PUT",
+            "--input",
+            "-"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "stdin": "{\"merge_method\":\"merge\",\"sha\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}",
+          "reply": {
+            "code": 0,
+            "stdout": "{\"sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"merged\":true,\"message\":\"Pull Request successfully merged\"}\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-sha-list-review",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.review",
+          "repo": "octo/demo",
+          "number": 1,
+          "event": "APPROVE",
+          "sha": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "action": "pr.review",
+          "repo": "octo/demo",
+          "hostname": "github.com",
+          "data": {
+            "id": 80,
+            "state": "APPROVED",
+            "body": "",
+            "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      },
+      "ops": [
+        {
+          "name": "githubRequest",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            {
+              "action": "pr.review",
+              "repo": "octo/demo",
+              "number": 1,
+              "event": "APPROVE",
+              "sha": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ]
+            }
+          ],
+          "result": {
+            "action": "pr.review",
+            "repo": "octo/demo",
+            "hostname": "github.com",
+            "data": {
+              "id": 80,
+              "state": "APPROVED",
+              "body": "",
+              "commit_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "gh",
+          "argv": [
+            "api",
+            "repos/octo/demo/pulls/1/reviews",
+            "--hostname",
+            "github.com",
+            "--method",
+            "POST",
+            "--input",
+            "-"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "env": {
+            "set": {
+              "CLICOLOR": "0",
+              "GH_HOST": "",
+              "GH_NO_UPDATE_NOTIFIER": "1",
+              "GH_PAGER": "",
+              "GH_PROMPT_DISABLED": "1",
+              "NO_COLOR": "1",
+              "PAGER": ""
+            },
+            "remove": [
+              "NODE_ENV"
+            ]
+          },
+          "stdin": "{\"event\":\"APPROVE\",\"body\":\"\",\"commit_id\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]}",
+          "reply": {
+            "code": 0,
+            "stdout": "{\"id\":80,\"state\":\"APPROVED\",\"body\":\"\",\"commit_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n"
+          }
+        }
+      ],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-sha-number",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.merge",
+          "repo": "octo/demo",
+          "number": 1,
+          "sha": 1234
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "sha must be a full commit hash."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-sha-boolean",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.merge",
+          "repo": "octo/demo",
+          "number": 1,
+          "sha": true
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "sha must be a full commit hash."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-sha-two-items",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.merge",
+          "repo": "octo/demo",
+          "number": 1,
+          "sha": [
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "sha must be a full commit hash."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-action-list",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": [
+            "pr.view"
+          ],
+          "repo": "octo/demo",
+          "number": 1
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "out.action.endsWith is not a function"
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-action-list-missing-field",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": [
+            "pr.view"
+          ],
+          "repo": "octo/demo"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "number is required for pr.view."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-action-list-extra-field",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": [
+            "pr.view"
+          ],
+          "repo": "octo/demo",
+          "number": 1,
+          "bogus": 1
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Unsupported field for GitHub pr.view."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-action-number",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": 7,
+          "repo": "octo/demo"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "A supported GitHub action is required."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-action-boolean",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": true,
+          "repo": "octo/demo"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "A supported GitHub action is required."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-method-list",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.merge",
+          "repo": "octo/demo",
+          "number": 1,
+          "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "method": [
+            "squash"
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Invalid merge method."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-number-string",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.view",
+          "repo": "octo/demo",
+          "number": "1"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "number must be a positive integer no greater than 9007199254740991."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-number-list",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.view",
+          "repo": "octo/demo",
+          "number": [
+            1
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "number must be a positive integer no greater than 9007199254740991."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-number-boolean",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.view",
+          "repo": "octo/demo",
+          "number": true
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "number must be a positive integer no greater than 9007199254740991."
+      },
+      "ops": [],
+      "repository": {
+        "headTree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+        "branch": "refs/heads/main",
+        "refs": [
+          {
+            "name": "refs/heads/feature",
+            "tree": "dfefaa7af5e7ea45fa7968df999127d3c422df14",
+            "message": "Fixture\nfixture@example.invalid\nfeature edits a\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/heads/main",
+            "tree": "95d8dbf70e414c81c787a0c85a5172b5e2117587",
+            "message": "Fixture\nfixture@example.invalid\nlocal three\n\n",
+            "length": "17"
+          },
+          {
+            "name": "refs/heads/unmerged",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          },
+          {
+            "name": "refs/remotes/origin/HEAD",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/remotes/origin/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          }
+        ],
+        "remoteRefs": [
+          {
+            "name": "refs/heads/main",
+            "tree": "e8ccbe00941d34c34d823a4c99e807bdbfb45895",
+            "message": "Fixture\nfixture@example.invalid\nMerge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin\n\n",
+            "length": "18"
+          },
+          {
+            "name": "refs/pull/12/head",
+            "tree": "44812fdf195ddf8618384af8b64eceb51a5c3c19",
+            "message": "Fixture\nfixture@example.invalid\nunmerged work\n\n",
+            "length": "4"
+          }
+        ],
+        "index": [
+          "100644 0\t.gitignore",
+          "100644 0\ta.txt",
+          "100644 0\tf.txt",
+          "100644 0\tlocal1.txt",
+          "100644 0\tlocal2.txt",
+          "100644 0\tlocal3.txt",
+          "100644 0\tm.txt",
+          "100644 0\tremote1.txt",
+          "100644 0\tremote2.txt",
+          "100644 0\tsrc/b.mjs"
+        ],
+        "tree": [
+          [
+            ".gitignore",
+            "48561142b30934122cfc507484a1665b8f8775d3e373e30f1528701533d22214"
+          ],
+          [
+            "a.txt",
+            "3a6b975479a644e01da8a06ae3df67f52785abb2c35bf359efdfe40adea1da8c"
+          ],
+          [
+            "f.txt",
+            "5dafa4f426c36945347fc37e3fbe42def1eab7be47daa6ac8b7d2e735a9a1f98"
+          ],
+          [
+            "local1.txt",
+            "3859ba6457231a0e2a9c33982b0ee70918f55ba02737938da5315562d97c1928"
+          ],
+          [
+            "local2.txt",
+            "2fec46694b8ee953116bc37849d96fe2ee1eff6a74baae2fb1c5c289989db8c2"
+          ],
+          [
+            "local3.txt",
+            "d509c243317582094967598c8779fd067d3d6166e5efccc64c749f7b93f0c07f"
+          ],
+          [
+            "m.txt",
+            "7b14e2d92338aed25808bbc74dabe3a37da6be8f335f2106d11aa36e5e31f7ea"
+          ],
+          [
+            "remote1.txt",
+            "ddc8f259d86610f883d35ba6971d6eb2d83b649efa41a82cbdf11a360106db87"
+          ],
+          [
+            "remote2.txt",
+            "4bc5b447eb6633b8c354c2837ea3f2e954b20f5106d18109302ceb30c8eb997c"
+          ],
+          [
+            "src/b.mjs",
+            "b5d546753d33709dff508a6f2c2e547f432267fbb05b68d3da74fa5f7bda9f7a"
+          ]
+        ],
+        "stashes": [],
+        "config": [
+          "core.repositoryformatversion=0",
+          "core.filemode=false",
+          "core.bare=false",
+          "core.logallrefupdates=true",
+          "core.symlinks=false",
+          "core.ignorecase=true",
+          "remote.origin.url=D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*",
+          "branch.main.remote=origin",
+          "branch.main.merge=refs/heads/main"
+        ]
+      },
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "coerced-githubRequest-repo-list",
+      "call": "githubRequest",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+        {
+          "action": "pr.view",
+          "repo": [
+            "octo/demo"
+          ],
+          "number": 1
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "repo must be an explicit owner/name, not a URL or command."
       },
       "ops": [],
       "repository": {
@@ -65359,7 +70030,7 @@
       "name": "lone-surrogate-gitLog-query",
       "call": "gitLog",
       "paramsText": "[\"D:\\\\mixdog-build\\\\tmp\\\\phone-ph2-scm-rec\\\\input\",\"\\ud800\"]",
-      "note": "A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core decodes JSON into Rust strings, which cannot hold it, so a request carrying one is refused before any check runs. This is a limit of the whole core, not of these calls.",
+      "note": "A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core reads every frame into Rust strings, which cannot hold it, so its frame decoder closes the connection (1007) before any check runs. An open difference of the whole core.",
       "recordedText": "{\"frame\":{\"ok\":true,\"value\":[]},\"ops\":[{\"name\":\"gitLog\",\"args\":[\"D:\\\\mixdog-build\\\\tmp\\\\phone-ph2-scm-rec\\\\input\",\"\\ud800\",0,40],\"result\":[]}],\"processes\":[{\"tool\":\"git\",\"argv\":[\"log\",\"--all\",\"--topo-order\",\"--decorate=full\",\"--skip=0\",\"-n40\",\"--regexp-ignore-case\",\"--grep=\\ud800\",\"--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI\"],\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\phone-ph2-scm-rec\\\\input\",\"env\":{\"set\":{\"GIT_EDITOR\":\"true\",\"GIT_SEQUENCE_EDITOR\":\"true\"},\"remove\":[\"NODE_ENV\"]},\"reply\":{\"code\":0}},{\"tool\":\"git\",\"argv\":[\"rev-list\",\"@{u}..HEAD\"],\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\phone-ph2-scm-rec\\\\input\",\"env\":{\"set\":{\"GIT_EDITOR\":\"true\",\"GIT_SEQUENCE_EDITOR\":\"true\"},\"remove\":[\"NODE_ENV\"]},\"reply\":{\"code\":128}},{\"tool\":\"git\",\"argv\":[\"rev-list\",\"HEAD\"],\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\phone-ph2-scm-rec\\\\input\",\"env\":{\"set\":{\"GIT_EDITOR\":\"true\",\"GIT_SEQUENCE_EDITOR\":\"true\"},\"remove\":[\"NODE_ENV\"]},\"reply\":{\"code\":0}}]}"
     }
   ],
