@@ -1,0 +1,101 @@
+// A scripted `gh`, `winget`, `soffice.com` or `git` for the phone-scm replay against a built mixdogd.
+//
+// The recorder copies this one executable under those names. It does what the recording's Node host did with the same tools:
+// it asks the replay driver (PHONE_SCM_SHIM=host:port), which answers from fixtures/phone-scm/gh-script.json, and prints the
+// answer and exits with the scripted code. For the login flow (a PTY child) the driver keeps the connection open and sends the
+// output and the exit when the scenario says so. Only `git --version` is scripted; every other git command runs the real git
+// (PHONE_SCM_REAL_GIT) with this process's own streams.
+//
+// Wire: the shim sends `tool`, `cwd` (hex), then `argc` and each argument (hex) and three env values (hex), one per line, and for
+// a call that reads its body from stdin (`--input -`, gh's REST calls) the whole of stdin (hex) on one more line; the driver
+// answers lines `O <hex>` (stdout), `E <hex>` (stderr) and `X <code>` (exit).
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
+use std::process::{Command, exit};
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len() / 2).map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).unwrap()).collect()
+}
+
+fn main() {
+    let program = std::env::current_exe().unwrap();
+    let name = program.file_name().unwrap().to_string_lossy().to_lowercase();
+    let tool = name.strip_suffix(".exe").unwrap_or(&name).to_owned();
+    let args: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
+    if tool == "git" && args != ["--version"] {
+        // PHONE_SCM_HANG_FILE names a file holding one word: a git given that word as an argument never answers, until it is killed
+        // (the scripted world's `git status` that does not return).
+        if let Ok(word) = std::fs::read_to_string(std::env::var("PHONE_SCM_HANG_FILE").unwrap_or_default()) {
+            let word = word.trim();
+            if !word.is_empty() && args.iter().any(|arg| arg == word) {
+                loop {
+                    std::thread::park();
+                }
+            }
+        }
+        // PHONE_SCM_FAIL_FILE: four lines - a word, an exit code, a stderr text and how many times it is written. A git given that
+        // word as an argument fails with that code and stderr without running (a git that cannot do what the call asks).
+        if let Ok(text) = std::fs::read_to_string(std::env::var("PHONE_SCM_FAIL_FILE").unwrap_or_default()) {
+            let mut lines = text.lines();
+            let (word, code, message, repeat) = (lines.next().unwrap_or(""), lines.next().unwrap_or("1"), lines.next().unwrap_or(""), lines.next().unwrap_or("1"));
+            if !word.is_empty() && args.iter().any(|arg| arg == word) {
+                std::io::stderr().write_all(message.repeat(repeat.parse().unwrap()).as_bytes()).unwrap();
+                exit(code.parse().unwrap());
+            }
+        }
+        let real = std::env::var("PHONE_SCM_REAL_GIT").unwrap();
+        let status =Command::new(&real).args(&args).status().unwrap();
+        // PHONE_SCM_AFTER_FILE: three lines - the leading arguments of the git to follow, the arguments of another git to run
+        // when it has ended with a scratch index (GIT_INDEX_FILE set: a commit's index refresh), and the file that gets that
+        // other git's exit code and stderr. It is another process using the repository inside the refresh's lock window,
+        // started by the same executable for Node's git and the core's alike.
+        if std::env::var_os("GIT_INDEX_FILE").is_some()
+            && let Ok(text) = std::fs::read_to_string(std::env::var("PHONE_SCM_AFTER_FILE").unwrap_or_default())
+        {
+            let mut lines = text.lines();
+            let (lead, other, out) = (lines.next().unwrap_or(""), lines.next().unwrap_or(""), lines.next().unwrap_or(""));
+            let lead: Vec<&str> = lead.split(' ').filter(|word| !word.is_empty()).collect();
+            if !lead.is_empty() && args.len() >= lead.len() && args.iter().zip(&lead).all(|(arg, word)| arg == word) {
+                let ran = Command::new(&real).args(other.split(' ').filter(|word| !word.is_empty())).env_remove("GIT_INDEX_FILE").output().unwrap();
+                std::fs::write(out, format!("{}\n{}", ran.status.code().unwrap_or(-1), String::from_utf8_lossy(&ran.stderr))).unwrap();
+            }
+        }
+        exit(status.code().unwrap_or(1));
+    }
+    let mut stream = TcpStream::connect(std::env::var("PHONE_SCM_SHIM").unwrap()).unwrap();
+    let cwd = std::env::current_dir().unwrap();
+    let mut request = format!("{tool}\n{}\n{}\n", hex(cwd.to_string_lossy().as_bytes()), args.len());
+    for arg in &args {
+        request.push_str(&format!("{}\n", hex(arg.as_bytes())));
+    }
+    for key in ["GH_PROMPT_DISABLED", "BROWSER", "GH_BROWSER"] {
+        request.push_str(&format!("{}\n", hex(std::env::var(key).unwrap_or_default().as_bytes())));
+    }
+    if args.windows(2).any(|pair| pair[0] == "--input" && pair[1] == "-") {
+        let mut body = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin(), &mut body).unwrap();
+        request.push_str(&format!("{}\n", hex(&body)));
+    }
+    stream.write_all(request.as_bytes()).unwrap();
+    for line in BufReader::new(stream).lines() {
+        let line = line.unwrap();
+        let (kind, rest) = line.split_at(1);
+        let rest = rest.trim();
+        match kind {
+            "O" => {
+                std::io::stdout().write_all(&unhex(rest)).unwrap();
+                std::io::stdout().flush().unwrap();
+            }
+            "E" => {
+                std::io::stderr().write_all(&unhex(rest)).unwrap();
+                std::io::stderr().flush().unwrap();
+            }
+            _ => exit(rest.parse().unwrap()),
+        }
+    }
+    exit(1);
+}

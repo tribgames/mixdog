@@ -46,6 +46,15 @@ pub struct Scm {
     commit_root: PathBuf,
     processes: Arc<dyn ProcessManager>,
     gh_program: Arc<dyn Fn() -> String + Send + Sync>,
+    /// What the last probe of each CLI found (Node's `cachedGh` / `cachedGit`): the version, or none when absent.
+    /// Only a refresh looks again.
+    pub(crate) cli_probes: std::sync::Mutex<CliProbes>,
+}
+
+#[derive(Default)]
+pub(crate) struct CliProbes {
+    pub gh: Option<Option<String>>,
+    pub git: Option<Option<String>>,
 }
 
 impl Scm {
@@ -80,6 +89,7 @@ impl Scm {
             lane,
             processes,
             gh_program,
+            cli_probes: Default::default(),
         })
     }
 
@@ -121,6 +131,49 @@ impl Scm {
             identity,
             cancel: cancel.clone(),
         })
+    }
+
+    /// The repository containing `cwd`, or `cwd` itself outside one: Node runs the call's git command in the folder it was given and
+    /// the caller reads git's own failure, so a call that is a single git command must start that command (its process is observable).
+    pub async fn open_or_in_place(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Repo, ScmFailure> {
+        match self.open(cwd, cancel).await {
+            Err(ScmFailure::NotARepository) => {
+                let place = cwd.to_path_buf();
+                Ok(Repo {
+                    scm: self.clone(),
+                    cwd: place.clone(),
+                    identity: RepoIdentity { work_tree: Some(place.clone()), git_dir: place.clone(), common_dir: place },
+                    cancel: cancel.clone(),
+                })
+            }
+            other => other,
+        }
+    }
+
+    /// What `gitResetToCommit` / `gitCherryPickCommit` answer in a folder that is no repository: Node checks the reset mode, then
+    /// asks git to resolve the commit (`checkedCommit`, git-mutations.ts), so the caller is told which commit could not be found,
+    /// not that there is no repository. `mode` is `None` for a call that has none.
+    pub async fn commit_lookup_outside_repository(
+        self: &Arc<Self>,
+        cwd: &Path,
+        cancel: &CancellationToken,
+        mode: Option<&str>,
+        value: &str,
+    ) -> ScmFailure {
+        if mode.is_some_and(|mode| !matches!(mode, "soft" | "mixed" | "hard")) {
+            return ScmFailure::invalid("mode", "`soft`, `mixed` or `hard`");
+        }
+        let place = cwd.to_path_buf();
+        let stand_in = Repo {
+            scm: self.clone(),
+            cwd: place.clone(),
+            identity: RepoIdentity { work_tree: Some(place.clone()), git_dir: place.clone(), common_dir: place },
+            cancel: cancel.clone(),
+        };
+        match stand_in.checked_commit(value).await {
+            Err(failure) => failure,
+            Ok(_) => ScmFailure::NotARepository,
+        }
     }
 }
 
