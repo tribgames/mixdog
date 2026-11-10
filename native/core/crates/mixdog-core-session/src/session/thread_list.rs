@@ -181,6 +181,8 @@ pub struct ThreadListService {
     fence: OnceLock<Arc<dyn ListFence>>,
     /// Node's `sessionCatalogLoaded` (`session-host.ts:146,807`): set once a listing has been answered.
     loaded: std::sync::atomic::AtomicBool,
+    /// The row each session's last announcement on the app feed carried (see [`Self::announce`]).
+    announced: std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 /// The longest a list waits for the projections queued before it: the interactive lane's job lease (`mixdog-rt` `lane_lease`,
@@ -198,7 +200,30 @@ pub trait ListFence: Send + Sync {
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into() }
+        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), loaded: false.into(), announced: Default::default() }
+    }
+
+    /// Whether `thread` is to go out on the app feed as a changed row: not when the last row announced for it was the same. Node
+    /// publishes a roster on each catalog publication and its relay skips one that changes nothing for the phone
+    /// (`remote-relay-catalog.ts:79-91` `isNoListDelta`, behind `CatalogChannel.publish`'s skip of an equal roster,
+    /// `session-host-publication.ts:109-146`): a room rename's index write, its whole listing and its room pass carry one row, so
+    /// the phone gets one frame. `send` announces it (`always`: even a repeat, as a row newly listed again) and runs under the
+    /// record's lock, so a caller that finds its row announced already knows it is on the feed.
+    pub(super) fn announce(&self, thread: ThreadSummary, always: bool, send: impl FnOnce(ThreadSummary)) {
+        let row = serde_json::to_value(&thread).ok();
+        let mut announced = self.announced.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !always && row.is_some() && announced.get(thread.id.as_str()) == row.as_ref() {
+            return;
+        }
+        if let Some(row) = row {
+            announced.insert(thread.id.as_str().to_owned(), row);
+        }
+        send(thread);
+    }
+
+    /// `thread/summary/updated` for `thread` on `app`, unless it repeats the row last announced ([`Self::announce`]).
+    fn notify_changed(&self, app: &mixdog_core_base::state::SectionFeedState, thread: ThreadSummary) {
+        self.announce(thread, false, |thread| app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }));
     }
 
     /// Whether a listing has been answered (Node's `sessionCatalogLoaded`), which decides how a room call publishes the catalog.
@@ -289,6 +314,13 @@ impl ThreadListService {
         self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
         self.published(&rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(rows)
+    }
+
+    /// The ids of the whole listing in the catalog's order, read without marking the catalog loaded.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn order(&self) -> Result<Vec<String>, CoreError> {
+        let whole = ThreadListParams { cursor: None, limit: None, sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None };
+        Ok(self.page_of(whole, usize::MAX).await?.data.into_iter().map(|row| row.id.as_str().to_owned()).collect())
     }
 
     /// The host's task workspace; a lookup that fails fails the listing (`listSessions` asks the host first, `session-host.ts:793`).
@@ -415,9 +447,15 @@ impl RoomSummaries {
     async fn publish_listing(&self) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
         for thread in self.list.whole_listing().await? {
-            self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread });
+            self.list.notify_changed(&self.app, thread);
         }
         Ok(())
+    }
+
+    /// Resolves once the passes started before this call have sent their rows.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn passes_done(&self) {
+        drop(self.pass.acquire().await);
     }
 
     /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
@@ -455,7 +493,7 @@ impl RoomSummaries {
             tracing::warn!(?error, thread = room_thread.as_str(), "room view: not published");
         }
         match self.list.room_row(room_thread).await {
-            Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
+            Ok(Some(thread)) => self.list.notify_changed(&self.app, thread),
             Ok(None) => {}
             Err(error) => tracing::warn!(?error, thread = room_thread.as_str(), "room summaries: the row could not be read"),
         }
@@ -477,7 +515,7 @@ impl RoomSummaries {
         let mut first = None;
         for id in threads {
             match self.list.room_row(&id).await {
-                Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
+                Ok(Some(thread)) => self.list.notify_changed(&self.app, thread),
                 // A log whose room is gone, or a member's log the rooms leave out, has nothing to show.
                 Ok(None) => {}
                 Err(error) => {
@@ -793,11 +831,12 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
         summaries.republish_catalog().await.expect("the second call publishes inside the call");
-        // Every row of the background listing, then the second call's two room rows, all sent when the second call answers (one
-        // pass chain: the second call's pass starts after the background pass has sent its rows).
+        // Every row of the background listing, sent when the second call answers (one pass chain: the second call's pass starts
+        // after the background pass has sent its rows); the second call's two room rows repeat the listing's and are not announced
+        // again (`ThreadListService::announce`, Node's relay skipping a roster that changes nothing).
         let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
         let whole = list.whole_listing().await.expect("the whole listing").len();
-        assert_eq!(sent, whole + 2, "the second call's publication was not inside the call");
+        assert_eq!(sent, whole, "the background listing's rows were not all sent by the second call's answer, or a repeat was");
     }
 
     /// A room's republish sets its log thread's `roomView` (opening the log for it), so the

@@ -200,8 +200,29 @@ impl SessionSource for NoSessions {
     }
 }
 
+/// The app feed's row publication: counts the waits, and holds the next one where a test arms a gate.
+#[derive(Default)]
+struct Rows {
+    waits: std::sync::atomic::AtomicUsize,
+    gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    waited: tokio::sync::Notify,
+}
+impl crate::session::thread_edges::RowsPublished for Rows {
+    fn published(&self) -> futures::future::BoxFuture<'static, ()> {
+        self.waits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.waited.notify_one();
+        let gate = self.gate.lock().unwrap().take();
+        Box::pin(async move {
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+        })
+    }
+}
+
 struct World {
     rig: Rig,
+    rows: Arc<Rows>,
     directory: Arc<SessionDirectory>,
     workspace: worktree_tests::Rig,
     settings: ThreadSettings,
@@ -234,6 +255,7 @@ async fn world() -> World {
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
     let ops = tempfile::tempdir().unwrap();
     let surface = mixdog_core_base::surface::SurfaceGeneration::default();
+    let rows = Arc::new(Rows::default());
     let settings = ThreadSettings::new(ThreadSettingsParts {
         directory: directory.clone(),
         workspaces: workspace.ws.clone(),
@@ -246,8 +268,9 @@ async fn world() -> World {
         ops: scopes(ops.path(), "thread").await,
         surface: surface.clone(),
         archive_stamps: Arc::default(),
+        rows: rows.clone(),
     });
-    World { rig, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, _ops: ops }
+    World { rig, rows, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, _ops: ops }
 }
 
 impl World {
@@ -367,6 +390,27 @@ async fn a_read_lands_on_the_header_and_answers_whether_it_moved() {
     assert!(message(&refused).contains("Session read cursor is invalid."), "{refused:?}");
     // A duplicate op answers what the first one did.
     assert_eq!(read(4, false, 1).await.unwrap(), json!(true));
+}
+
+/// Node answers `setSessionFavorite` after the catalog it republished inside the call (`session-host-lifecycle.ts:308-315`), and
+/// publishes nothing when the flag did not change: a change answers only once its row is on the app feed, a repeat waits for none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_favorite_change_answers_after_its_row_is_published() {
+    let world = world().await;
+    world.session("sess_fav", json!({})).await;
+    let (open, gate) = tokio::sync::oneshot::channel();
+    *world.rows.gate.lock().unwrap() = Some(gate);
+    let world = Arc::new(world);
+    let favorite = {
+        let world = world.clone();
+        tokio::spawn(async move { world.call(METADATA_UPDATE, json!({ "threadId": "sess_fav", "favorite": true }), 1).await })
+    };
+    crate::eventually_on!(&[&world.rows.waited], || (world.rows.waits.load(Ordering::SeqCst) == 1).then_some(())).await;
+    assert!(!favorite.is_finished(), "the favorite change answered before its row was published");
+    open.send(()).expect("the call waits at the gate");
+    tokio::time::timeout(Duration::from_secs(60), favorite).await.expect("answered within the deadline").expect("task").expect("favorite");
+    world.call(METADATA_UPDATE, json!({ "threadId": "sess_fav", "favorite": true }), 2).await.expect("repeat");
+    assert_eq!(world.rows.waits.load(Ordering::SeqCst), 1, "an unchanged favorite publishes nothing");
 }
 
 /// `setToolMode`: the normalized mode always; an empty idle session takes its tool spec, one
