@@ -731,52 +731,119 @@ fn picture(jpeg_bytes: usize) -> String {
     format!(r#"{{"method":"browser/frame","params":{{"sessionId":"sess_1","seq":1,"image":{{"mimeType":"image/jpeg","data":"{data}"}}}}}}"#)
 }
 
-/// A live-view picture larger than the old ceiling (8 records of a 4 MiB JPEG), and one larger than the whole window (a 10 MiB
-/// JPEG), each arrive whole: the gate is asked once at the first record, every record is sealed then, and they enter the window as
-/// the phone's acks admit them, as Node b6f10295a sent them. A picture still waiting for the window when the device is unpaired
-/// enters none of it, and the stream has no hole.
-#[test]
-fn a_live_view_picture_past_the_old_ceiling_arrives_whole_and_one_waiting_at_an_unpair_none_of_it() {
-    let log = gated_log();
-    let (allowed, _writes, gate) = write_gate();
-    let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
-    let host = HostFake { log: log.clone(), now: Rc::new(Cell::new(1_000)) };
-    let mut coordinator = Coordinator::new("session-1", channel, host, AssemblyPool::default());
-    let mut phone = RelayPhone::new();
-    // The coordinator numbers its tickets from 1; each send is tagged by name before it can settle.
-    let tickets = Cell::new(0);
-    let send = |coordinator: &mut Coordinator<ChannelFake, HostFake>, name: &str, text: &str| {
-        tickets.set(tickets.get() + 1);
-        log.borrow_mut().tickets.insert(tickets.get(), json!({ "id": name }));
-        let gate = text.starts_with(r#"{"method":"browser/frame""#).then(|| gate.clone());
-        let sent = coordinator.send(text, SendOptions { droppable: false, stream: None, meter: None, gate });
-        assert!(matches!(sent, Sent::Queued(ticket) if ticket == tickets.get()), "{name} was queued as ticket {}", tickets.get());
-        coordinator.settle();
-    };
-    let settled = |name: &str| log.borrow().results.iter().find(|result| result["id"] == name).cloned();
+/// A coordinator whose live-view writes ask a gate, and the phone on its relay carrier.
+struct LiveView {
+    log: Log,
+    allowed: Allowed,
+    gate: mixdog_remote::transport::coordinator::WriteGate,
+    coordinator: Coordinator<ChannelFake, HostFake>,
+    phone: RelayPhone,
+    tickets: u64,
+}
 
-    for (name, jpeg_bytes) in [("past the old ceiling", 4 * 1024 * 1024), ("past the window", 10 * 1024 * 1024)] {
-        let text = picture(jpeg_bytes);
-        send(&mut coordinator, name, &text);
-        while phone.read_and_ack(&log, &mut coordinator) {}
-        let result = settled(name).unwrap_or_else(|| panic!("the picture {name} settled"));
-        assert!(result["ok"].as_u64().is_some(), "the picture {name} entered the stream: {result}");
-        assert_eq!(phone.messages.last().map(String::len), Some(text.len()), "the phone rebuilt the picture {name}");
-        assert!(phone.messages.last() == Some(&text), "the phone rebuilt the picture {name} byte for byte");
+impl LiveView {
+    fn new() -> Self {
+        let log = gated_log();
+        let (allowed, _writes, gate) = write_gate();
+        let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
+        let host = HostFake { log: log.clone(), now: Rc::new(Cell::new(1_000)) };
+        let coordinator = Coordinator::new("session-1", channel, host, AssemblyPool::default());
+        Self { log, allowed, gate, coordinator, phone: RelayPhone::new(), tickets: 0 }
     }
 
-    // A picture allowed and sealed whose last record waits for the window, one queued behind it, then the device's unpair, then the
-    // phone's acks: the first was decided before the unpair and arrives whole; the second enters none of it.
-    let rebuilt = phone.messages.len();
-    send(&mut coordinator, "decided before the unpair", &picture(6 * 1024 * 1024));
-    send(&mut coordinator, "at the unpair", &picture(4 * 1024 * 1024));
-    assert!(settled("decided before the unpair").is_none() && settled("at the unpair").is_none(), "both wait for the window");
-    allowed.store(false, std::sync::atomic::Ordering::SeqCst);
-    while phone.read_and_ack(&log, &mut coordinator) {}
-    assert!(settled("decided before the unpair").is_some_and(|result| result["ok"].as_u64().is_some()));
-    assert_eq!(settled("at the unpair"), Some(json!({ "id": "at the unpair", "ok": null })), "the waiting picture was refused");
-    assert_eq!(phone.messages.len(), rebuilt + 1, "the phone rebuilt the first and nothing of the refused picture");
-    send(&mut coordinator, "after", r#"{"method":"event","params":{}}"#);
-    while phone.read_and_ack(&log, &mut coordinator) {}
-    assert_eq!(phone.messages.last().map(String::as_str), Some(r#"{"method":"event","params":{}}"#), "the stream has no hole");
+    /// Sends `text`, tagged `name` (the coordinator numbers its tickets from 1); a browser frame asks the gate.
+    fn send(&mut self, name: &str, text: &str) {
+        self.tickets += 1;
+        self.log.borrow_mut().tickets.insert(self.tickets, json!({ "id": name }));
+        let gate = text.starts_with(r#"{"method":"browser/frame""#).then(|| self.gate.clone());
+        let sent = self.coordinator.send(text, SendOptions { droppable: false, stream: None, meter: None, gate });
+        assert!(matches!(sent, Sent::Queued(ticket) if ticket == self.tickets), "{name} was queued as ticket {}", self.tickets);
+        self.coordinator.settle();
+    }
+
+    fn settled(&self, name: &str) -> Option<Value> {
+        self.log.borrow().results.iter().find(|result| result["id"] == name).cloned()
+    }
+
+    /// The phone reads and acks until the desktop writes nothing more.
+    fn read_all(&mut self) {
+        while self.phone.read_and_ack(&self.log, &mut self.coordinator) {}
+    }
+
+    fn relay_writes(&self) -> usize {
+        self.log.borrow().relay_raw.len()
+    }
+
+    fn ended(&self) -> Vec<Value> {
+        self.log.borrow().effects.iter().filter(|effect| effect["e"] == "ended").map(|effect| effect["reason"].clone()).collect()
+    }
+
+    fn unpair(&self) {
+        self.allowed.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// A live-view picture larger than the old ceiling (8 records of a 4 MiB JPEG), and one larger than the whole window (a 10 MiB
+/// JPEG), each arrive whole: the gate is asked at the first record, every record is sealed then, and they enter the window as the
+/// phone's acks admit them, as Node b6f10295a sent them. A picture still waiting for the window, behind another message, when
+/// the device is unpaired enters none of it, and the stream goes on with no hole.
+#[test]
+fn a_live_view_picture_past_the_old_ceiling_arrives_whole_and_one_waiting_at_an_unpair_none_of_it() {
+    let mut view = LiveView::new();
+    for (name, jpeg_bytes) in [("past the old ceiling", 4 * 1024 * 1024), ("past the window", 10 * 1024 * 1024)] {
+        let text = picture(jpeg_bytes);
+        view.send(name, &text);
+        view.read_all();
+        let result = view.settled(name).unwrap_or_else(|| panic!("the picture {name} settled"));
+        assert!(result["ok"].as_u64().is_some(), "the picture {name} entered the stream: {result}");
+        assert_eq!(view.phone.messages.last().map(String::len), Some(text.len()), "the phone rebuilt the picture {name}");
+        assert!(view.phone.messages.last() == Some(&text), "the phone rebuilt the picture {name} byte for byte");
+    }
+
+    // A large message of another kind fills the window, a picture waits behind it, the device is unpaired, the phone acks.
+    let rebuilt = view.phone.messages.len();
+    let other = format!(r#"{{"method":"thread/updated","params":{{"data":"{}"}}}}"#, "b".repeat(6 * 1024 * 1024));
+    view.send("other", &other);
+    view.send("at the unpair", &picture(4 * 1024 * 1024));
+    assert!(view.settled("at the unpair").is_none(), "the picture waits for the window");
+    view.unpair();
+    view.read_all();
+    assert_eq!(view.settled("at the unpair"), Some(json!({ "id": "at the unpair", "ok": null })), "the waiting picture was refused");
+    assert_eq!(view.phone.messages[rebuilt..], [other], "the phone rebuilt the other message and nothing of the refused picture");
+    view.send("after", r#"{"method":"event","params":{}}"#);
+    view.read_all();
+    assert_eq!(view.phone.messages.last().map(String::as_str), Some(r#"{"method":"event","params":{}}"#), "the stream has no hole");
+    assert!(view.ended().is_empty(), "the session goes on");
+}
+
+/// A 6 MiB picture whose head is in the stream and whose tail waits for the window when the device is unpaired, its connection
+/// still open: no record of its tail enters, and the session ends (`revoked`), at the unpair (`view_revoked`) or, without it, at
+/// the tail's next entry. A picture that completed before the unpair stays whole on the phone.
+#[test]
+fn a_live_view_picture_half_in_the_stream_at_an_unpair_sends_no_more_and_ends_the_session() {
+    for at_the_unpair in [true, false] {
+        let mut view = LiveView::new();
+        let before = picture(1024 * 1024);
+        view.send("before", &before);
+        view.read_all();
+        assert_eq!(view.phone.messages, [before.clone()], "the picture before the unpair arrived whole");
+
+        view.send("half sent", &picture(6 * 1024 * 1024));
+        view.send("behind it", &picture(1024));
+        let written = view.relay_writes();
+        assert!(view.settled("half sent").is_none() && written > 2, "its head entered, its tail waits for the window");
+        view.unpair();
+        if at_the_unpair {
+            view.coordinator.view_revoked();
+            view.coordinator.settle();
+            assert_eq!(view.ended(), [json!("revoked")], "the session ended at the unpair");
+        }
+        view.read_all();
+        assert_eq!(view.relay_writes(), written, "no record was written after the unpair (at the unpair: {at_the_unpair})");
+        assert_eq!(view.ended(), [json!("revoked")], "the session ended (at the unpair: {at_the_unpair})");
+        for name in ["half sent", "behind it"] {
+            assert_eq!(view.settled(name), Some(json!({ "id": name, "error": "ended", "reason": "revoked" })), "{name} ended with the session");
+        }
+        assert_eq!(view.phone.messages, [before.clone()], "the phone rebuilt nothing of the half-sent picture");
+    }
 }

@@ -171,11 +171,11 @@
       "apps/desktop/src/main/remote-transport/coordinator.ts",
       "apps/desktop/src/shared/remote-e2ee.ts"
     ],
-    "sha256": "ca1a925be2a07065447cc3bb8d7699bf06515074bd8be22755a237510deba8d9"
+    "sha256": "0b4a4e33ad75de9945a34bbd29a03ab00e48116c611e8811fb0873e2834ff362"
   },
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "0d96bb30882984a47560506cceb084718757e9a91a0a6054aa85a96708ed2c44",
+    "appsSha256": "316fad0bb5ac105adeeb3b1266d71eacfe79cbbab1e2f210d4ce5ea7cd9540d2",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
@@ -194,7 +194,7 @@
         "apps/desktop/src/main/remote-transport/coordinator.ts",
         "apps/desktop/src/shared/remote-e2ee.ts"
       ],
-      "sha256": "ca1a925be2a07065447cc3bb8d7699bf06515074bd8be22755a237510deba8d9"
+      "sha256": "0b4a4e33ad75de9945a34bbd29a03ab00e48116c611e8811fb0873e2834ff362"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",

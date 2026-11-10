@@ -986,6 +986,11 @@ impl RemoteRuntime {
         let peers = self.inner.state().table.revoke(credential_id);
         for peer in &peers {
             self.inner.cfg.registry.revoke_screen(peer);
+            // A live-view message half in the peer's transport stream cannot be finished: that session ends now.
+            let session = self.inner.state().table.transport(peer);
+            if let Some(session) = session {
+                session.view_revoked();
+            }
         }
         self.inner.cfg.events.device_unpaired(credential_id);
     }
