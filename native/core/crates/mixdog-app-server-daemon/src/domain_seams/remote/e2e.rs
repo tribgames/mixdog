@@ -222,6 +222,9 @@ impl StatePublisher for Published {
 
 /// The core booted as `compose` and `serving::attach` boot it, with one paired device ("Pixel", `CRED`) in the relay's roster.
 struct Harness {
+    /// The file the downloads' clock is read from (`<MIXDOG_DOWNLOAD_REPLAY_DIR>/clock`), which only the test writes: Node's recorder
+    /// moved its own clock by explicit steps too.
+    wall: std::path::PathBuf,
     dir: tempfile::TempDir,
     core: Arc<Core>,
     registry: Arc<DeviceRegistry>,
@@ -261,6 +264,19 @@ impl Harness {
     async fn start_with(revoke_ok: bool, displays: bool) -> Self {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
+        // The downloads' clock is the file `talk/clock` (a build with `replay-controls`, told its folder), read when the workspace is made.
+        // The replay controls name their folder once for the process (every scenario of a test shares it), so the folder outlives a harness.
+        static TALK: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        let talk = TALK.get_or_init(|| {
+            let folder = tempfile::tempdir().unwrap();
+            let talk = folder.path().to_path_buf();
+            std::mem::forget(folder);
+            // SAFETY: set before the first workspace is made; each test of this module is a process of its own under nextest.
+            unsafe { std::env::set_var("MIXDOG_DOWNLOAD_REPLAY_DIR", &talk) };
+            talk
+        });
+        let wall = talk.join("clock");
+        std::fs::write(&wall, DOWNLOAD_CLOCK_START.to_string()).unwrap();
         let path = dir.path().to_path_buf();
         // An install that used remote access before: activated, with its E2EE identity on disk.
         std::fs::write(path.join("remote-activated.json"), br#"{"activatedAt":1}"#).unwrap();
@@ -328,7 +344,7 @@ impl Harness {
             releases: mixdog_workspace::release::FolderReleases::new(),
         })
         .unwrap();
-        let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions)));
+        let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions(dir.path().to_string_lossy().into_owned()))));
         workspace.set_phone_grants(grants.clone(), phone_credential(remote.registry.clone()));
         remote
             .events
@@ -338,6 +354,10 @@ impl Harness {
                 end_transfers: {
                     let workspace = workspace.clone();
                     Arc::new(move |owner| workspace.revoke_device(owner))
+                },
+                end_downloads: {
+                    let workspace = workspace.clone();
+                    Arc::new(move || workspace.revoke_all_downloads())
                 },
                 config: config.clone(),
             }))
@@ -375,7 +395,7 @@ impl Harness {
         relay.legs.recv().await.expect("the relay ended");
         remote.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
         remote.runtime.list_clients().await.unwrap();
-        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, config, hub: own_hub, server: own_server }
+        Self { wall, dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, config, hub: own_hub, server: own_server }
     }
 
     /// The phone `id` of `credential` pairs and states who it is; the connection the core opened for it.
@@ -424,11 +444,15 @@ impl Harness {
     }
 }
 
-/// Every conversation exists (the catalog the grants are checked against has none to remove).
-struct AllSessions;
+/// Every conversation exists, a project conversation of the harness folder (the catalog the grants are checked against has none to remove).
+struct AllSessions(String);
 
 #[async_trait::async_trait]
 impl mixdog_workspace::grants::SessionCatalog for AllSessions {
+    async fn row(&self, _: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
+        Ok(Some(mixdog_workspace::grants::SessionRow { project: true, project_path: Some(self.0.clone()), cwd: self.0.clone() }))
+    }
+
     async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
         Ok(true)
     }
@@ -784,6 +808,57 @@ async fn the_leg_redials_on_the_backoff_node_recorded_and_a_phone_pairs_again_on
     h.runtime.close().await;
 }
 
+const FILE_DOWNLOADS: &str = include_str!("../../../../../fixtures/file-downloads/file-downloads.json");
+
+/// The frame Node's phone got for the `n`th call of the scenario `name`, which must be of the phone method `method`, without its id.
+fn download_call(name: &str, n: usize, method: &str) -> Value {
+    let recording: Value = serde_json::from_str(FILE_DOWNLOADS).unwrap();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no scenario {name}"));
+    let step = scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{name}: no call {n}"));
+    assert_eq!(step["method"], method, "{name}: call {n}");
+    let mut frame = step["frame"].clone();
+    frame.as_object_mut().unwrap().remove("id");
+    frame
+}
+
+/// One call of `phone`, as the frame Node's phone would have got, without its id.
+async fn download_frame(phone: &mut Phone, id: u64, method: &str, params: Value) -> Value {
+    phone.send(&json!({ "id": id, "method": method, "params": params }).to_string());
+    let mut frame = node_of(&answer(phone, id).await);
+    frame.as_object_mut().unwrap().remove("id");
+    frame
+}
+
+/// Remote access switched off closes the relay handle, and with it every download the paired phones held (`remote-relay.ts` `close`,
+/// `fileDownloads.revokeAll`): a phone that pairs again once remote access is back finds its unbegun grant and its transfer gone, as Node's
+/// phone did after the same revoke (`revoke all`: the begin of the unbegun grant, then the range of the transfer).
+#[tokio::test(flavor = "multi_thread")]
+async fn switching_remote_access_off_ends_every_download_of_the_phones() {
+    let mut h = Harness::start(true).await;
+    let (mut phone, connection) = h.connect("p1", CRED).await;
+    let file = h.dir.path().join("a.bin");
+    std::fs::write(&file, "0123456789abcdef").unwrap();
+    let authorize = json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": file.to_string_lossy() }, "purpose": "save" });
+    let unbegun = download_frame(&mut phone, 1, "transfer/authorizeRead", authorize.clone()).await["value"]["grantId"].clone();
+    let grant = download_frame(&mut phone, 2, "transfer/authorizeRead", authorize).await["value"]["grantId"].clone();
+    let lease = download_frame(&mut phone, 3, "transfer/redeemGrant", json!({ "grantId": grant })).await["value"].clone();
+    assert!(unbegun.is_string() && lease["transferId"].is_string(), "{unbegun} {lease}");
+
+    h.runtime.stop().await.unwrap();
+    h.closed(connection).await;
+    h.runtime.start(false).await.unwrap();
+    tokio::time::timeout(FRAME_WAIT, h.relay.legs.recv()).await.expect("the core never dialed the relay again").expect("the relay ended");
+    let mut up = h.runtime.watch_connected();
+    tokio::time::timeout(FRAME_WAIT, up.wait_for(|up| *up)).await.expect("the new leg never came up").expect("the runtime ended");
+    let (mut again, _) = h.connect("p2", CRED).await;
+    let begin = download_frame(&mut again, 4, "transfer/redeemGrant", json!({ "grantId": unbegun })).await;
+    assert_eq!(begin, download_call("revoke all", 3, "fileDownloadBegin"), "the unbegun grant after the relay closed");
+    let range = json!({ "transferId": lease["transferId"], "offset": 0, "length": 4, "version": lease["version"] });
+    let read = download_frame(&mut again, 5, "transfer/readRange", range).await;
+    assert_eq!(read, download_call("revoke all", 4, "fileDownloadRange"), "the transfer after the relay closed");
+    h.runtime.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stalled_handshake_close_redials_at_once_twice_and_then_waits_the_backoff() {
     let mut h = Harness::start(true).await;
@@ -805,6 +880,9 @@ fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_
     assert_eq!(kind(3), None, "a local client that says it is a phone is no paired phone");
     assert_eq!(kind(4), None, "a relay connection is recorded by the dialer that opened it");
 }
+
+/// The clock Node's recorder started at (`record-unpair-access.mjs` `CLOCK_START`, 2031-01-01).
+const DOWNLOAD_CLOCK_START: i64 = 1_924_992_000_000;
 
 const SCREEN_ACCESS: &str = include_str!("../../../../../fixtures/screen-access/screen-access.json");
 
@@ -1046,7 +1124,7 @@ fn at<'a>(root: &'a Value, path: &str) -> &'a Value {
 }
 
 /// The branches that own recorded frames this test does not replay yet. A `NOT_REPLAYED` entry names only these.
-const OWNERS: &[&str] = &["phone-ph2-terminal", "phone-ph2-settings-notify", "phone-chat-live", "rs-thread-list-rows", "phone-download-grant"];
+const OWNERS: &[&str] = &["phone-ph2-terminal", "phone-ph2-settings-notify", "phone-chat-live", "rs-thread-list-rows"];
 
 struct NotReplayed {
     /// A recorded frame's path in a scenario (or `feedEvents`, the frames Node pushed to an attached phone).
@@ -1094,26 +1172,6 @@ const NOT_REPLAYED: &[NotReplayed] = &[
         why: "the roster after the unpair: it hides the device while the relay has not confirmed (only the PC is listed) and lists it with default preferences once it has",
     },
     NotReplayed { path: "after.notificationsAfterForget", owners: &["phone-ph2-settings-notify"], why: "as after.notifications" },
-    NotReplayed {
-        path: "before.files.grant",
-        owners: &["phone-download-grant"],
-        why: "Node's phone gets the file's name and size before it begins (file-download-transfer.ts:420-428): authorizing creates an expiring grant (file-downloads.ts:782-805). The core maps both stages to `transfer/beginRead` (inventory.rs), which has no authorize stage.",
-    },
-    NotReplayed {
-        path: "before.files.unbegun",
-        owners: &["phone-download-grant"],
-        why: "a second grant, authorized and never begun; the unpair revokes it before the relay is asked (remote-relay.ts:624)",
-    },
-    NotReplayed {
-        path: "before.files.transfer",
-        owners: &["phone-download-grant"],
-        why: "begin consumes the grant once and returns the transfer with its `media` metadata and lease times (file-downloads.ts:807-847). Replayed here only as the effect: a transfer of the file's size opens.",
-    },
-    NotReplayed {
-        path: "after.files.begin",
-        owners: &["phone-download-grant"],
-        why: "begin of the revoked, unbegun grant is refused `file-download:expired`; the core has no grant to refuse, only the transfer (replayed as after.files.range)",
-    },
     NotReplayed {
         path: "feedEvents",
         owners: &["phone-chat-live"],
@@ -1221,6 +1279,8 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         macro_rules! replay {
             ($phone:expr, $path:expr, $method:expr, $params:expr) => {{
                 let recorded = at(scenario, $path);
+                // Node's recorder moved its clock a second for every call the phone made (its ids count from 100).
+                std::fs::write(&h.wall, (DOWNLOAD_CLOCK_START + (recorded["id"].as_i64().unwrap() - 99) * 1000).to_string()).unwrap();
                 $phone.send(&json!({ "id": recorded["id"], "method": $method, "params": $params }).to_string());
                 let wire = answer(&mut $phone, recorded["id"].as_u64().unwrap()).await;
                 let frame = canon.frame($path, &node_of(&wire));
@@ -1254,11 +1314,13 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         let link = [minted["projectPath"].clone(), minted["relPath"].clone(), minted["accessToken"].clone()];
         let read_link = json!({ "root": link[0], "rel": link[1], "accessToken": link[2] });
         replay!(phone, "before.link.read", "projectFs/readText", read_link);
-        let source = json!({ "kind": "granted", "accessToken": link[2], "projectPath": link[0], "relPath": link[1] });
-        phone.send(&json!({ "id": 5000, "method": "transfer/beginRead", "params": { "source": source } }).to_string());
-        let began = answer(&mut phone, 5000).await;
-        assert_eq!(&began["result"]["size"], at(scenario, "before.files.transfer.value.size"), "{name}: an open transfer of the file");
-        let transfer = began["result"]["transferId"].clone();
+        // The download in its two stages, as Node's phone made them: the grant, the transfer it is consumed into, and a second grant
+        // never begun.
+        let source = json!({ "kind": "sessionFile", "path": download.to_string_lossy() });
+        let authorize = json!({ "sessionId": "s1", "source": source, "purpose": "save" });
+        let grant = replay!(phone, "before.files.grant", "transfer/authorizeRead", authorize)["result"]["grantId"].clone();
+        let transfer = replay!(phone, "before.files.transfer", "transfer/redeemGrant", json!({ "grantId": grant }))["result"]["transferId"].clone();
+        let unbegun = replay!(phone, "before.files.unbegun", "transfer/authorizeRead", authorize)["result"]["grantId"].clone();
 
         let chat_before = {
             phone.send(&json!({ "id": 5100, "method": "thread/list", "params": {} }).to_string());
@@ -1297,6 +1359,8 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         replay!(*asks, "after.webPush", "remoteAccess/pushPublicKey", json!({}));
         // The transfer the device held ended with its unpair (the files of the device end at once, on any connection).
         replay!(*asks, "after.files.range", "transfer/readRange", json!({ "transferId": transfer, "offset": 0, "length": 4 }));
+        // And the grant it never begun.
+        replay!(*asks, "after.files.begin", "transfer/redeemGrant", json!({ "grantId": unbegun }));
         replay!(*asks, "after.link.read", "projectFs/readText", read_link);
         let asked = || h.desktop.asked.lock().unwrap().len();
         if attached {

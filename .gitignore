@@ -32,6 +32,8 @@ npm-debug.log*
 
 # Local Mixdog runtime state
 .mixdog/
+# The recorded Node data directory the roster replay loads (native/core/fixtures/roster-rows).
+!native/core/fixtures/roster-rows/.mixdog/
 .mixdog-bench/
 .dev-profile/
 .dev-profile-*/

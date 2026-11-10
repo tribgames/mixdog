@@ -121,6 +121,9 @@ pub trait DeleteSeams: Send + Sync {
     /// its life measured to `closed_at_ms`, the instant the close landed. `reason` is the close
     /// reason (`desktop-session-delete`), not the abort text.
     fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header, closed_at_ms: i64);
+    /// The delete mark landed, so a list no longer shows the conversation: what ends with its presence in the catalog (a phone's
+    /// downloads) ends now, before the purge, not when `thread/deleted` is published after it.
+    fn tombstoned(&self, thread: &ThreadId);
     /// The close's tombstone landed: the MCP scope the session holds is released and its servers
     /// close (the runtime's teardown, `disconnectAll({ scopeId })`, `runtime-stops.mjs:24`). Not awaited.
     fn release_mcp_scope(&self, session_id: &str);
@@ -317,6 +320,7 @@ async fn remove(
     if !hold.mark(directory).await {
         return false;
     }
+    deps.deletion.tombstoned(thread);
     deps.deletion.session_closed(thread.as_str(), closed.reason, &closed.header, closed.at_ms);
     deps.deletion.release_mcp_scope(thread.as_str());
     // A failed purge leaves the marked session's files for the next delete's purge or the
