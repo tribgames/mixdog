@@ -1,0 +1,317 @@
+{
+  "additionalRunsRule": "Written before any further run was recorded (2026-11-10, tip ca1241142a): Node is recorded again with this recorder unchanged, one run at a time (--runs 1 --out <own folder>), the 5 runs already in runs.json counting toward the total. Recording stops as soon as both of these states have each been seen in some Node run, or at 30 runs in total, whichever comes first: (1) term_ph2a in `order`, around non-output entry 30 (its `running`): the echo frame (Write-Output MIXDOG_PH2_DONE) sent, then `running`, then a frame starting with \\e[m; (2) term_ph2a in `order`, between non-output entries 43 (`running`) and 44 (`finished`): a resize re-render frame that does not contain the typed command (MIXDOG_PH2_SETTLE_1). Every run recorded is kept in runs.json in recording order; none is dropped or picked. Added before recording again (tip 8595ee0367, 23 runs, both states above seen: (1) in run 22, (2) in runs 6, 8, 14): a third state, from the replay after the core's fixes in 79be19874e: (3) term_ph2_l2 in `claims.order`, in the stretch between non-output entries 29 (termWrite) and 30 (its `running`): the typed command drawn whole in one state (`\\e[93mWrite-Output \\e[37mMIXDOG_PH2_SETTLE_1`, no line break, the pen left at colour 37) as the stretch's only state, `running` next, then a frame starting `\\e[m\\r\\n`. Recording goes on, one run at a time with the recorder unchanged, until a run shows (3) or the runs number 30 in total, whichever comes first. Added before recording again (30 runs, (3) not shown; the core's delivery of that step traced equal to Node's: one 33-byte write with its \\r, after the resize and its repaint): 20 more runs, one at a time, with the recorder as committed with this note (its hash in each run's manifest), stopping early if a run shows (3); 50 runs at most.",
+  "command": "node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
+  "declaredExceptions": [
+    {
+      "name": "D2: the console closes sooner after a resize",
+      "difference": "When the phone resizes a tab and then disposes it (term_ph2b in `order`, the stretch after entry 55), the core calls ClosePseudoConsole 2.1-3.6 ms after ResizePseudoConsole (10 slow-replay runs, timestamps at each hop); Node calls it 10.1, 28.9 and 34.8 ms after the resize (3 probed runs; 8.5-34.2 ms from node-pty's kill() to the close over 30 kills), because node-pty's Windows kill() first starts a child process that lists the console's processes and closes the console only after it answers. Node calls kill() 0.45-0.61 ms after the resize; both sides take the resize and the dispose in the same order.",
+      "effect": "With the earlier close the console host writes its mode reset (\\e[?9001l\\e[?1004l) inside the resize's repaint in some runs (10 of 10 core runs measured) where Node's 50 runs write it in a frame of its own (18 runs) or not at all (32). The reset changes nothing xterm shows: the comparison compares the screen states, and passes that stretch.",
+      "standingException": "Only faster, with the same visible content and state. No delay is added to the core's close."
+    },
+    {
+      "name": "Close order: a dispose answered before its tab's end (waiting on branch writer-order)",
+      "difference": "In a slow replay the core's answer to a tab's dispose can reach the phone before that tab's `null` activity change: `order` entry 75 (term_ph2a's dispose, answer id 28) seen as the termDispose answer where all 50 Node runs have the activity change {id: term_ph2a, state: null} first; earlier also `claims.order` entry 159 the same way. The frame order on the connection: the dispose answer, then the activity frame with `null`; Node sends `activity.exit()` synchronously before answering (terminal-manager.ts:541).",
+      "cause": "The tab's end is published to the connection's feed queue before the answer is made (the barrier in native/mixdog-spawn/src/service/terminal.rs, `published()`, which fails the dispose with terminal/PUBLISH_TIMEOUT instead of answering if the end is not published in time), but the connection's writer sends control frames before queued feed frames (native/core/crates/mixdog-app-server-transport/src/writer.rs, `next_work`), so the answer overtakes the frame queued earlier.",
+      "status": "Not an accepted difference: waiting on branch writer-order (the writer fix, against a Node recording). This branch does not change the writer. 50 slow replays at 7c1479b0db: 5 fail, each on this case (claims.order entries 153, 155, 161 for term_ph2_l1, term_ph2_l2, term_ph2_l6; order entries 54, 75 for term_ph2b, term_ph2a), 45 pass."
+    }
+  ],
+  "disposalPairEvidence":"The comparison (remote-protocol-terminal-compare.mjs) takes a running/null pair after a dispose answer out only on the PowerShell tabs of its allow-list and only where the runs in runs.json vary at that disposal: some run has the pair there and some does not, and the trace must then have one of the runs' values (absent, or present at the same entries). Where every run has it at the same entries the trace must too; where none has it the trace may not. The mechanism (PSConsoleHostReadLine C marker against the console close) is why only those tabs are allowed; the recorded variance is what each exemption rests on.",
+  "entries": 115,
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 193497,
+      "path": "golden.json",
+      "sha256": "02ff643f9cb65e8b80cf0216601d58c557e90bc8974439e5bfad96bb4dda8f2b"
+    },
+    {
+      "bytes": 9789999,
+      "path": "runs.json",
+      "sha256": "d01455d5b7328bc031f0fe73e4ae8396d76a5f093fa5ce90e6033a05f887b7ba"
+    },
+    {
+      "bytes": 14540,
+      "path": "variance.json",
+      "sha256": "9373474abb2af7f9ab207d9f8b27a3d1e64e14635cd7d158072ad11221ac2118"
+    }
+  ],
+  "framingProof": "apps/mobile/fixtures/relay-framing drives Node's relay lane (remote-relay-push-lanes.ts) with a scripted source on a virtual clock: given output and activity changes at set times, Node's frames, their times and their order against the changes (G15 against G16/G17: a write and its change 15 ms after a frame go change first, 16 or 17 ms after it frame first). mixdog-spawn service::relay_buffer the_frames_are_nodes_for_the_recorded_script feeds the same steps to the core's RelayBuffer, the buffer the feed pump uses. The core's ordering of a change after its chunk is in the relay buffer is shown by mixdog-spawn terminal::lock_order tests (a_marker_change_waits_for_the_pump_to_take_its_chunk, the_pump_counts_from_its_first_event_after_an_evicted_prefix, a_paused_producers_chunk_changes_nothing_until_it_enters_the_feed, the_tabs_end_follows_the_output_before_the_exit, an_eviction_while_the_pump_subscribes_does_not_end_it, the_tabs_end_goes_between_the_output_before_the_exit_and_the_exit_line, a_shells_end_during_a_claim_waits_for_the_pump_to_reach_the_exit_line) and service::feeds output_written_right_after_a_claims_cut_is_held. Not proved by any recording: that the core's PTY reader hands the relay the same chunks at the same times node-pty did (the reader's cuts and timing against ConPTY); the real replay compares the states that output produces, not its cuts.",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-terminal.mjs",
+  "runList": [
+    {
+      "from": "the fixture before runList was kept",
+      "run": 0,
+      "sha256": "0a7fbba1e2786386c0c47afc56e8973fc8d87b4b733b42b5007fc78d7eef9d0e"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 1,
+      "sha256": "4091c39369ad31007921c9d68905e37924b7606ecba2083310b9a39183e05462"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 2,
+      "sha256": "20210b9a023c4032db33c3feb8429c4042709cf00cef7b73e0d7420fd2e1a996"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 3,
+      "sha256": "0b8bb9e196ec8b94b76bee96671422cada29bb38964a7ac2d01b0cf849f311bb"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 4,
+      "sha256": "fe0f3564239f4260217464483670c7d2bca8f11e416c164acef097449be1cb1c"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 5,
+      "sha256": "fb4990e83c7a1e019fad132f11da1d7b65be8129bc7af9a4af0953158392c2c1"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 6,
+      "sha256": "745a8058fb35c5dcbf6d5d3c08dd119a6b037f45346713ef74b10dc0edc9dd05"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 7,
+      "sha256": "aaf0a389914787abe50a7958fef0d771a08530fc32595a797ac6f532f0699c6a"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 8,
+      "sha256": "a091c0e765c2307808be357e817d0d043af63d43a2420b85ac1ae2495d74e9c0"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 9,
+      "sha256": "111ea6c7e8f8771bf53169fe885fc068be40f91768c13dfe1807e83b28a94969"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 10,
+      "sha256": "337cdaf80a8086f2e222152262d334aad3c8b9cea7f59bb6aa25f5cb48cc8cc1"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 11,
+      "sha256": "2412481d113a02f360d894300de92bbd0aa58207ad7ab85daa7da9609389ec53"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 12,
+      "sha256": "c436d29fe9d2895f741d833df08eb4d1345df5bdfcbb799cade7ea0a1ff37382"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 13,
+      "sha256": "d7fe29112a094f0fa7ddad507951401208057894640393d4f292ce8fd65626a6"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 14,
+      "sha256": "bd26794cfd1d4208a01a26da39d9987f7ff0210d00de3d76aa6e529f110875ae"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 15,
+      "sha256": "b0ac7c65c834ff4714ae002659173a52e24c03803ce8ff9465e49b89905fa02f"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 16,
+      "sha256": "fde0fe9840eb910a971022137a9f29f1e52e11fc7c493869e0f71023cb7e926b"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 17,
+      "sha256": "0525d670f8d520eb234647f8b259c70b0c60cb1d8389749e63cdf26f55310ed4"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 18,
+      "sha256": "6baebc802877e6ac71cc19862b8abb73214b45c7f155de77fbe0a8b9659c020b"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 19,
+      "sha256": "f050426fbe54433c158c2d2eff38e14b0d264c7faa54f3937dda65eb32c2eaae"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 20,
+      "sha256": "951b29ecc41d05811ed57622cbe9e0d22f7cb505b1d4d0981148f49b832ce53f"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 21,
+      "sha256": "3983c96651703e4b86ea4aaa7ad9dba1b953b5c988300ad96550eae41070d8b7"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 22,
+      "sha256": "5dc6a34b47df164030d6e24976950b99dc95d8460794cfba3b750a3bc4f66f29"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 23,
+      "sha256": "1bcad1d0bd257937e9b2e849e28173306c6f1be5c291db26f5412fc01b2ad970"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 24,
+      "sha256": "06d0bdde671b128c8e51a79b9de6800349f7f8da21af07293620e4e0b8df3e17"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 25,
+      "sha256": "d8b6faba8772e67805b0f25da784cd3ae13726b05016f355a6a53a8dd57af826"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 26,
+      "sha256": "ee6685a7740f041d72ff57463a0a2cfe037d117fcf59f68d735f6ccbe947b876"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 27,
+      "sha256": "b913402a482f6e4db9c4d327560e961318cb2b8a0472d52a3fa71fe607a7954f"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 28,
+      "sha256": "7cd0f35fc55e1a3fa24348ac3408d9edce129ed55410ccded3222253beb41e22"
+    },
+    {
+      "from": "the fixture before runList was kept",
+      "run": 29,
+      "sha256": "9149f57bb3ab4ffa4785e109af924997526de8feb46fa6d321755dab7a8f2fac"
+    },
+    {
+      "from": "--merge run-31 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 30,
+      "sha256": "28eca4ceb442725f4a7fdd3494cbae70a6d2ba747930418afd59967414a86d4d"
+    },
+    {
+      "from": "--merge run-32 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 31,
+      "sha256": "c7c5766857ba1ae5d6041ffc2fb873d1b425505f12036289f8f86df69ee3ef85"
+    },
+    {
+      "from": "--merge run-33 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 32,
+      "sha256": "46f0844a711494a26ee7f4bf644ec1a5fb60667651382d9d470c7c6611ea01fa"
+    },
+    {
+      "from": "--merge run-34 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 33,
+      "sha256": "68516c613eecb697371d8f6f21fc49c0c518362819fd651bcc480a19b9eb5b29"
+    },
+    {
+      "from": "--merge run-35 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 34,
+      "sha256": "62d8469a342e7ee2ef39272e383e8f84fb190436a72460f0953ec97d6f291333"
+    },
+    {
+      "from": "--merge run-36 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 35,
+      "sha256": "6b5e3ed0d1e7f7212ba00f90f3657a17b6612e8ec6f78230da6c294f7d3d6412"
+    },
+    {
+      "from": "--merge run-37 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 36,
+      "sha256": "e19eeb18c110ad4ce037b9a16e8dbc5645b3922e7e7509ff7bde6c34ca71f3e3"
+    },
+    {
+      "from": "--merge run-38 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 37,
+      "sha256": "db26588770e36a1aefe8a59fdecb0fe5e5eb17d65ccf9c947b16de0949e440bc"
+    },
+    {
+      "from": "--merge run-39 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 38,
+      "sha256": "fe4d3fda3cd1ce7e554b4b9305f937b48f1476bc9acaed01bac94074fa9eb9d3"
+    },
+    {
+      "from": "--merge run-40 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 39,
+      "sha256": "e3720d9c05930f9e700ddea42de501ffd0f9602b2d47dccd0dda0d71754821b1"
+    },
+    {
+      "from": "--merge run-41 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 40,
+      "sha256": "8e94f474c405a713f64c8f815d4f2480921f76a82ed6754eff967724e133fea6"
+    },
+    {
+      "from": "--merge run-42 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 41,
+      "sha256": "55aa2e798f4ec71e7244581e46435980360b97101ddd47e5030d42ba9224f108"
+    },
+    {
+      "from": "--merge run-43 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 42,
+      "sha256": "606f630c797d9ba73ef7237c32c2bd725d54d8bc183c48d606ad332d2c514b04"
+    },
+    {
+      "from": "--merge run-44 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 43,
+      "sha256": "f4991851b7e4b735ad49cd9b739f7cdc7804860d02009d0e7e51de0e47f1a18e"
+    },
+    {
+      "from": "--merge run-45 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 44,
+      "sha256": "e585540e613aaf6246e435ce665c0ab20f4c873fe5ae4087bb071c08537f9092"
+    },
+    {
+      "from": "--merge run-46 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 45,
+      "sha256": "8d7b172d09daef67460c8c63596ce3b2368f34bde1e7ff5fb434a957a2a5db3b"
+    },
+    {
+      "from": "--merge run-47 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 46,
+      "sha256": "c2e78637460fcea8459f96b5a40e69c78670a50bf88bad40b786aa29f02d7715"
+    },
+    {
+      "from": "--merge run-48 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 47,
+      "sha256": "c9692770d480135ac6cd44d1d0dd6989e0574f6b8b634a30bfff832133e03fa6"
+    },
+    {
+      "from": "--merge run-49 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 48,
+      "sha256": "40875bc7575ce8c542578e4da64ae8903109675a725c6ce6889cd33041116ffe"
+    },
+    {
+      "from": "--merge run-50 (recorder c5a41eac22f98d03d12e29e89747eea67ec8dc8edf7c2c2a233f1b769d7ceeef)",
+      "run": 49,
+      "sha256": "a48462510feac4ec2dd25042d08e9aaba3e07abaac5e66b25a04dbbcfc0d9849"
+    }
+  ],
+  "runsMerged": "runs.json: runs 0-4 from the fixture's 5-run recording, runs 5-22 from 18 recordings of one run each (run-06 to run-23), merged with --merge in that order. Then: runs 0-22 from the fixture's 23-run recording, runs 23-29 from 7 recordings of one run each (run-24, run-25, run-26, run-27, run-28, run-29, run-30), merged with --merge in that order. Then: runs.json: runs 0-29 from the fixture's 30-run recording, runs 30-49 from 20 recordings of one run each (run-31, run-32, run-33, run-34, run-35, run-36, run-37, run-38, run-39, run-40, run-41, run-42, run-43, run-44, run-45, run-46, run-47, run-48, run-49, run-50), merged with --merge in that order.",
+  "scriptSha256": "bbd2a80901dc8444f034726c36a433523a7e43f617ba5c98dee77c61c3add389",
+  "set": "phone-terminal",
+  "settled": "Output no answered call causes (a resize re-render, a prompt after idle, a closing output against the next dispose) is waited for before the next call: its place among later calls is call latency, 0 ms in this in-process recorder and a socket round trip for a phone. The immediate part keeps the answer-ordered sequences (ensure then first output, dispose then closing output) unsettled.",
+  "totalBytes": 9998036,
+  "comparisonRule": "Decided 2026-11-11 (remote-protocol-terminal-compare.mjs): Node's own runs differ from each other by where the console cuts frames and by the shell's redraw bytes, so bytes and frame cuts are not Node's contract; what the terminal shows is. (1) Each tab's screen (the whole grid with every attribute, cursors, modes, title, everything the phone's xterm renders and holds) is compared exactly before every message that is not that tab's own activity change, and at the end: the screen each command's output ends in, not the screens on the way. (2) The messages besides output (answers, errors, activity changes, exits, tab list changes, pushes, checkpoints) are compared exactly, in set, count and order among themselves. (3) A command's output against its own `running`/`finished`: whether some of it comes before the change and whether some comes after; where all 50 Node runs have one order it is required, where they show both either passes. (4) Where Node's runs differ at a place, the trace must have one run's value there, whole; each place is held on its own (no co-occurrence across places: see leaveOneOut). Not covered by the rule, and so passing: screens on the way that no Node run went through when the command ends on Node's screen; how two tabs' output interleaves between the same two messages; output that changes nothing on the screen on either side of a change; alternatives at two places that no single Node run shows together.",
+  "leaveOneOut": "Each of the 50 runs compared, as a replay's trace, against the other 49 (remote-protocol-terminal-leave-one-out.slow.test.mjs). Under the rule in comparisonRule: 0 of 50 fail. The rules rejected, measured on the same 50 runs: the sequence of screen states within each stretch between messages (the rule before 2026-11-11), 49 fail; the screen at each stretch's end only, 42; every screen a command passes through between its input and its end, 26. Variants of the adopted rule also measured: with every place where the runs differ held to every other by pairwise co-occurrence, 7 fail; with only the screens held pairwise, 1 (run 21: term_ph2a's screen before entry 45 in `order` is one of 13 runs', term_ph2c's before entry 82 one of 5, and no other run has both); with the order against a change taken per line of the screen instead of for the command's output as a whole, 30.",
+  "outputBeforeFinishedRate": "Recorded, not fixed (both orders are Node's): a command's output reaching the phone before its `finished` change, in 10 of 250 commands over Node's 50 runs (4%) and 60 of 250 over 50 core slow replays at 7c1479b0db (24%). For every command and each of its tab's activity changes, every order of output against the change the core showed in those 50 replays is one some Node run shows."
+}

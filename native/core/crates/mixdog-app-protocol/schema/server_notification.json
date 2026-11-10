@@ -1221,8 +1221,26 @@
         "bytesB64": {
           "type": "string"
         },
+        "leadUnit": {
+          "description": "A terminal relay frame whose cut fell inside a non-BMP character (Node's frames are cut in UTF-16 units): the lone low surrogate that comes before the bytes' text.",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "processHandle": {
           "type": "string"
+        },
+        "tailUnit": {
+          "description": "The lone high surrogate that comes after the bytes' text, for the same cut.",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [

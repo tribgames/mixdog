@@ -1,6 +1,7 @@
 [
   {
     "id": "claude-opus-5",
+    "name": "Claude Opus 5",
     "members": [
       "claude-opus-5-low",
       "claude-opus-5-medium",
@@ -8,15 +9,15 @@
       "claude-opus-5-xhigh",
       "claude-opus-5-max"
     ],
-    "name": "Claude Opus 5",
     "routing": {
-      "high": "claude-opus-5-high",
       "low": "claude-opus-5-low",
-      "max": "claude-opus-5-max",
       "medium": "claude-opus-5-medium",
-      "xhigh": "claude-opus-5-xhigh"
+      "high": "claude-opus-5-high",
+      "xhigh": "claude-opus-5-xhigh",
+      "max": "claude-opus-5-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -24,12 +25,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "claude-opus-5-fast",
+    "name": "Claude Opus 5 Fast",
     "members": [
       "claude-opus-5-low-fast",
       "claude-opus-5-medium-fast",
@@ -37,15 +38,15 @@
       "claude-opus-5-xhigh-fast",
       "claude-opus-5-max-fast"
     ],
-    "name": "Claude Opus 5 Fast",
     "routing": {
-      "high": "claude-opus-5-high-fast",
       "low": "claude-opus-5-low-fast",
-      "max": "claude-opus-5-max-fast",
       "medium": "claude-opus-5-medium-fast",
-      "xhigh": "claude-opus-5-xhigh-fast"
+      "high": "claude-opus-5-high-fast",
+      "xhigh": "claude-opus-5-xhigh-fast",
+      "max": "claude-opus-5-max-fast"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -53,12 +54,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "claude-fable-5",
+    "name": "Claude Fable 5",
     "members": [
       "claude-5-fable-low",
       "claude-5-fable-medium",
@@ -66,15 +67,15 @@
       "claude-5-fable-xhigh",
       "claude-5-fable-max"
     ],
-    "name": "Claude Fable 5",
     "routing": {
-      "high": "claude-5-fable-high",
       "low": "claude-5-fable-low",
-      "max": "claude-5-fable-max",
       "medium": "claude-5-fable-medium",
-      "xhigh": "claude-5-fable-xhigh"
+      "high": "claude-5-fable-high",
+      "xhigh": "claude-5-fable-xhigh",
+      "max": "claude-5-fable-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -82,12 +83,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "claude-sonnet-5",
+    "name": "Claude Sonnet 5",
     "members": [
       "claude-sonnet-5-low",
       "claude-sonnet-5-medium",
@@ -95,15 +96,15 @@
       "claude-sonnet-5-xhigh",
       "claude-sonnet-5-max"
     ],
-    "name": "Claude Sonnet 5",
     "routing": {
-      "high": "claude-sonnet-5-high",
       "low": "claude-sonnet-5-low",
-      "max": "claude-sonnet-5-max",
       "medium": "claude-sonnet-5-medium",
-      "xhigh": "claude-sonnet-5-xhigh"
+      "high": "claude-sonnet-5-high",
+      "xhigh": "claude-sonnet-5-xhigh",
+      "max": "claude-sonnet-5-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -111,12 +112,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "claude-opus-4-7",
+    "name": "Claude Opus 4.7",
     "members": [
       "claude-opus-4-7-low",
       "claude-opus-4-7-medium",
@@ -124,15 +125,15 @@
       "claude-opus-4-7-xhigh",
       "claude-opus-4-7-max"
     ],
-    "name": "Claude Opus 4.7",
     "routing": {
-      "high": "claude-opus-4-7-high",
       "low": "claude-opus-4-7-low",
-      "max": "claude-opus-4-7-max",
       "medium": "claude-opus-4-7-medium",
-      "xhigh": "claude-opus-4-7-xhigh"
+      "high": "claude-opus-4-7-high",
+      "xhigh": "claude-opus-4-7-xhigh",
+      "max": "claude-opus-4-7-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -140,12 +141,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "claude-opus-4-7-fast",
+    "name": "Claude Opus 4.7 Fast",
     "members": [
       "claude-opus-4-7-low-fast",
       "claude-opus-4-7-medium-fast",
@@ -153,15 +154,15 @@
       "claude-opus-4-7-xhigh-fast",
       "claude-opus-4-7-max-fast"
     ],
-    "name": "Claude Opus 4.7 Fast",
     "routing": {
-      "high": "claude-opus-4-7-high-fast",
       "low": "claude-opus-4-7-low-fast",
-      "max": "claude-opus-4-7-max-fast",
       "medium": "claude-opus-4-7-medium-fast",
-      "xhigh": "claude-opus-4-7-xhigh-fast"
+      "high": "claude-opus-4-7-high-fast",
+      "xhigh": "claude-opus-4-7-xhigh-fast",
+      "max": "claude-opus-4-7-max-fast"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -169,12 +170,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "claude-opus-4-8",
+    "name": "Claude Opus 4.8",
     "members": [
       "claude-opus-4-8-low",
       "claude-opus-4-8-medium",
@@ -182,15 +183,15 @@
       "claude-opus-4-8-xhigh",
       "claude-opus-4-8-max"
     ],
-    "name": "Claude Opus 4.8",
     "routing": {
-      "high": "claude-opus-4-8-high",
       "low": "claude-opus-4-8-low",
-      "max": "claude-opus-4-8-max",
       "medium": "claude-opus-4-8-medium",
-      "xhigh": "claude-opus-4-8-xhigh"
+      "high": "claude-opus-4-8-high",
+      "xhigh": "claude-opus-4-8-xhigh",
+      "max": "claude-opus-4-8-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -198,12 +199,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "claude-opus-4-8-fast",
+    "name": "Claude Opus 4.8 Fast",
     "members": [
       "claude-opus-4-8-low-fast",
       "claude-opus-4-8-medium-fast",
@@ -211,15 +212,15 @@
       "claude-opus-4-8-xhigh-fast",
       "claude-opus-4-8-max-fast"
     ],
-    "name": "Claude Opus 4.8 Fast",
     "routing": {
-      "high": "claude-opus-4-8-high-fast",
       "low": "claude-opus-4-8-low-fast",
-      "max": "claude-opus-4-8-max-fast",
       "medium": "claude-opus-4-8-medium-fast",
-      "xhigh": "claude-opus-4-8-xhigh-fast"
+      "high": "claude-opus-4-8-high-fast",
+      "xhigh": "claude-opus-4-8-xhigh-fast",
+      "max": "claude-opus-4-8-max-fast"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
@@ -227,12 +228,12 @@
         "xhigh",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "gpt-5-2",
+    "name": "GPT-5.2",
     "members": [
       "MODEL_GPT_5_2_NONE",
       "MODEL_GPT_5_2_LOW",
@@ -240,78 +241,78 @@
       "MODEL_GPT_5_2_HIGH",
       "MODEL_GPT_5_2_XHIGH"
     ],
-    "name": "GPT-5.2",
     "routing": {
-      "high": "MODEL_GPT_5_2_HIGH",
+      "off": "MODEL_GPT_5_2_NONE",
       "low": "MODEL_GPT_5_2_LOW",
       "medium": "MODEL_GPT_5_2_MEDIUM",
-      "off": "MODEL_GPT_5_2_NONE",
+      "high": "MODEL_GPT_5_2_HIGH",
       "xhigh": "MODEL_GPT_5_2_XHIGH"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-3-codex",
+    "name": "GPT-5.3 Codex",
     "members": [
       "gpt-5-3-codex-low",
       "gpt-5-3-codex-medium",
       "gpt-5-3-codex-high",
       "gpt-5-3-codex-xhigh"
     ],
-    "name": "GPT-5.3 Codex",
     "routing": {
-      "high": "gpt-5-3-codex-high",
       "low": "gpt-5-3-codex-low",
       "medium": "gpt-5-3-codex-medium",
+      "high": "gpt-5-3-codex-high",
       "xhigh": "gpt-5-3-codex-xhigh"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "gpt-5-3-codex-fast",
+    "name": "GPT-5.3 Codex Fast",
     "members": [
       "gpt-5-3-codex-low-priority",
       "gpt-5-3-codex-medium-priority",
       "gpt-5-3-codex-high-priority",
       "gpt-5-3-codex-xhigh-priority"
     ],
-    "name": "GPT-5.3 Codex Fast",
     "routing": {
-      "high": "gpt-5-3-codex-high-priority",
       "low": "gpt-5-3-codex-low-priority",
       "medium": "gpt-5-3-codex-medium-priority",
+      "high": "gpt-5-3-codex-high-priority",
       "xhigh": "gpt-5-3-codex-xhigh-priority"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "gpt-5-4",
+    "name": "GPT-5.4",
     "members": [
       "gpt-5-4-none",
       "gpt-5-4-low",
@@ -319,26 +320,26 @@
       "gpt-5-4-high",
       "gpt-5-4-xhigh"
     ],
-    "name": "GPT-5.4",
     "routing": {
-      "high": "gpt-5-4-high",
+      "off": "gpt-5-4-none",
       "low": "gpt-5-4-low",
       "medium": "gpt-5-4-medium",
-      "off": "gpt-5-4-none",
+      "high": "gpt-5-4-high",
       "xhigh": "gpt-5-4-xhigh"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-4-fast",
+    "name": "GPT-5.4 Fast",
     "members": [
       "gpt-5-4-none-priority",
       "gpt-5-4-low-priority",
@@ -346,52 +347,52 @@
       "gpt-5-4-high-priority",
       "gpt-5-4-xhigh-priority"
     ],
-    "name": "GPT-5.4 Fast",
     "routing": {
-      "high": "gpt-5-4-high-priority",
+      "off": "gpt-5-4-none-priority",
       "low": "gpt-5-4-low-priority",
       "medium": "gpt-5-4-medium-priority",
-      "off": "gpt-5-4-none-priority",
+      "high": "gpt-5-4-high-priority",
       "xhigh": "gpt-5-4-xhigh-priority"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-4-mini",
+    "name": "GPT-5.4 Mini",
     "members": [
       "gpt-5-4-mini-low",
       "gpt-5-4-mini-medium",
       "gpt-5-4-mini-high",
       "gpt-5-4-mini-xhigh"
     ],
-    "name": "GPT-5.4 Mini",
     "routing": {
-      "high": "gpt-5-4-mini-high",
       "low": "gpt-5-4-mini-low",
       "medium": "gpt-5-4-mini-medium",
+      "high": "gpt-5-4-mini-high",
       "xhigh": "gpt-5-4-mini-xhigh"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "gpt-5-5",
+    "name": "GPT-5.5",
     "members": [
       "gpt-5-5-none",
       "gpt-5-5-low",
@@ -399,26 +400,26 @@
       "gpt-5-5-high",
       "gpt-5-5-xhigh"
     ],
-    "name": "GPT-5.5",
     "routing": {
-      "high": "gpt-5-5-high",
+      "off": "gpt-5-5-none",
       "low": "gpt-5-5-low",
       "medium": "gpt-5-5-medium",
-      "off": "gpt-5-5-none",
+      "high": "gpt-5-5-high",
       "xhigh": "gpt-5-5-xhigh"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-5-fast",
+    "name": "GPT-5.5 Fast",
     "members": [
       "gpt-5-5-none-priority",
       "gpt-5-5-low-priority",
@@ -426,26 +427,26 @@
       "gpt-5-5-high-priority",
       "gpt-5-5-xhigh-priority"
     ],
-    "name": "GPT-5.5 Fast",
     "routing": {
-      "high": "gpt-5-5-high-priority",
+      "off": "gpt-5-5-none-priority",
       "low": "gpt-5-5-low-priority",
       "medium": "gpt-5-5-medium-priority",
-      "off": "gpt-5-5-none-priority",
+      "high": "gpt-5-5-high-priority",
       "xhigh": "gpt-5-5-xhigh-priority"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-6-luna",
+    "name": "GPT-5.6 Luna",
     "members": [
       "gpt-5-6-luna-none",
       "gpt-5-6-luna-low",
@@ -454,28 +455,28 @@
       "gpt-5-6-luna-xhigh",
       "gpt-5-6-luna-max"
     ],
-    "name": "GPT-5.6 Luna",
     "routing": {
-      "high": "gpt-5-6-luna-high",
-      "low": "gpt-5-6-luna-low",
-      "max": "gpt-5-6-luna-max",
-      "medium": "gpt-5-6-luna-medium",
       "off": "gpt-5-6-luna-none",
-      "xhigh": "gpt-5-6-luna-xhigh"
+      "low": "gpt-5-6-luna-low",
+      "medium": "gpt-5-6-luna-medium",
+      "high": "gpt-5-6-luna-high",
+      "xhigh": "gpt-5-6-luna-xhigh",
+      "max": "gpt-5-6-luna-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh",
         "max"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-6-luna-fast",
+    "name": "GPT-5.6 Luna Fast",
     "members": [
       "gpt-5-6-luna-none-priority",
       "gpt-5-6-luna-low-priority",
@@ -484,28 +485,28 @@
       "gpt-5-6-luna-xhigh-priority",
       "gpt-5-6-luna-max-priority"
     ],
-    "name": "GPT-5.6 Luna Fast",
     "routing": {
-      "high": "gpt-5-6-luna-high-priority",
-      "low": "gpt-5-6-luna-low-priority",
-      "max": "gpt-5-6-luna-max-priority",
-      "medium": "gpt-5-6-luna-medium-priority",
       "off": "gpt-5-6-luna-none-priority",
-      "xhigh": "gpt-5-6-luna-xhigh-priority"
+      "low": "gpt-5-6-luna-low-priority",
+      "medium": "gpt-5-6-luna-medium-priority",
+      "high": "gpt-5-6-luna-high-priority",
+      "xhigh": "gpt-5-6-luna-xhigh-priority",
+      "max": "gpt-5-6-luna-max-priority"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh",
         "max"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-6-sol",
+    "name": "GPT-5.6 Sol",
     "members": [
       "gpt-5-6-sol-none",
       "gpt-5-6-sol-low",
@@ -514,28 +515,28 @@
       "gpt-5-6-sol-xhigh",
       "gpt-5-6-sol-max"
     ],
-    "name": "GPT-5.6 Sol",
     "routing": {
-      "high": "gpt-5-6-sol-high",
-      "low": "gpt-5-6-sol-low",
-      "max": "gpt-5-6-sol-max",
-      "medium": "gpt-5-6-sol-medium",
       "off": "gpt-5-6-sol-none",
-      "xhigh": "gpt-5-6-sol-xhigh"
+      "low": "gpt-5-6-sol-low",
+      "medium": "gpt-5-6-sol-medium",
+      "high": "gpt-5-6-sol-high",
+      "xhigh": "gpt-5-6-sol-xhigh",
+      "max": "gpt-5-6-sol-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh",
         "max"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-6-sol-fast",
+    "name": "GPT-5.6 Sol Fast",
     "members": [
       "gpt-5-6-sol-none-priority",
       "gpt-5-6-sol-low-priority",
@@ -544,28 +545,28 @@
       "gpt-5-6-sol-xhigh-priority",
       "gpt-5-6-sol-max-priority"
     ],
-    "name": "GPT-5.6 Sol Fast",
     "routing": {
-      "high": "gpt-5-6-sol-high-priority",
-      "low": "gpt-5-6-sol-low-priority",
-      "max": "gpt-5-6-sol-max-priority",
-      "medium": "gpt-5-6-sol-medium-priority",
       "off": "gpt-5-6-sol-none-priority",
-      "xhigh": "gpt-5-6-sol-xhigh-priority"
+      "low": "gpt-5-6-sol-low-priority",
+      "medium": "gpt-5-6-sol-medium-priority",
+      "high": "gpt-5-6-sol-high-priority",
+      "xhigh": "gpt-5-6-sol-xhigh-priority",
+      "max": "gpt-5-6-sol-max-priority"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh",
         "max"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-6-terra",
+    "name": "GPT-5.6 Terra",
     "members": [
       "gpt-5-6-terra-none",
       "gpt-5-6-terra-low",
@@ -574,28 +575,28 @@
       "gpt-5-6-terra-xhigh",
       "gpt-5-6-terra-max"
     ],
-    "name": "GPT-5.6 Terra",
     "routing": {
-      "high": "gpt-5-6-terra-high",
-      "low": "gpt-5-6-terra-low",
-      "max": "gpt-5-6-terra-max",
-      "medium": "gpt-5-6-terra-medium",
       "off": "gpt-5-6-terra-none",
-      "xhigh": "gpt-5-6-terra-xhigh"
+      "low": "gpt-5-6-terra-low",
+      "medium": "gpt-5-6-terra-medium",
+      "high": "gpt-5-6-terra-high",
+      "xhigh": "gpt-5-6-terra-xhigh",
+      "max": "gpt-5-6-terra-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh",
         "max"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gpt-5-6-terra-fast",
+    "name": "GPT-5.6 Terra Fast",
     "members": [
       "gpt-5-6-terra-none-priority",
       "gpt-5-6-terra-low-priority",
@@ -604,94 +605,94 @@
       "gpt-5-6-terra-xhigh-priority",
       "gpt-5-6-terra-max-priority"
     ],
-    "name": "GPT-5.6 Terra Fast",
     "routing": {
-      "high": "gpt-5-6-terra-high-priority",
-      "low": "gpt-5-6-terra-low-priority",
-      "max": "gpt-5-6-terra-max-priority",
-      "medium": "gpt-5-6-terra-medium-priority",
       "off": "gpt-5-6-terra-none-priority",
-      "xhigh": "gpt-5-6-terra-xhigh-priority"
+      "low": "gpt-5-6-terra-low-priority",
+      "medium": "gpt-5-6-terra-medium-priority",
+      "high": "gpt-5-6-terra-high-priority",
+      "xhigh": "gpt-5-6-terra-xhigh-priority",
+      "max": "gpt-5-6-terra-max-priority"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh",
         "max"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "kimi-k3",
+    "name": "Kimi K3",
     "members": [
       "kimi-k3-low",
       "kimi-k3-high",
       "kimi-k3-max"
     ],
-    "name": "Kimi K3",
     "routing": {
-      "high": "kimi-k3-high",
       "low": "kimi-k3-low",
+      "high": "kimi-k3-high",
       "max": "kimi-k3-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "high",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "swe-1-7",
+    "name": "SWE-1.7",
     "members": [
       "swe-1-7-medium",
       "swe-1-7"
     ],
-    "name": "SWE-1.7",
     "routing": {
-      "max": "swe-1-7",
-      "medium": "swe-1-7-medium"
+      "medium": "swe-1-7-medium",
+      "max": "swe-1-7"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "medium",
         "max"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "grok-4-5",
+    "name": "Grok 4.5",
     "members": [
       "grok-4-5-low",
       "grok-4-5-medium",
       "grok-4-5-high"
     ],
-    "name": "Grok 4.5",
     "routing": {
-      "high": "grok-4-5-high",
       "low": "grok-4-5-low",
-      "medium": "grok-4-5-medium"
+      "medium": "grok-4-5-medium",
+      "high": "grok-4-5-high"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "inkling",
+    "name": "Inkling",
     "members": [
       "inkling-none",
       "inkling-low",
@@ -700,323 +701,322 @@
       "inkling-xhigh",
       "inkling-max"
     ],
-    "name": "Inkling",
     "routing": {
-      "high": "inkling-high",
-      "low": "inkling-low",
-      "max": "inkling-max",
-      "medium": "inkling-medium",
       "off": "inkling-none",
-      "xhigh": "inkling-xhigh"
+      "low": "inkling-low",
+      "medium": "inkling-medium",
+      "high": "inkling-high",
+      "xhigh": "inkling-xhigh",
+      "max": "inkling-max"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh",
         "max"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
     "id": "gemini-3-1-pro",
+    "name": "Gemini 3.1 Pro",
     "members": [
       "gemini-3-1-pro-low",
       "gemini-3-1-pro-high"
     ],
-    "name": "Gemini 3.1 Pro",
     "routing": {
-      "high": "gemini-3-1-pro-high",
-      "low": "gemini-3-1-pro-low"
+      "low": "gemini-3-1-pro-low",
+      "high": "gemini-3-1-pro-high"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "low",
         "high"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "gemini-3-5-flash",
+    "name": "Gemini 3.5 Flash",
     "members": [
       "gemini-3-5-flash-minimal",
       "gemini-3-5-flash-low",
       "gemini-3-5-flash-medium",
       "gemini-3-5-flash-high"
     ],
-    "name": "Gemini 3.5 Flash",
     "routing": {
-      "high": "gemini-3-5-flash-high",
+      "minimal": "gemini-3-5-flash-minimal",
       "low": "gemini-3-5-flash-low",
       "medium": "gemini-3-5-flash-medium",
-      "minimal": "gemini-3-5-flash-minimal"
+      "high": "gemini-3-5-flash-high"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "minimal",
         "low",
         "medium",
         "high"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "gemini-3-6-flash",
+    "name": "Gemini 3.6 Flash",
     "members": [
       "gemini-3-6-flash-minimal",
       "gemini-3-6-flash-low",
       "gemini-3-6-flash-medium",
       "gemini-3-6-flash-high"
     ],
-    "name": "Gemini 3.6 Flash",
     "routing": {
-      "high": "gemini-3-6-flash-high",
+      "minimal": "gemini-3-6-flash-minimal",
       "low": "gemini-3-6-flash-low",
       "medium": "gemini-3-6-flash-medium",
-      "minimal": "gemini-3-6-flash-minimal"
+      "high": "gemini-3-6-flash-high"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "minimal",
         "low",
         "medium",
         "high"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "gemini-3-flash",
+    "name": "Gemini 3 Flash",
     "members": [
       "MODEL_GOOGLE_GEMINI_3_0_FLASH_MINIMAL",
       "MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW",
       "MODEL_GOOGLE_GEMINI_3_0_FLASH_MEDIUM",
       "MODEL_GOOGLE_GEMINI_3_0_FLASH_HIGH"
     ],
-    "name": "Gemini 3 Flash",
     "routing": {
-      "high": "MODEL_GOOGLE_GEMINI_3_0_FLASH_HIGH",
+      "minimal": "MODEL_GOOGLE_GEMINI_3_0_FLASH_MINIMAL",
       "low": "MODEL_GOOGLE_GEMINI_3_0_FLASH_LOW",
       "medium": "MODEL_GOOGLE_GEMINI_3_0_FLASH_MEDIUM",
-      "minimal": "MODEL_GOOGLE_GEMINI_3_0_FLASH_MINIMAL"
+      "high": "MODEL_GOOGLE_GEMINI_3_0_FLASH_HIGH"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "minimal",
         "low",
         "medium",
         "high"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "glm-5-2",
+    "name": "GLM-5.2",
     "members": [
       "glm-5-2",
       "glm-5-2-none",
       "glm-5-2-max"
     ],
-    "name": "GLM-5.2",
     "routing": {
       "high": "glm-5-2",
       "xhigh": "glm-5-2"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "high",
         "xhigh"
       ],
-      "mode": "effort",
       "requiresEffort": true
     }
   },
   {
     "id": "glm-5-2-1m",
+    "name": "GLM-5.2 1M",
     "members": [
       "glm-5-2-none-1m",
       "glm-5-2-1m",
       "glm-5-2-max-1m"
     ],
-    "name": "GLM-5.2 1M",
     "routing": {
-      "high": "glm-5-2-1m",
       "off": "glm-5-2-none-1m",
+      "high": "glm-5-2-1m",
       "xhigh": "glm-5-2-max-1m"
     },
     "thinking": {
+      "mode": "effort",
       "efforts": [
         "high",
         "xhigh"
-      ],
-      "mode": "effort"
+      ]
     }
   },
   {
-    "defaultMember": "gemini-3-7-flash-medium",
     "id": "gemini-3-7-flash",
+    "name": "Gemini 3.7 Flash",
     "members": [
       "gemini-3-7-flash-medium",
       "gemini-3-7-flash-minimal",
       "gemini-3-7-flash-low",
       "gemini-3-7-flash-high"
     ],
-    "name": "Gemini 3.7 Flash",
     "routing": {
-      "high": "gemini-3-7-flash-high",
+      "minimal": "gemini-3-7-flash-minimal",
       "low": "gemini-3-7-flash-low",
       "medium": "gemini-3-7-flash-medium",
-      "minimal": "gemini-3-7-flash-minimal"
+      "high": "gemini-3-7-flash-high"
     },
+    "defaultMember": "gemini-3-7-flash-medium",
     "thinking": {
-      "defaultLevel": "medium",
+      "mode": "effort",
       "efforts": [
         "minimal",
         "low",
         "medium",
         "high"
       ],
-      "mode": "effort",
+      "defaultLevel": "medium",
       "requiresEffort": true
     }
   },
   {
-    "defaultMember": "swe-1-7-lightning-medium",
     "id": "swe-1-7-lightning",
+    "name": "SWE-1.7 Lightning",
     "members": [
       "swe-1-7-lightning-medium",
       "swe-1-7-lightning"
     ],
-    "name": "SWE-1.7 Lightning",
     "routing": {
-      "max": "swe-1-7-lightning",
-      "medium": "swe-1-7-lightning-medium"
+      "medium": "swe-1-7-lightning-medium",
+      "max": "swe-1-7-lightning"
     },
+    "defaultMember": "swe-1-7-lightning-medium",
     "thinking": {
-      "defaultLevel": "medium",
+      "mode": "effort",
       "efforts": [
         "medium",
         "max"
       ],
-      "mode": "effort",
+      "defaultLevel": "medium",
       "requiresEffort": true
     }
   },
   {
-    "defaultMember": "grok-4-6-medium",
     "id": "grok-4-6",
+    "name": "Grok 4.6",
     "members": [
       "grok-4-6-medium",
       "grok-4-6-low",
       "grok-4-6-high",
       "grok-4-6-xhigh"
     ],
-    "name": "Grok 4.6",
     "routing": {
-      "high": "grok-4-6-high",
       "low": "grok-4-6-low",
       "medium": "grok-4-6-medium",
+      "high": "grok-4-6-high",
       "xhigh": "grok-4-6-xhigh"
     },
+    "defaultMember": "grok-4-6-medium",
     "thinking": {
-      "defaultLevel": "medium",
+      "mode": "effort",
       "efforts": [
         "low",
         "medium",
         "high",
         "xhigh"
       ],
-      "mode": "effort",
+      "defaultLevel": "medium",
       "requiresEffort": true
     }
   },
   {
-    "defaultMember": "deepseek-v4-flash-high",
     "id": "deepseek-v4-flash",
+    "name": "DeepSeek V4 Flash",
     "members": [
       "deepseek-v4-flash-high",
       "deepseek-v4-flash-low",
       "deepseek-v4-flash-max"
     ],
-    "name": "DeepSeek V4 Flash",
     "routing": {
-      "high": "deepseek-v4-flash-high",
       "low": "deepseek-v4-flash-low",
+      "high": "deepseek-v4-flash-high",
       "max": "deepseek-v4-flash-max"
     },
+    "defaultMember": "deepseek-v4-flash-high",
     "thinking": {
-      "defaultLevel": "high",
+      "mode": "effort",
       "efforts": [
         "low",
         "high",
         "max"
       ],
-      "mode": "effort",
+      "defaultLevel": "high",
       "requiresEffort": true
     }
   },
   {
-    "defaultMember": "deepseek-v4-pro-high",
     "id": "deepseek-v4-pro",
+    "name": "DeepSeek V4 Pro",
     "members": [
       "deepseek-v4-pro-high",
       "deepseek-v4-pro-low",
       "deepseek-v4-pro-max"
     ],
-    "name": "DeepSeek V4 Pro",
     "routing": {
-      "high": "deepseek-v4-pro-high",
       "low": "deepseek-v4-pro-low",
+      "high": "deepseek-v4-pro-high",
       "max": "deepseek-v4-pro-max"
     },
+    "defaultMember": "deepseek-v4-pro-high",
     "thinking": {
-      "defaultLevel": "high",
+      "mode": "effort",
       "efforts": [
         "low",
         "high",
         "max"
       ],
-      "mode": "effort",
+      "defaultLevel": "high",
       "requiresEffort": true
     }
   },
   {
-    "defaultMember": "nemotron-3-ultra-high",
     "id": "nemotron-3-ultra",
+    "name": "Nemotron 3 Ultra",
     "members": [
       "nemotron-3-ultra-high",
       "nemotron-3-ultra-none",
       "nemotron-3-ultra-medium"
     ],
-    "name": "Nemotron 3 Ultra",
     "routing": {
-      "high": "nemotron-3-ultra-high",
+      "off": "nemotron-3-ultra-none",
       "medium": "nemotron-3-ultra-medium",
-      "off": "nemotron-3-ultra-none"
+      "high": "nemotron-3-ultra-high"
     },
+    "defaultMember": "nemotron-3-ultra-high",
     "thinking": {
-      "defaultLevel": "high",
+      "mode": "effort",
       "efforts": [
         "medium",
         "high"
       ],
-      "mode": "effort"
+      "defaultLevel": "high"
     }
   },
   {
     "id": "claude-haiku-4-5",
+    "name": "Claude Haiku 4.5",
     "members": [
       "MODEL_PRIVATE_11"
     ],
-    "name": "Claude Haiku 4.5",
     "routing": {}
   }
 ]

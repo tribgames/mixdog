@@ -35,8 +35,9 @@ impl SessionCwds for DirectoryCwds {
 }
 
 /// `ui/openRequested` on the app feed. Node's `sendToWindow` is false unless the desktop window
-/// exists; paired clients get a projection but never count. With no desktop window attached the
-/// request is not published and the caller reports the terminal as not shown.
+/// exists; paired clients get a projection but never count. The request is published whether or
+/// not a desktop window is attached (Node relays to the phones first, `run-dispatch.ts`); with
+/// none attached the caller reports the terminal as not shown at once.
 pub struct AppFeedOpen {
     app: Arc<SectionFeedState>,
     ui: Arc<dyn DesktopPresence>,
@@ -51,11 +52,8 @@ impl AppFeedOpen {
 
 impl OpenFeed for AppFeedOpen {
     fn publish_open(&self, params: Value) -> bool {
-        if !self.ui.desktop_attached() {
-            return false;
-        }
         self.app.notify("ui/openRequested", &params);
-        true
+        self.ui.desktop_attached()
     }
 }
 
@@ -137,14 +135,15 @@ mod tests {
         let open = AppFeedOpen::new(app_feed(&feeds), ui.clone());
         let params = json!({ "kind": "terminal", "sessionId": "s1", "requestId": "r1" });
 
+        // No desktop window: the phones still get it (Node relays first), and the caller is told no one took it.
         assert!(!open.publish_open(params.clone()));
-        assert!(feeds.frames("app").is_empty(), "nothing is published with no UI");
+        assert_eq!(feeds.frames("app").len(), 1, "paired clients are told with no desktop attached");
 
         ui.0.store(true, Ordering::SeqCst);
         assert!(open.publish_open(params.clone()));
         let frames = feeds.frames("app");
-        assert_eq!(frames.len(), 1);
-        assert_eq!((frames[0].1.as_str(), &frames[0].2), ("ui/openRequested", &params));
+        assert_eq!(frames.len(), 2);
+        assert_eq!((frames[1].1.as_str(), &frames[1].2), ("ui/openRequested", &params));
     }
 
     /// The whole reveal: the host publishes the request on the app feed, a pane's
@@ -163,14 +162,14 @@ mod tests {
         assert_eq!(host.session_cwd("s1").await.as_deref(), Some("/w"));
         let target = tab();
 
-        // No UI attached: false at once, nothing published.
+        // No UI attached: false at once, the phones are still told.
         assert!(!host.reveal("s1", &target, std::slice::from_ref(&target)).await);
-        assert!(feeds.frames("app").is_empty());
+        assert_eq!(feeds.frames("app").len(), 1);
 
         // A UI that never claims: the wait ends and the terminal runs in the background.
         ui.0.store(true, Ordering::SeqCst);
         assert!(!host.reveal("s1", &target, std::slice::from_ref(&target)).await);
-        assert_eq!(feeds.frames("app").len(), 1);
+        assert_eq!(feeds.frames("app").len(), 2);
 
         // A pane that claims what it was asked to show.
         let claimer = {
@@ -182,7 +181,7 @@ mod tests {
                 let wakes: [&tokio::sync::Notify; 1] = [&feeds_ref.published];
                 let (_, _, params) = tokio::select! {
                     biased;
-                    frame = eventually_on!(&wakes, || feeds_ref.frames("app").into_iter().nth(1)) => frame,
+                    frame = eventually_on!(&wakes, || feeds_ref.frames("app").into_iter().nth(2)) => frame,
                     shown = reveal.as_mut() => panic!("the reveal ended before it published its request: {shown}"),
                 };
                 let request = params["requestId"].as_str().unwrap().to_owned();

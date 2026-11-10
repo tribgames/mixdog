@@ -6,52 +6,52 @@
     {
       "bytes": 6833,
       "path": "loaded-failing.json",
-      "sha256": "6a334540a109b7c77559c9aa08f1beecc7c696cdb1f00c525dd6c3b3c13f984a"
+      "sha256": "b421de1601495e26b177a992433072da94f1971f31c260a77452f0cf669d466f"
     },
     {
       "bytes": 3512,
       "path": "loaded-reconnect.json",
-      "sha256": "b07b8d3f02322a83034295ec2690a3b33c9c2445c35e775e75f44c0baa27fd0d"
+      "sha256": "0fe1646adc0f6979de4968cb7b491a463b5bc91ce90ee252754bd9f40d4ca8b5"
     },
     {
       "bytes": 16052,
       "path": "loaded.json",
-      "sha256": "dbdfe0917d3d9f699207da04e95ef4b0f36826ffecdf6f08adf06b1b4854deb3"
+      "sha256": "75b8d48f91b18316958870783429ecb93b31a0b5c264bed69cc9fa2ae6a1278d"
     },
     {
       "bytes": 1593,
       "path": "not-loaded-failing.json",
-      "sha256": "1d66e79026e39cb9ae9890652bf9d9a6ff0a6150f066b635ad58db0a8677a75a"
+      "sha256": "b0535f817767269e7a0fc29d1842ac50f385bed97e14c473dae70da38dec6473"
     },
     {
       "bytes": 78492,
       "path": "not-loaded-large.json",
-      "sha256": "1af971e10373efa39dacda44f89f042a54766483ada7534f50ef74b0b7aa3f8b"
+      "sha256": "0b1f53ac0cad55f764b46c468fe0796089a20c3b1432bbe9c04a8108416cca22"
     },
     {
       "bytes": 6332,
       "path": "not-loaded.json",
-      "sha256": "52b2ffa0785daafc02cc9225cf9c6e57f4c5400ef38cd06fa14c7d38d28e140c"
+      "sha256": "aacb26b2d2fd98bf04e02ee1dbf542889288352a0c6a8f8f16804822c3deeec0"
     },
     {
       "bytes": 3516,
       "path": "prune-failed-then-update.json",
-      "sha256": "efd7a8bd584e334ee8a51090bae5350abb2e65de00223eea3835a5e3c72c69a6"
+      "sha256": "5249136160e84a217433e0c0f7930fde3ccb479ad172e3000083bcf184876207"
     },
     {
       "bytes": 2796,
       "path": "prune-failed.json",
-      "sha256": "d709421ed38f747789c839ba8aa63a7881fdedaf185a8cf51a88888a8667bd52"
+      "sha256": "6e8d704fc99d9d129456716cbe6722495e82fb4aa2f2d2eb578c16de54d46d6d"
     },
     {
       "bytes": 7956,
       "path": "prune-held.json",
-      "sha256": "9762550fbfa46fa3ce2650520dd4945445c651e7b78058ba73893fd3d4a77b96"
+      "sha256": "ee86671f9e34d1bf704791a4726902d90363a60163fea706f3112979a3a4bd3e"
     },
     {
       "bytes": 6620,
       "path": "pruned-at-load.json",
-      "sha256": "45c10d0a82485ba2a578180b5a15ee61468cc84583b0f8b73d64f94d17a4521d"
+      "sha256": "295b0b90acc42dc7cdbdec34a4907d9abbd9333bca8cb2aad0d8e771dbfe0905"
     }
   ],
   "harness": {
@@ -59,6 +59,13 @@
     "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
     "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8"
   },
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -77,19 +84,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
-  "recorderIdentity": {
-    "files": [
-      {
-        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-        "sha256": "7308c2f9cc10087d53a7960d5088eb27d28e62db8ec71abb8e2f28b7adeb82db"
-      },
-      {
-        "path": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
-        "sha256": "002e85e5e710806dd89eb2a07a8a6e0cd80d1fcad9e2ad21b283f74e9b030e1a"
-      }
-    ],
-    "node": "v22.20.0"
-  },
+  "recorderSha256": "c2bcfbc3950c21830b15f89a9e4456c867b8cab34181e38bca15383c5bc65a5d",
   "scenarios": [
     "loaded",
     "loaded-reconnect",

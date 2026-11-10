@@ -930,6 +930,13 @@
     },
     "TerminalResizeParams": {
       "properties": {
+        "claim": {
+          "description": "A phone showing the terminal claims the PTY size (Node's `termResize` `phoneOwner`): the claim holds for 30 s unless renewed, the newest claim owns, and zero columns or rows with `claim` release it. Without `claim` the resize is ignored while any claim stands.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "cols": {
           "format": "uint16",
           "minimum": 0.0,
@@ -1056,7 +1063,7 @@
       "type": "object"
     },
     {
-      "description": "Ignored unless the sender owns the PTY size.",
+      "description": "Ignored while a phone's claim stands, unless the sender claims (`claim`).",
       "properties": {
         "method": {
           "enum": [

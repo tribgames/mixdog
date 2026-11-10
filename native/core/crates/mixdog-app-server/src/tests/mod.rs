@@ -77,7 +77,7 @@ pub(crate) struct GateDomain {
     pub(crate) methods: &'static [&'static str],
     pub(crate) log: Mutex<Vec<String>>,
     pub(crate) permits: Semaphore,
-    /// Each call's hold on its reply (`CallContext::reply_queued`), in call order.
+    /// Each call's hold on its reply (`CallContext::after_answer`), in call order.
     pub(crate) held: Mutex<Vec<mixdog_rt::CancellationToken>>,
 }
 
@@ -100,7 +100,7 @@ impl DomainService for GateDomain {
             .unwrap_or("")
             .to_owned();
         let tag = format!("{}:{tag}", req.method);
-        self.held.lock().unwrap().push(req.ctx.reply_queued.hold());
+        self.held.lock().unwrap().push(req.ctx.after_answer.hold());
         self.log.lock().unwrap().push(format!("start {tag}"));
         self.permits.acquire().await.unwrap().forget();
         self.log.lock().unwrap().push(format!("end {tag}"));

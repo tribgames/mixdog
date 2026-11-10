@@ -6,7 +6,7 @@
     "restart-save-fails",
     "list-sessions"
   ],
-  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-y7ugwV\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-bY759N\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -18,8 +18,8 @@
     "gamma": "Gamma"
   },
   "room": {
-    "sessionId": "sess_room_mwaz8i8vb3d227d7",
-    "roomId": "mwaz8i8vb3d227d7"
+    "sessionId": "sess_room_mwb0c8qw512d32ff",
+    "roomId": "mwb0c8qw512d32ff"
   },
   "steps": [
     {
@@ -34,8 +34,8 @@
         {
           "kind": "answered",
           "value": {
-            "sessionId": "sess_room_mwaz8i8vb3d227d7",
-            "roomId": "mwaz8i8vb3d227d7"
+            "sessionId": "sess_room_mwb0c8qw512d32ff",
+            "roomId": "mwb0c8qw512d32ff"
           }
         }
       ]
@@ -79,20 +79,20 @@
           "kind": "answered",
           "value": [
             {
-              "id": "sess_room_mwaz8i8vb3d227d7",
+              "id": "sess_room_mwb0c8qw512d32ff",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794332490230,
-              "activityAt": 1794332490230,
+              "updatedAt": 1794334344212,
+              "activityAt": 1794334344212,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-y7ugwV\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-prune-failed-bY759N\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794332490139,
+              "createdAt": 1794334344101,
               "agentRoom": {
-                "id": "mwaz8i8vb3d227d7",
+                "id": "mwb0c8qw512d32ff",
                 "name": "Room One",
                 "members": [
                   "alpha",

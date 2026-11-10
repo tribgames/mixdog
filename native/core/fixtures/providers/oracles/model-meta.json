@@ -1,7 +1,7 @@
 {
   "_doc": "Recorded from Node's REAL createModelMetaIndex (lookupModelMeta) and createCatalogLoader (remember) over scripted providers behind a fake registry. `providers[name]`: `list` = has listModels, `cached` = has getCachedModelInfo over these (mutable) rows, `listRows` = what listModels returns (default: `cached`), `throws`, `duringList` = an action taken inside listModels. `expect` is Node's answer; `listCalls` the listModels calls so far; `warmups` the scheduleProviderModelWarmup calls so far.",
   "recorder": "benchmarks/rust-core/recorders/record-model-meta.mjs",
-  "nodeCommit": "b6f10295a",
+  "nodeCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
   "scenarios": [
     {
       "name": "cold-lookup-then-startup-listing-stays-pinned",

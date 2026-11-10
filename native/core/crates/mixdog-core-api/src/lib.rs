@@ -30,11 +30,11 @@ pub mod state;
 pub mod thread;
 pub mod turn_review;
 
+pub use call::AfterAnswer;
 pub use call::CallContext;
 pub use call::Caller;
 pub use call::CoreRequest;
 pub use call::Reply;
-pub use call::ReplyQueued;
 pub use call::Subscribe;
 pub use error::CoreError;
 pub use feed::Feed;
