@@ -185,6 +185,23 @@ pub trait SensitiveMarks: Send + Sync + 'static {
 
     /// `redactSensitiveMessages(sessionId, messages)` (`sensitive-projection.mjs:91`).
     fn redacted(&self, thread: &ThreadId, messages: &[Value]) -> Vec<Value>;
+
+    /// How many marks `thread` has taken (0: none); it moves at every mark.
+    fn version(&self, _thread: &ThreadId) -> u64 {
+        0
+    }
+
+    /// `redactSensitiveText(sessionId, text)`.
+    fn redact_text(&self, _thread: &ThreadId, text: &str) -> String {
+        text.to_owned()
+    }
+
+    /// One pass over the records `thread` stored before its newest mark, oldest first (`redactSessionFiles`,
+    /// `session-writers.mjs`): each as [`Self::stored`] stores it now, `None` when it stays as it is. A body it changes is
+    /// held in full like a new one's; a body it keeps leaves the held copy as it is unless this pass took it.
+    fn rewriter<'a>(&'a self, _thread: &ThreadId) -> Box<dyn FnMut(&Record) -> Option<Record> + 'a> {
+        Box::new(|_| None)
+    }
 }
 
 /// Today's `ingestSessionIntoMemory` (`memory-ingest.mjs:15`) when a session closes.

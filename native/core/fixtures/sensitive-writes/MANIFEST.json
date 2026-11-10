@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 452984,
+      "bytes": 453697,
       "path": "golden.json",
-      "sha256": "ffa86871c877e6783f1d37f6a6a6f684566398d32d30adea8f3577c73c119265"
+      "sha256": "bd54d13ceb8100131cd29fee4b70ddcd458e280365ef5d5a7f828d0c5cc63a67"
     }
   ],
   "inputs": [
@@ -15,7 +15,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/sensitive-writes-files.mjs",
-      "sha256": "9c6f59eb98159151a5b96a405d5e1cddeddda727c01e9931f8588a490a1c1f46"
+      "sha256": "be179559d62607626ec207f2f760cb530923568a00a07671e9d0d223674ccd74"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -26,8 +26,15 @@
       "sha256": "81706cfb9424070aebc944c20cbdc72c31c84d06bd60119e4ad752af2fc7fc91"
     }
   ],
+  "noCoreCounterpart": {
+    "mixdog_data_dir/history/agent-trace.jsonl": "the agent trace: the core writes none (a known gap)",
+    "mixdog_data_dir/prompt-cache-idle-gaps.json": "the prompt cache's idle-gap statistics: the core keeps none"
+  },
   "nodeVersion": "v22.20.0",
   "normalised": "lib/sensitive-writes-files.mjs: the session id as <session>, the workspace as <ws>, the profile folder as <profile>, every other run-specific id (uuid, prefixed random id) as <id:N> by first appearance in file order, every ISO time as <iso> and every epoch time in milliseconds as <ms>, file names with the same substitutions; a binary file (SQLite, WAL) is listed by name and size only and searched for the values",
+  "notCompared": {
+    "mixdog_data_dir/gateway-usage.local.jsonl": "usage telemetry, no session content: Node buffers its rows and flushes them on a timer (route-meta.mjs recordGatewayUsageEvent), so a phase's process that exits first loses them; this recording keeps only the last turn's row"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -72,7 +79,7 @@
     "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-sensitive-side-writes.patch (sha256 6deacc1d2eda436dd03b71cd890140a3f467c95fe8ae9370859ba89bc77a8261), then node-fix-sensitive-header-summary.patch (sha256 0d2e3a136463b48f0e83c9bdf79f11770039e4efd78605c303b085608517acd6) applied"
   },
   "recorder": "benchmarks/rust-core/recorders/record-sensitive-writes.mjs",
-  "recorderSha256": "329cb416e7fed5ed8be96b31edcbb7e575981bc844691ff68c60e452d58d8017",
+  "recorderSha256": "c80782d4f26b0892e52eed8500a1cb50df5d8cab614e61af542bbb55c42af6e6",
   "set": "sensitive-writes",
-  "totalBytes": 452984
+  "totalBytes": 453697
 }

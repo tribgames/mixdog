@@ -265,6 +265,10 @@ pub trait PromptHistoryStore: Send + Sync + 'static {
     /// `appendPromptHistory(cwd, text)`: re-reads the file, applies [`append_persisted`],
     /// publishes it, and returns the list with whether the write landed.
     fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> Appended;
+
+    /// Every stored entry of `cwd` through `redact` (a value a session of that cwd marked sensitive leaves the file);
+    /// nothing is written when no entry changes.
+    fn redact(&self, lane: &InLane<DurabilityIo>, cwd: &str, redact: &dyn Fn(&str) -> String);
 }
 
 /// The files of today's store: `<data>/tui-prompt-history/<sha256(cwd key)[..32]>.json`,
@@ -424,6 +428,23 @@ impl PromptHistoryStore for FilePromptHistory {
         );
         // The list is the optimistic in-memory one also when the write failed; the caller retries.
         Appended { list: appended.unwrap_or_else(|| append_persisted(&before, text)), written: written.is_ok() }
+    }
+
+    fn redact(&self, lane: &InLane<DurabilityIo>, cwd: &str, redact: &dyn Fn(&str) -> String) {
+        let Some(path) = self.file(cwd) else { return };
+        let written = mixdog_statefile::update_json::<_, std::convert::Infallible>(
+            lane,
+            &path,
+            |current| {
+                let entries = current.as_ref().and_then(entries_of).unwrap_or_default();
+                let next: Vec<String> = entries.iter().map(|entry| redact(entry)).collect();
+                Ok((next != entries).then(|| history_doc(&next)))
+            },
+            &file_opts(),
+        );
+        if let Err(error) = written {
+            tracing::warn!("the prompt history of a cwd kept a value marked sensitive: {error}");
+        }
     }
 }
 
@@ -630,6 +651,7 @@ mod tests {
             self.attempted.notify_waiters();
             Appended { list: s(&[text]), written: !failing }
         }
+        fn redact(&self, _: &InLane<DurabilityIo>, _: &str, _: &dyn Fn(&str) -> String) {}
     }
 
     /// A prompt whose write failed is not lost: the thread flushes it after the window and retries on

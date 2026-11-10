@@ -25,6 +25,16 @@ const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-sensitive-writes.mjs';
 const SELF = fileURLToPath(import.meta.url);
 const DEADLINE_MS = 300_000;
+/** Files Node writes that the core does not write at all: listed, searched for the values, not compared. */
+const NO_CORE_COUNTERPART = {
+  'mixdog_data_dir/history/agent-trace.jsonl': 'the agent trace: the core writes none (a known gap)',
+  'mixdog_data_dir/prompt-cache-idle-gaps.json': "the prompt cache's idle-gap statistics: the core keeps none",
+};
+/** Files both write that this recording cannot compare: listed, searched for the values, not compared. */
+const NOT_COMPARED = {
+  'mixdog_data_dir/gateway-usage.local.jsonl':
+    "usage telemetry, no session content: Node buffers its rows and flushes them on a timer (route-meta.mjs recordGatewayUsageEvent), so a phase's process that exits first loses them; this recording keeps only the last turn's row",
+};
 const deadline = (p, ms, what) => {
   let timer;
   return Promise.race([p, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms); })]).finally(() => clearTimeout(timer));
@@ -241,9 +251,11 @@ try {
   }
   const masked = a.normalized.maskValue({ ...a.state, sessionId: undefined });
   const golden = {
-    note: 'every file Node (b6f10295a with node-fix-sensitive-side-writes.patch) wrote under its profile for lib/sensitive-writes-scenario.mjs, recorded twice and normalised by lib/sensitive-writes-files.mjs; what its model was sent per provider call; the bridge commands; the memory ingest it handed the memory module',
+    note: 'every file Node (b6f10295a with node-fix-sensitive-side-writes.patch, then node-fix-sensitive-header-summary.patch) wrote under its profile for lib/sensitive-writes-scenario.mjs, recorded twice and normalised by lib/sensitive-writes-files.mjs; what its model was sent per provider call; the bridge commands; the memory ingest it handed the memory module',
     values: { CODE, FAILED, SECRET },
     files: a.normalized.files,
+    noCoreCounterpart: NO_CORE_COUNTERPART,
+    notCompared: NOT_COMPARED,
     normalisation: a.normalized.names,
     sends: masked.sends,
     approvals: masked.approvals,
@@ -262,6 +274,8 @@ try {
     identity,
     extra: {
       ...recordingProvenance(recorder, ['lib/sensitive-writes-scenario.mjs', 'lib/sensitive-writes-files.mjs', 'lib/common.mjs', 'lib/job-run.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`)),
+      noCoreCounterpart: NO_CORE_COUNTERPART,
+      notCompared: NOT_COMPARED,
       recorded: { tree: `export of ${NODE_COMMIT} with ${identity.patches.map((p) => `${p.file} (sha256 ${p.sha256})`).join(', then ')} applied`, scenario: 'lib/sensitive-writes-scenario.mjs' },
       normalised: 'lib/sensitive-writes-files.mjs: the session id as <session>, the workspace as <ws>, the profile folder as <profile>, every other run-specific id (uuid, prefixed random id) as <id:N> by first appearance in file order, every ISO time as <iso> and every epoch time in milliseconds as <ms>, file names with the same substitutions; a binary file (SQLite, WAL) is listed by name and size only and searched for the values',
     },

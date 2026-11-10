@@ -1180,6 +1180,11 @@ impl super::prompt_history::PromptHistoryStore for NotifyingPrompts {
         self.1.notify_waiters();
         appended
     }
+
+    fn redact(&self, lane: &InLane<DurabilityIo>, cwd: &str, redact: &dyn Fn(&str) -> String) {
+        self.0.redact(lane, cwd, redact);
+        self.1.notify_waiters();
+    }
 }
 
 /// The Goal runtime's clock in the test runtime's time domain: wall time from when the Rig was
