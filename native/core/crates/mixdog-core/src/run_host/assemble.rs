@@ -32,6 +32,8 @@ use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 use serde_json::{json, Value};
 
 use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
+use mixdog_core_run::run_host::failure_log::FailureWriter;
+use mixdog_core_run::run_host::failure_log::RunFailureLog;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
@@ -624,6 +626,13 @@ impl RunParts for HostRunParts {
             step_judge,
             artifacts: Some(artifacts),
             images: seams.image_compactor(),
+            failures: Some(Arc::new(RunFailureLog::new(
+                FailureWriter::for_data_dir(&seams.data_dir(), s.io, s.clock.clone()),
+                session_id,
+                // `agent: batch.sessionRef?.agent || null` (finalize.mjs:236): the session's own agent, the Lead's "lead" included.
+                agent,
+                &cwd.to_string_lossy(),
+            ))),
             blobs: s.blobs.clone(),
             carry: RunCarry::from_saved(header),
         })
