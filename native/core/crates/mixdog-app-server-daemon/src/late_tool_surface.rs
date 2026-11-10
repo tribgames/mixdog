@@ -36,6 +36,13 @@ impl ToolSurfaceStatus for LateToolSurface {
         }
     }
 
+    async fn peek(&self, thread: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
+        match self.0.get() {
+            Some(surface) => surface.peek(thread).await,
+            None => Err(CoreError::CapabilityUnavailable { capability: "tool surface".into(), detail: "the session layer is not up yet".into() }),
+        }
+    }
+
     /// `tools/toolsStatus` with `snapshot` reaches the surface through this cell, so it forwards the request
     /// build; the trait's default would answer every snapshot with `invalidParams`.
     async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<serde_json::Value, CoreError> {

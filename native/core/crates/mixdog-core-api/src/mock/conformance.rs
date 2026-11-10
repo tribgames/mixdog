@@ -633,6 +633,10 @@ impl Lane for ProbeLane {
         self.inner.try_reserve(bytes)
     }
 
+    fn try_reserve_snapshot(&self, bytes: usize) -> Result<Reservation, BudgetFull> {
+        self.inner.try_reserve_snapshot(bytes)
+    }
+
     fn push(&self, reservation: Reservation, frame: Bytes) {
         let hook = self
             .hook

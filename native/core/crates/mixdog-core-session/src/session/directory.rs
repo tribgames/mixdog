@@ -14,6 +14,7 @@ use std::sync::MutexGuard;
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::ThreadStartKind;
 use mixdog_app_protocol::v2::thread::ThreadStartParams;
+use mixdog_app_protocol::v2::thread::TurnInput;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadDirectory;
@@ -67,6 +68,8 @@ const SHARDS: usize = 64;
 
 /// `INGEST_DEADLINE_MS` (`memory-ingest.mjs:4`): how long shutdown waits for the ingests.
 const SHUTDOWN_INGEST_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2500);
+/// `SHUTDOWN_BUDGET_MS` (`daemon.mjs:254`, the forced exit at `:288-291`): how long shutdown waits for the new-task attempts it cut.
+const NEW_TASK_SHUTDOWN_BOUND: std::time::Duration = std::time::Duration::from_millis(15_000);
 
 type Loaded = Result<Arc<SessionHandle>, CoreError>;
 
@@ -696,6 +699,12 @@ impl SessionDirectory {
         self.inner.exit_close.set(hook).map_err(|_| "the exit close is already bound")
     }
 
+    /// A stop was requested: the new-task attempts in flight end now, each as Node's attempt ends at the call it was awaiting when its
+    /// host is disposed ([`super::new_task::NewTaskReceipts::cut`]); [`Self::shutdown_for`] later waits for the writes they began.
+    pub fn cut_new_tasks(&self) {
+        self.inner.deps.new_tasks.cut();
+    }
+
     /// [`Self::shutdown_for`] with the reason of a daemon stop.
     pub async fn shutdown(&self) {
         self.shutdown_for("daemon shutdown").await;
@@ -705,8 +714,15 @@ impl SessionDirectory {
     /// when the reason is a process exit (`teardown.mjs:226-237`), every loaded session's agents
     /// are closed (`OwnerTeardown`, bounded at `CLOSE_ALL_DEADLINE_MS`, 5000 ms, per session);
     /// then every loaded thread is closed as its runtime's own session ([`ExitClose`]); then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
-    /// all of them together bounded at 2500 ms.
+    /// all of them together bounded at 2500 ms. Before all of it, the new-task attempts in flight are cut ([`super::new_task::NewTaskReceipts::shutdown`]).
     pub async fn shutdown_for(&self, reason: &str) {
+        // The new-task attempts in flight are cut first, as a process ending leaves them, before the directory refuses their
+        // next step (a refusal would mark their receipts refused).
+        // Under Node's shutdown budget, within which its session service stop awaits the call a cut attempt awaits and the attempt
+        // then ends: a call or receipt write that outlives it cannot hold the rest of the teardown.
+        if let Err(overrun) = self.inner.deps.new_tasks.shutdown(NEW_TASK_SHUTDOWN_BOUND).await {
+            tracing::error!(%overrun, "the new-task receipts did not shut down in time");
+        }
         self.begin_close();
         if is_process_exit_reason(reason)
             && let Some(hook) = self.inner.owner_teardown.get()
@@ -1494,6 +1510,198 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     }
 }
 
+impl SessionDirectory {
+    /// The `thread/start` thread up to its seated route (`createSession`, `seedToolSurface`, the draft's route): under `id` when one is
+    /// given (a new task's address comes from its receipt), else under a minted one. A new task's attempt passes its `attempt`, whose
+    /// step enters the draft step where the draft's workflow, orchestration mode (when `configure`: Node's `configureDraft` runs on a
+    /// `reserved` receipt only) and route are applied (Node's `setWorkflow`, `setOrchestrationMode`, `setRoute`, awaited in that order
+    /// after `client.create` returned, session-host-lifecycle.ts:765-779).
+    pub(super) async fn begin_thread(&self, req: &CoreRequest, params: &ThreadStartParams, id: Option<ThreadId>, attempt: Option<(&super::new_task::StepCell, bool)>) -> Result<Arc<SessionHandle>, CoreError> {
+        let now = self.inner.deps.clock.now_ms();
+        let mut header = Header::new();
+        header.insert("createdAt".into(), json!(now));
+        header.insert("updatedAt".into(), json!(now));
+        header.insert("lastUsedAt".into(), json!(now));
+        // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
+        // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
+        // workspace, no project, no classification.
+        let control = params.kind == ThreadStartKind::Control;
+        let project = if control {
+            None
+        } else {
+            params
+                .project_path
+                .clone()
+                .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.clone()))
+                .filter(|path| !path.trim().is_empty())
+        };
+        if let Some(path) = &project {
+            header.insert("cwd".into(), json!(path));
+        } else if matches!(params.kind, ThreadStartKind::Task | ThreadStartKind::Control) {
+            // A task runs in the task workspace, resolved by the core as Node's host resolves it (`TaskWorkspace`);
+            // the tools below are composed for that folder.
+            let folder = self.inner.deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+            header.insert("cwd".into(), json!(folder));
+        }
+        // A session the desktop creates for a new task or a project is classified by the project it names, as the host
+        // writes it (`resolveSessionWorkspace`, session-host.ts:535-553, passed to `session.create`, stored by
+        // `lifecycle.mjs:61`): `{classification:'project', projectPath}` or `{classification:'task', projectPath:null}`.
+        // The control session is created with `desktopSession: null` (`ensureControlSession`): none is written.
+        if !control && (project.is_some() || params.draft.is_some()) {
+            let classified = match &project {
+                Some(path) => json!({ "classification": "project", "projectPath": path }),
+                None => json!({ "classification": "task", "projectPath": null }),
+            };
+            header.insert("desktopSession".into(), classified);
+        }
+        // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
+        super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
+        // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
+        // A new task's address is given (`client.create` at the reserved address).
+        let reserved = id.is_some();
+        let id = id.unwrap_or_else(|| ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms())));
+        // The control session is followed by the config's adoption from before its route is first resolved.
+        let starting = if control { Some(self.inner.start(&id)?) } else { None };
+        // The route the thread begins on is settled first: the tools and the prompt below are
+        // composed for it, as Node composes the session from `rt.route`.
+        let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
+        // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.
+        let settings = self.inner.deps.compaction.settings_changes().map(super::actor::SettingsFollow::begin);
+        // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
+        let route = if control {
+            self.inner.deps.new_route.adopt_control(&id).await
+        } else {
+            if let Some((step, configure)) = attempt {
+                let closing = self.inner.deps.new_tasks.closing();
+                let draft = params.draft.as_ref();
+                let settings = &self.inner.deps.draft_settings;
+                if let Some(workflow) = draft.and_then(|draft| draft.workflow_id.as_deref()).filter(|_| configure) {
+                    step.set(super::new_task::Step::Configuring);
+                    super::new_task::quit_gate("setWorkflow", &closing).await;
+                    if let Err(error) = settings.set_workflow(&id, workflow).await {
+                        // A draft can remember a workflow deleted since; it starts on the built-in Default (:770-772).
+                        if !super::new_task::workflow_not_found(&error) {
+                            return Err(error);
+                        }
+                        settings.set_workflow(&id, "default").await?;
+                    }
+                }
+                let mode = draft.and_then(|draft| draft.orchestration_mode).and_then(|mode| serde_json::to_value(mode).ok());
+                if let Some(Value::String(mode)) = mode.filter(|_| configure) {
+                    step.set(super::new_task::Step::Configuring);
+                    super::new_task::quit_gate("setOrchestrationMode", &closing).await;
+                    settings.set_orchestration_mode(&id, &mode).await?;
+                }
+                if pick.is_some() {
+                    step.set(super::new_task::Step::Configuring);
+                    super::new_task::quit_gate("setRoute", &closing).await;
+                }
+            }
+            self.inner.deps.new_route.adopt(&id, pick.as_ref()).await
+        }
+        .map_err(|message| mixdog_core_base::support::failed("route", message))?;
+        // The route keys only a created record carries (`presetName`, the wire id, the preset's chain …);
+        // the route's own fields are seated once the thread exists.
+        let created = super::new_route::create_keys(&route).map_err(|message| mixdog_core_base::support::failed("route", message))?;
+        for (key, value) in created {
+            header.insert(key, value);
+        }
+        // Until the thread is published, any way out abandons the seed; the actor owns it after.
+        let seeded = super::seams::SeededThread::new(self.inner.deps.new_tools.clone(), id.clone());
+        let seeding = if params.kind == ThreadStartKind::Control {
+            self.inner.deps.new_tools.seed_control(&id, &header)
+        } else {
+            self.inner.deps.new_tools.seed(&id, &header)
+        };
+        let header = seeding.await.map_err(|message| {
+            mixdog_core_base::support::failed("session", format!("session: tools: {message}"))
+        })?;
+        let handle = self
+            .inner
+            .create(CreateSpec {
+                id: Some(id),
+                header,
+                base: None,
+                op: req.op.clone(),
+                method: req.method.clone(),
+                params: req.params.clone(),
+                seed: Some(seeded),
+                settings,
+                starting,
+            })
+            .await?;
+        // A test build of a new task may end here: the record is written and the creation has not returned (Node's daemon made
+        // the session and its answer to `client.create` was lost).
+        if reserved {
+            super::new_task::crash_gate("created");
+        }
+        self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
+        // `contextTokens` is on a created record only when set; the seat writes the route's, null when none.
+        if handle.cell.header.load().get("contextTokens") == Some(&Value::Null) {
+            handle
+                .request(CoreRequest {
+                    method: Method("thread/header/patch"),
+                    params: json!({ "threadId": handle.id, "set": {}, "unset": ["contextTokens"] }),
+                    op: None,
+                    ctx: CallContext::internal("route"),
+                })
+                .await?;
+        }
+        Ok(handle)
+    }
+
+    /// The draft's worktree, entered before the first prompt (Node: after the draft's route, workflow and mode).
+    /// `cwd` becomes the managed worktree; the classification keeps the project. The control session has
+    /// no draft (`ensureControlSession`, not `createNewTask`): whatever draft a control start names enters nothing.
+    pub(super) async fn enter_draft_worktree(&self, handle: &Arc<SessionHandle>, req: &CoreRequest, params: &ThreadStartParams) -> Result<(), CoreError> {
+        if let Some(worktree) = params.draft.as_ref().and_then(|draft| draft.worktree.as_ref()).filter(|_| params.kind != ThreadStartKind::Control) {
+            let input = params.initial_input.as_ref().and_then(|input| serde_json::to_value(input).ok());
+            self.inner.deps.new_place.enter_worktree(&handle.id, worktree, input.as_ref(), &req.ctx.cancel).await?;
+        }
+        Ok(())
+    }
+
+    /// The first prompt of a started thread, as `turn/start`; the turn's answer. A first prompt the session refuses leaves no
+    /// thread behind.
+    pub(super) async fn first_turn(&self, handle: &Arc<SessionHandle>, req: &CoreRequest, input: TurnInput) -> Result<Option<Value>, CoreError> {
+        let started = handle
+            .request(CoreRequest {
+                method: Method("turn/start"),
+                params: json!({
+                    "threadId": handle.id,
+                    "opId": req.op.as_ref().map_or(String::new(), |op| format!("{op}:turn")),
+                    "input": input,
+                }),
+                op: req.op.as_ref().map(|op| OpId::from(format!("{op}:turn"))),
+                ctx: req.ctx.clone(),
+            })
+            .await;
+        if matches!(&started, Err(CoreError::DomainError { code: Some(code), .. }) if code.as_ref() == super::actor::SUBMIT_REFUSED) {
+            let _ = super::delete::delete_session(&self.inner, handle.id.as_str(), None).await;
+        }
+        Ok(match started? {
+            Reply::Value(turn) => Some(turn),
+            Reply::Subscribe(_) => None,
+        })
+    }
+
+    /// The reply of a `thread/start`: the thread's feed from its last items.
+    pub(super) fn subscribed(&self, handle: &Arc<SessionHandle>, result: Value) -> Subscribe {
+        let feed: Arc<dyn mixdog_core_api::FeedSource> = handle.feed.clone();
+        Subscribe { result, feed, window: Window::LastItems(200), resume_from: None }
+    }
+
+    /// A handle onto the same directory, for work that outlives the request that began it.
+    pub(super) fn share(&self) -> SessionDirectory {
+        Self::over(self.inner.clone())
+    }
+
+    /// Ends an unclaimed thread: its record and everything that follows it (`thread/delete`).
+    pub(super) async fn discard(&self, id: &ThreadId) {
+        let _ = super::delete::delete_session(&self.inner, id.as_str(), None).await;
+    }
+}
+
 #[async_trait]
 impl ThreadDirectory for SessionDirectory {
     fn get(&self, id: &ThreadId) -> Option<Arc<dyn ThreadHandle>> {
@@ -1521,140 +1729,18 @@ impl ThreadDirectory for SessionDirectory {
                         path: "params".into(),
                         expected: "ThreadStartParams".into(),
                     })?;
-                let now = self.inner.deps.clock.now_ms();
-                let mut header = Header::new();
-                header.insert("createdAt".into(), json!(now));
-                header.insert("updatedAt".into(), json!(now));
-                header.insert("lastUsedAt".into(), json!(now));
-                // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
-                // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
-                // workspace, no project, no classification.
-                let control = params.kind == ThreadStartKind::Control;
-                let project = if control {
-                    None
-                } else {
-                    params
-                        .project_path
-                        .clone()
-                        .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.clone()))
-                        .filter(|path| !path.trim().is_empty())
-                };
-                if let Some(path) = &project {
-                    header.insert("cwd".into(), json!(path));
-                } else if matches!(params.kind, ThreadStartKind::Task | ThreadStartKind::Control) {
-                    // A task runs in the task workspace, resolved by the core as Node's host resolves it (`TaskWorkspace`);
-                    // the tools below are composed for that folder.
-                    let folder = self.inner.deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
-                    header.insert("cwd".into(), json!(folder));
+                if super::new_task::starts_new_task(&req.params) {
+                    return self.start_new_task(req, params).await;
                 }
-                // A session the desktop creates for a new task or a project is classified by the project it names, as the host
-                // writes it (`resolveSessionWorkspace`, session-host.ts:535-553, passed to `session.create`, stored by
-                // `lifecycle.mjs:61`): `{classification:'project', projectPath}` or `{classification:'task', projectPath:null}`.
-                // The control session is created with `desktopSession: null` (`ensureControlSession`): none is written.
-                if !control && (project.is_some() || params.draft.is_some()) {
-                    let classified = match &project {
-                        Some(path) => json!({ "classification": "project", "projectPath": path }),
-                        None => json!({ "classification": "task", "projectPath": null }),
-                    };
-                    header.insert("desktopSession".into(), classified);
-                }
-                // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
-                super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
-                // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
-                let id = ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms()));
-                // The control session is followed by the config's adoption from before its route is first resolved.
-                let starting = if control { Some(self.inner.start(&id)?) } else { None };
-                // The route the thread begins on is settled first: the tools and the prompt below are
-                // composed for it, as Node composes the session from `rt.route`.
-                let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
-                // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.
-                let settings = self.inner.deps.compaction.settings_changes().map(super::actor::SettingsFollow::begin);
-                // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
-                let route = if control {
-                    self.inner.deps.new_route.adopt_control(&id).await
-                } else {
-                    self.inner.deps.new_route.adopt(&id, pick.as_ref()).await
-                }
-                .map_err(|message| mixdog_core_base::support::failed("route", message))?;
-                // The route keys only a created record carries (`presetName`, the wire id, the preset's chain …);
-                // the route's own fields are seated once the thread exists.
-                let created = super::new_route::create_keys(&route).map_err(|message| mixdog_core_base::support::failed("route", message))?;
-                for (key, value) in created {
-                    header.insert(key, value);
-                }
-                // Until the thread is published, any way out abandons the seed; the actor owns it after.
-                let seeded = super::seams::SeededThread::new(self.inner.deps.new_tools.clone(), id.clone());
-                let seeding = if params.kind == ThreadStartKind::Control {
-                    self.inner.deps.new_tools.seed_control(&id, &header)
-                } else {
-                    self.inner.deps.new_tools.seed(&id, &header)
-                };
-                let header = seeding.await.map_err(|message| {
-                    mixdog_core_base::support::failed("session", format!("session: tools: {message}"))
-                })?;
-                let handle = self
-                    .inner
-                    .create(CreateSpec {
-                        id: Some(id),
-                        header,
-                        base: None,
-                        op: req.op.clone(),
-                        method: req.method,
-                        params: req.params.clone(),
-                        seed: Some(seeded),
-                        settings,
-                        starting,
-                    })
-                    .await?;
-                self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
-                // `contextTokens` is on a created record only when set; the seat writes the route's, null when none.
-                if handle.cell.header.load().get("contextTokens") == Some(&Value::Null) {
-                    handle
-                        .request(CoreRequest {
-                            method: Method("thread/header/patch"),
-                            params: json!({ "threadId": handle.id, "set": {}, "unset": ["contextTokens"] }),
-                            op: None,
-                            ctx: CallContext::internal("route"),
-                        })
-                        .await?;
-                }
-                // The draft's worktree, entered before the first prompt (Node: after the draft's route, workflow and mode).
-                // `cwd` becomes the managed worktree; the classification keeps the project. The control session has
-                // no draft (`ensureControlSession`, not `createNewTask`): whatever draft a control start names enters nothing.
-                if let Some(worktree) = params.draft.as_ref().and_then(|draft| draft.worktree.as_ref()).filter(|_| !control) {
-                    let input = params.initial_input.as_ref().and_then(|input| serde_json::to_value(input).ok());
-                    self.inner.deps.new_place.enter_worktree(&handle.id, worktree, input.as_ref(), &req.ctx.cancel).await?;
-                }
+                let handle = self.begin_thread(&req, &params, None, None).await?;
+                self.enter_draft_worktree(&handle, &req, &params).await?;
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
-                if let Some(input) = params.initial_input {
-                    let started = handle
-                        .request(CoreRequest {
-                            method: Method("turn/start"),
-                            params: json!({
-                                "threadId": handle.id,
-                                "opId": req.op.as_ref().map_or(String::new(), |op| format!("{op}:turn")),
-                                "input": input,
-                            }),
-                            op: req.op.as_ref().map(|op| OpId::from(format!("{op}:turn"))),
-                            ctx: req.ctx.clone(),
-                        })
-                        .await;
-                    // A first prompt the session refuses leaves no thread behind.
-                    if matches!(&started, Err(CoreError::DomainError { code: Some(code), .. }) if code.as_ref() == super::actor::SUBMIT_REFUSED) {
-                        let _ = super::delete::delete_session(&self.inner, handle.id.as_str(), None).await;
-                    }
-                    let turn = started?;
-                    if let Reply::Value(turn) = turn {
-                        result["turn"] = turn;
-                    }
+                if let Some(input) = params.initial_input
+                    && let Some(turn) = self.first_turn(&handle, &req, input).await?
+                {
+                    result["turn"] = turn;
                 }
-                let feed: Arc<dyn mixdog_core_api::FeedSource> = handle.feed.clone();
-                Ok(Reply::Subscribe(Subscribe {
-                    result,
-                    feed,
-                    window: Window::LastItems(200),
-                    resume_from: None,
-                }))
+                Ok(Reply::Subscribe(self.subscribed(&handle, result)))
             }
             "thread/delete" => super::delete::serve(&self.inner, &req.params).await,
             "thread/fork" => {

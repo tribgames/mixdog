@@ -648,6 +648,10 @@ impl UpdateService {
             UpdaterAction::Check => "check",
             UpdaterAction::Install => "install",
         };
+        let command = match (params.action, params.confirmed) {
+            (UpdaterAction::Install, Some(confirmed)) => json!({ "action": action, "confirmed": confirmed }),
+            _ => json!({ "action": action }),
+        };
         self.ops_run(
             req,
             Some(("host.update.command", action.to_owned())),
@@ -657,7 +661,7 @@ impl UpdateService {
                     .request_scoped(
                         HostCapability::Updater,
                         Method("host/update/command"),
-                        json!({ "action": action }),
+                        command.clone(),
                         &req.ctx.cancel,
                     )
                     .await

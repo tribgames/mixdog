@@ -683,7 +683,7 @@ Item keys: `session/<id>`, `store/<kind>`, `ledger`, `index`,
 | `sessionMetadata` | desktopProfile | convert | `sessions` (per-session `meta`; unmatched entries retire, counted as `dangling`) |
 | `desktopProjects`, `agentRooms` | desktopProfile | convert | `stateTable{projects \| rooms}` |
 | `agentGreetings`, `notificationPreferences`, `retentionState`, `remoteActivated` | desktopProfile | convert | `configKey{agents.greeted \| notifications \| desktop.retentionState \| remote.activatedAt}` |
-| `remoteAccessSettings`, `remoteClients`, `relayDevice`, `relayDeviceRevocations`, `relayE2ee`, `pairingToken`, `nativePush`, `pcAccessRevokes`, `selectedFileGrants`, `editorBackups`, `editorRecovery` | desktopProfile | preserve (move) | `file{data, remote/… \| desktop/…}` per SPEC §4.11 |
+| `remoteAccessSettings`, `remoteClients`, `relayDevice`, `relayDeviceRevocations`, `relayE2ee`, `pairingToken`, `nativePush`, `pcAccessRevokes`, `selectedFileGrants`, `editorBackups`, `editorRecovery`, `newTaskReceipts` | desktopProfile | preserve (move) | `file{data, remote/… \| desktop/… \| userdata/new-task-receipts}` per SPEC §4.11 |
 | `unclassifiedWorkspace` | desktopProfile | preserve (in place) | `configKey{desktop.unclassifiedWorkspaceRoot}` |
 | `webPush` | desktopProfile | retire (or preserve its relay-path subset to `remote/push-subscriptions.json`, SPEC §4.11) | — |
 | `retired` | both | retire | — |

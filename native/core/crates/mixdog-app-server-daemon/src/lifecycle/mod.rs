@@ -12,6 +12,8 @@
 mod handle;
 mod machine;
 mod model;
+#[cfg(test)]
+mod new_task_cut_tests;
 mod ports;
 mod real;
 mod release;
@@ -29,6 +31,7 @@ pub use handle::CallGuard;
 pub use handle::ConnectionGuard;
 pub use handle::Lifecycle;
 pub use handle::LifecycleConfig;
+pub use handle::NewTaskGuard;
 pub use handle::new_instance_id;
 pub use model::*;
 pub use ports::CorePort;

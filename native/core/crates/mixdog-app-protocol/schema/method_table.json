@@ -10374,6 +10374,65 @@
     },
     {
       "class": "C2",
+      "method": "notify/state",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "NotifyStateParams",
+      "result": "NotifyStateResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "ui/settings/announce",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "v2::config::UiSettingsChangedParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "ui/providerModels/announce",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::config::UiProviderModelsChangedParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "host/claim",
       "mutation": {
         "kind": "none"
@@ -10556,6 +10615,16 @@
       "delivery": null,
       "method": "host/browser/page",
       "params": "HostBrowserPageParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/browser/frame",
+      "params": "HostBrowserFrameParams"
+    },
+    {
+      "delivery": null,
+      "method": "browser/streamAck",
+      "params": "BrowserStreamAckParams"
     },
     {
       "delivery": null,
@@ -10796,6 +10865,11 @@
     },
     {
       "delivery": "connection",
+      "method": "browser/frame",
+      "params": "BrowserFrameParams"
+    },
+    {
+      "delivery": "connection",
       "method": "modelProxy/run/event",
       "params": "ModelProxyRunEventParams"
     },
@@ -10848,6 +10922,16 @@
       "delivery": "app",
       "method": "ui/openRequested",
       "params": "UiOpenRequestedParams"
+    },
+    {
+      "delivery": "app",
+      "method": "ui/settings/changed",
+      "params": "UiSettingsChangedParams"
+    },
+    {
+      "delivery": "app",
+      "method": "ui/providerModels/changed",
+      "params": "UiProviderModelsChangedParams"
     },
     {
       "delivery": "app",

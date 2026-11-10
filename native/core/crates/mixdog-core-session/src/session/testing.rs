@@ -1092,6 +1092,20 @@ impl super::NewThreadRoute for NoRoute {
     }
 }
 
+/// The draft's settings, every call answered and none applied (no settings service behind it).
+pub struct NoDraftSettings;
+
+#[async_trait::async_trait]
+impl super::DraftSettings for NoDraftSettings {
+    async fn set_workflow(&self, _: &ThreadId, _: &str) -> Result<(), mixdog_core_api::CoreError> {
+        Ok(())
+    }
+
+    async fn set_orchestration_mode(&self, _: &ThreadId, _: &str) -> Result<(), mixdog_core_api::CoreError> {
+        Ok(())
+    }
+}
+
 /// A task workspace that is a fixed path (no folder is made).
 pub struct FixedTaskWorkspace(pub &'static str);
 
@@ -1724,9 +1738,11 @@ impl Rig {
             new_tools: Arc::new(KeepHeader),
             surface: mixdog_core_base::surface::SurfaceGeneration::default(),
             new_route: Arc::new(NoRoute),
+            draft_settings: Arc::new(NoDraftSettings),
             empty_surface: Arc::new(NoEmptySurface),
             task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
             new_place: Arc::new(RecordingPlace::default()),
+            new_tasks: super::new_task::NewTaskReceipts::new(&self._data.path().join("userdata"), tokens.durability_io),
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),
@@ -1948,14 +1964,23 @@ impl DataDir {
     }
 }
 
-impl Drop for DataDir {
-    fn drop(&mut self) {
-        for index in self.indexes.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+impl DataDir {
+    /// Closes the databases opened so far and keeps the folder: a process that ends, whose successor opens the same files.
+    pub fn close_databases(&self) {
+        let indexes = std::mem::take(&mut *self.indexes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for index in indexes {
             index.close();
         }
-        for state in self.states.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+        let states = std::mem::take(&mut *self.states.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for state in states {
             state.close();
         }
+    }
+}
+
+impl Drop for DataDir {
+    fn drop(&mut self) {
+        self.close_databases();
     }
 }
 

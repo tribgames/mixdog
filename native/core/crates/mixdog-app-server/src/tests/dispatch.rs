@@ -352,6 +352,37 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
     assert!(a_ends[0] < a_starts[1], "second `a` started before the first ended: {log:?}");
 }
 
+/// What a call holds for its reply (`CallContext::after_answer`, e.g. the rows of a room call's background catalog listing) is
+/// let go only once the server has queued the reply: as the response is queued, the call's hold stands; after, it has ended.
+/// The call's hold ends only after its response is queued on the connection.
+#[tokio::test]
+async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+    let rig = Rig::gated(&["terminal"]);
+    let gate = Arc::clone(rig.gate("terminal"));
+    let watched = Arc::clone(&gate);
+    // At each queued frame: whether any call's hold had ended by then.
+    let (client, mut arrivals) =
+        rig.connect_watched(1, move || watched.held.lock().unwrap().iter().any(|hold| hold.is_cancelled()));
+    client.initialize(super::VERSION, json!({}));
+    let (initialized, _) = arrivals.next(DEADLINE, "the initialize response").await;
+    assert_eq!(initialized["id"], json!(0), "{initialized}");
+    client.request(1, "terminal/focus", json!({ "tabId": "a", "focused": true }));
+    gate.permits.add_permits(1);
+    let (response, ended) = arrivals.next(DEADLINE, "the response to the call").await;
+    assert_eq!(response["id"], json!(1), "{response}");
+    assert_eq!(response["result"], json!({ "done": "terminal/focus:a" }), "{response}");
+    assert!(!ended, "the call's hold had ended when its response was queued");
+    let hold = {
+        let holds = gate.held.lock().unwrap();
+        assert_eq!(holds.len(), 1, "one call");
+        holds[0].clone()
+    };
+    tokio::time::timeout(DEADLINE, hold.cancelled())
+        .await
+        .expect("the call's hold never ended after its response was queued");
+}
+
 #[tokio::test(start_paused = true)]
 async fn reads_share_a_domain_and_queue_behind_its_writes() {
     let rig = Rig::gated(&["project"]);

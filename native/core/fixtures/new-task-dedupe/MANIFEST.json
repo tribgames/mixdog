@@ -1,0 +1,120 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <exact export of b6f10295a with node_modules>",
+  "comparison": {
+    "coreNotCompared": {
+      "reply.subscription": "the core's subscription to the session's feed (`thread/start` subscribes its caller); Node's host keeps its feed inside the process",
+      "reply.thread.activityAt": "the core's thread summary (`thread/start`'s `thread`), whose Node counterpart is the snapshot the recording does not hold (see `notCompared`)",
+      "reply.thread.classification": "as `reply.thread.activityAt`",
+      "reply.thread.compactCount": "as `reply.thread.activityAt`",
+      "reply.thread.createdAt": "as `reply.thread.activityAt`",
+      "reply.thread.cwd": "as `reply.thread.activityAt`",
+      "reply.thread.messageCount": "as `reply.thread.activityAt`",
+      "reply.thread.preview": "as `reply.thread.activityAt`",
+      "reply.thread.projectPath": "as `reply.thread.activityAt`",
+      "reply.thread.title": "as `reply.thread.activityAt`",
+      "reply.thread.updatedAt": "as `reply.thread.activityAt`",
+      "reply.turn": "the first turn the attempt started (`thread/start`'s `turn`); Node's turn starts in its daemon's `submit`, a model in the recording, whose answer the recording does not hold"
+    },
+    "method": "each scenario whole: its `steps`, and for every recorded step everything in the recording except the paths of `notCompared`; the core's side is built as `translated` states, and both sides are normalised only as `normalised` states",
+    "normalised": {
+      "fresh session address": "numbered `<fresh:N>` by first appearance in the scenario on both sides (see `random`)",
+      "key order": "objects are compared without regard to key order (the recording is written with sorted keys); arrays in order",
+      "thread.id": "the core's session address in `thread.id` is the reply's `sessionId` (see `translated`)"
+    },
+    "notCompared": {
+      "recorded[].daemonCalls": "Node's calls from the desktop host to its daemon client inside one request (create, configure, submit, unsubscribe, read; the daemon is a model, leg.mjs): the core runs these steps inside its own `thread/start` with no wire between them. What they do is compared through `sessions` (a session made, given its prompt, or removed again) and `receipts`",
+      "recorded[].reply.errno": "a field of the Node fs error the leg catches in the host's own process (io-error): libuv's number for the error, which differs by operating system (UV_EISDIR is -4068 on Windows, -21 on Linux: libuv include/uv/errno.h), and which no Node caller receives across a process (the window's IPC rejection carries the message; the phone's remote call the message and code). The core's rejection is a protocol `domainError` with a code and a message (mixdog-app-protocol ErrorData), which the desktop turns into an Error with `code` (apps/desktop/src/main/protocol/core-error.ts:17-22): no field of it carries an errno",
+      "recorded[].reply.snapshot": "Node's answer carries the session snapshot its daemon returned (session-host-lifecycle.ts:922,951: the leg's daemon model, leg.mjs `full`, with the host's remote fields): the recording has no real one. The core's answer has no snapshot (its session state travels on the subscription's feed)",
+      "recorded[].reply.syscall": "as `recorded[].reply.errno`: the name of the fs call inside Node (`read`), a field of the same in-process error object only"
+    },
+    "translated": {
+      "recorded[].receipts": "the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1), as the recorder reads them",
+      "recorded[].reply": "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`), as received on both sides (`asReceived`): an answer is compared with `thread.id` as `sessionId` and `accepted: true` (the core answers only a started task, Node's `accepted` answer), less the paths of `coreNotCompared`; a rejection is its message and every own field of the error on both sides; a crash step's reply is `{crashed: at}` on both sides",
+      "recorded[].sessions": "every thread `thread/list` lists, with `prompts` = its `userMessage` items (`thread/items/list`) and `reserved` = no prompt yet (Node's daemon model sets `reserved` false exactly when it records a prompt, leg.mjs `submit`, and removes a reserved session without one on `unsubscribe`)",
+      "recorded[].step": "the step the replay drives (scenarios.mjs), the same list the recording ran"
+    }
+  },
+  "daemon": "the daemon is a model (leg.mjs) of the rules the new-task path uses; its calls are recorded for Node only",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 101174,
+      "path": "golden.json",
+      "sha256": "cc3a2d16407fc2976117dbccb25f4bc9a4ddc2eaec883dd67e70ec5d666dd5fc"
+    }
+  ],
+  "processes": "each scenario runs its legs in a Windows job of its own (lib/process-job.mjs): every process a leg starts is ended with it, and a leg that leaves one running fails",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "random": {
+    "fresh session address": "a session address after a refusal reset or a changed-content retry is `sess_desktop_` + 32 random bytes in hex (freshSessionId, new-task-requests.ts:85); numbered `<fresh:N>` by first appearance in a scenario",
+    "scenariosWhereTheTwoRunsDiffered": [
+      "refusal-then-other-content",
+      "refusal-then-same-content",
+      "refusal-twice-then-other-content"
+    ]
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-new-task-dedupe.mjs",
+  "recording": {
+    "node": "v22.20.0",
+    "scripts": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
+        "sha256": "bd6ee0cdc164ed875474cb2a112c6da86a272d7776b55f5669f7044a2f69625b"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+        "sha256": "a21b148d3a3a470fd272151149aa40ffc9805641d802bd66c54b0e02d4fd2cf8"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+        "sha256": "9b5e2b8d2d54770720acd87534d60f623472f2060b88cab56c8543dfbe0f457c"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+        "sha256": "fa3050809ac5062841f34949b691f887f45c4099962d9f1c47197d0450b411bf"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/lib/recording-scripts.mjs",
+        "sha256": "93cdc7eb433a476fd68a231b37ed9b138d9c87923cacb125bd6161fba6fa682d"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/leg.mjs",
+        "sha256": "548c8a5fd90f02f5c59b372747b18401b4431447a7d78df774123b0fe1745d42"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs",
+        "sha256": "1cbc436a9e9e2fdd168f4cb25f898368369e673abad8c94564122d21cacd575c"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs",
+        "sha256": "1f016f7f06e363cb56090adb234223128e67d40aa23bdeec9fa32d663e43f618"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/record-new-task-dedupe.mjs",
+        "sha256": "aa4f4782f5272e836312968dd94b6d8f44b8089537d43b5bee449f3eb08e64f2"
+      }
+    ]
+  },
+  "set": "new-task-dedupe",
+  "totalBytes": 101174
+}

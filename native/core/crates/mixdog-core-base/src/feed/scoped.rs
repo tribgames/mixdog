@@ -45,8 +45,23 @@ impl CoreScopedFeeds {
 
 impl ScopedFeeds for CoreScopedFeeds {
     fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
+        self.register(id, view, CoreFeed::new)
+    }
+
+    fn create_ordered(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
+        self.register(id, view, CoreFeed::new_ordered)
+    }
+}
+
+impl CoreScopedFeeds {
+    fn register(
+        &self,
+        id: FeedId,
+        view: Arc<dyn FeedView>,
+        make: fn(FeedId, FeedEpoch, Arc<dyn FeedView>, FeedLimits, CpuInteractive) -> CoreFeed,
+    ) -> Arc<dyn ScopedFeed> {
         let epoch = FeedEpoch::from(Uuid::new_v4().simple().to_string());
-        let feed = Arc::new(CoreFeed::new(id.clone(), epoch, view, self.limits, self.cpu));
+        let feed = Arc::new(make(id.clone(), epoch, view, self.limits, self.cpu));
         let mut live = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         live.retain(|_, feed| feed.strong_count() > 0);
         live.insert(id, Arc::downgrade(&feed));
