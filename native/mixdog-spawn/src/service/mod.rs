@@ -25,6 +25,7 @@ pub use process::ProcessService;
 pub use system::SystemService;
 pub use terminal::TerminalService;
 pub use terminal::TerminalServiceConfig;
+pub use terminal::attached_reply;
 
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::domain::process::ProcessError;

@@ -1440,8 +1440,9 @@ async fn scripted_rig(name: &str) -> Rig {
 }
 
 /// The window a late reader gets is Node's `TerminalReplayBuffer` at its boundary (golden.json, trace.replayWindow, recorded from Node): 200,000
-/// UTF-16 units, so two-byte characters count as one and a non-BMP character on the cut loses its first unit. A string cannot hold the lone
-/// surrogate Node keeps there; it reads as U+FFFD, one unit in place of one.
+/// UTF-16 units, so two-byte characters count as one and a non-BMP character on the cut loses its first unit. Node keeps the lone low
+/// surrogate left first; the core's answer carries it as `replayLeadUnit` before `replay` (which a Rust string can hold), and the units of
+/// the two together are Node's, unit for unit. The adapter's half (the JSON text the phone gets) is remote-protocol-terminal-replay.test.mjs.
 #[test]
 fn the_replay_window_is_nodes_at_its_boundary() {
     let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
@@ -1453,9 +1454,15 @@ fn the_replay_window_is_nodes_at_its_boundary() {
             let text: String = chunk.as_array().unwrap().iter().map(|part| part[0].as_str().unwrap().repeat(part[1].as_u64().unwrap() as usize)).collect();
             buffer.append(&text);
         }
-        let units: Vec<u64> = buffer.read().encode_utf16().map(u64::from).collect();
-        // Node's lone surrogates are what a string cannot hold: the replacement character stands for each.
-        let node = |at: &Value| -> Vec<u64> { at.as_array().unwrap().iter().map(|u| u.as_u64().unwrap()).map(|u| if (0xd800..0xe000).contains(&u) && !pair(at, u) { 0xfffd } else { u }).collect() };
+        let (replay_lead, replay) = buffer.read_window();
+        let reply = mixdog_spawn::service::attached_reply(&Attached { id: "term_window".into(), replay, replay_lead, size_owner: None }, "");
+        let units: Vec<u64> = reply
+            .get("replayLeadUnit")
+            .map(|lead| lead.as_u64().unwrap())
+            .into_iter()
+            .chain(reply["replay"].as_str().unwrap().encode_utf16().map(u64::from))
+            .collect();
+        let node = |at: &Value| -> Vec<u64> { at.as_array().unwrap().iter().map(|u| u.as_u64().unwrap()).collect() };
         let name = case["name"].as_str().unwrap();
         assert_eq!(units.len() as u64, case["length"].as_u64().unwrap(), "{name}: length in units");
         assert_eq!(buffer.cursor(), case["cursor"].as_u64().unwrap(), "{name}: cursor");
@@ -1463,13 +1470,6 @@ fn the_replay_window_is_nodes_at_its_boundary() {
         assert_eq!(&units[..4], node(&case["head"]).as_slice(), "{name}: first units");
         assert_eq!(&units[units.len() - 4..], node(&case["tail"]).as_slice(), "{name}: last units");
     }
-}
-
-/// Whether the surrogate `unit` of the four `units` is half of a pair there.
-fn pair(units: &Value, unit: u64) -> bool {
-    let all: Vec<u64> = units.as_array().unwrap().iter().map(|u| u.as_u64().unwrap()).collect();
-    let at = all.iter().position(|u| *u == unit).unwrap();
-    if (0xd800..0xdc00).contains(&unit) { all.get(at + 1).is_some_and(|n| (0xdc00..0xe000).contains(n)) } else { at > 0 && (0xd800..0xdc00).contains(&all[at - 1]) }
 }
 
 /// Node is one thread, so a claim's change, its PTY fit and its announcement are one step. Here they are one step per id (a gate), and the claims

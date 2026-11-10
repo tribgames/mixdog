@@ -351,7 +351,8 @@ trace.replayWindow = [
   for (const chunk of chunks) buffer.append(chunk.map(([text, count]) => text.repeat(count)).join(''));
   const read = buffer.read();
   const all = units(read);
-  return { name, chunks, length: read.length, head: all.slice(0, 4), tail: all.slice(-4), cursor: buffer.cursor, trimmed: buffer.trimmed };
+  // `json`: the start of the JSON text Node's relay writes for the window (a lone surrogate is an escape there).
+  return { name, chunks, length: read.length, head: all.slice(0, 4), tail: all.slice(-4), json: JSON.stringify(read).slice(0, 16), cursor: buffer.cursor, trimmed: buffer.trimmed };
 });
 await operations.dispose();
 lanes.dispose();
