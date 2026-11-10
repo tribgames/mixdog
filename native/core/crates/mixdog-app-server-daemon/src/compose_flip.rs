@@ -774,6 +774,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         },
     );
     let agent_listed: Arc<std::sync::OnceLock<mixdog_core_agents::agents::section::ListedHook>> = Arc::new(std::sync::OnceLock::new());
+    // Every `thread/deleted` (the explicit delete and a row that stopped being listed) leaves through this one publisher, which tells the paired
+    // phones' downloads the conversation is gone in the same step, before the notification (bound once the workspace exists).
+    let thread_deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(b.sections.clone());
     mixdog_core_agents::agents::section::spawn_agents_section(
         agents.clone(),
         config.changes(),
@@ -1984,6 +1987,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             };
             let session_surface = surface_generation.clone();
             let store_threads = store_threads.clone();
+            let thread_deletions = thread_deletions.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();
@@ -2022,7 +2026,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 inherit: inheritance_fit,
                 route_change,
                 deletion: Arc::new(mixdog_core_session::session::purge::SessionDeletion {
-                    app: sections.clone(),
+                    deleted: thread_deletions.clone(),
                     search: Some(memory_search.clone()),
                     worktrees: worktree_maintenance.clone(),
                     board: job_board.clone(),
@@ -2391,8 +2395,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // catalog ends its grants (Node's `sessionRemoved`).
     let phone_grants = Arc::new(mixdog_workspace::grants::GrantStore::new(
         Arc::new(mixdog_workspace::transfer::SystemClock),
-        Arc::new(CatalogSessions(Arc::new(catalog_index.clone()))),
+        Arc::new(CatalogSessions { sessions: Arc::new(catalog_index.clone()), media: Arc::new(mixdog_services::media::MediaStore::new(&b.data_dir, b.tokens.durability_io)) }),
     ));
+    thread_deletions
+        .on_gone({
+            let workspace = workspace.clone();
+            Arc::new(move |session: &str| workspace.session_removed(session))
+        })
+        .map_err(|()| ComposeError::AlreadyBound("thread deletions"))?;
     workspace.set_host(b.host.clone());
     workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
     // An unpair ends the device's grants and transfers at once and, once the relay confirmed it, its notification preferences.
@@ -2404,6 +2414,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             end_transfers: {
                 let workspace = workspace.clone();
                 Arc::new(move |owner| workspace.revoke_device(owner))
+            },
+            end_downloads: {
+                let workspace = workspace.clone();
+                Arc::new(move || workspace.revoke_all_downloads())
             },
             config: config.clone(),
         }))
@@ -2501,7 +2515,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
     let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows, agents.clone()));
     thread_list.fence(store_threads.clone()); // a list is never older than a write whose reply or notification has gone out
-    thread_list.observe(phone_grants.clone()); // a session counts as seen when a published catalog lists it (Node's retainSessions)
+    // A session counts as seen when a published catalog lists it (Node's seenSessions); the downloads of one that leaves the catalog end in the
+    // step its `thread/deleted` is published (`ThreadDeletions`).
+    thread_list.observe(phone_grants.clone());
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
         store: heartbeat_store.clone(),
@@ -2520,7 +2536,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     bot_summaries.bind(thread_list.clone(), b.sections.clone()).map_err(|_| ComposeError::AlreadyBound("bot work summaries"))?;
     // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
-    let room_publication = mixdog_core::run_host::room_publication::wire(thread_list.clone(), b.sections.clone(), agents.clone(), &catalog_index, directory.clone(), room_sessions.clone()).map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
+    let room_publication = mixdog_core::run_host::room_publication::wire(thread_list.clone(), b.sections.clone(), thread_deletions.clone(), agents.clone(), &catalog_index, directory.clone(), room_sessions.clone()).map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
     let (room_summaries, room_host) = (room_publication.summaries, room_publication.host);
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
@@ -2960,18 +2976,55 @@ impl mixdog_core_session::session::BuiltinSkills for CatalogBuiltinSkills {
     }
 }
 
-/// Whether a session is still in the catalog (`SqliteStore::summary`: a deleted session, or one whose log has no readable
-/// frame, has no row), for the grants a paired phone holds.
-struct CatalogSessions(Arc<mixdog_store::sqlite::SqliteStore>);
+/// The host's catalog for the grants and downloads a paired phone holds: whether a session is still in it (`SqliteStore::summary`: a
+/// deleted session, or one whose log has no readable frame, has no row), the row of one, and the file the media store has for an asset.
+struct CatalogSessions {
+    sessions: Arc<mixdog_store::sqlite::SqliteStore>,
+    media: Arc<mixdog_services::media::MediaStore>,
+}
 
 #[async_trait::async_trait]
 impl mixdog_workspace::grants::SessionCatalog for CatalogSessions {
     async fn has(&self, session_id: &str) -> mixdog_workspace::error::WsResult<bool> {
-        self.0
+        self.sessions
             .summary(session_id)
             .await
             .map(|row| row.is_some())
             .map_err(|error| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error.to_string()))
+    }
+
+    /// Node's `listSessions()` entry of the conversation: its classification, project and folder as its list row states them.
+    async fn row(&self, session_id: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::SessionRow>> {
+        let io = |error: String| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error);
+        let Some(summary) = self.sessions.summary(session_id).await.map_err(|error| io(error.to_string()))? else { return Ok(None) };
+        // Only the three fields a download needs: the stored row is a JSON object, whose other fields are not this seam's to interpret.
+        let row: serde_json::Value = serde_json::from_str(&summary).map_err(|error| io(error.to_string()))?;
+        let text = |key: &str| row.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+        // Node's list row (`_desktopSessionSummary`) states the classification and the project under `desktopSession`.
+        let desktop = row.get("desktopSession");
+        let in_desktop = |key: &str| desktop.and_then(|d| d.get(key)).and_then(serde_json::Value::as_str).map(str::to_owned);
+        Ok(Some(mixdog_workspace::grants::SessionRow {
+            project: in_desktop("classification").as_deref() == Some("project"),
+            project_path: in_desktop("projectPath"),
+            cwd: text("cwd").unwrap_or_default(),
+        }))
+    }
+
+    /// The media store's file for an asset (`resolveMediaFile`, original rendition): none for an asset it does not know or whose bytes are
+    /// gone. A file that is not a regular one is handed over all the same: the download refuses it without opening it.
+    async fn media(&self, asset_id: &str) -> mixdog_workspace::error::WsResult<Option<mixdog_workspace::grants::MediaEntry>> {
+        let id = asset_id.to_owned();
+        let located = self
+            .media
+            .run(move |store| store.locate_file(&id))
+            .await
+            .and_then(|found| found)
+            .map_err(|error| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error.to_string()))?;
+        Ok(located.and_then(|found| {
+            let (mixdog_services::media::store::Located::Readable(entry) | mixdog_services::media::store::Located::Special(entry)) = found;
+            let path = entry.get("path")?.as_str()?.to_owned();
+            Some(mixdog_workspace::grants::MediaEntry { path, mime: entry.get("mime").and_then(serde_json::Value::as_str).map(str::to_owned) })
+        }))
     }
 }
 

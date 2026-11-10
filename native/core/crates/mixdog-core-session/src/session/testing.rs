@@ -1414,6 +1414,8 @@ pub struct Deletes(
     pub Mutex<Option<String>>,
     pub Mutex<bool>,
     pub Mutex<bool>,
+    /// The purge's first hook (`transcriptExport`), when set, tells `.0` it was reached and waits for `.1` before it returns.
+    pub Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 );
 
 impl Deletes {
@@ -1428,7 +1430,13 @@ struct Hook(&'static str, Arc<Deletes>);
 impl super::delete::PurgeHook for Hook {
     fn purge(&self, session_id: &str, cwds: &[String]) -> futures::future::BoxFuture<'static, ()> {
         self.1.note(format!("{}:{session_id}:{}", self.0, cwds.join(",")));
-        Box::pin(std::future::ready(()))
+        let held = if self.0 == "transcriptExport" { lock(&self.1.6).take() } else { None };
+        Box::pin(async move {
+            if let Some((reached, release)) = held {
+                reached.notify_one();
+                tokio::task::spawn_blocking(move || release.recv()).await.expect("the purge hold").expect("the purge released");
+            }
+        })
     }
 }
 
@@ -1439,6 +1447,9 @@ impl super::delete::DeleteSeams for Deletes {
     }
     fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header, _: i64) {
         self.note(format!("sessionClosed:{session_id}:{reason}"));
+    }
+    fn tombstoned(&self, thread: &ThreadId) {
+        self.note(format!("tombstoned:{thread}"));
     }
     fn release_mcp_scope(&self, session_id: &str) {
         lock(&self.2).push(session_id.to_owned());

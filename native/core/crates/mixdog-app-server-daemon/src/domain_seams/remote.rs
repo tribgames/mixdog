@@ -113,6 +113,8 @@ pub struct SectionEvents {
 pub trait DeviceCleanup: Send + Sync {
     /// Before the relay is asked: the device's file grants and transfers end.
     fn unpaired(&self, credential_id: &str);
+    /// The relay handle closed: every phone download ends (`remote-relay.ts` `close`, `fileDownloads.revokeAll`).
+    fn relay_closed(&self);
     /// After the relay confirmed: the device's notification preferences go.
     fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
 }
@@ -141,6 +143,12 @@ impl RemoteEvents for SectionEvents {
     fn device_unpaired(&self, credential_id: &str) {
         if let Some(cleanup) = self.cleanup.get() {
             cleanup.unpaired(credential_id);
+        }
+    }
+
+    fn relay_closed(&self) {
+        if let Some(cleanup) = self.cleanup.get() {
+            cleanup.relay_closed();
         }
     }
 
@@ -271,6 +279,8 @@ pub struct PairedDeviceCleanup {
     pub registry: Arc<DeviceRegistry>,
     /// Ends the transfers a connection (named by its id) owns.
     pub end_transfers: Arc<dyn Fn(&str) + Send + Sync>,
+    /// Ends every phone download (the relay closed).
+    pub end_downloads: Arc<dyn Fn() + Send + Sync>,
     pub config: mixdog_core_config::config::Config,
 }
 
@@ -280,6 +290,11 @@ impl DeviceCleanup for PairedDeviceCleanup {
         for connection in self.registry.connections_of(credential_id) {
             (self.end_transfers)(&connection.to_string());
         }
+    }
+
+    fn relay_closed(&self) {
+        (self.end_downloads)();
+        self.grants.relay_closed();
     }
 
     fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {

@@ -7,6 +7,7 @@ use mixdog_protocol::ProviderId;
 use serde_json::Map;
 use serde_json::Value;
 
+use super::cache_key;
 use super::config::Capabilities;
 use super::config::ModelFacts;
 use super::config::OpenAiConfig;
@@ -35,15 +36,22 @@ const DEFAULT_VERBOSITY: &str = "low";
 /// The request body plus the facts later stages read.
 pub struct BuiltBody {
     pub map: Map<String, Value>,
+    /// The body's prompt_cache_key.
+    pub cache_key: Option<String>,
     pub service_tier: Option<&'static str>,
     pub facts: ModelFacts,
 }
 
-/// `priority` is the only fast-class value the Codex backend accepts.
-fn service_tier(facts: &ModelFacts, request: &ModelRequest) -> Option<&'static str> {
+/// `priority` is the only fast-class value the Codex backend accepts. Which tiers a model has is the route's own
+/// source (`resolveOpenAiServiceTier`, `openai-service-tier.mjs`): the public API's rules, or the Codex catalog.
+fn service_tier(facts: &ModelFacts, request: &ModelRequest, route: Route) -> Option<&'static str> {
     if !request.options.fast {
         return None;
     }
+    let (fast, ultrafast) = match route {
+        Route::Codex => (facts.codex_fast_tier, facts.codex_ultrafast_tier),
+        _ => (facts.fast_tier, facts.ultrafast_tier),
+    };
     let asks_ultrafast = request
         .options
         .model_parameters
@@ -51,10 +59,10 @@ fn service_tier(facts: &ModelFacts, request: &ModelRequest) -> Option<&'static s
         .and_then(|p| p.get("serviceTier"))
         .and_then(Value::as_str)
         == Some("ultrafast");
-    if asks_ultrafast && facts.ultrafast_tier {
+    if asks_ultrafast && ultrafast {
         return Some("ultrafast");
     }
-    facts.fast_tier.then_some("priority")
+    fast.then_some("priority")
 }
 
 pub fn build(config: &OpenAiConfig, request: &ModelRequest) -> BuiltBody {
@@ -71,7 +79,7 @@ pub fn build_with(
     let facts = config.facts.facts(&request.model);
     let caps = Capabilities::resolve(route, &facts);
     let codex = route == Route::Codex;
-    let tier = service_tier(&facts, request);
+    let tier = service_tier(&facts, request, route);
 
     let profile = ResponsesProfile {
         order: ORDER_FIRST_PARTY.to_vec(),
@@ -129,12 +137,16 @@ pub fn build_with(
     // No continuation here: the first-party routes carry history through the
     // ordered provider replay (Node keeps no slot of its own for them), and a
     // slot on top would send the same reasoning twice.
-    let built = build_body(&profile, &BuildInputs { effort, ..BuildInputs::new(request) });
+    // The Codex route keys a thread's cache slot by the thread (`codexThreadPromptCacheKey`); the public API keeps
+    // the key the request names.
+    let derive = |prefix: &cache_key::Prefix<'_>| cache_key::codex_prompt_cache_key(&request.options, &|name| config.context.var(name), prefix);
+    let built = build_body(&profile, &BuildInputs { effort, prompt_cache_key: codex.then_some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String), ..BuildInputs::new(request) });
     for excluded in built.excluded {
         report_exclusion(&request.options, excluded);
     }
     let map = built.body;
     BuiltBody {
+        cache_key: map.get("prompt_cache_key").and_then(Value::as_str).map(str::to_owned),
         map,
         service_tier: tier,
         facts,
