@@ -1,0 +1,136 @@
+{
+ "manifest": {
+  "exact": true,
+  "nodeCommit": "b6f10295a",
+  "node": "v22.20.0",
+  "pool": "pool-a",
+  "harness": {
+   "turn-state-lifetime-capture.mjs": "c9c92700863bcfa225f854275dcfc0f1d3bf147a3934a5c0082de45a390e93f3"
+  }
+ },
+ "steps": [
+  {
+   "do": "frame",
+   "socket": 1,
+   "turn": "turn-1",
+   "sent": null
+  },
+  {
+   "do": "event",
+   "socket": 1,
+   "token": "ts-1"
+  },
+  {
+   "do": "frame",
+   "socket": 1,
+   "turn": "turn-1",
+   "sent": "ts-1"
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-1",
+   "sent": null
+  },
+  {
+   "do": "event",
+   "socket": 2,
+   "token": "ts-2"
+  },
+  {
+   "do": "http",
+   "turn": "turn-1",
+   "sent": null
+  },
+  {
+   "do": "close",
+   "socket": 1
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-1",
+   "sent": null
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-2",
+   "sent": null
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-2",
+   "sent": null
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-1",
+   "sent": null
+  },
+  {
+   "do": "http",
+   "turn": "turn-2",
+   "sent": null
+  },
+  {
+   "do": "answer",
+   "turn": "turn-2",
+   "token": "ts-h"
+  },
+  {
+   "do": "http",
+   "turn": "turn-2",
+   "sent": "ts-h"
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-2",
+   "sent": null
+  },
+  {
+   "do": "frame",
+   "socket": 3,
+   "turn": "turn-3",
+   "sent": null
+  },
+  {
+   "do": "close",
+   "socket": 3
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-3",
+   "sent": null
+  },
+  {
+   "do": "event",
+   "socket": 2,
+   "token": "ts-3"
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-3",
+   "sent": "ts-3"
+  },
+  {
+   "do": "session-closed"
+  },
+  {
+   "do": "frame",
+   "socket": 2,
+   "turn": "turn-3",
+   "sent": null
+  },
+  {
+   "do": "http",
+   "turn": "turn-3",
+   "sent": null
+  }
+ ]
+}

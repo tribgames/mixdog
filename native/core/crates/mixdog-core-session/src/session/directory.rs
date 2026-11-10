@@ -368,11 +368,6 @@ impl SessionDirectory {
         self.running(id).grants()
     }
 
-    /// `RunSettings.thread_window`: the thread's compaction count.
-    pub fn thread_window(&self, id: &ThreadId) -> u64 {
-        self.running(id).thread_window()
-    }
-
     pub fn deps(&self) -> &Arc<SessionDeps> {
         &self.inner.deps
     }

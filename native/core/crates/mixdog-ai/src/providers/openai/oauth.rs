@@ -185,9 +185,9 @@ impl Inner {
             json!(json.get("refresh_token").and_then(Value::as_str).unwrap_or(&refresh_token)),
         );
         update.insert("expires_at".into(), json!(expires_at));
-        if let Some(account) = account_of(&access_token) {
-            update.insert("account_id".into(), json!(account));
-        }
+        // `account_id: extractAccountId(json.access_token)`: the refreshed token's own claim, and none when it names
+        // none (Node stores the refreshed tokens in place of the old document, `publishRefreshedTokens`).
+        update.insert("account_id".into(), account_of(&access_token).map_or(Value::Null, |account| json!(account)));
         let expected = refresh_token.clone();
         let published = self
             .file
