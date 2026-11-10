@@ -9,6 +9,7 @@ pub mod feature_effects;
 pub mod git;
 pub mod browser_surfaces;
 pub mod hook_status;
+pub mod relay_files;
 pub mod media_status;
 pub mod notification_clicks;
 pub mod office_fonts;
