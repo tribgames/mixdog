@@ -44,7 +44,41 @@ const { runSessionCompaction } = await importFrom(tree, 'src/runtime/agent/orche
 const { saveSessionAsync, loadSession } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store.mjs');
 const { readStoredSessionTranscript } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-reader.mjs');
 
+const { createSession } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
+const { createLifecycleApi } = await importFrom(tree, 'src/session-runtime/lifecycle-api.mjs');
+const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
+
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
+
+// `fork`: the real lifecycle (`createLifecycleApi`: `inheritToNewSession` builds, carries into and persists the cold heir)
+// over the store, its source the caller's session stored with the scenario's conversation. Two stand-ins, as Node's own
+// inheritance tests stand them in: the route's provider (a registered `fork-model` of a 128000-token window, which
+// `inheritanceCompactionPlan` sizes the heir's compaction by), and the compactor (`compactConversation`): it answers the
+// scenario's rows, or throws.
+const FORK_PROVIDER = { name: 'fork-model', contextWindow: 128000, async send() { throw new Error('no turn runs during a fork'); } };
+async function lifecycleOf(scenario) {
+  const { conversation, compactor } = scenario.fork;
+  // Opened as Node opens a Lead session (`createSession`, which gives it the route's window and compaction policy), under
+  // the caller's id.
+  const source = await _withRegisteredProviderForTestAsync(FORK_PROVIDER.name, FORK_PROVIDER, async () =>
+    createSession({ provider: 'fork-model', model: 'fake-model', owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main', cwd: sandbox, skipSkills: true })
+  );
+  source.id = scenario.caller.id;
+  source.title = 'Source title';
+  source.messages.push(...clone(conversation));
+  await saveSessionAsync(source);
+  return createLifecycleApi({
+    getSession: () => null,
+    getRoute: () => ({ provider: 'fork-model', model: 'fake-model' }),
+    mgr: { getSession: (id) => loadSession(id) },
+    invalidateContextStatusCache() {},
+    saveSession() {},
+    async compactConversation() {
+      if (compactor.throws) throw new Error(compactor.throws);
+      return { messages: clone(compactor.rows) };
+    },
+  });
+}
 
 // A session compacted for real: stored through Node's session store, compacted by `runSessionCompaction` as
 // `compactSessionMessages` runs it (manual, forced), saved, and read back through the store reader the daemon's session
@@ -172,6 +206,12 @@ const SENSITIVE = [
 
 const ROOM_MEMBER = { id: 'sess_rmem_abcdef_ann', sourceType: 'exec' };
 
+const FORK_CONVERSATION = [
+  { role: 'user', content: 'Plan the migration.' },
+  { role: 'assistant', content: 'Here is the plan.' },
+];
+const FORK_SUMMARY = [{ role: 'user', content: 'Summarized for the heir.' }];
+
 const compacted = await compactForReal();
 const base = {
   caller: HUMAN,
@@ -297,6 +337,15 @@ const SCENARIOS = [
   { name: 'compact-own-id', args: { action: 'compact', session_id: 'sess_lead1' } },
   { name: 'compact-other-session', args: { action: 'compact', session_id: 'sess_b' } },
   { name: 'compact-worker', callerSessionId: 'sess_worker1', args: { action: 'compact' } },
+  // `fork` (`inheritToNewSession`): `compact: true` summarizes even a conversation that fits; a compactor that throws or
+  // yields no conversation is a refusal; only the Lead forks. The heir's id is minted (`heir` in the answer).
+  { name: 'fork-plain', fork: { conversation: FORK_CONVERSATION, compactor: { rows: FORK_SUMMARY } }, args: { action: 'fork' } },
+  { name: 'fork-compact', fork: { conversation: FORK_CONVERSATION, compactor: { rows: FORK_SUMMARY } }, args: { action: 'fork', compact: true } },
+  { name: 'fork-compact-not-true', fork: { conversation: FORK_CONVERSATION, compactor: { rows: FORK_SUMMARY } }, args: { action: 'fork', compact: 'yes' } },
+  { name: 'fork-compact-fails', fork: { conversation: FORK_CONVERSATION, compactor: { throws: 'compactor down' } }, args: { action: 'fork', compact: true } },
+  { name: 'fork-compact-empty', fork: { conversation: FORK_CONVERSATION, compactor: { rows: [] } }, args: { action: 'fork', compact: true } },
+  { name: 'fork-compact-no-conversation', fork: { conversation: [], compactor: { rows: FORK_SUMMARY } }, args: { action: 'fork', compact: true } },
+  { name: 'fork-compact-worker', callerSessionId: 'sess_worker1', fork: { conversation: FORK_CONVERSATION, compactor: { rows: FORK_SUMMARY } }, args: { action: 'fork', compact: true } },
 ].map((scenario) => ({ ...base, ...scenario }));
 
 // ---- the session service's two reads over a scenario
@@ -342,13 +391,22 @@ async function record(scenario) {
       readRow: async (id) => clone(scenario.catalog.find((entry) => entry.id === id) ?? null),
     });
     const rt = { session: clone(scenario.caller), config: {} };
-    const { session } = createWorkspaceToolHandlers({ rt, executeSessionControl, listBots: async () => clone(BOTS) });
+    const lifecycle = scenario.fork ? await lifecycleOf(scenario) : null;
+    const { session } = createWorkspaceToolHandlers({ rt, executeSessionControl, listBots: async () => clone(BOTS), getLifecycleApi: () => lifecycle });
     // A caller other than the runtime's session (`callerSessionId`) is a worker running in the Lead's runtime.
     const callerCtx = { callerSessionId: scenario.callerSessionId ?? scenario.caller.id };
     // The compactions the call left scheduled (`takePendingCompact` runs them once the turn settles).
     const scheduled = () => [...(rt.pendingCompactSessionIds ?? [])];
+    const call = () => session(clone(scenario.args), { callerCtx, callerCwd: 'C:/proj' });
     try {
-      return { ok: true, text: await session(clone(scenario.args), { callerCtx, callerCwd: 'C:/proj' }), pendingCompact: scheduled() };
+      const text = scenario.fork ? await _withRegisteredProviderForTestAsync(FORK_PROVIDER.name, FORK_PROVIDER, call) : await call();
+      const answer = { ok: true, text, pendingCompact: scheduled() };
+      // The heir a fork created: its id, and the conversation it holds.
+      if (scenario.fork) {
+        const heir = JSON.parse(text).sessionId;
+        answer.heir = { id: heir, conversation: loadSession(heir).messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: m.content })) };
+      }
+      return answer;
     } catch (error) {
       return { ok: false, text: String(error?.message ?? error), pendingCompact: scheduled() };
     }
@@ -378,6 +436,7 @@ if (only) {
         'The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.',
         "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
         'Room sends, members and asks are not recorded (out of scope).',
+        "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
         "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered.",
       ],
       scenarios: scenarios.length,

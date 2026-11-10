@@ -4,14 +4,15 @@
     "The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.",
     "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
     "Room sends, members and asks are not recorded (out of scope).",
+    "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
     "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered."
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4784549,
+      "bytes": 5278378,
       "path": "golden.json",
-      "sha256": "36238ba8952a880d832081e39e84cb9ed212f4e67271694e22714d30c2f7e7d6"
+      "sha256": "c7947da7ebe1a80cc51901f411b4c0f4f66f2ec9dd1592369418c8a0121090a7"
     }
   ],
   "product": {
@@ -40,10 +41,10 @@
     ],
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-    "recorderSha256": "264848c92cd9059acb67432c6e81e6a966f235bd86e57cc096d82b5793cdb437"
+    "recorderSha256": "28415fe2b5f694cd396cfd4f324571da815eeadd553f07f549c31e2caab8e428"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-  "scenarios": 67,
+  "scenarios": 74,
   "set": "session-tool-control",
-  "totalBytes": 4784549
+  "totalBytes": 5278378
 }

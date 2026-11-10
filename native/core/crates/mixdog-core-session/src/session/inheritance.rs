@@ -126,6 +126,8 @@ impl SessionDirectory {
         };
         let fit_of = |basis: Option<FitBasis>| basis.filter(|basis| basis.limit > 0);
         let fit = fit_of(self.deps().inherit.basis(&target, &carried).await);
+        // `carryConversation`'s `compacted`: the heir takes the compactor's conversation instead of the source's.
+        let mut was_compacted = false;
         if compact || fit.as_ref().is_some_and(|fit| fit.used >= fit.limit) {
             // `fitConversationForHeir`: a compaction that cannot run is a refusal, not a half-carry.
             let budget = self.deps().inherit.compaction_budget(&target).await;
@@ -145,6 +147,7 @@ impl SessionDirectory {
             };
             if let Some(rows) = compacted {
                 carried = rows;
+                was_compacted = true;
             }
             if let Some(fit) = next_fit.filter(|fit| fit.used >= fit.limit) {
                 return Err(refused(&fit_message(&target.provider, &target.model, fit.used, fit.limit)));
@@ -183,6 +186,7 @@ impl SessionDirectory {
         Ok(Reply::Value(json!({
             "thread": handle.cell.view.load_full().summary.clone(),
             "messages": count,
+            "compacted": was_compacted,
             "provider": held.get("provider").cloned().unwrap_or(Value::Null),
             "model": held.get("model").cloned().unwrap_or(Value::Null),
         })))

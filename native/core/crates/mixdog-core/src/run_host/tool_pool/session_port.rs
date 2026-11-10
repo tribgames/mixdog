@@ -397,21 +397,20 @@ impl SessionPort for DirectorySessionPort {
     }
 
     async fn fork(&self, thread: &ThreadId, compact: bool) -> Result<(String, bool), PortError> {
-        // `thread/fork` copies the history as it stands; the compacting inheritance of
-        // `inheritToNewSession({compact: true})` has no handler behind it yet.
-        if compact {
-            return Err(PortError::Unavailable {
-                capability: "fork-compact".to_owned(),
-                message: "session: fork with compact is not available in this runtime".to_owned(),
-            });
-        }
-        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
-        let reply = self.parts.requests.request(thread, "thread/fork", params).await.map_err(core)?;
+        // `inheritToNewSession(sessionId, { compact })`: `thread/fork` creates the heir and carries the conversation into
+        // it, compacted for the heir when asked; it answers whether the carry was compacted.
+        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "compact": compact });
+        // A refused inheritance answers its own message, as Node's `inheritToNewSession` throws it.
+        let reply = self.parts.requests.request(thread, "thread/fork", params).await.map_err(|error| match error {
+            CoreError::DomainError { message: Some(message), .. } => failed(message.as_ref()),
+            other => core(other),
+        })?;
         let id = reply
             .pointer("/thread/id")
             .and_then(Value::as_str)
             .ok_or_else(|| failed("session: the fork answered no thread"))?
             .to_owned();
+        let compacted = reply.get("compacted") == Some(&Value::Bool(true));
         // A suffixed title tells the copy apart in session lists; locked as a model title so
         // auto-titling keeps it, renames still win.
         let copy = ThreadId::from(id.as_str());
@@ -424,7 +423,7 @@ impl SessionPort for DirectorySessionPort {
             ]);
             self.parts.threads.patch_header(&copy, set, Vec::new()).await?;
         }
-        Ok((id, false))
+        Ok((id, compacted))
     }
 
     async fn sidebar(&self, thread: &ThreadId, flag: SidebarFlag, value: bool) -> Result<(), PortError> {

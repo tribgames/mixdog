@@ -560,7 +560,7 @@ async fn a_model_title_never_overwrites_the_users() {
 }
 
 #[tokio::test]
-async fn a_fork_is_a_new_thread_titled_as_a_copy_and_compact_is_not_offered() {
+async fn a_fork_is_a_new_thread_titled_as_a_copy() {
     let requests = Requests { reply: Mutex::new(json!({ "thread": { "id": "sess_copy" } })), ..Requests::default() };
     let p = port(&[("sess_a", json!({})), ("sess_copy", json!({ "title": "Fix it" }))], requests);
     assert_eq!(p.port.fork(&thread("sess_a"), false).await, Ok(("sess_copy".to_owned(), false)));
@@ -568,7 +568,6 @@ async fn a_fork_is_a_new_thread_titled_as_a_copy_and_compact_is_not_offered() {
     assert_eq!((calls[0].0.as_str(), calls[0].1.as_str(), &calls[0].2["threadId"]), ("sess_a", "thread/fork", &json!("sess_a")));
     let header = p.threads.header_of("sess_copy");
     assert_eq!((header["title"].as_str(), header["titleLocked"].as_bool(), header["titleSource"].as_str()), (Some("Fix it (Fork)"), Some(true), Some("ai")));
-    assert!(matches!(p.port.fork(&thread("sess_a"), true).await, Err(PortError::Unavailable { .. })));
 }
 
 #[tokio::test]
