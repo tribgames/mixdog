@@ -124,7 +124,69 @@ async fn a_run_stamp_of_a_held_session_reads_no_stored_record() {
     }
     assert_eq!(rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst), heads, "a gate decision read a transcript");
     assert_eq!(rig.store.header_reads.load(std::sync::atomic::Ordering::SeqCst), headers, "a gate decision read a stored record");
-    assert_eq!(rig.store.record_reads.load(std::sync::atomic::Ordering::SeqCst), records, "a gate decision copied the stored records");
+    assert_eq!(rig.store.record_reads.load(std::sync::atomic::Ordering::SeqCst), records, "a gate decision reached the stored record by a route the other counters miss");
+}
+
+/// The counter the test above watches is live on every `ThreadStore` method that reads a session's stored record, audited
+/// against the real `StoreThreads`: a gate that took any of these routes would move it. Left out: `decode` and `context_cpu`
+/// (they work on what a read returned), `purge_deleted` (index maintenance, no session) and `create_log` (a write).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_read_route_of_the_mock_store_is_counted() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    use mixdog_rt::CancellationToken;
+    use mixdog_rt::LaneToken;
+
+    use crate::session::ThreadStore;
+    use crate::session::seams::{AppendPosition, HeadRead};
+
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let id = ThreadId::from(threads(&directory).create(hidden_header()).await.expect("created").as_str());
+    let tokens = mixdog_rt::testing::tokens();
+    let (reads, named) = (rig.store.clone(), id.clone());
+    let unmoved: Vec<&str> = tokens
+        .interactive_io
+        .submit(&CancellationToken::new(), move |lane| {
+            let store = &reads;
+            let routes: Vec<(&str, Box<dyn Fn() + '_>)> = vec![
+                ("read_head", Box::new(|| drop(store.read_head(lane, &named)))),
+                ("read_header", Box::new(|| drop(store.read_header(lane, &named)))),
+                ("read_log_id", Box::new(|| drop(store.read_log_id(lane, &named)))),
+                ("read_window", Box::new(|| drop(store.read_window(lane, &named, &HeadRead(Box::new(())))))),
+                ("user_rows", Box::new(|| drop(store.user_rows(lane, &named)))),
+                ("history_rows", Box::new(|| drop(store.history_rows(lane, &named)))),
+                ("thread_op", Box::new(|| drop(store.thread_op(lane, &named, "op")))),
+                ("fenced_ops", Box::new(|| drop(store.fenced_ops(lane, &named)))),
+                ("history_row", Box::new(|| drop(store.history_row(lane, &named, "iid")))),
+                ("compaction_entry", Box::new(|| drop(store.compaction_entry(lane, &named, "iid")))),
+                ("context_io", Box::new(|| drop(store.context_io(lane, &named, None)))),
+                ("session_meta", Box::new(|| drop(store.session_meta(&named)))),
+            ];
+            routes
+                .into_iter()
+                .filter(|(_, route)| {
+                    let before = store.record_reads.load(SeqCst);
+                    route();
+                    store.record_reads.load(SeqCst) == before
+                })
+                .map(|(name, _)| name)
+                .collect()
+        })
+        .expect("lane")
+        .await
+        .expect("job ran");
+    assert!(unmoved.is_empty(), "{unmoved:?} read the stored record without moving record_reads");
+
+    let before = rig.store.record_reads.load(SeqCst);
+    let (store, thread) = (rig.store.clone(), id.clone());
+    tokens
+        .durability_io
+        .submit(&CancellationToken::new(), move |lane| drop(store.open_log(lane, &thread, AppendPosition(Box::new(())))))
+        .expect("lane")
+        .await
+        .expect("job ran");
+    assert!(rig.store.record_reads.load(SeqCst) > before, "open_log read the stored log without moving record_reads");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

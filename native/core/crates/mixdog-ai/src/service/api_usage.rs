@@ -203,6 +203,8 @@ impl ApiUsageService {
     }
 
     fn env_text(&self, name: &str) -> Option<String> {
+        #[cfg(feature = "count-work")]
+        crate::work::credential_read();
         self.env.var(name).filter(|v| !v.is_empty())
     }
 
@@ -218,6 +220,8 @@ impl ApiUsageService {
                 return Some(value);
             }
         }
+        #[cfg(feature = "count-work")]
+        crate::work::credential_read();
         self.vault.get(OPENAI_USAGE_SESSION_KEY_ACCOUNT).await.ok().flatten().filter(|v| !v.is_empty())
     }
 

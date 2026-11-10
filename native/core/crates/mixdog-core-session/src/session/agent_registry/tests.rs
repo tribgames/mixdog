@@ -360,6 +360,14 @@ async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry
     let future_at = NOW + 2 * HOUR;
     let future = obj(json!({ "tombstone": tombstone("fut", &at(future_at), json!({})) }));
     rig.store.write("s-future", without_row(&future));
+    // A legacy (owner-less) tombstone stamped in the future reads as `now`, so its identity moves with the clock, and the one
+    // session that can have been its owner is found only from the instant that session exists at the tombstone's time.
+    let created_at = NOW + HOUR;
+    let owner = session("s-fut-legacy", "futleg", &at(created_at), json!({}));
+    rig.store.sessions.lock().unwrap().push(owner);
+    let legacy = json!({ "parentSessionId": null, "ownerSessionId": null });
+    let future_legacy = obj(json!({ "tombstone": tombstone("futleg", &at(future_at), legacy) }));
+    rig.store.write("s-fut-legacy", without_row(&future_legacy));
     let mut released = worker_row("s-released", "rel", json!({ "createdAt": at(NOW - 3 * HOUR) }));
     released.insert("releasedAt".into(), json!(at(NOW - 2 * DAY)));
     rig.store.write("s-released", Some(released));
@@ -375,16 +383,23 @@ async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry
         (index_reads(registry), scoped)
     };
     let tags = |rows: &[Row]| rows.iter().map(|r| clean(r.get("tag"))).collect::<Vec<_>>();
-    let mut instants: Vec<i64> = [reap_end, marker_end, future_at, NOW].into_iter().flat_map(|b| (-2..=2).map(move |d| b + d)).collect();
+    let mut instants: Vec<i64> = [reap_end, marker_end, future_at, created_at, NOW].into_iter().flat_map(|b| (-2..=2).map(move |d| b + d)).collect();
     instants.sort_unstable();
     let back: Vec<i64> = instants.iter().rev().copied().collect();
     for now in instants.into_iter().chain(back) {
         rig.clock.0.store(now, Ordering::SeqCst);
         let fresh = rig.registry();
         fresh.reload().await;
+        // A read made before the owners of this instant are resolved is kept, and the resolve must invalidate it (`owners` is
+        // an input of `tombstones`): each refresh of the kept registry resolves the owners again, as the registry's own does.
+        let _ = reads(&kept);
+        kept.resolve_tombstone_owners();
         fresh.resolve_tombstone_owners();
         assert_eq!(reads(&kept), reads(&fresh), "at {now}");
         let (index, scoped) = reads(&kept);
+        let future_legacy = index.3.iter().find(|t| t["tag"] == "futleg").expect("the future-stamped legacy tombstone is read at every instant");
+        assert_eq!(rows::stamp_ms(future_legacy.get("reapedAt")) as i64, now.min(future_at), "a tombstone stamped in the future reads as now, at {now}");
+        assert_eq!(clean(future_legacy.get("ownerSessionId")) == "lead-a", now >= created_at, "legacy owner recovered at {now}");
         // The boundaries are real: a tombstone is read through its last instant and not after, and the row it blocked
         // (r3, created before the reap) is work again only once the tombstone ended.
         assert_eq!(index.3.iter().any(|t| t["tag"] == "r3"), now <= reap_end, "r3 tombstone at {now}");

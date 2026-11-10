@@ -106,7 +106,12 @@ impl Guard {
     /// the current document stays.
     pub(super) async fn read(self: &Arc<Self>, lanes: ConfigLanes, in_pass: bool) -> Result<Doc, ConfigError> {
         let path = self.path.clone();
-        let read = on_lane(lanes.read, move |_| mixdog_statefile::read_content(&path)).await?;
+        let read = on_lane(lanes.read, move |_| {
+            #[cfg(feature = "count-work")]
+            crate::work::file_read();
+            mixdog_statefile::read_content(&path)
+        })
+        .await?;
         let bytes = read.map_err(|error| {
             self.line(&format!("[config] readJsonFile: unexpected read error for {}: {error}", self.path.display()));
             ConfigError::from(error)

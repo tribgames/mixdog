@@ -66,3 +66,6 @@ mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 mixdog-core-session = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
+# The work counters the hot-path tests read (work of each); only this crate's test builds turn them on.
+mixdog-ai = { workspace = true, features = ["count-work"] }
+mixdog-core-config = { workspace = true, features = ["count-work"] }

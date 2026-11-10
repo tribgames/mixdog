@@ -998,6 +998,8 @@ impl DefaultProviderBuilder {
 
 impl DefaultProviderBuilder {
     async fn build_unversioned(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        #[cfg(feature = "count-work")]
+        crate::work::provider_built();
         if name.starts_with("custom-") && text(cfg, "type") == Some("custom") {
             return self.build_custom(name, cfg);
         }
@@ -1076,14 +1078,12 @@ impl ProviderBuilder for DefaultProviderBuilder {
     }
 
     async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String> {
-        super::effective::work::PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // An unreadable file counts as present: it is never a logout, so a credential read that
         // never ran (`Probe::Unreadable`) already reads as present here and cannot be missing.
         Ok(OAUTH_PROVIDER_NAMES.contains(&name) && self.env.accounts.has_credential(name, "default").await.unwrap_or(false))
     }
 
     async fn oauth_credential_state(&self, name: &str) -> Result<CredentialState, String> {
-        super::effective::work::PROBES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // oauthCredentialProbeState: a dev-gated provider whose option is off always reads absent.
         if !OAUTH_PROVIDER_NAMES.contains(&name) || !self.available(name) {
             return Ok(CredentialState::Absent);
