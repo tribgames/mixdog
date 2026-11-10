@@ -24,8 +24,9 @@ mod fixture_manifest;
 
 const RECORDER: &str = "native/core/crates/mixdog-statefile/src/lock_record.mjs";
 
+/// The process clock in nanoseconds, a fraction of a millisecond kept (the recorder's `virtualNow`).
 struct Virtual {
-    now_ms: Cell<u64>,
+    now_ns: Cell<i128>,
     sleeps: RefCell<Vec<Value>>,
 }
 
@@ -36,12 +37,12 @@ fn ms_value(ms: f64) -> Value {
 
 impl LockClock for Virtual {
     fn now_ns(&self) -> i128 {
-        i128::from(self.now_ms.get()) * 1_000_000
+        self.now_ns.get()
     }
     fn sleep(&self, _proof: &impl ReadProof, duration: Duration) {
         let ms = duration.as_nanos() as f64 / 1e6;
         self.sleeps.borrow_mut().push(ms_value(ms));
-        self.now_ms.set(self.now_ms.get() + ms.ceil() as u64);
+        self.now_ns.set(self.now_ns.get() + ms.ceil() as i128 * 1_000_000);
     }
     fn draw(&self) -> f64 {
         0.5
@@ -69,13 +70,18 @@ fn every_timeout_case_does_what_nodes_file_lock_did() {
             .unwrap()
             .set_modified(&Unlaned, std::time::UNIX_EPOCH + Duration::from_nanos(mtime_ns))
             .unwrap();
-        let clock = Virtual { now_ms: Cell::new(t), sleeps: RefCell::default() };
-        let opts = LockOpts { timeout: Some(super::ms_duration(case["timeoutMs"].as_f64().unwrap())), ..Default::default() };
+        let start = i128::from(t) * 1_000_000 + (case["clockFractionMs"].as_f64().unwrap() * 1e6).round() as i128;
+        let clock = Virtual { now_ns: Cell::new(start), sleeps: RefCell::default() };
+        let opts = LockOpts {
+            timeout: Some(super::ms_duration(case["timeoutMs"].as_f64().unwrap())),
+            stale: case["staleMs"].as_f64().map(super::ms_duration),
+            ..Default::default()
+        };
         let outcome = match locked_on(&clock, &Unlaned, lock, &opts, || ()) {
             Ok(()) => json!({ "entered": true }),
             Err(error) => json!({ "message": error.to_string(), "code": error.code() }),
         };
-        let core = json!({ "sleeps": clock.sleeps.take(), "atMs": clock.now_ms.get() - t, "outcome": outcome });
+        let core = json!({ "sleeps": clock.sleeps.take(), "atMs": (clock.now_ns.get().div_euclid(1_000_000) - i128::from(t)) as i64, "outcome": outcome });
         let node = json!({ "sleeps": case["sleeps"], "atMs": case["atMs"], "outcome": case["outcome"] });
         if core != node {
             differing.push(format!("{}:\n  node {node}\n  core {core}", case["name"].as_str().unwrap()));

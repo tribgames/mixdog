@@ -5,6 +5,8 @@
       "name": "holder-age-just-under-half-a-millisecond",
       "lockPath": "case-1/state.json.lock",
       "timeoutMs": 1,
+      "staleMs": null,
+      "clockFractionMs": 0,
       "mtimeNs": "1000000500800",
       "sleeps": [
         1
@@ -19,6 +21,8 @@
       "name": "holder-age-just-at-half-a-millisecond",
       "lockPath": "case-2/state.json.lock",
       "timeoutMs": 1,
+      "staleMs": null,
+      "clockFractionMs": 0,
       "mtimeNs": "1000000499200",
       "sleeps": [
         1
@@ -33,6 +37,8 @@
       "name": "holder-age-just-over-half-a-millisecond",
       "lockPath": "case-3/state.json.lock",
       "timeoutMs": 1,
+      "staleMs": null,
+      "clockFractionMs": 0,
       "mtimeNs": "1000000499200",
       "sleeps": [
         1
@@ -47,6 +53,8 @@
       "name": "a-whole-timeout-cut-inside-a-wait",
       "lockPath": "case-4/state.json.lock",
       "timeoutMs": 300,
+      "staleMs": null,
+      "clockFractionMs": 0,
       "mtimeNs": "1000000000000",
       "sleeps": [
         37,
@@ -64,6 +72,8 @@
       "name": "a-fractional-timeout-cut-inside-a-wait",
       "lockPath": "case-5/state.json.lock",
       "timeoutMs": 300.25,
+      "staleMs": null,
+      "clockFractionMs": 0,
       "mtimeNs": "1000000000000",
       "sleeps": [
         37,
@@ -81,6 +91,8 @@
       "name": "a-fractional-timeout-cut-inside-the-second-wait",
       "lockPath": "case-6/state.json.lock",
       "timeoutMs": 60.5,
+      "staleMs": null,
+      "clockFractionMs": 0,
       "mtimeNs": "1000000000000",
       "sleeps": [
         37,
@@ -89,6 +101,54 @@
       "atMs": 61,
       "outcome": {
         "message": "atomic lock timeout after 60.5ms: case-6/state.json.lock [holder pid=? token=? age=61ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "clock-0.9-past-a-millisecond-age-99.8",
+      "lockPath": "case-7/state.json.lock",
+      "timeoutMs": 1,
+      "staleMs": null,
+      "clockFractionMs": 0.9,
+      "mtimeNs": "999901200000",
+      "sleeps": [
+        1
+      ],
+      "atMs": 1,
+      "outcome": {
+        "message": "atomic lock timeout after 1ms: case-7/state.json.lock [holder pid=? token=? age=100ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "clock-0.3-past-a-millisecond-age-99.4",
+      "lockPath": "case-8/state.json.lock",
+      "timeoutMs": 1,
+      "staleMs": null,
+      "clockFractionMs": 0.3,
+      "mtimeNs": "999901600000",
+      "sleeps": [
+        1
+      ],
+      "atMs": 1,
+      "outcome": {
+        "message": "atomic lock timeout after 1ms: case-8/state.json.lock [holder pid=? token=? age=99ms unknown]",
+        "code": "ELOCKTIMEOUT"
+      }
+    },
+    {
+      "name": "stale-threshold-on-date-now-not-the-fractional-clock",
+      "lockPath": "case-9/state.json.lock",
+      "timeoutMs": 1,
+      "staleMs": 1000,
+      "clockFractionMs": 0.7,
+      "mtimeNs": "999001500800",
+      "sleeps": [
+        1
+      ],
+      "atMs": 1,
+      "outcome": {
+        "message": "atomic lock timeout after 1ms: case-9/state.json.lock [holder pid=? token=? age=999ms unknown]",
         "code": "ELOCKTIMEOUT"
       }
     }
