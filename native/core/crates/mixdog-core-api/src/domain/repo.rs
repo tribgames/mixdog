@@ -145,6 +145,10 @@ pub enum ScmError {
     ObjectMissing { id: ObjectId },
     Corrupt { detail: String },
     Io { os_code: Option<i32> },
+    /// A program the inspection needs could not be started (it is not installed).
+    Unavailable { capability: String },
+    /// A git child was cut off at its run limit: the answer is unknown (`command` as Node's runner worded it).
+    TimedOut { command: String, millis: u64 },
 }
 
 #[async_trait]

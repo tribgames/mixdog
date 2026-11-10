@@ -78,7 +78,7 @@ impl ReviewGit for ScmGit {
         let out = self.scm.git.outcome(&CancellationToken::new(), Path::new(cwd), &refs, &options).await.map_err(|e| match e {
             mixdog_scm::error::ScmFailure::OutputTooLarge { .. } => OUTPUT_OVERFLOW.to_owned(),
             // `run-child.mjs`: `${command} ${args.join(' ')} timed out after ${timeoutMs}ms`.
-            mixdog_scm::error::ScmFailure::TimedOut => {
+            mixdog_scm::error::ScmFailure::TimedOut { .. } => {
                 format!("{} {} timed out after {}ms", mixdog_scm::git_launch::git_command(), args.join(" "), timeout.as_millis())
             }
             other => other.to_string(),

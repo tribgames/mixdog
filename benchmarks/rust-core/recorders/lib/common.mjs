@@ -310,6 +310,16 @@ export function writeSetManifest(setDir, { set, recorder, command, extra = {}, i
 }
 
 /**
+ * What made a recording, for its manifest: the recorder's bytes as they ran (committed with the recording, so they are
+ * the recorder at the recording's commit), the Node that ran it and every other repository file it read (its helpers
+ * and its data), each by sha256. Paths are relative to the repository root.
+ */
+export function recordingProvenance(recorder, inputs = []) {
+  const hash = (path) => sha256(readFileSync(join(REPO_ROOT, path)));
+  return { recorderSha256: hash(recorder), nodeVersion: process.version, inputs: inputs.map((path) => ({ path, sha256: hash(path) })) };
+}
+
+/**
  * Safe re-recording of a set: the recorder writes into a staging copy of
  * `finalDir` (so files other recorders own are kept), with the sub-directories
  * it owns removed from the copy; `commitStage` swaps the finished copy in.

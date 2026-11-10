@@ -24,6 +24,8 @@ pub struct GhCommand {
     pub mutation: bool,
     /// Set for `gh` subcommands; REST calls carry `--hostname` in their arguments.
     pub hostname: Option<String>,
+    /// A dependency probe (Node's cli-run.ts un): the scrubbed child environment, none of the gh variables the API client sets.
+    pub plain: bool,
 }
 
 impl GhCommand {
@@ -38,6 +40,7 @@ impl GhCommand {
             limit: 30,
             mutation: false,
             hostname,
+            plain: false,
         }
     }
 }
@@ -134,6 +137,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
             limit,
             mutation: def.write,
             hostname: None,
+            plain: false,
         }
     };
     let cli = |args: Vec<String>| GhCommand {
@@ -146,6 +150,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
         limit,
         mutation: def.write,
         hostname: Some(hostname.clone()),
+        plain: false,
     };
     let state = request.text("state").unwrap_or("open");
     Ok(match action {
@@ -228,9 +233,13 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
             "--repo".into(),
             repo,
         ]),
+        // The head sha goes into the body as the request gave it (commands.mjs:100, :109): the contract's check read it as a
+        // string (`/^[a-f0-9]{40}$/i.test(sha)`), so a list holding one sha passed and stays a list.
         "pr.merge" => {
             let sha = request
-                .text("sha")
+                .fields
+                .get("sha")
+                .cloned()
                 .ok_or_else(|| ScmFailure::invalid("sha", "the pull request's head sha"))?;
             api(
                 format!("{root}/pulls/{}/merge", number()?),
@@ -247,7 +256,9 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
                 .text("event")
                 .ok_or_else(|| ScmFailure::invalid("event", "a review event"))?;
             let sha = request
-                .text("sha")
+                .fields
+                .get("sha")
+                .cloned()
                 .ok_or_else(|| ScmFailure::invalid("sha", "the pull request's head sha"))?;
             if event != "APPROVE" {
                 required_text(request, "body")?;

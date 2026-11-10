@@ -21,6 +21,7 @@ export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneP
       return client;
     },
     declareLane: boot.declareLane,
+    onClient: boot.onClient,
   };
   const router = createProtocolRouter(adapters, {
     host,

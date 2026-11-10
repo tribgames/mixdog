@@ -1,0 +1,1257 @@
+{
+  "note": "Node's termResize per kind of size value, as a phone sends it (a JSON frame) through the real remote method and TerminalManager.resize: `axis` is the value under test (the other is 24 rows or 100 columns); a claim (after the phone's claim of 50 x 20) records the size-owner changes announced, a plain resize the size the PTY was given.",
+  "values": [
+    {
+      "name": "negative",
+      "value": -1
+    },
+    {
+      "name": "zero",
+      "value": 0
+    },
+    {
+      "name": "negative zero",
+      "value": 0
+    },
+    {
+      "name": "fraction below one",
+      "value": 0.5
+    },
+    {
+      "name": "one",
+      "value": 1
+    },
+    {
+      "name": "fraction",
+      "value": 2.7
+    },
+    {
+      "name": "ordinary",
+      "value": 100
+    },
+    {
+      "name": "upper bound of columns",
+      "value": 500
+    },
+    {
+      "name": "above the column bound",
+      "value": 501
+    },
+    {
+      "name": "upper bound of rows",
+      "value": 200
+    },
+    {
+      "name": "above the row bound",
+      "value": 201
+    },
+    {
+      "name": "huge",
+      "value": 1000000000
+    },
+    {
+      "name": "above u16",
+      "value": 70000
+    },
+    {
+      "name": "NaN",
+      "value": null
+    },
+    {
+      "name": "Infinity",
+      "value": null
+    },
+    {
+      "name": "-Infinity",
+      "value": null
+    },
+    {
+      "name": "numeric string",
+      "value": "100"
+    },
+    {
+      "name": "fraction string",
+      "value": "2.5"
+    },
+    {
+      "name": "text",
+      "value": "abc"
+    },
+    {
+      "name": "empty string",
+      "value": ""
+    },
+    {
+      "name": "null",
+      "value": null
+    },
+    {
+      "name": "undefined",
+      "value": {
+        "absent": true
+      }
+    },
+    {
+      "name": "true",
+      "value": true
+    },
+    {
+      "name": "false",
+      "value": false
+    }
+  ],
+  "cases": [
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "negative",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "negative",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "zero",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "zero",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "negative zero",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "negative zero",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "fraction below one",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 80,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "fraction below one",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "one",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 2,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "one",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 2,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "fraction",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 2,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "fraction",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 2,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "ordinary",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "ordinary",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 100,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "upper bound of columns",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 500,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "upper bound of columns",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 200,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "above the column bound",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 500,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "above the column bound",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 200,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "upper bound of rows",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 200,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "upper bound of rows",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 200,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "above the row bound",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 201,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "above the row bound",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 200,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "huge",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 500,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "huge",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 200,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "above u16",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 500,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "above u16",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 200,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "NaN",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "NaN",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "Infinity",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "Infinity",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "-Infinity",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "-Infinity",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "numeric string",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "numeric string",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 100,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "fraction string",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 2,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "fraction string",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 2,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "text",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "text",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "empty string",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "empty string",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "null",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "null",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "undefined",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "undefined",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "true",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 2,
+          "rows": 24,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "true",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 100,
+          "rows": 2,
+          "owner": "phone"
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "cols",
+      "input": "false",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": true,
+      "axis": "rows",
+      "input": "false",
+      "owners": [
+        {
+          "id": "term_resize",
+          "cols": 0,
+          "rows": 0,
+          "owner": ""
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "negative",
+      "sizes": [
+        {
+          "cols": 2,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "negative",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 2
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "zero",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "zero",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "negative zero",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "negative zero",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "fraction below one",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "fraction below one",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "one",
+      "sizes": [
+        {
+          "cols": 2,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "one",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 2
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "fraction",
+      "sizes": [
+        {
+          "cols": 2,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "fraction",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 2
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "ordinary",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "ordinary",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 100
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "upper bound of columns",
+      "sizes": [
+        {
+          "cols": 500,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "upper bound of columns",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 200
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "above the column bound",
+      "sizes": [
+        {
+          "cols": 500,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "above the column bound",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 200
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "upper bound of rows",
+      "sizes": [
+        {
+          "cols": 200,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "upper bound of rows",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 200
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "above the row bound",
+      "sizes": [
+        {
+          "cols": 201,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "above the row bound",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 200
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "huge",
+      "sizes": [
+        {
+          "cols": 500,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "huge",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 200
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "above u16",
+      "sizes": [
+        {
+          "cols": 500,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "above u16",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 200
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "NaN",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "NaN",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "Infinity",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "Infinity",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "-Infinity",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "-Infinity",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "numeric string",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "numeric string",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 100
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "fraction string",
+      "sizes": [
+        {
+          "cols": 2,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "fraction string",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 2
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "text",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "text",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "empty string",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "empty string",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "null",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "null",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "undefined",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "undefined",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "true",
+      "sizes": [
+        {
+          "cols": 2,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "true",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 2
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "cols",
+      "input": "false",
+      "sizes": [
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ]
+    },
+    {
+      "claim": false,
+      "axis": "rows",
+      "input": "false",
+      "sizes": [
+        {
+          "cols": 100,
+          "rows": 24
+        }
+      ]
+    }
+  ]
+}

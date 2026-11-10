@@ -677,7 +677,9 @@ impl BridgeBackend for TabsBackend {
     }
 
     async fn write(&self, id: &str, data: &str) {
-        self.tabs.write(id, data);
+        if let Some(pending) = self.tabs.write(id, data) {
+            pending.finish().await;
+        }
     }
 
     async fn start_terminal(&self, session_id: &str) -> Result<SessionTab, String> {

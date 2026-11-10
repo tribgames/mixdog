@@ -24,15 +24,12 @@ use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::login::LoginFlow;
 use mixdog_core_api::domain::login::LoginSession;
 use mixdog_core_api::domain::login::LoginState;
-use mixdog_core_api::domain::repo::Cached;
 use mixdog_core_api::domain::repo::ChangeKind;
 use mixdog_core_api::domain::repo::InspectorKey;
 use mixdog_core_api::domain::repo::ObjectId;
 use mixdog_core_api::domain::repo::RepoEvidence;
 use mixdog_core_api::domain::repo::RepoInspector;
 use mixdog_core_api::domain::repo::RepoRef;
-use mixdog_core_api::domain::repo::ReviewRequest;
-use mixdog_core_api::domain::repo::ReviewScope;
 use mixdog_core_api::feed::ScopedFeeds;
 use mixdog_core_api::feed::Window;
 use mixdog_core_api::ids::ConnectionId;
@@ -59,7 +56,7 @@ use crate::engine::Scm;
 use crate::error::GITHUB_DOMAIN;
 use crate::error::ScmFailure;
 use crate::feeds::FeedPublisher;
-use crate::inspect::review;
+use crate::input;
 
 /// The `git` plugin gate: GitHub actions are refused while Git & GitHub is off in Extensions.
 #[async_trait]
@@ -87,12 +84,11 @@ pub trait ThreadWorktrees: Send + Sync {
     async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
 }
 
+/// `hostState` key of the global git identity (`{name, email, defaultBranch}`), published after each write.
+pub const GIT_CONFIG_KEY: &str = "gitConfig";
 /// The body of the `reviewDiff` publication, the app-wide tell to read the review again: Node's `turn-review-changed` carries no
 /// data, and the windows read nothing from it.
 pub const REVIEW_REREAD: &[u8] = b"{}";
-
-/** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
-const REVIEW_UNTRACKED_LIMIT: usize = 256;
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
 
 struct GitWatch {
@@ -106,11 +102,24 @@ struct GitWatch {
 struct Flow {
     session: Arc<dyn LoginSession>,
     feed: FeedPublisher,
+    /// The code and device page the flow showed, kept for the states after it.
+    device: Mutex<Option<(String, String)>>,
+}
+
+impl Flow {
+    fn json(&self, id: &LoginFlowId, state: &LoginState) -> Value {
+        let mut device = self.device.lock().expect("device");
+        if let LoginState::DeviceCode { user_code, verification_uri, .. } = state {
+            *device = Some((user_code.clone(), verification_uri.clone()));
+        }
+        flow_json(id, state, device.as_ref())
+    }
 }
 
 pub struct ScmService {
     scm: Arc<Scm>,
     feeds: Arc<dyn ScopedFeeds>,
+    publisher: Arc<dyn StatePublisher>,
     gate: Arc<dyn FeatureGate>,
     reviews: Arc<dyn TurnReviewApi>,
     worktrees: Arc<dyn ThreadWorktrees>,
@@ -144,28 +153,16 @@ fn decode<T: DeserializeOwned>(req: &CoreRequest) -> Result<T, CoreError> {
     serde_json::from_value(req.params.clone()).map_err(invalid)
 }
 
+/// `requiredRepositoryCwd` of the desktop's own `git/watch`.
 fn cwd(value: &str) -> Result<PathBuf, ScmFailure> {
-    let trimmed = value.trim();
-    let path = PathBuf::from(trimmed);
-    if trimmed.is_empty() || !path.is_absolute() {
-        return Err(ScmFailure::invalid("cwd", "an absolute project directory"));
-    }
-    Ok(path)
-}
-
-fn string_field(input: &Value, key: &str) -> Result<String, ScmFailure> {
-    input
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| ScmFailure::invalid(format!("input.{key}"), "a string"))
+    input::repository_cwd(Some(&Value::String(value.to_owned()))).map(PathBuf::from)
 }
 
 fn unit() -> Value {
     Value::Null
 }
 
-fn kind_letter(kind: ChangeKind) -> &'static str {
+pub(crate) fn kind_letter(kind: ChangeKind) -> &'static str {
     match kind {
         ChangeKind::Added => "A",
         ChangeKind::Deleted => "D",
@@ -186,8 +183,16 @@ pub fn key_text(key: &InspectorKey) -> String {
 }
 
 /// The wire shape of a `GitHub` sign-in flow.
-pub fn flow_json(flow: &LoginFlowId, state: &LoginState) -> Value {
+pub fn flow_json(flow: &LoginFlowId, state: &LoginState, device: Option<&(String, String)>) -> Value {
     let id = flow.as_str();
+    // Node's flow keeps the code and the device page it showed: `{...flow, state: 'success' | 'error'}`.
+    let with_device = |mut value: Value| {
+        if let (Some((code, url)), Some(fields)) = (device, value.as_object_mut()) {
+            fields.insert("code".into(), json!(code));
+            fields.insert("url".into(), json!(url));
+        }
+        value
+    };
     match state {
         LoginState::Starting | LoginState::Waiting | LoginState::Authorize { .. } => {
             json!({ "flowId": id, "state": "pending" })
@@ -196,8 +201,8 @@ pub fn flow_json(flow: &LoginFlowId, state: &LoginState) -> Value {
             json!({ "flowId": id, "state": "code", "code": user_code, "url": verification_uri })
         }
         LoginState::Done { account } => match account {
-            Some(login) => json!({ "flowId": id, "state": "success", "login": login }),
-            None => json!({ "flowId": id, "state": "success" }),
+            Some(login) => with_device(json!({ "flowId": id, "state": "success", "login": login })),
+            None => with_device(json!({ "flowId": id, "state": "success" })),
         },
         LoginState::Failed(failure) => {
             let message = match failure {
@@ -207,7 +212,7 @@ pub fn flow_json(flow: &LoginFlowId, state: &LoginState) -> Value {
                 LoginFailure::Failed { message, .. } => message.clone(),
                 LoginFailure::VerificationRequired { url, .. } => format!("Verify your account at {url} and sign in again."),
             };
-            json!({ "flowId": id, "state": "error", "message": message })
+            with_device(json!({ "flowId": id, "state": "error", "message": message }))
         }
         LoginState::Cancelled => json!({ "flowId": id, "state": "cancelled" }),
     }
@@ -225,13 +230,15 @@ impl ScmService {
         // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less global `turn-review-changed` event
         // (`desktop-service.ts:1058`), which every window answers by rereading the review of each session it shows
         // (`use-turn-review-reads.ts`). The same tell is one app-wide `reviewDiff` revision, whatever the windows show.
+        let review_publisher = Arc::clone(&publisher);
         let stop_review_push = reviews.on_review_changed(Arc::new(move || {
-            publisher.publish(SectionName::ReviewDiff, None, SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
+            review_publisher.publish(SectionName::ReviewDiff, None, SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
         }));
         Arc::new(Self {
             login: scm.github_login(),
             scm,
             feeds,
+            publisher,
             gate,
             reviews,
             worktrees,
@@ -337,11 +344,15 @@ impl ScmService {
             .ok_or_else(|| ScmFailure::refused("UNKNOWN_FLOW", "Unknown GitHub login flow."))
     }
 
-    async fn login_start(self: &Arc<Self>) -> Result<Value, ScmFailure> {
+    async fn login_start(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        // githubCliLoginStart: `resolveGh` first, so a machine without `gh` is refused before anything is started.
+        if self.scm.gh_version(cancel).await?.is_none() {
+            return Err(ScmFailure::git("GitHub CLI is not installed."));
+        }
         let session: Arc<dyn LoginSession> = match self.login.start().await {
             Ok(session) => Arc::from(session),
             Err(mixdog_core_api::domain::login::LoginError::Failed(LoginFailure::Unavailable { .. })) => {
-                return Err(ScmFailure::Unavailable { capability: "gh".into() });
+                return Err(ScmFailure::git("GitHub CLI is not installed."));
             }
             Err(error) => return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: format!("{error:?}") }),
         };
@@ -350,10 +361,11 @@ impl ScmService {
             std::process::id(),
             self.flow_seq.fetch_add(1, Ordering::Relaxed) + 1
         ));
-        let initial = flow_json(&id, &session.state());
+        let initial = flow_json(&id, &session.state(), None);
         let flow = Arc::new(Flow {
             feed: FeedPublisher::create(self.feeds.as_ref(), FeedId(format!("login:{id}")), initial.clone()),
             session: session.clone(),
+            device: Mutex::new(None),
         });
         {
             // One login at a time: a fresh start supersedes the earlier flows.
@@ -368,7 +380,7 @@ impl ScmService {
         let flow_id = id.clone();
         mixdog_rt::spawn("scm-login-feed", TaskClass::Work, async move {
             while let Some(state) = watcher.session.next().await {
-                let value = flow_json(&flow_id, &state);
+                let value = watcher.json(&flow_id, &state);
                 watcher
                     .feed
                     .publish("login/updated", json!({ "flowId": flow_id, "state": value }), value.clone());
@@ -385,7 +397,13 @@ impl ScmService {
     async fn thread_review(&self, params: ReviewDiffGetParams) -> Result<Value, CoreError> {
         let thread = params.thread_id.clone().ok_or_else(|| CoreError::InvalidParams { path: "threadId".into(), expected: "a thread id".into() })?;
         let session = thread.as_str();
-        let reply = match (params.scope, params.checkpoint_id.as_deref(), params.path.as_deref()) {
+        // The file of a thread's review is a string (the repository review's raw arguments share this field).
+        let file = match &params.path {
+            None | Some(Value::Null) => None,
+            Some(Value::String(file)) => Some(file.as_str()),
+            Some(_) => return Err(CoreError::InvalidParams { path: "path".into(), expected: "a string".into() }),
+        };
+        let reply = match (params.scope, params.checkpoint_id.as_deref(), file) {
             (WireReviewScope::Turn, Some(checkpoint), file) => {
                 let read = ChangesRead { checkpoint_id: checkpoint.to_owned(), patch: params.patch == Some(true), file: file.map(str::to_owned) };
                 self.reviews.turn_changes(session, read).await.map_err(review_error)?
@@ -412,226 +430,139 @@ impl ScmService {
         Ok(Value::Object(reply))
     }
 
-    async fn review_get(self: &Arc<Self>, params: ReviewDiffGetParams, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        // A repository review (`scope: repo`) answers in the pane's own shapes, by request form;
-        // `base_name` is set for it alone.
-        let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
-        let repo = self.scm.open(&dir, cancel).await?;
-        let root = repo.root()?.to_path_buf();
-        let (name, base) = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
-        let base_name = Some(name);
-        let repo = self.scm.open(&root, cancel).await?;
-        let request = ReviewRequest {
-            repo: repo.repo_ref()?,
-            scope: ReviewScope::Session { thread_id: params.thread_id.clone().unwrap_or_else(|| ThreadId::from("")) },
-            base,
-        };
-        let inspector = &self.scm.inspector;
-        let summary = inspector
-            .review_summary(self.scm.lane, request)
-            .await
-            .map_err(crate::mutate::scm_error)?;
-        let key = key_text(&summary.key);
-        if params.known.as_deref() == Some(key.as_str()) {
-            return Ok(json!({ "key": key, "unchanged": true }));
+    /// The repository review of the phone (`scope: repo`): `gitReview`, `gitReviewDiff` or `gitReviewDiffs`, by request form. Their
+    /// reads are git-history.ts's own (`phone_review`), not the pushed review's.
+    async fn review_get(self: &Arc<Self>, checked: input::NodeArgs, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        let (git, dir) = (&self.scm.git, checked.dir());
+        match checked.operation {
+            "gitReviewDiffs" => {
+                let files = checked.args[1].as_array().cloned().unwrap_or_default();
+                crate::phone_review::git_review_diffs(git, cancel, &dir, &files, checked.text(2)).await
+            }
+            "gitReviewDiff" => {
+                let patch = crate::phone_review::git_review_diff(git, cancel, &dir, checked.text(1), checked.flag(2), checked.text(3)).await?;
+                Ok(Value::String(patch))
+            }
+            _ => crate::phone_review::git_review(git, self.scm.lane, cancel, &dir, checked.text(1)).await,
         }
-        let files: Vec<Value> = summary
-            .files
-            .iter()
-            .map(|f| json!({ "path": f.path, "status": kind_letter(f.status), "additions": f.adds, "deletions": f.dels, "untracked": f.status == ChangeKind::Untracked }))
-            .collect();
-        let (adds, dels) = summary.files.iter().fold((0, 0), |(a, d), f| (a + f.adds, d + f.dels));
-        let mut out = json!({ "key": key, "files": files, "totals": { "files": summary.files.len(), "additions": adds, "deletions": dels } });
-        let wants_patch = params.patch == Some(true) || params.path.is_some() || params.files.is_some() || params.cursor.is_some();
-        if wants_patch {
-            let mut pages = Vec::new();
-            let mut paths: Vec<String> = params.files.iter().flatten().filter_map(|f| f.get("path").and_then(Value::as_str).map(str::to_owned)).collect();
-            if let Some(path) = &params.path {
-                paths.push(path.clone());
-            }
-            if paths.is_empty() {
-                match inspector.review_page(&summary.key, None, params.cursor.as_deref()).map_err(crate::mutate::scm_error)? {
-                    Cached::Ready(page) => {
-                        out["patch"] = json!(page.patch);
-                        out["nextCursor"] = json!(page.next_cursor);
-                    }
-                    Cached::Pending { key } => out["pending"] = json!({ "key": key_text(&key) }),
-                }
-            } else {
-                for path in paths {
-                    match inspector.review_page(&summary.key, Some(&path), None).map_err(crate::mutate::scm_error)? {
-                        Cached::Ready(page) => pages.push(json!({ "path": path, "patch": page.patch })),
-                        Cached::Pending { key } => {
-                            out["pending"] = json!({ "key": key_text(&key) });
-                        }
-                    }
-                }
-                if params.files.is_some() {
-                    out["patches"] = Value::Array(pages);
-                } else if let Some(page) = pages.into_iter().next() {
-                    out["patch"] = page["patch"].clone();
-                }
-            }
-        }
-        if let Some(name) = base_name {
-            // `gitReviewDiffs`: `{patches, omitted}`.
-            if params.files.is_some() {
-                let mut shaped = json!({ "patches": out["patches"], "omitted": [] });
-                if let Some(pending) = out.get("pending") {
-                    shaped["pending"] = pending.clone();
-                }
-                return Ok(shaped);
-            }
-            // `gitReviewDiff`: the patch text itself.
-            if params.path.is_some() {
-                return Ok(match out.get("patch") {
-                    Some(patch) => patch.clone(),
-                    None => json!({ "pending": out["pending"] }),
-                });
-            }
-            // `gitReview`: the rows with the repository, its base branch, each row's work-tree
-            // identity and the untracked files past the cap that are not listed.
-            // In Node's order: `files.sort((a, b) => a.path.localeCompare(b.path))` (`git-history.ts`), a stable sort by the process
-            // locale's collation; the summary's own order is by bytes.
-            let mut rows: Vec<Value> = out["files"].as_array().cloned().unwrap_or_default();
-            // The review diffs trees, so an untracked file is an added one there. Node reads the untracked files from its status scan
-            // (`reviewStatus`: the same command, the `?` records in git's order, bytes of the path): it lists the first
-            // `REVIEW_UNTRACKED_LIMIT` of them as rows (`untracked: true`) and only counts the rest in `untrackedOmitted`. Tracked rows
-            // are never capped.
-            let options = crate::git::RunOptions { max_output: Some(crate::git::STATUS_MAX_BYTES), ..crate::git::RunOptions::read() };
-            let scan = self
-                .scm
-                .git
-                .text(
-                    cancel,
-                    &root,
-                    &["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--no-ahead-behind", "--untracked-files=all", "--no-renames"],
-                    &options,
-                )
-                .await?;
-            let listed: Vec<&str> = scan.split('\0').filter_map(|record| record.strip_prefix("? ")).collect();
-            let all: std::collections::HashSet<&str> = listed.iter().copied().collect();
-            let kept: std::collections::HashSet<&str> = listed.iter().take(REVIEW_UNTRACKED_LIMIT).copied().collect();
-            rows.retain(|row| row["path"].as_str().is_none_or(|path| !all.contains(path) || kept.contains(path)));
-            // A nested repository is one `name/` record. The tree build sees it as a gitlink `name` (or nothing, with no commit), so its
-            // row is Node's own: `reviewStatus` lists the record and `untrackedStat` of a folder counts no lines (`A`, 0, 0, untracked).
-            for folder in all.iter().filter(|path| path.ends_with('/')) {
-                let bare = &folder[..folder.len() - 1];
-                rows.retain(|row| row["path"].as_str() != Some(bare));
-                if kept.contains(folder) {
-                    rows.push(json!({ "path": folder, "status": "A", "additions": 0, "deletions": 0, "untracked": true }));
-                }
-            }
-            rows.sort_by(|a, b| mixdog_js::locale_compare(a["path"].as_str().unwrap_or_default(), b["path"].as_str().unwrap_or_default()));
-            for row in &mut rows {
-                let untracked = row["path"].as_str().is_some_and(|path| kept.contains(path));
-                row["untracked"] = json!(untracked);
-            }
-            let omitted = listed.len().saturating_sub(REVIEW_UNTRACKED_LIMIT);
-            let paths: Vec<String> = rows.iter().filter_map(|row| row["path"].as_str().map(str::to_owned)).collect();
-            let stat_root = root.clone();
-            let revisions = crate::repo::on_lane(self.scm.lane, cancel, move || {
-                paths.iter().map(|path| crate::inspect::status::worktree_revision(&stat_root, path)).collect::<Vec<_>>()
-            })
-            .await?;
-            for (row, revision) in rows.iter_mut().zip(revisions) {
-                row["revision"] = json!(revision);
-            }
-            out["files"] = Value::Array(rows);
-            out["untrackedOmitted"] = json!(omitted);
-            // Node's `gitReview` answers `{repository, root, base, files, untrackedOmitted}` (`git-history.ts` `GitReviewResult`): no `key`
-            // (the cache key `known` is asked against) and no `totals`, which are the thread review's.
-            if let Some(fields) = out.as_object_mut() {
-                fields.shift_remove("key");
-                fields.shift_remove("totals");
-            }
-            out["repository"] = json!(true);
-            out["root"] = json!(root.to_string_lossy());
-            out["base"] = json!(name);
-        }
-        Ok(out)
     }
 
-    async fn github_request(self: &Arc<Self>, project: &str, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    /// `githubRequest`, its directory and request already checked (`input::node_args`), as Node's host checked them before its
+    /// operation's gate (remote-methods.ts:567-568, then github-service.ts:21-25).
+    async fn github_request(self: &Arc<Self>, project: &std::path::Path, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         if !self.gate.github_enabled().await {
             return Err(ScmFailure::Refused { domain: GITHUB_DOMAIN, code: "FEATURE_DISABLED", message: GATE_OFF.into() });
         }
         // The repository the request runs in; the allowlist never sees it.
-        self.scm.github.execute(input, &cwd(project)?, cancel).await
+        self.scm.github.execute(input, project, cancel).await
     }
 
     async fn handle(self: &Arc<Self>, req: &CoreRequest) -> Result<Reply, CoreError> {
         let cancel = &req.ctx.cancel;
         let scm = &self.scm;
         let method = req.method.as_str();
-        macro_rules! open {
-            ($p:expr) => {
-                scm.open(&cwd(&$p.cwd)?, cancel).await?
+        // Every argument of a phone's call is checked as Node's host checked it (`input`), in the order of the call's list and
+        // before any git runs; what the call acts on is what those checks gave back.
+        let checked = input::node_args(method, &req.params).transpose()?;
+        macro_rules! a {
+            () => {
+                checked.as_ref().expect("every method below is one of the phone's calls")
+            };
+        }
+        // The repository at the checked directory.
+        macro_rules! at {
+            () => {
+                scm.open(&a!().dir(), cancel).await?
+            };
+        }
+        macro_rules! in_place {
+            () => {
+                scm.open_or_in_place(&a!().dir(), cancel).await?
             };
         }
         let value: Value = match method {
-            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status_counting(&cwd(&p.cwd)?, cancel, p.skip_line_stats != Some(true)).await? }
-            "git/branches" => { let p: p::GitBranchesParams = decode(req)?; scm.git_branches(&cwd(&p.cwd)?, cancel).await? }
-            "git/log" => { let p: p::GitLogParams = decode(req)?; scm.git_log(&cwd(&p.cwd)?, cancel, p.query.as_deref().unwrap_or(""), p.skip.unwrap_or(0), p.limit.unwrap_or(40)).await? }
-            "git/show" => { let p: p::GitShowParams = decode(req)?; scm.git_show(&cwd(&p.cwd)?, cancel, &p.hash).await? }
-            "git/showDiff" => { let p: p::GitShowDiffParams = decode(req)?; scm.git_show_diff(&cwd(&p.cwd)?, cancel, &p.hash, &p.path).await? }
-            "git/showFile" => { let p: p::GitShowFileParams = decode(req)?; scm.git_show_file(&cwd(&p.cwd)?, cancel, &p.rev, &p.path).await? }
-            "git/diff" => { let p: p::GitDiffParams = decode(req)?; scm.git_diff(&cwd(&p.cwd)?, cancel, &p.path, p.staged, p.worktree_only.unwrap_or(false), p.untracked.unwrap_or(false)).await? }
-            "git/stashList" => { let p: p::GitStashListParams = decode(req)?; scm.git_stash_list(&cwd(&p.cwd)?, cancel).await? }
-            "git/requestContext" => {
-                let p: p::GitRequestContextParams = decode(req)?;
-                scm.git_request_context(&cwd(&p.cwd)?, cancel, &p.input.paths, p.input.base.as_deref().unwrap_or("")).await?
+            "git/status" => {
+                let options = &a!().args[1];
+                scm.git_status_counting(&a!().dir(), cancel, options["skipLineStats"] != Value::Bool(true), options["reuseLineStats"] == Value::Bool(true)).await?
             }
-            "git/cliStatus" => scm.git_cli_status(cancel).await?,
+            "git/branches" => scm.git_branches(&a!().dir(), cancel).await?,
+            "git/log" => scm.git_log(&a!().dir(), cancel, a!().text(1), a!().number(2), a!().number(3)).await?,
+            "git/show" => scm.git_show(&a!().dir(), cancel, a!().text(1)).await?,
+            "git/showDiff" => scm.git_show_diff(&a!().dir(), cancel, a!().text(1), a!().text(2)).await?,
+            "git/showFile" => scm.git_show_file(&a!().dir(), cancel, a!().text(1), a!().text(2)).await?,
+            "git/diff" => scm.git_diff(&a!().dir(), cancel, a!().text(1), a!().flag(2), a!().flag(3), a!().flag(4)).await?,
+            "git/stashList" => scm.git_stash_list(&a!().dir(), cancel).await?,
+            "git/requestContext" => {
+                let input = &a!().args[1];
+                let paths: Vec<String> = input["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+                scm.git_request_context(&a!().dir(), cancel, &paths, input["base"].as_str().unwrap_or_default()).await?
+            }
+            "git/cliStatus" => scm.git_cli_status(cancel, false).await?,
             "git/globalConfig/read" => scm.git_global_config(cancel).await?,
             "git/watch" => { let p: p::GitWatchParams = decode(req)?; return Ok(self.git_watch(cwd(&p.cwd)?, cancel).await?); }
             "git/unwatch" => json!({}),
-            "git/stage" => { let p: p::GitStageParams = decode(req)?; open!(p).stage(&p.paths).await?; unit() }
-            "git/unstage" => { let p: p::GitUnstageParams = decode(req)?; open!(p).unstage(&p.paths).await?; unit() }
-            "git/commit" => { let p: p::GitCommitParams = decode(req)?; json!(open!(p).commit(&p.message).await?) }
-            "git/commitPaths" => {
-                let p: p::GitCommitPathsParams = decode(req)?;
-                json!(open!(p).commit_paths(&p.input.message, &p.input.paths).await?)
+            "git/stage" => { at!().stage(&a!().texts(1)).await?; unit() }
+            "git/unstage" => { at!().unstage(&a!().texts(1)).await?; unit() }
+            "git/commit" => json!(at!().commit(a!().text(1)).await?),
+            "git/commitPaths" => json!(at!().commit_paths(a!().text(1), &a!().texts(2)).await?),
+            "git/amend" => json!(at!().amend(a!().text(1)).await?),
+            "git/undoLastCommit" => json!(in_place!().undo_last_commit().await?),
+            "git/push" => json!(at!().push().await?),
+            "git/pull" => json!(at!().pull().await?),
+            "git/fetch" => json!(in_place!().fetch().await?),
+            "git/sync" => json!(at!().sync().await?),
+            "git/stash" => json!(in_place!().stash(a!().text(1)).await?),
+            "git/stashPop" => json!(at!().stash_pop().await?),
+            "git/stashApply" => json!(at!().stash_apply(a!().text(1)).await?),
+            "git/stashDrop" => json!(at!().stash_drop(a!().text(1)).await?),
+            "git/createTag" => json!(at!().create_tag(a!().text(1), a!().text(2)).await?),
+            "git/deleteTag" => json!(at!().delete_tag(a!().text(1)).await?),
+            "git/deleteBranch" => json!(at!().delete_branch(a!().text(1)).await?),
+            "git/renameBranch" => json!(at!().rename_branch(a!().text(1), a!().text(2)).await?),
+            "git/resetToCommit" => {
+                let (place, hash, mode) = (a!().dir(), a!().text(1), a!().text(2));
+                match scm.open(&place, cancel).await {
+                    Err(ScmFailure::NotARepository) => return Err(scm.commit_lookup_outside_repository(&place, cancel, Some(mode), hash).await.into()),
+                    repo => json!(repo?.reset_to_commit(hash, mode, a!().flag(3)).await?),
+                }
             }
-            "git/amend" => { let p: p::GitAmendParams = decode(req)?; json!(open!(p).amend(p.message.as_deref().unwrap_or("")).await?) }
-            "git/undoLastCommit" => { let p: p::GitUndoLastCommitParams = decode(req)?; json!(open!(p).undo_last_commit().await?) }
-            "git/push" => { let p: p::GitPushParams = decode(req)?; json!(open!(p).push().await?) }
-            "git/pull" => { let p: p::GitPullParams = decode(req)?; json!(open!(p).pull().await?) }
-            "git/fetch" => { let p: p::GitFetchParams = decode(req)?; json!(open!(p).fetch().await?) }
-            "git/sync" => { let p: p::GitSyncParams = decode(req)?; json!(open!(p).sync().await?) }
-            "git/stash" => { let p: p::GitStashParams = decode(req)?; json!(open!(p).stash(p.message.as_deref().unwrap_or("")).await?) }
-            "git/stashPop" => { let p: p::GitStashPopParams = decode(req)?; json!(open!(p).stash_pop().await?) }
-            "git/stashApply" => { let p: p::GitStashApplyParams = decode(req)?; json!(open!(p).stash_apply(&string_field(&req.params, "ref")?).await?) }
-            "git/stashDrop" => { let p: p::GitStashDropParams = decode(req)?; json!(open!(p).stash_drop(&string_field(&req.params, "ref")?).await?) }
-            "git/createTag" => { let p: p::GitCreateTagParams = decode(req)?; json!(open!(p).create_tag(&p.value, &p.at).await?) }
-            "git/deleteTag" => { let p: p::GitDeleteTagParams = decode(req)?; json!(open!(p).delete_tag(&p.value).await?) }
-            "git/deleteBranch" => { let p: p::GitDeleteBranchParams = decode(req)?; json!(open!(p).delete_branch(&p.input.branch).await?) }
-            "git/renameBranch" => {
-                let p: p::GitRenameBranchParams = decode(req)?;
-                json!(open!(p).rename_branch(&p.input.branch, &p.input.next_branch).await?)
+            "git/revertCommit" => json!(at!().revert_commit(a!().text(1)).await?),
+            "git/revertFile" => { at!().revert_file(a!().text(1), a!().flag(2), a!().text(3)).await?; unit() }
+            "git/cherryPickCommit" => {
+                let (place, hash) = (a!().dir(), a!().text(1));
+                match scm.open(&place, cancel).await {
+                    Err(ScmFailure::NotARepository) => return Err(scm.commit_lookup_outside_repository(&place, cancel, None, hash).await.into()),
+                    repo => json!(repo?.cherry_pick_commit(hash).await?),
+                }
             }
-            "git/resetToCommit" => { let p: p::GitResetToCommitParams = decode(req)?; json!(open!(p).reset_to_commit(&p.value, &p.mode, p.confirmed_dirty.unwrap_or(false)).await?) }
-            "git/revertCommit" => { let p: p::GitRevertCommitParams = decode(req)?; json!(open!(p).revert_commit(&p.value).await?) }
-            "git/revertFile" => { let p: p::GitRevertFileParams = decode(req)?; open!(p).revert_file(&p.path, p.untracked, p.mode.as_deref().unwrap_or("all")).await?; unit() }
-            "git/cherryPickCommit" => { let p: p::GitCherryPickCommitParams = decode(req)?; json!(open!(p).cherry_pick_commit(&p.value).await?) }
-            "git/applyPatch" => { let p: p::GitApplyPatchParams = decode(req)?; open!(p).apply_patch(&p.path, &p.patch, p.reverse.unwrap_or(false)).await?; unit() }
-            "git/ignore" => { let p: p::GitIgnoreParams = decode(req)?; open!(p).ignore(&p.path, p.scope.as_deref().unwrap_or("file")).await?; unit() }
-            "git/continue" => { let p: p::GitContinueParams = decode(req)?; json!(open!(p).continue_operation().await?) }
-            "git/abortOperation" => { let p: p::GitAbortOperationParams = decode(req)?; json!(open!(p).abort_operation().await?) }
-            "git/globalConfig/write" => { let p: p::GitGlobalConfigWriteParams = decode(req)?; scm.git_global_config_write(cancel, &p.key, &p.value).await? }
+            "git/applyPatch" => { at!().apply_patch(a!().text(1), a!().text(2), a!().flag(3)).await?; unit() }
+            "git/ignore" => { at!().ignore(a!().text(1), a!().text(2)).await?; unit() }
+            "git/continue" => json!(at!().continue_operation().await?),
+            "git/abortOperation" => json!(at!().abort_operation().await?),
+            "git/globalConfig/write" => {
+                let saved = scm.git_global_config_write(cancel, a!().text(0), a!().text(1)).await?;
+                // Node announced `notifySettingsChanged('git')` here; the owning actor publishes its own change (DS §3).
+                self.publisher.publish(
+                    SectionName::HostState,
+                    Some(GIT_CONFIG_KEY.to_owned()),
+                    SectionChange::Set(serde_json::to_vec(&saved).expect("json").into()),
+                );
+                saved
+            }
             "git/cli/install" => scm.git_cli_install(cancel).await?,
-            "github/status" => { let p: p::GithubStatusParams = decode(req)?; scm.gh_status(cancel, p.refresh.unwrap_or(false)).await? }
+            // Node's phone call took no arguments (remote-methods.ts:562): a refresh is the desktop's.
+            "github/status" => scm.gh_status(cancel, req.ctx.origin != mixdog_protocol::Origin::Relay && req.params.get("refresh") == Some(&Value::Bool(true))).await?,
             "github/account" => scm.gh_account(cancel).await?,
-            "github/login/start" => self.login_start().await?,
+            "github/login/start" => self.login_start(cancel).await?,
             "github/login/status" => {
-                let p: p::GithubLoginStatusParams = decode(req)?;
-                flow_json(&p.flow_id, &self.flow(&p.flow_id)?.session.state())
+                let id = LoginFlowId(a!().text(0).to_owned());
+                let flow = self.flow(&id)?;
+                flow.json(&id, &flow.session.state())
             }
             // gh never opens a browser itself (no-op launcher): the client opens the device page.
-            "github/login/openBrowser" => { let p: p::GithubLoginOpenBrowserParams = decode(req)?; self.flow(&p.flow_id)?; json!(false) }
+            "github/login/openBrowser" => { self.flow(&LoginFlowId(a!().text(0).to_owned()))?; json!(false) }
             "github/login/cancel" => {
-                let p: p::GithubLoginCancelParams = decode(req)?;
-                if let Some(flow) = self.flows.lock().expect("flows").remove(&p.flow_id) {
+                if let Some(flow) = self.flows.lock().expect("flows").remove(&LoginFlowId(a!().text(0).to_owned())) {
                     flow.session.cancel();
                     flow.feed.close();
                 }
@@ -639,23 +570,20 @@ impl ScmService {
             }
             "github/logout" => scm.gh_logout(cancel).await?,
             "github/install" => scm.gh_install(cancel).await?,
-            "github/request" => { let p: p::GithubRequestParams = decode(req)?; self.github_request(&p.cwd, &p.input, cancel).await? }
+            "github/request" => self.github_request(&a!().dir(), &a!().args[1], cancel).await?,
             "github/starStatus" => scm.gh_star_status(cancel).await?,
             "github/star" => scm.gh_star(cancel).await?,
-            "github/pr/list" => { let p: p::GithubPrListParams = decode(req)?; scm.gh_pr_list(&cwd(&p.cwd)?, cancel).await? }
-            "github/pr/view" => { let p: p::GithubPrViewParams = decode(req)?; scm.gh_pr_view(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/diff" => { let p: p::GithubPrDiffParams = decode(req)?; scm.gh_pr_diff(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/defaultBranch" => { let p: p::GithubPrDefaultBranchParams = decode(req)?; scm.gh_pr_default_branch(&cwd(&p.cwd)?, cancel).await? }
-            "github/pr/create" => { let p: p::GithubPrCreateParams = decode(req)?; scm.gh_pr_create(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/checkout" => { let p: p::GithubPrCheckoutParams = decode(req)?; scm.gh_pr_checkout(&cwd(&p.cwd)?, cancel, &p.value).await? }
-            "github/pr/merge" => { let p: p::GithubPrMergeParams = decode(req)?; scm.gh_pr_merge(&cwd(&p.cwd)?, cancel, &p.value, &p.method).await? }
-            "review/diff/get" => {
-                let p: ReviewDiffGetParams = decode(req)?;
-                match p.scope {
-                    WireReviewScope::Repo => self.review_get(p, cancel).await?,
-                    WireReviewScope::Turn | WireReviewScope::Session => self.thread_review(p).await?,
-                }
-            }
+            "github/pr/list" => scm.gh_pr_list(&a!().dir(), cancel).await?,
+            "github/pr/view" => scm.gh_pr_view(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/diff" => scm.gh_pr_diff(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/defaultBranch" => scm.gh_pr_default_branch(&a!().dir(), cancel).await?,
+            "github/pr/create" => scm.gh_pr_create(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/checkout" => scm.gh_pr_checkout(&a!().dir(), cancel, &a!().args[1]).await?,
+            "github/pr/merge" => scm.gh_pr_merge(&a!().dir(), cancel, &a!().args[1], &a!().args[2]).await?,
+            "review/diff/get" => match checked {
+                Some(checked) => self.review_get(checked, cancel).await?,
+                None => self.thread_review(decode(req)?).await?,
+            },
             other => return Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a method of git, github or review, not {other}").into() }),
         };
         Ok(Reply::Value(value))
