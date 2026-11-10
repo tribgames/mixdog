@@ -489,6 +489,12 @@ impl NodeClient {
             Ok(Ok(response)) => response,
         };
         let (parts, incoming) = response.into_parts();
+        // llhttp refuses a response that frames its body twice (`HPE_UNEXPECTED_CONTENT_LENGTH`); hyper would read it
+        // as chunked and keep the connection.
+        if parts.headers.contains_key(hyper::header::TRANSFER_ENCODING) && parts.headers.contains_key(hyper::header::CONTENT_LENGTH) {
+            let framing = io::Error::new(io::ErrorKind::InvalidData, "Content-Length can't be present with Transfer-Encoding");
+            return Err(Failure { error: io_error(&framing, false, DeliveryState::Ambiguous, surface), replay: false });
+        }
         let status = parts.status.as_u16();
         let headers: Vec<(String, String)> = parts
             .headers
