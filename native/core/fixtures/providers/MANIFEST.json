@@ -439,22 +439,45 @@
     }
   ],
   "product": {
-    "appsSha256": "68a4f061d0469fc4d6e2b52541760904a5c9a53664ee108fbd4e153f19ca20bb",
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
     "commit": null,
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "files": 43484,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 1,
       "exact": false,
-      "filesDifferingFromCommit": 34430
+      "filesDifferingFromCommit": 34407
     },
-    "srcSha256": "75cf960aa1d75bb4a92e1a7dd8a7e0f303ada689f5744892270f479a5d2c63fb",
+    "srcSha256": "cd19ae47524b0f6a486c3c407d67ec40c3373ff082b78574133e107a1ce76de0",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
+  "rerecorded": [
+    {
+      "command": "node benchmarks/rust-core/recorders/record-anthropic-effort.mjs --tree <git archive export of 7f633e7305166c5fc8ee66464859ab7de7b60b4d>",
+      "path": "anthropic-effort/cases.json",
+      "product": {
+        "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+        "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+        "comparedAgainst": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+        "exact": true,
+        "files": 9142,
+        "refComparison": {
+          "closestCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+          "commitFilesMissingFromTree": 0,
+          "exact": true,
+          "filesDifferingFromCommit": 0
+        },
+        "srcSha256": "938d5325e28e2ad94621b1dec936ddda2ad4212305e7463fe2be9dcf404d8387",
+        "tree": "product tree loaded by the recorder",
+        "treeKind": "archive",
+        "version": "1.4.5"
+      }
+    }
+  ],
   "scenarios": [
     "anthropic/cache-write-1h",
     "anthropic/error-400",
