@@ -61,6 +61,10 @@ type Socket<S> = WebSocketStream<WsIo<S>>;
 /// Frames queued toward the socket and the consumer.
 const QUEUE: usize = 64;
 
+/// `WS_CLOSE_TERMINATE_MS` (`openai-ws-pool.mjs`): how long a socket closed for good waits for the server's answer
+/// before it is terminated.
+pub const TERMINATE_AFTER_CLOSE: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// Why [`connect`] did not produce a connection.
 #[derive(Debug)]
 pub enum ConnectError {
@@ -156,9 +160,10 @@ struct AbortOnDrop {
 
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
-        self.reader.abort();
-        // A violation's close runs to its end or ws's closeTimeout whoever holds the connection (`setCloseTimer`).
+        // A close under way runs to its end or its bound whoever holds the connection: a violation's within ws's
+        // closeTimeout (`setCloseTimer`), one the owner asked for until its terminate ([`WsConnection::close`]).
         if !self.link.closing.load(std::sync::atomic::Ordering::Acquire) {
+            self.reader.abort();
             self.writer.abort();
         }
     }
@@ -473,6 +478,24 @@ impl WsConnection {
     /// What ended the link, as `ws` reports it.
     pub fn ending(&self) -> Option<WsEnding> {
         locked(&self.link.ending).clone()
+    }
+
+    /// Closes the socket for good, as Node's pool shuts an entry down (`openai-ws-pool.mjs` `_shutdownEntry`):
+    /// `socket.close(code, reason)`, then the socket is terminated [`TERMINATE_AFTER_CLOSE`] later unless the
+    /// server's answer ended it first (`_scheduleForcedTerminate`, `WS_CLOSE_TERMINATE_MS`). Whoever held the
+    /// connection lets go of it at once.
+    pub fn close(self, code: u16, reason: &str) {
+        let frame = tungstenite::protocol::CloseFrame { code: code.into(), reason: reason.to_owned().into() };
+        if self.out.try_send(Message::Close(Some(frame))).is_err() {
+            return; // the link is gone already; dropping it ends it
+        }
+        self.link.closing.store(true, std::sync::atomic::Ordering::Release);
+        let (writer, reader) = (self._tasks.writer.clone(), self._tasks.reader.clone());
+        mixdog_rt::spawn("ai.ws.terminate", TaskClass::Work, async move {
+            tokio::time::sleep(TERMINATE_AFTER_CLOSE).await;
+            writer.abort();
+            reader.abort();
+        });
     }
 
     /// Queues a frame. Waits only for room in this connection's own queue.

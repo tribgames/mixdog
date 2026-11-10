@@ -8,7 +8,9 @@
 // sleep (the one in retry-backoff.mjs) does not wait: it is recorded as a `sleep` event with its delay, and the clock
 // advances by exactly that delay before the retry goes out. Every other timer is the real one.
 //
-// Usage: node node-wire-capture.mjs <node-tree> --node-commit <sha> --session <session.json> --scenarios <scenarios.json> --out <recording.json> [--keep-random]
+// Usage: node node-wire-capture.mjs <node-tree> --node-commit <sha> --session <session.json> --scenarios <scenarios.json> --out <recording.json> [--keep-random] [--only <scenario id>]
+// `--only` records one scenario with the ones of its conversation before it (from the last `fresh` one), which it
+// continues; the manifest names it, and only a whole recording is the committed fixture.
 import crypto from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
@@ -29,6 +31,17 @@ const read = (file) => JSON.parse(readFileSync(resolve(file), 'utf8'));
 const session = read(arg('--session'));
 const doc = read(arg('--scenarios'));
 const keepRandom = process.argv.includes('--keep-random');
+const only = process.argv.includes('--only') ? arg('--only') : null;
+/** The scenarios a run records: all, or the one `--only` names with the ones of its conversation before it. */
+function selected(scenarios) {
+  if (!only) return scenarios;
+  const at = scenarios.findIndex((s) => s.id === only);
+  if (at < 0) throw new Error(`no scenario ${only}`);
+  if (scenarios[at].provider !== 'openai-oauth') return [scenarios[at]];
+  let start = at;
+  while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === 'openai-oauth') start -= 1;
+  return scenarios.slice(start, at + 1);
+}
 
 // The real timers, kept for the recorder's own deadlines and the virtual sleeps; the providers see the wrappers below.
 const realSetTimeout = globalThis.setTimeout;
@@ -91,7 +104,10 @@ delete process.env.MIXDOG_OAI_TRANSPORT;
 const FAKE = 'fake-credential-not-a-secret';
 writeFakeCredentials(dataDir, (file, value) => writeFileSync(file, JSON.stringify(value)));
 // The catalog Node would hold after it listed the Codex models: one row per model of the scenarios, nothing else known.
-writeFileSync(join(dataDir, 'openai-oauth-models.json'), JSON.stringify({ version: 7, fetchedAt: doc.nowMs, models: [{ id: ROUTES[0].model }] }));
+// A scenario that names its own model has that row offer the `priority` service tier (`modelSupportsServiceTier`).
+const tierModels = [...new Set(doc.scenarios.filter((s) => s.model).map((s) => s.model))];
+const rows = [{ id: ROUTES[0].model }, ...tierModels.map((id) => ({ id, serviceTiers: [{ id: 'priority', name: 'Fast', description: '' }] }))];
+writeFileSync(join(dataDir, 'openai-oauth-models.json'), JSON.stringify({ version: 7, fetchedAt: doc.nowMs, models: rows }));
 
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const load = (path) => within(`loading ${path}`, import(pathToFileURL(join(root, path)).href));
@@ -105,6 +121,8 @@ const providerOf = {
 const { seedSessionMessages } = await load('src/runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs');
 const { buildRequestSendOptions } = await load('src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.mjs');
 const { _clearWebSocketPoolForTest } = await load(P + 'openai-ws-pool.mjs');
+const { captureSideQuestionRequest } = await load('src/runtime/agent/orchestrator/session/side-question-store.mjs');
+const { summarizeOnSharedPrefix } = await load('src/runtime/agent/orchestrator/session/compact/forked-summary.mjs');
 
 const tools = session.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 if (session.system.length !== 4) throw new Error(`the session document holds ${session.system.length} system texts; Node's session seeds four (base rules, stable context, session marker, environment)`);
@@ -116,8 +134,11 @@ const stampOf = (uuid) => Number.parseInt(uuid.replaceAll('-', '').slice(0, 12),
 const results = [];
 const ENV_NAMES = [...new Set(doc.scenarios.flatMap((s) => Object.keys(s.env || {})))];
 let openaiProvider = null;
-for (const scenario of doc.scenarios) {
-  const route = ROUTES.find((r) => r.provider === scenario.provider);
+/** The latest send of the run and its reply: what a compaction scenario forks. */
+let lastSend = null;
+for (const scenario of selected(doc.scenarios)) {
+  const route = { ...ROUTES.find((r) => r.provider === scenario.provider) };
+  if (scenario.model) route.model = scenario.model;
   const entry = { id: scenario.id, provider: scenario.provider, model: route.model };
   // A scenario's environment is the process environment of its run; nothing else sets these variables.
   for (const name of ENV_NAMES) delete process.env[name];
@@ -158,7 +179,19 @@ for (const scenario of doc.scenarios) {
     opts = buildRequestSendOptions({ sessionId: doc.nodeSessionId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
   }
   try {
-    await within(`the reply of ${scenario.id}`, provider.send(messages, route.model, tools, opts));
+    if (scenario.compaction) {
+      // The compaction summary as Node's compaction sends it (`summarizeOnSharedPrefix`, forked-summary.mjs): a fork of the
+      // session's latest request, which the loop keeps with its reply (`captureSideQuestionRequest`), here the previous
+      // scenario's send.
+      if (!lastSend) throw new Error(`${scenario.id}: no send before the compaction to fork`);
+      captureSideQuestionRequest({ sessionId: doc.nodeSessionId, sessionRef: {}, provider, model: route.model, messages: lastSend.messages, tools, opts: lastSend.opts }).settle(lastSend.response);
+      const route2 = { provider, providerName: scenario.provider, model: route.model, contextWindow: 1_000_000 };
+      const summary = await within(`the reply of ${scenario.id}`, summarizeOnSharedPrefix({ sessionId: doc.nodeSessionId, route: route2, conversationInput: [], signal: controller.signal }));
+      if (summary.fallback) throw summary.error ?? new Error(`${scenario.id}: the fork fell back (${summary.fallback})`);
+    } else {
+      const response = await within(`the reply of ${scenario.id}`, provider.send(messages, route.model, tools, opts));
+      lastSend = { messages, opts, response };
+    }
     entry.outcome = 'ok';
   } catch (error) {
     // A deadline is the recorder failing, never a recorded outcome.
@@ -187,6 +220,7 @@ const manifest = {
   scenariosSha256: fileHash(arg('--scenarios')),
   harness: Object.fromEntries(['node-wire-capture.mjs', 'wire-server.mjs'].map((name) => [name, fileHash(join(here, name))])),
   replaced: keepRandom ? [] : [{ kind: 'ws-upgrade', header: 'Sec-WebSocket-Key', value: RANDOM, why: 'drawn at random per connection (RFC 6455 4.1); wire-random-proof.mjs shows two runs differ in nothing else' }],
+  ...(only ? { only } : {}),
 };
 writeFileSync(resolve(arg('--out')), `${JSON.stringify({ manifest, scenarios: results }, null, 1)}\n`);
 console.log(results.map((r) => `${r.id}: ${r.traffic.length} events, ${r.outcome}`).join('\n'));

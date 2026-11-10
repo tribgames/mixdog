@@ -13,12 +13,14 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 
+use mixdog_agent::repair::ToolCallIds;
+use mixdog_agent::response::{ModelResponse, ResponseBuilder};
 use mixdog_ai::catalog::ModelRecord;
 use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::registry::builder::DefaultProviderBuilder;
 use mixdog_ai::registry::providers::ProviderBuilder;
 use mixdog_ai::transport::{KeepaliveDialer, KeepaliveSchedule, ReqwestLink};
-use mixdog_core_api::domain::provider::{CacheTier, Content, Message, ModelRequest, RequestOptions, Role, ToolDefinition};
+use mixdog_core_api::domain::provider::{CacheTier, Content, Message, ModelRequest, RequestOptions, Role, ServiceTier, ToolDefinition};
 use mixdog_protocol::ProviderId;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -115,14 +117,37 @@ fn script_of(scenario: &Value) -> Script {
     Script { dials: list("dials"), replies: list("ws"), http: list("http") }
 }
 
+/// The scenarios a run records: all, or the one `only` names with the ones of its conversation before it (from the last
+/// `fresh` one), as `node-wire-capture.mjs --only` selects them.
+fn selected<'a>(scenarios: &'a [Value], only: Option<&str>) -> &'a [Value] {
+    let Some(only) = only else { return scenarios };
+    let at = scenarios.iter().position(|s| s["id"] == only).unwrap_or_else(|| panic!("no scenario {only}"));
+    if scenarios[at]["provider"] != "openai-oauth" {
+        return &scenarios[at..=at];
+    }
+    let mut start = at;
+    while start > 0 && scenarios[start]["fresh"] != true && scenarios[start - 1]["provider"] == "openai-oauth" {
+        start -= 1;
+    }
+    &scenarios[start..=at]
+}
+
 /// Every scenario through the production adapters and transports; the recording per scenario, in Node's shape.
-async fn record_all() -> Vec<Value> {
+async fn record_all(only: Option<&str>) -> Vec<Value> {
     let session: Value = serde_json::from_str(SESSION).unwrap();
     let doc: Value = serde_json::from_str(SCENARIOS).unwrap();
     let now = doc["nowMs"].as_u64().unwrap();
 
     let model = "gpt-6.1-sol";
-    let records = vec![ModelRecord::new(ProviderId::from("openai-oauth"), model)];
+    let mut records = vec![ModelRecord::new(ProviderId::from("openai-oauth"), model)];
+    // A scenario that names its own model has that row offer the `priority` service tier, as Node's catalog does.
+    let mut tier_models: Vec<&str> = doc["scenarios"].as_array().unwrap().iter().filter_map(|s| s["model"].as_str()).collect();
+    tier_models.dedup();
+    for id in tier_models {
+        let mut record = ModelRecord::new(ProviderId::from("openai-oauth"), id);
+        record.picker.service_tiers = vec![ServiceTier { id: "priority".into(), name: "Fast".into(), description: String::new() }];
+        records.push(record);
+    }
     let mut w = world(&[("MIXDOG_DISABLE_LIVE_CLI_VERSIONS", "1")], json!({}), records).await;
     w.services.installation_id = text(&session["installationId"]);
     w.services.host = HostInfo::from_node(session["host"]["type"].as_str().unwrap(), session["host"]["release"].as_str().unwrap(), session["host"]["arch"].as_str().unwrap());
@@ -153,11 +178,13 @@ async fn record_all() -> Vec<Value> {
 
     let mut out = Vec::new();
     let mut openai = None;
-    for scenario in doc["scenarios"].as_array().unwrap() {
+    // The latest send of the run and its reply: what a compaction scenario forks.
+    let mut last_send: Option<(ModelRequest, ModelResponse)> = None;
+    for scenario in selected(doc["scenarios"].as_array().unwrap(), only) {
         let id = text(&scenario["id"]);
         let provider = scenario["provider"].as_str().unwrap();
         let model = match provider {
-            "openai-oauth" => "gpt-6.1-sol",
+            "openai-oauth" => scenario["model"].as_str().unwrap_or("gpt-6.1-sol"),
             "anthropic-oauth" => "claude-opus-5-5",
             "gemini" => "gemini-3.8-flash",
             _ => "grok-4.7",
@@ -176,20 +203,41 @@ async fn record_all() -> Vec<Value> {
         *settings.lock().unwrap() = scenario["env"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), text(v))).collect();
         server.begin(script_of(scenario));
         let adapter = if provider == "openai-oauth" { openai.clone().unwrap() } else { builder.build(provider, &config(provider)).await.unwrap() };
-        let outcome = within(format_args!("the reply of {id}"), async {
-            match adapter.attempt(Arc::new(request(&session, scenario, model))).await {
-                Ok(mut stream) => {
-                    while let Some(event) = stream.next().await {
-                        if event.is_err() {
-                            return "error";
-                        }
-                    }
-                    "ok"
-                }
+        let outcome = if scenario["compaction"] == true {
+            // The compaction summary as the core's compaction sends it (`RequestFork`, the fork of the session's
+            // latest request with its reply): here the previous scenario's send.
+            let (saved, reply) = last_send.clone().unwrap_or_else(|| panic!("{id}: no send before the compaction to fork"));
+            let fork = super::side_requests::RequestFork {
+                thread: text(&session["threadId"]).as_str().into(),
+                provider: adapter.clone(),
+                request: saved,
+                reply: Arc::new(std::sync::Mutex::new(Some(reply))),
+            };
+            match within(format_args!("the reply of {id}"), fork.send_fork()).await {
+                Ok(_) => "ok",
                 Err(_) => "error",
             }
-        })
-        .await;
+        } else {
+            let sent = request(&session, scenario, model);
+            within(format_args!("the reply of {id}"), async {
+                match adapter.attempt(Arc::new(sent.clone())).await {
+                    Ok(mut stream) => {
+                        // The reply folded as the loop folds it, for a later compaction's fork.
+                        let mut reply = ResponseBuilder::new(model, ToolCallIds::new(&[]));
+                        while let Some(event) = stream.next().await {
+                            match event {
+                                Ok(event) => reply.push(event),
+                                Err(_) => return "error",
+                            }
+                        }
+                        last_send = Some((sent, reply.finish()));
+                        "ok"
+                    }
+                    Err(_) => "error",
+                }
+            })
+            .await
+        };
         let mut entry = json!({ "id": id, "provider": provider, "model": model, "outcome": outcome });
         if let Some(kind) = server.unanswered() {
             entry["outcome"] = json!("unanswered");
@@ -259,8 +307,9 @@ fn compare(node: &[Value], rust: &[Value], provider: &str) -> Vec<String> {
 }
 
 /// The manifest says what the Node recording is a function of; every part is checked against what is committed.
-fn verify_manifest(node: &Value) {
+fn verify_manifest(node: &Value, only: Option<&str>) {
     let manifest = &node["manifest"];
+    assert_eq!(manifest["only"].as_str(), only, "a recording of one scenario is compared only on a run of that scenario");
     assert_eq!(manifest["exact"], true, "the recording is Node's, exact");
     assert_eq!(manifest["nodeCommit"], NODE_COMMIT, "the recording was made from another Node commit");
     assert_eq!(manifest["sessionSha256"], sha256(SESSION.as_bytes()), "session.json changed since the recording");
@@ -273,11 +322,20 @@ fn verify_manifest(node: &Value) {
     assert_eq!(manifest["replaced"][0]["value"], RANDOM);
 }
 
-/// Every difference between Node's recording and Rust's for the scenarios of `provider`.
+/// Every difference between Node's recording and Rust's for the scenarios of `provider`. `MIXDOG_WIRE_ONLY=<scenario>`
+/// runs that one scenario (with its conversation before it) against `MIXDOG_WIRE_NODE`, the recording
+/// `node-wire-capture.mjs --only <scenario>` made of it.
 async fn differences(provider: &str) -> Vec<String> {
-    let node: Value = serde_json::from_str(NODE).unwrap();
-    verify_manifest(&node);
-    let rust = record_all().await;
+    let only = std::env::var("MIXDOG_WIRE_ONLY").ok();
+    let node: Value = match &only {
+        Some(_) => {
+            let file = std::env::var("MIXDOG_WIRE_NODE").expect("MIXDOG_WIRE_NODE names the recording of the one scenario");
+            serde_json::from_str(&std::fs::read_to_string(file).expect("the recording of the one scenario")).unwrap()
+        }
+        None => serde_json::from_str(NODE).unwrap(),
+    };
+    verify_manifest(&node, only.as_deref());
+    let rust = record_all(only.as_deref()).await;
     compare(node["scenarios"].as_array().unwrap(), &rust, provider)
 }
 
