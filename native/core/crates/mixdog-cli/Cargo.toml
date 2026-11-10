@@ -46,7 +46,7 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
-mixdog-core-session = { workspace = true, features = ["test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
