@@ -6,8 +6,9 @@
 //! repository, submodule and linked folder is judged by its own rules. A link is
 //! packed under its own name when its real location is inside the folder and not a
 //! folder the walk is already inside. Directory reads run as maintenance-lane jobs;
-//! entries stream through a data descriptor so memory stays bounded; names are
-//! UTF-8 and the timestamp is fixed so the same folder zips identically.
+//! the entries are Node's (`zipListedFiles`): each file read whole (the caps bound it),
+//! deflated only when that is smaller, else stored, sizes in the local header; names
+//! are UTF-8 and the timestamp is fixed so the same folder zips identically.
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -66,7 +67,7 @@ pub struct Scan {
 }
 
 fn too_large(files: u64, bytes: u64) -> WsError {
-    WsError::new(Reason::FolderTooLarge, format!("The folder is too large to zip. ({files} files, {bytes} bytes)"))
+    WsError::new(Reason::FolderTooLarge { files, bytes }, format!("The folder is too large to zip. ({files} files, {bytes} bytes)"))
 }
 
 fn comparable_str(text: &str) -> String {
@@ -298,22 +299,6 @@ struct Central {
     offset: u32,
 }
 
-struct Counting<W> {
-    inner: W,
-    written: u64,
-}
-
-impl<W: Write> Write for Counting<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let n = self.inner.write(buf)?;
-        self.written += n as u64;
-        Ok(n)
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
-    }
-}
-
 
 /// The regular files under `root` (a canonical path) that make up the folder, as relative
 /// `/`-separated paths in a stable order. Fails with `FolderTooLarge` once what is left
@@ -367,24 +352,10 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
         }
         let name = file.rel.as_bytes().to_vec();
         let start = offset;
-        // Local header with a data descriptor (flag bit 3): sizes follow the data.
-        let mut header = Vec::with_capacity(30 + name.len());
-        header.extend(0x0403_4b50u32.to_le_bytes());
-        header.extend(20u16.to_le_bytes());
-        header.extend(0x0808u16.to_le_bytes());
-        header.extend(8u16.to_le_bytes());
-        header.extend(DOS_TIME.to_le_bytes());
-        header.extend(DOS_DATE.to_le_bytes());
-        header.extend([0u8; 12]);
-        header.extend((name.len() as u16).to_le_bytes());
-        header.extend(0u16.to_le_bytes());
-        header.extend(&name);
-        out.write_all(&header)?;
-        let mut crc = Crc::new();
-        let mut encoder = DeflateEncoder::new(Counting { inner: &mut *out, written: 0 }, Compression::default());
+        // The file whole, as Node's `readListedFile` reads it (the caps bound what is held).
+        let mut raw = Vec::new();
         let mut reader = BufReader::new(handle);
         let mut buf = vec![0u8; 64 * 1024];
-        let mut size = 0u64;
         loop {
             let n = reader.read(&mut buf)?;
             if n == 0 {
@@ -394,20 +365,32 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
             if read_total > max_bytes {
                 return Err(too_large(files.len() as u64, read_total));
             }
-            crc.update(&buf[..n]);
-            size += n as u64;
-            encoder.write_all(&buf[..n])?;
+            raw.extend_from_slice(&buf[..n]);
         }
-        let counted = encoder.finish()?;
-        let compressed = counted.written;
-        let mut descriptor = Vec::with_capacity(16);
-        descriptor.extend(0x0807_4b50u32.to_le_bytes());
-        descriptor.extend(crc.sum().to_le_bytes());
-        descriptor.extend((compressed as u32).to_le_bytes());
-        descriptor.extend((size as u32).to_le_bytes());
-        out.write_all(&descriptor)?;
-        offset += header.len() as u64 + compressed + descriptor.len() as u64;
-        central.push(Central { name, crc: crc.sum(), compressed: compressed as u32, size: size as u32, method: 8, offset: start as u32 });
+        let mut crc = Crc::new();
+        crc.update(&raw);
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw)?;
+        let deflated = encoder.finish()?;
+        // Node's `zipListedFiles`: deflated only when that is smaller, else stored; the sizes are in the local header (no descriptor).
+        let (method, data) = if deflated.len() < raw.len() { (8u16, deflated) } else { (0u16, raw.clone()) };
+        let mut header = Vec::with_capacity(30 + name.len());
+        header.extend(0x0403_4b50u32.to_le_bytes());
+        header.extend(20u16.to_le_bytes());
+        header.extend(0x0800u16.to_le_bytes());
+        header.extend(method.to_le_bytes());
+        header.extend(DOS_TIME.to_le_bytes());
+        header.extend(DOS_DATE.to_le_bytes());
+        header.extend(crc.sum().to_le_bytes());
+        header.extend((data.len() as u32).to_le_bytes());
+        header.extend((raw.len() as u32).to_le_bytes());
+        header.extend((name.len() as u16).to_le_bytes());
+        header.extend(0u16.to_le_bytes());
+        header.extend(&name);
+        out.write_all(&header)?;
+        out.write_all(&data)?;
+        offset += header.len() as u64 + data.len() as u64;
+        central.push(Central { name, crc: crc.sum(), compressed: data.len() as u32, size: raw.len() as u32, method, offset: start as u32 });
     }
     let directory_start = offset;
     for entry in &central {
@@ -415,7 +398,7 @@ pub fn write_archive<W: Write + Seek>(out: &mut W, files: &[FolderFile], max_byt
         h.extend(0x0201_4b50u32.to_le_bytes());
         h.extend(20u16.to_le_bytes());
         h.extend(20u16.to_le_bytes());
-        h.extend(0x0808u16.to_le_bytes());
+        h.extend(0x0800u16.to_le_bytes());
         h.extend(entry.method.to_le_bytes());
         h.extend(DOS_TIME.to_le_bytes());
         h.extend(DOS_DATE.to_le_bytes());

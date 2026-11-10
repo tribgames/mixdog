@@ -35,7 +35,8 @@ pub enum Reason {
     GrantUnavailable,
     /// A one-file grant presented for a path other than the file it names.
     GrantMismatch,
-    FolderTooLarge,
+    /// What the walk counted (after the exclusions): Node's `FolderTooLargeError.files` and `.bytes`.
+    FolderTooLarge { files: u64, bytes: u64 },
     /// A `RECOVERY_*` code of the recovery journal.
     Recovery(&'static str),
     InvalidEncoding,
@@ -71,7 +72,7 @@ impl Reason {
             Self::OutOfOrder => "outOfOrder",
             Self::GrantUnavailable => "SELECTED_FILE_GRANT_UNAVAILABLE",
             Self::GrantMismatch => "grantMismatch",
-            Self::FolderTooLarge => "folderTooLarge",
+            Self::FolderTooLarge { .. } => "folderTooLarge",
             Self::Recovery(code) => code,
             Self::InvalidEncoding => "invalidEncoding",
             Self::Unsupported => "unsupported",

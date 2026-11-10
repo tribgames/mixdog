@@ -7,6 +7,7 @@ const SOURCES = {
   media: ({ assetId }) => ({ kind: 'mediaAsset', assetId }),
   link: ({ itemId, href }) => ({ kind: 'link', itemId, href }),
   attachment: ({ attachmentId }) => ({ kind: 'attachment', attachmentId }),
+  folder: ({ path }) => ({ kind: 'folder', path }),
 };
 
 const REQUESTS = {

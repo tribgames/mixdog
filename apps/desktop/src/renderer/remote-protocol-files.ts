@@ -131,6 +131,7 @@ type DownloadRequest = { sessionId: string; purpose: FileDownloadPurpose } & (
   | { kind: 'media'; assetId: string }
   | { kind: 'link'; itemId: string; href: string }
   | { kind: 'attachment'; attachmentId: string }
+  | { kind: 'folder'; path: string }
 );
 
 function downloadRequest(value: unknown): DownloadRequest {
@@ -151,7 +152,7 @@ function downloadRequest(value: unknown): DownloadRequest {
     if (typeof source.attachmentId !== 'string' || !ATTACHMENT_ID.test(source.attachmentId)) throw new TypeError('attachment id is invalid.');
     return { kind: 'attachment', sessionId, attachmentId: source.attachmentId, purpose };
   }
-  if (source.kind === 'session') return { kind: 'session', sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
+  if (source.kind === 'session' || source.kind === 'folder') return { kind: source.kind, sessionId, path: requiredText(source.path, 'path', 4_096), purpose };
   if (source.kind === 'media') {
     const assetId = requiredText(source.assetId, 'asset id', 128);
     if (!MEDIA_ASSET_ID.test(assetId)) throw new TypeError('asset id is invalid.');
@@ -173,7 +174,9 @@ function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promise<unk
           ? { kind: 'link', itemId: request.itemId, href: request.href }
           : request.kind === 'attachment'
             ? { kind: 'attachment', attachmentId: request.attachmentId }
-            : { kind: 'sessionFile', path: request.path };
+            : request.kind === 'folder'
+              ? { kind: 'folder', path: request.path }
+              : { kind: 'sessionFile', path: request.path };
   return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source, purpose: request.purpose });
 }
 function downloadRange(transferId: unknown, offset: unknown, length: unknown, version: unknown): Params {

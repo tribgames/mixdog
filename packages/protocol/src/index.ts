@@ -949,7 +949,7 @@ kind?: string, sessionId?: string, } | { "type": "worktreeMissing", entryId?: st
 /**
  * What a paired phone asks to download (`transfer/authorizeRead`).
  */
-export type DownloadSource = { "kind": "file", rel: string, } | { "kind": "sessionFile", path: string, } | { "kind": "mediaAsset", assetId: string, } | { "kind": "link", itemId: string, href: string, } | { "kind": "attachment", attachmentId: string, };
+export type DownloadSource = { "kind": "file", rel: string, } | { "kind": "sessionFile", path: string, } | { "kind": "mediaAsset", assetId: string, } | { "kind": "link", itemId: string, href: string, } | { "kind": "attachment", attachmentId: string, } | { "kind": "folder", path: string, };
 
 /**
  * Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.

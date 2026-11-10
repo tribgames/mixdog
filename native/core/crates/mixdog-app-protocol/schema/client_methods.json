@@ -3365,6 +3365,25 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "A folder the conversation names (absolute, or in its folder), served as a zip of its work files.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "folder"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
         }
       ]
     },
