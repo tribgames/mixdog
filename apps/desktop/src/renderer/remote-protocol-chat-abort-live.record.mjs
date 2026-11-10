@@ -1,0 +1,137 @@
+// Records what a RUNNING mixdogd answers to the Stops of remote-protocol-chat-abort.recorded.json, case for case (the same cases and the same
+// model endpoint: remote-protocol-chat-abort-cases.mjs, remote-protocol-chat-abort-provider.mjs). Each case is a fresh thread; the phone's
+// calls are recorded as the core got them (`turn/start`, `turn/interrupt`) with the core's whole reply, and the row's message count after the
+// turn closed.
+//
+// Usage: node remote-protocol-chat-abort-live.record.mjs <mixdogd.exe> <real-turn-harness dir>
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import WebSocket from 'ws';
+import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
+import { ABORT_CASES } from './remote-protocol-chat-abort-cases.mjs';
+import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
+
+const [bin, harness] = process.argv.slice(2);
+const here = dirname(fileURLToPath(import.meta.url));
+process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-abort-live');
+const load = (name) => import(pathToFileURL(join(harness, 'lib', name)).href);
+const { daemonEnv, isolatedPaths } = await load('env.mjs');
+const { seedPgRuntime, killStrayPostgres } = await load('stage.mjs');
+const { launch } = await load('proc.mjs');
+const { createDeadline, latch } = await load('deadline.mjs');
+
+const paths = isolatedPaths();
+rmSync(paths.envRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(d, { recursive: true });
+const project = join(paths.workspace, 'a');
+mkdirSync(project, { recursive: true });
+seedPgRuntime(paths.dataDir);
+const provider = await startAbortProvider();
+writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
+const route = { provider: 'custom-harness', model: 'harness-model' };
+
+const core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn' }), cwd: paths.envRoot });
+const notes = [];
+const deadline = createDeadline(240_000, () => `${core.tail()}\nnotifications: ${notes.slice(-12).map((n) => n.method).join(', ')}`);
+const daemonDoc = () => {
+  const file = join(paths.runtimeRoot, 'daemon.json');
+  if (!existsSync(file)) return null;
+  try {
+    const d = JSON.parse(readFileSync(file, 'utf8'));
+    return d?.core?.state === 'serving' && d.core.rpc?.port ? d : null;
+  } catch { return null; }
+};
+const served = latch();
+const watcher = watch(paths.runtimeRoot, () => { const d = daemonDoc(); if (d) served.resolve(d); });
+const early = daemonDoc();
+if (early) served.resolve(early);
+const doc = await deadline.race(served.promise, 'the core to serve');
+watcher.close();
+
+const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
+await deadline.race(new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); }), 'the app-server socket to open');
+const pending = new Map();
+const waiters = new Set();
+let nextId = 1;
+socket.on('message', (data) => {
+  const frame = JSON.parse(data.toString('utf8'));
+  if (frame.id !== undefined && pending.has(frame.id)) {
+    const p = pending.get(frame.id);
+    pending.delete(frame.id);
+    if (frame.error) p.reject(Object.assign(new Error(`${p.method}: ${JSON.stringify(frame.error)}`), { rpc: frame.error })); else p.resolve(frame.result);
+  } else if (frame.method) {
+    notes.push({ method: frame.method, params: frame.params });
+    for (const check of [...waiters]) check();
+  }
+});
+const call = (method, params) => deadline.race(new Promise((resolve, reject) => {
+  const id = nextId++;
+  pending.set(id, { resolve, reject, method });
+  socket.send(JSON.stringify({ id, method, params }));
+}), `the reply to ${method}`);
+const op = (method, params) => call(method, { ...params, opId: uuidv7(Date.now()) });
+const until = (ready, what) => {
+  const done = latch();
+  const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
+  waiters.add(check);
+  check();
+  return deadline.race(done.promise, what);
+};
+const seen = (id, method, text) => notes.filter((n) => n.method === method && n.params?.threadId === id && (text === undefined || JSON.stringify(n.params).includes(text))).length;
+
+const cases = [];
+let out;
+try {
+  await call('initialize', { clientInfo: { name: 'ph2-chat-abort', title: 'PH-2 abort', version: '1.4.5', kind: 'tui' }, capabilities: {} });
+  socket.send(JSON.stringify({ method: 'initialized' }));
+  await call('app/subscribe', {});
+  for (const c of ABORT_CASES) {
+    // The phone's submitNewTask: a thread with the draft route, then the first prompt (service-route.ts submitNewTask / turnInput).
+    const id = (await op('thread/start', { kind: 'project', projectPath: project, draft: { route } })).thread.id;
+    await call('thread/resume', { threadId: id, window: { lastItems: 200 } });
+    const options = { clientSubmissionId: `sub-${c.name}`, ...(c.pasted ? { pastedTexts: c.pasted } : {}) };
+    const start = { threadId: id, input: { prompt: c.prompt, options } };
+    await op('turn/start', start);
+    await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
+    if (c.output) await until(() => seen(id, 'item/agentMessage/delta', c.output) > 0, `the streamed text of ${c.name} to reach the client`);
+    let second;
+    if (c.then) {
+      second = { threadId: id, input: { prompt: c.then, options: { clientSubmissionId: `sub-${c.name}-2` } } };
+      await op('turn/start', second);
+    }
+    const stop = { threadId: id, ...c.stop };
+    const reply = await call('turn/interrupt', stop);
+    // A stopped turn closes with turn/completed; a steering prompt then runs as the next turn.
+    const turns = c.then ? 2 : 1;
+    await until(() => seen(id, 'turn/completed') >= turns, `the turn(s) of ${c.name} to complete after its Stop`);
+    let again;
+    if (c.again) {
+      const request = { threadId: id, ...c.again };
+      again = { request, reply: await call('turn/interrupt', request).catch((error) => ({ error: error.rpc })) };
+    }
+    // What the stopped turn left of the prompt in the transcript, read from the thread itself after its turn(s) closed (the list's counts
+    // are a cache that can trail the thread).
+    const read = await call('thread/read', { threadId: id, window: { lastItems: 200 } });
+    const promptKept = JSON.stringify(read.items).includes(c.prompt);
+    cases.push({ name: c.name, start, ...(second ? { second } : {}), stop, core: { reply, ...(again ? { again } : {}), promptKept } });
+  }
+  out = {
+    manifest: {
+      binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(),
+      source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven over the WebSocket JSON-RPC protocol',
+    },
+    cases,
+  };
+  writeFileSync(join(here, 'remote-protocol-chat-abort-live.recorded.json'), `${JSON.stringify(out, null, 2)}\n`);
+  console.log(`recorded ${cases.length} abort cases`);
+} finally {
+  deadline.clear();
+  socket.close();
+  core.kill();
+  await core.exited;
+  await provider.close();
+  killStrayPostgres(paths.dataDir);
+}
+process.exit(0);

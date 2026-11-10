@@ -220,15 +220,18 @@ export function createChatApi(
           throw error;
         })
       );
-      // `turn/interrupt` hands no prompt back (actor.rs `close_done`: `reclaimed` is never set), so nothing is restored.
+      // `restore` is what the core hands back to the composer (run_restore.rs `stop`; Node's host reply, session-host-lifecycle.ts:1075).
+      const restore = record(reply.restore);
       return {
         aborted: reply.cancelRequested === true,
-        restoreText: '',
-        pastedImages: null,
-        pastedTexts: null,
-        discardPastedImages: null,
-        discardPastedTexts: null,
-        restoredSubmissionIds: [],
+        restoreText: restore.restoreText || '',
+        ...(restore.content ? { content: restore.content } : {}),
+        ...(restore.notice ? { notice: restore.notice } : {}),
+        pastedImages: restore.pastedImages ?? null,
+        pastedTexts: restore.pastedTexts ?? null,
+        discardPastedImages: restore.discardPastedImages ?? null,
+        discardPastedTexts: restore.discardPastedTexts ?? null,
+        restoredSubmissionIds: Array.isArray(restore.restoredSubmissionIds) ? restore.restoredSubmissionIds : [],
       };
     },
     resolveToolApprovalForSession: async (sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> => {

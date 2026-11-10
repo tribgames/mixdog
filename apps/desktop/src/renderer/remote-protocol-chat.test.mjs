@@ -49,8 +49,6 @@ const SCRIPT = {
   'markSessionRead-unchanged': (n) => ({ 'thread/readState/update': n.result }),
   // mixdog-workspace/src/service.rs:1001 `{ "path": … }`
   getTaskWorkspace: (n) => ({ 'project/taskWorkspace': { path: n.result } }),
-  // v2/thread.rs:741 TurnInterruptResponse: `cancelRequested` is always true (R12)
-  'abortSession-restored': () => ({ 'turn/interrupt': { cancelRequested: true } }),
   // What a running mixdogd answers a Stop of a thread that runs no turn: `turnNotActive` (remote-protocol-chat-refusals.recorded.json)
   'abortSession-idle': () => ({ 'turn/interrupt': coreReply('abortSession-idle') }),
   // actor.rs:3980 `{ "kind": "started" }`
@@ -131,10 +129,9 @@ const SCRIPT = {
 };
 
 /** The cases this file does not replay through the base adapter, each with where it is replayed whole against Node's own answer:
- *  a string names the test that owns it (remote-protocol-chat-host.test.mjs: the host adapter, which the phone mounts, answers these
- *  from the start/secret/room/home recordings and the core replies in remote-protocol-chat-refusals.recorded.json); an object is a
- *  difference that is still open, Node's answer and the adapter's both asserted. */
-const DIFFERENT = {
+ *  the test that owns it (remote-protocol-chat-host.test.mjs: the host adapter, which the phone mounts, answers these
+ *  from the start/secret/room/home recordings and the core replies in remote-protocol-chat-refusals.recorded.json). */
+const REPLAYED_BY = {
   startTask: 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
   startProject: 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
   'startProjectTask-registered': 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
@@ -142,9 +139,6 @@ const DIFFERENT = {
   'startProjectTask-unknown': 'remote-protocol-chat-host.test.mjs: startProjectTask of an unregistered Project, over the core reply recorded from mixdogd',
   'openAgentHome-unknown-agent': 'remote-protocol-chat-host.test.mjs: openAgentHome of an unknown agent, over the core reply recorded from mixdogd',
   'agentRoomAction-unknown': 'remote-protocol-chat-host.test.mjs: agentRoomAction of an unknown action',
-  // OPEN: Node reclaims the stopped turn's prompt into the composer (abort.mjs:65-155, `restoreText` / `restoredSubmissionIds`); the core's
-  // `turn/interrupt` hands none back (actor.rs `close_done`: `reclaimed` is never set).
-  'abortSession-restored': { aborted: true, restoreText: '', restoredSubmissionIds: [] },
 };
 
 /** The fields the phone's readers use (use-composer-submission.ts:461, model-controls.tsx:654/754, shell-job-controls.tsx:63/65). */
@@ -158,7 +152,6 @@ const pick = (name, value) => {
     return rest;
   }
   if (name === 'setFast' || name === 'setModelRoute') return { provider: value.provider, model: value.model, fast: value.fast };
-  if (name.startsWith('abortSession')) return { aborted: value.aborted, restoreText: value.restoreText, restoredSubmissionIds: value.restoredSubmissionIds };
   return value;
 };
 
@@ -242,6 +235,41 @@ const invoke = {
   submitFeedback: (api, a) => api.submitFeedback(...a),
 };
 
+// The Stops: Node's daemon + SessionHost (remote-protocol-chat-abort.recorded.json) against a running mixdogd
+// (remote-protocol-chat-abort-live.recorded.json), the same cases (remote-protocol-chat-abort-cases.mjs). The phone gets the whole reply Node gave.
+const abortNode = JSON.parse(readFileSync(new URL('./remote-protocol-chat-abort.recorded.json', import.meta.url), 'utf8'));
+const abortLive = JSON.parse(readFileSync(new URL('./remote-protocol-chat-abort-live.recorded.json', import.meta.url), 'utf8'));
+const rpcFailure = (error) => Object.assign(new Error(error.message), { detail: { kind: 'rpc', code: error.code, reason: error.data?.reason, message: error.message, data: error.data } });
+
+test('the abort recordings hold the same cases and an exact Node manifest', () => {
+  assert.equal(abortNode.manifest.exact, true);
+  assert.equal(abortNode.manifest.commit, 'b6f10295a2f698afc85332467192de28500bd146');
+  assert.deepEqual(abortLive.cases.map((c) => c.name), abortNode.cases.map((c) => c.name));
+  assert.deepEqual(abortLive.cases.map((c) => c.stop.restorePrompt), abortNode.cases.map((c) => c.stop.restorePrompt));
+});
+
+for (const nodeCase of abortNode.cases) {
+  test(`abortSession ${nodeCase.name}: the phone gets Node's whole reply from the core's`, async () => {
+    const live = abortLive.cases.find((c) => c.name === nodeCase.name);
+    const threadId = live.stop.threadId;
+    let calls = 0;
+    const replies = [live.core.reply, live.core.again?.reply].filter((r) => r !== undefined);
+    const { api, sent } = adapterFor({
+      get 'turn/interrupt'() {
+        const reply = replies[calls++];
+        return reply?.error ? rpcFailure(reply.error) : reply;
+      },
+    });
+    const options = nodeCase.stop;
+    assert.deepEqual(await api.abortSession(threadId, options), nodeCase.node.reply);
+    if (nodeCase.node.second) assert.deepEqual(await api.abortSession(threadId, nodeCase.again), nodeCase.node.second);
+    // The stopped turn left the same of the prompt in the transcript.
+    assert.equal(live.core.promptKept, nodeCase.node.promptKept);
+    // The core got the request the recording made of it.
+    assert.deepEqual(sent.map((s) => s.params), [live.stop, ...(live.core.again ? [live.core.again.request] : [])]);
+  });
+}
+
 test('the recording is an exact Node b6f10295a manifest', () => {
   assert.equal(recorded.manifest.exact, true);
   assert.equal(recorded.manifest.commit, 'b6f10295a2f698afc85332467192de28500bd146');
@@ -250,8 +278,7 @@ test('the recording is an exact Node b6f10295a manifest', () => {
 
 for (const c of recorded.cases) {
   test(`${c.name}: the phone receives what Node returned`, async () => {
-    const different = DIFFERENT[c.name];
-    if (typeof different === 'string') return; // no mixdogd counterpart; listed in the report
+    if (REPLAYED_BY[c.name]) return; // replayed whole by the test the table names
     const script = SCRIPT[c.name]({ ...c.node, daemon: c.daemon });
     const { api, sent } = adapterFor(script);
     // "shell-job" and approval calls address the thread by id; the recorded args are the phone's own.
@@ -260,12 +287,7 @@ for (const c of recorded.cases) {
       return;
     }
     const reply = await invoke[c.call](api, c.args);
-    if (different) {
-      assert.notDeepEqual(pick(c.name, reply), pick(c.name, c.node.result));
-      assert.deepEqual(pick(c.name, reply), different);
-    } else {
-      assert.deepEqual(pick(c.name, reply), pick(c.name, c.node.result));
-    }
+    assert.deepEqual(pick(c.name, reply), pick(c.name, c.node.result));
     if (c.name === 'prefetchSession-limit') assert.deepEqual(sent.find((s) => s.resume), { resume: S, window: { lastItems: 40 } });
     if (c.call === 'resolveToolApprovalForSession' && c.node.result === true) {
       assert.deepEqual(sent.find((s) => s.respond), { respond: 'ap1', answer: { result: { approved: true } } });
