@@ -5,35 +5,35 @@
   "tree": "b6f10295a",
   "cases": [
     {
-      "name": "task-args-null",
+      "name": "task_args-null",
       "tool": "task",
       "input": null,
       "text": "Error: task requires arguments object (got null)",
       "isError": true
     },
     {
-      "name": "task-args-array",
+      "name": "task_args-array",
       "tool": "task",
       "input": [],
       "text": "Error: task arguments must be an object (got array)",
       "isError": true
     },
     {
-      "name": "task-args-string",
+      "name": "task_args-string",
       "tool": "task",
       "input": "list",
       "text": "Error: task arguments must be an object (got string)",
       "isError": true
     },
     {
-      "name": "task-no-action",
+      "name": "task_no-action",
       "tool": "task",
       "input": {},
       "text": "Error: task requires explicit \"action\"",
       "isError": true
     },
     {
-      "name": "task-action-null",
+      "name": "task_action-null",
       "tool": "task",
       "input": {
         "action": null,
@@ -43,7 +43,7 @@
       "isError": true
     },
     {
-      "name": "task-action-empty",
+      "name": "task_action-empty",
       "tool": "task",
       "input": {
         "action": "",
@@ -53,7 +53,7 @@
       "isError": true
     },
     {
-      "name": "task-action-blank",
+      "name": "task_action-blank",
       "tool": "task",
       "input": {
         "action": "  ",
@@ -63,7 +63,7 @@
       "isError": true
     },
     {
-      "name": "task-action-number",
+      "name": "task_action-number",
       "tool": "task",
       "input": {
         "action": 5,
@@ -73,7 +73,7 @@
       "isError": true
     },
     {
-      "name": "task-action-object",
+      "name": "task_action-object",
       "tool": "task",
       "input": {
         "action": {
@@ -84,7 +84,7 @@
       "isError": true
     },
     {
-      "name": "task-action-unknown",
+      "name": "task_action-unknown",
       "tool": "task",
       "input": {
         "action": "bogus"
@@ -93,7 +93,7 @@
       "isError": true
     },
     {
-      "name": "task-action-unknown-with-id",
+      "name": "task_action-unknown-with-id",
       "tool": "task",
       "input": {
         "action": "poke",
@@ -103,7 +103,7 @@
       "isError": true
     },
     {
-      "name": "task-action-unknown-cased",
+      "name": "task_action-unknown-cased",
       "tool": "task",
       "input": {
         "action": "Bogus ",
@@ -113,7 +113,7 @@
       "isError": true
     },
     {
-      "name": "task-list-timeout",
+      "name": "task_list-timeout",
       "tool": "task",
       "input": {
         "action": "list",
@@ -123,7 +123,7 @@
       "isError": false
     },
     {
-      "name": "task-list-unsupported-key",
+      "name": "task_list-unsupported-key",
       "tool": "task",
       "input": {
         "action": "list",
@@ -133,7 +133,7 @@
       "isError": true
     },
     {
-      "name": "task-list-output",
+      "name": "task_list-output",
       "tool": "task",
       "input": {
         "action": "list",
@@ -143,7 +143,7 @@
       "isError": true
     },
     {
-      "name": "task-read-no-id",
+      "name": "task_read-no-id",
       "tool": "task",
       "input": {
         "action": "read"
@@ -152,7 +152,7 @@
       "isError": true
     },
     {
-      "name": "task-read-id-empty",
+      "name": "task_read-id-empty",
       "tool": "task",
       "input": {
         "action": "read",
@@ -162,7 +162,7 @@
       "isError": true
     },
     {
-      "name": "task-read-id-blank",
+      "name": "task_read-id-blank",
       "tool": "task",
       "input": {
         "action": "read",
@@ -172,7 +172,7 @@
       "isError": true
     },
     {
-      "name": "task-read-id-number",
+      "name": "task_read-id-number",
       "tool": "task",
       "input": {
         "action": "read",
@@ -182,7 +182,7 @@
       "isError": true
     },
     {
-      "name": "task-read-id-array",
+      "name": "task_read-id-array",
       "tool": "task",
       "input": {
         "action": "read",
@@ -194,7 +194,7 @@
       "isError": true
     },
     {
-      "name": "task-read-id-null",
+      "name": "task_read-id-null",
       "tool": "task",
       "input": {
         "action": "read",
@@ -204,7 +204,7 @@
       "isError": true
     },
     {
-      "name": "task-read-unsupported-key",
+      "name": "task_read-unsupported-key",
       "tool": "task",
       "input": {
         "action": "read",
@@ -215,7 +215,7 @@
       "isError": true
     },
     {
-      "name": "task-read-timeout-dropped",
+      "name": "task_read-timeout-dropped",
       "tool": "task",
       "input": {
         "action": "read",
@@ -226,7 +226,7 @@
       "isError": true
     },
     {
-      "name": "task-read-output-bad",
+      "name": "task_read-output-bad",
       "tool": "task",
       "input": {
         "action": "read",
@@ -237,7 +237,7 @@
       "isError": true
     },
     {
-      "name": "task-read-output-number",
+      "name": "task_read-output-number",
       "tool": "task",
       "input": {
         "action": "read",
@@ -248,7 +248,7 @@
       "isError": true
     },
     {
-      "name": "task-wait-timeout-string",
+      "name": "task_wait-timeout-string",
       "tool": "task",
       "input": {
         "action": "wait",
@@ -259,7 +259,7 @@
       "isError": true
     },
     {
-      "name": "task-wait-timeout-negative",
+      "name": "task_wait-timeout-negative",
       "tool": "task",
       "input": {
         "action": "wait",
@@ -270,7 +270,7 @@
       "isError": true
     },
     {
-      "name": "task-wait-timeout-float",
+      "name": "task_wait-timeout-float",
       "tool": "task",
       "input": {
         "action": "wait",
@@ -281,7 +281,7 @@
       "isError": true
     },
     {
-      "name": "task-wait-timeout-null",
+      "name": "task_wait-timeout-null",
       "tool": "task",
       "input": {
         "action": "wait",
@@ -292,7 +292,7 @@
       "isError": true
     },
     {
-      "name": "task-wait-output-bad",
+      "name": "task_wait-output-bad",
       "tool": "task",
       "input": {
         "action": "wait",
@@ -303,7 +303,7 @@
       "isError": true
     },
     {
-      "name": "task-cancel-no-id",
+      "name": "task_cancel-no-id",
       "tool": "task",
       "input": {
         "action": "cancel"
@@ -312,7 +312,7 @@
       "isError": true
     },
     {
-      "name": "task-cancel-output",
+      "name": "task_cancel-output",
       "tool": "task",
       "input": {
         "action": "cancel",
@@ -323,7 +323,7 @@
       "isError": true
     },
     {
-      "name": "task-cancel-timeout-dropped",
+      "name": "task_cancel-timeout-dropped",
       "tool": "task",
       "input": {
         "action": "cancel",
@@ -334,7 +334,7 @@
       "isError": true
     },
     {
-      "name": "task-cancel-not-found",
+      "name": "task_cancel-not-found",
       "tool": "task",
       "input": {
         "action": "cancel",
@@ -344,7 +344,7 @@
       "isError": true
     },
     {
-      "name": "task-read-not-found",
+      "name": "task_read-not-found",
       "tool": "task",
       "input": {
         "action": "read",
@@ -354,7 +354,7 @@
       "isError": true
     },
     {
-      "name": "task-read-session-id",
+      "name": "task_read-session-id",
       "tool": "task",
       "input": {
         "action": "read",
@@ -364,7 +364,7 @@
       "isError": true
     },
     {
-      "name": "task-action-cased-not-found",
+      "name": "task_action-cased-not-found",
       "tool": "task",
       "input": {
         "action": " READ ",
