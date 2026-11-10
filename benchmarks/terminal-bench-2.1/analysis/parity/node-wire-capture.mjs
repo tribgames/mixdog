@@ -40,7 +40,8 @@ function selected(scenarios) {
   if (!only) return scenarios;
   const at = scenarios.findIndex((s) => s.id === only);
   if (at < 0) throw new Error(`no scenario ${only}`);
-  if (scenarios[at].provider !== 'openai-oauth') return [scenarios[at]];
+  // Another provider's scenario stands alone, or (`continues`) runs after the one before it, whose process state it reads.
+  if (scenarios[at].provider !== 'openai-oauth') return scenarios.slice(scenarios[at].continues ? at - 1 : at, at + 1);
   let start = at;
   while (start > 0 && !scenarios[start].fresh && scenarios[start - 1].provider === 'openai-oauth') start -= 1;
   return scenarios.slice(start, at + 1);

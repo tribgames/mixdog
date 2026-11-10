@@ -3650,6 +3650,81 @@
       ]
     },
     {
+      "id": "grok-refresh-reuses-the-discovered-endpoint",
+      "provider": "grok-oauth",
+      "continues": true,
+      "credentials": {
+        "grok-oauth.json": {
+          "access_token": "fake-credential-not-a-secret",
+          "refresh_token": "fake-refresh-not-a-secret",
+          "expires_at": 1794254110000,
+          "token_endpoint": null,
+          "user_id": "user-fake-1"
+        }
+      },
+      "sendOpts": {
+        "iteration": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "http": [
+        {
+          "headers": {
+            "content-type": "application/json"
+          },
+          "body": "{\"access_token\":\"fresh-access-not-a-secret\",\"refresh_token\":\"fresh-refresh-not-a-secret\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"
+        },
+        [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "in_progress"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "item_id": "msg_grok_1",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "ok"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "resp_grok_1",
+              "model": "grok-4.7",
+              "status": "completed",
+              "usage": {
+                "input_tokens": 100,
+                "output_tokens": 2,
+                "total_tokens": 102
+              },
+              "output": [
+                {
+                  "type": "message",
+                  "id": "msg_grok_1",
+                  "role": "assistant",
+                  "status": "completed",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      ]
+    },
+    {
       "id": "grok-client-version-gate",
       "provider": "grok-oauth",
       "credentials": {
