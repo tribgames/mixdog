@@ -19,7 +19,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/model-lists/child.mjs",
-      "sha256": "1068dd5096d9c1a10e79fa3957dd2f304fd95648d6bc23db376b57601e5cb3e9"
+      "sha256": "417cb3b489b8157bb193e4bcd13dab6a7a1d2aa37e00f7a487a3c1305c8d6f83"
     },
     {
       "path": "benchmarks/rust-core/recorders/model-lists/offline.mjs",

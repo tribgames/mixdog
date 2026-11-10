@@ -222,7 +222,7 @@ impl Environment for NoEnv {
     }
 }
 
-/// Both full-load scenarios Node recorded (`oracles/model-meta.json`, from `b6f10295a`, by
+/// Both full-load scenarios Node recorded (`oracles/model-meta.json`, from `7f633e730`, by
 /// `record-model-meta.mjs`): a load remembers the rows of `rowsForEntry` only (empty ids and non-selectable models are
 /// left out, a hidden selectable model is kept and leaves only the picker) over what a lookup had pinned, a model the
 /// load skipped keeps answering its provider's cached row, and a load an invalidation overtook (the load sequence moved

@@ -3,15 +3,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 191061,
+      "bytes": 233718,
       "path": "node-model-lists.json",
-      "sha256": "062a18ff827984ddf1f8971d6650d25cb282d65a670dff9e694f1d1c06902b9a"
+      "sha256": "55e3a8ca57e66b8431af9eed54c57bcefdc057402d3c4a12a59b185c735c4427"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/model-lists/scenarios.json",
-      "sha256": "efd379222008e08f90c8b1b27c22d3818a7408f12bc4d97e9d75c7f3d7b91f2a"
+      "sha256": "1d4426a881f34f347bac4b2a1180d884b0667c1e40920fc0a5f7e07b75b21f22"
     },
     {
       "path": "benchmarks/rust-core/recorders/model-lists/seeds.json",
@@ -19,7 +19,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/model-lists/child.mjs",
-      "sha256": "1068dd5096d9c1a10e79fa3957dd2f304fd95648d6bc23db376b57601e5cb3e9"
+      "sha256": "417cb3b489b8157bb193e4bcd13dab6a7a1d2aa37e00f7a487a3c1305c8d6f83"
     },
     {
       "path": "benchmarks/rust-core/recorders/model-lists/offline.mjs",
@@ -59,5 +59,5 @@
   "recorder": "benchmarks/rust-core/recorders/model-lists/record.mjs",
   "recorderSha256": "8c79e11211eef1a88225b8e7544e123df688856cfeba35bd4c790c619c87fcda",
   "set": "model-lists",
-  "totalBytes": 191061
+  "totalBytes": 233718
 }
