@@ -655,3 +655,54 @@ mod rebuilt_tests {
         assert_eq!(rebuilt_messages(&header, &whole).unwrap().last().unwrap().text(), "ok");
     }
 }
+
+/// The identity a request carries is read from the session's stored header, whichever way the session came to be
+/// opened (`ensureCodexWireSessionId`, `ask-turn-open.mjs:85`): a resumed session sends the id it was stored with, a
+/// sub-agent session the id of its own header and not its parent's, and a fork the id the fork minted for itself
+/// (`mixdog-core-session`, `a_fork_has_a_codex_wire_identity_of_its_own`).
+#[cfg(test)]
+mod identity_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn stored(thread: &str, provider: &str, wire: serde_json::Value) -> (ThreadId, Header) {
+        let header = json!({ "provider": provider, "codexWireSessionId": wire }).as_object().unwrap().clone();
+        // Through the store's own text, as a resumed session's header comes back.
+        let header: Header = serde_json::from_str(&serde_json::to_string(&header).unwrap()).unwrap();
+        (ThreadId::from(thread), header)
+    }
+
+    fn request_of(thread: &ThreadId, header: &Header) -> mixdog_core_api::domain::provider::RequestOptions {
+        let mut options = mixdog_core_api::domain::provider::RequestOptions::default();
+        apply_identity(&mut options, thread, header, None);
+        options
+    }
+
+    #[test]
+    fn a_resumed_session_sends_its_stored_identity_in_every_request_field() {
+        let (thread, header) = stored("thread_a", "openai-oauth", json!("0190F0A0-1C2D-7E3F-8A4B-5C6D7E8F9A0D"));
+        let options = request_of(&thread, &header);
+        let wire = "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d";
+        assert_eq!(options.session_id.as_deref(), Some(wire));
+        assert_eq!(options.thread.as_ref().unwrap().id.as_str(), wire);
+        // Resumed again from the same stored header: the same identity.
+        assert_eq!(request_of(&thread, &header).session_id, options.session_id);
+    }
+
+    #[test]
+    fn a_sub_agent_session_sends_its_own_stored_identity_not_its_parents() {
+        let (parent, parent_header) = stored("thread_parent", "openai-oauth", json!("0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d"));
+        let (child, child_header) = stored("thread_child", "openai-oauth", json!("0190f0a1-2222-7333-9444-555566667777"));
+        assert_eq!(request_of(&parent, &parent_header).session_id.as_deref(), Some("0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d"));
+        assert_eq!(request_of(&child, &child_header).session_id.as_deref(), Some("0190f0a1-2222-7333-9444-555566667777"));
+    }
+
+    #[test]
+    fn another_route_or_an_invalid_stored_identity_names_the_thread_itself() {
+        let (thread, other) = stored("thread_b", "anthropic-oauth", json!("0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d"));
+        assert_eq!(request_of(&thread, &other).session_id.as_deref(), Some("thread_b"));
+        let (thread, bad) = stored("thread_c", "openai-oauth", json!("not-a-uuid"));
+        assert_eq!(request_of(&thread, &bad).session_id.as_deref(), Some("thread_c"));
+    }
+}
