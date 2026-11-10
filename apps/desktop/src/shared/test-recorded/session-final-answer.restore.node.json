@@ -1,0 +1,179 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "module": "src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs",
+  "test": "apps/desktop/src/main/session-final-answer.test.mjs",
+  "recorder": "apps/desktop/src/shared/test-recorded/record/record-session-final-answer.mjs",
+  "recorderSha256": "914f7e8e46bdec2133b356c3ecc6befc9909d86a07bf62d4fb91041e682fb7cb",
+  "nodeVersion": "v22.20.0",
+  "inputs": [
+   {
+    "path": "apps/desktop/src/shared/test-recorded/record/node-source.mjs",
+    "sha256": "2035caede310511f7ee1b365d709ff70ebf7327dfe3e0f54f57629f2ba89cb8d"
+   },
+   {
+    "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+    "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+   },
+   {
+    "path": "src/tui/components/status-line/footer-golden/node-tree.mjs",
+    "sha256": "149a8626a94047c1fcc54c611ccafbc1b65f8c3056d506ef62cc893840a9e4b0"
+   }
+  ]
+ },
+ "cases": [
+  {
+   "name": "done, every item",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Check this"
+    },
+    {
+     "role": "assistant",
+     "content": "Progress, not the final reply"
+    },
+    {
+     "role": "assistant",
+     "content": "Background answer",
+     "meta": {
+      "transcript": {
+       "at": 2000,
+       "completion": {
+        "status": "done",
+        "elapsedMs": 1000
+       }
+      }
+     }
+    }
+   ],
+   "options": {
+    "sessionId": "stored",
+    "itemLimit": "Infinity"
+   },
+   "items": [
+    {
+     "kind": "user",
+     "id": "hist_stored_0_1",
+     "text": "Check this"
+    },
+    {
+     "kind": "assistant",
+     "id": "hist_stored_1_1",
+     "text": "Progress, not the final reply"
+    },
+    {
+     "kind": "assistant",
+     "id": "hist_stored_2_1",
+     "text": "Background answer",
+     "at": 2000
+    },
+    {
+     "kind": "turndone",
+     "id": "hist_stored_2_2",
+     "status": "done",
+     "elapsedMs": 1000,
+     "finalAssistantId": "hist_stored_2_1",
+     "at": 2000
+    }
+   ]
+  },
+  {
+   "name": "done, last 2 items",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Check this"
+    },
+    {
+     "role": "assistant",
+     "content": "Progress, not the final reply"
+    },
+    {
+     "role": "assistant",
+     "content": "Background answer",
+     "meta": {
+      "transcript": {
+       "at": 2000,
+       "completion": {
+        "status": "done",
+        "elapsedMs": 1000
+       }
+      }
+     }
+    }
+   ],
+   "options": {
+    "sessionId": "stored",
+    "itemLimit": "2"
+   },
+   "items": [
+    {
+     "kind": "assistant",
+     "id": "hist_stored_2_1",
+     "text": "Background answer",
+     "at": 2000
+    },
+    {
+     "kind": "turndone",
+     "id": "hist_stored_2_2",
+     "status": "done",
+     "elapsedMs": 1000,
+     "finalAssistantId": "hist_stored_2_1",
+     "at": 2000
+    }
+   ]
+  },
+  {
+   "name": "failed, no options",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Check this"
+    },
+    {
+     "role": "assistant",
+     "content": "Progress, not the final reply"
+    },
+    {
+     "role": "assistant",
+     "content": "Background answer",
+     "meta": {
+      "transcript": {
+       "at": 2000,
+       "completion": {
+        "status": "failed",
+        "elapsedMs": 1000
+       }
+      }
+     }
+    }
+   ],
+   "items": [
+    {
+     "kind": "user",
+     "id": "hist_session_0_1",
+     "text": "Check this"
+    },
+    {
+     "kind": "assistant",
+     "id": "hist_session_1_1",
+     "text": "Progress, not the final reply"
+    },
+    {
+     "kind": "assistant",
+     "id": "hist_session_2_1",
+     "text": "Background answer",
+     "at": 2000
+    },
+    {
+     "kind": "turndone",
+     "id": "hist_session_2_2",
+     "status": "failed",
+     "elapsedMs": 1000,
+     "at": 2000
+    }
+   ]
+  }
+ ]
+}
