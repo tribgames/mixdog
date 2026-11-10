@@ -275,8 +275,8 @@
       "section": "migration"
     },
     {
-      "feed": "thread",
-      "keyed": true,
+      "feed": "app",
+      "keyed": false,
       "notification": "review/diff/updated",
       "section": "reviewDiff"
     },

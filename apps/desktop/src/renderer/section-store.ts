@@ -3,6 +3,7 @@
 // fold store over the relay. `value` of a section is replaced whole when its `revision` is higher, so a snapshot
 // read racing a push can never move a section backwards. Nothing in the renderer polls for what a section carries.
 import { useCallback, useSyncExternalStore } from 'react';
+import { EVENT_SECTIONS } from '../shared/contract-sections';
 import type {
   DesktopProtocolStatus,
   DesktopSectionChange,
@@ -21,6 +22,8 @@ export interface FoldStoreLike {
   sections(section: string): readonly DesktopSectionEntry[];
   section(section: string, key?: string | null): DesktopSectionEntry | undefined;
   subscribe(listener: (change: { type: string; section?: string; key?: string | null }) => void): () => void;
+  /** Set while the changes a snapshot swapped in are still being announced (the client library's `FoldStore.owed`). */
+  readonly owed?: unknown;
 }
 
 /** Adapts a client-library store (the phone's `connectPhone().store`) to a source. `names` is the section registry. */
@@ -34,6 +37,9 @@ export function sectionsSourceFromFoldStore(
     subscribe: (listener) =>
       store.subscribe((change) => {
         if (change.type !== 'section' || change.section === undefined) return;
+        // A tell is not state: the announcement of a snapshot (a late attach, a leg that came back) is not one. A phone whose leg
+        // was down is not told what was pushed meanwhile (the relay does not replay it); its page reads again on its own reconnect.
+        if (store.owed && EVENT_SECTIONS.includes(change.section)) return;
         const key = change.key ?? null;
         listener({
           kind: 'sections',
@@ -74,8 +80,15 @@ export function createSectionStore(source: SectionsSource): SectionStore {
   let pushedWholeStore = false;
   let pushedStatus = false;
   const pushedPairs = new Set<string>();
-  // The chunks of a 
-  // The chunks of a replace between its begin and its commit.
+  // The revision of the tell this store last took in or was told of, per section and key, and the core it came from (the app
+  // feed's epoch: a restarted core numbers its revisions from the start again). A tell is not state, so a whole store never makes a
+  // listener act on a tell it was not there for: a window that attaches later reads the store as it is. But a store that was
+  // connected before (it knows a core's epoch) and is handed a whole store again missed what the core told meanwhile: a tell it
+  // does not hold, a different revision of one it holds, or any tell of another core, is announced once. A store the core's
+  // reviewDiff never leaves an entry out of (a clear is published as a tell too), so an entry the whole store lacks is no tell.
+  const tellRevisions = new Map<string, number>();
+  let epoch: string | undefined;
+  const tellAt = (section: string, key: string | null): string => `${section}\u0000${keyOf(key)}`;  // The chunks of a replace between its begin and its commit.
   let staged: DesktopSectionEntry[] | null = null;
 
   const notify = (touched: ReadonlySet<string>): void => {
@@ -91,6 +104,7 @@ export function createSectionStore(source: SectionsSource): SectionStore {
     } else {
       if (current && current.revision >= change.entry.revision) return;
       bucket.set(k, change.entry);
+      if (EVENT_SECTIONS.includes(change.section)) tellRevisions.set(tellAt(change.section, change.key), change.entry.revision);
     }
     lists.delete(change.section);
     touched.add(change.section);
@@ -112,11 +126,25 @@ export function createSectionStore(source: SectionsSource): SectionStore {
       else if (push.stage === 'chunk') staged?.push(...push.entries);
       else {
         // The staged store replaces the held one at once: one swap, one notification per changed section.
-        const touched = new Set<string>(sections.keys());
+        // A tell is not state: a replace neither carries one in nor tells the listeners of the one it drops.
+        const touched = new Set<string>([...sections.keys()].filter((name) => !EVENT_SECTIONS.includes(name)));
         if (!loaded) pushedWholeStore = true;
+        const connectedBefore = epoch !== undefined;
+        const sameCore = connectedBefore && push.epoch === epoch;
+        const held = new Map(tellRevisions);
+        tellRevisions.clear();
         sections.clear();
         lists.clear();
-        for (const entry of staged ?? []) apply({ section: entry.section, key: entry.key, entry }, touched);
+        for (const entry of staged ?? []) {
+          if (!EVENT_SECTIONS.includes(entry.section)) {
+            apply({ section: entry.section, key: entry.key, entry }, touched);
+            continue;
+          }
+          const at = tellAt(entry.section, entry.key);
+          tellRevisions.set(at, entry.revision);
+          if (connectedBefore && (!sameCore || held.get(at) !== entry.revision)) touched.add(entry.section);
+        }
+        epoch = push.epoch;
         staged = null;
         notify(touched);
       }
@@ -138,10 +166,15 @@ export function createSectionStore(source: SectionsSource): SectionStore {
     const touched = new Set<string>();
     if (!pushedWholeStore) {
       for (const entry of snapshot.entries) {
+        if (EVENT_SECTIONS.includes(entry.section)) {
+          tellRevisions.set(tellAt(entry.section, entry.key), entry.revision);
+          continue;
+        }
         if (pushedPairs.has(`${entry.section}\u0000${keyOf(entry.key)}`)) continue;
         apply({ section: entry.section, key: entry.key, entry }, touched);
       }
     }
+    if (!pushedWholeStore) epoch = snapshot.epoch;
     loaded = true;
     pushedPairs.clear();
     notify(touched);
