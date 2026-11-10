@@ -426,6 +426,11 @@ export async function replaySideBySide({ exe, tree, scenarios, script }) {
       const scenario = scenarios[next++];
       const passed = `the whole replay's ${WHOLE_RUN_MS / 1000} s deadline`;
       const started = Date.now();
+      // Past the deadline nothing more is started, not even a scenario's job.
+      if (deadlineAt - started <= 0) {
+        failures.push(`${scenario.name}: not started: ${passed} had passed`);
+        continue;
+      }
       // A scenario that fails in any way is one failure in the list: the others run on, and the data folders are
       // removed only once every worker has ended (a rejection here would end `Promise.all` with peers still running).
       try {
