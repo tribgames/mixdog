@@ -7,13 +7,13 @@
 // (index.ts:1710-1712 `transport.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS)` → session-client.mjs:667-707 `POST /stop {force:true}`), and
 // the daemon's own `shutdown('SIGTERM')` (routes.mjs:200-209, daemon.mjs:272-413) runs to its `process.exit`.
 //
-// A held step is held where its call waits on something outside the daemon, through a seam the product has: `requestWorktree`'s first git
-// command through the `git` on the daemon's PATH (git-shim.cs; git-launch.mjs runs a bare `git` that is not Git for Windows' layout as found on
+// A held step is held where its call waits on something outside the daemon, through a seam the product has: `requestWorktree`'s last git
+// command (cases.mjs says why) through the `git` on the daemon's PATH (git-shim.cs; git-launch.mjs runs a bare `git` that is not Git for Windows' layout as found on
 // PATH). The held command is let go once the daemon has answered the stop request (routes.mjs:208 answers, :209 then raises SIGTERM), so the call
 // settles while the daemon shuts down.
 //
 //   node --import tsx world.mjs <export dir> <case json> <out file>      (cwd: <export dir>/apps/desktop)
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
@@ -193,8 +193,21 @@ async function openApp() {
 async function quitApp(app) {
   await within(60_000, app.client.dispose(), 'the local connection to dispose');
   stopAnswered = latch();
-  const stopped = within(120_000, app.transport().stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS), 'the in-tree daemon to stop');
+  const stopped = within(120_000, app.transport().stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS), 'the in-tree daemon to stop').then(appExits);
   return { stopped, answered: stopAnswered.promise };
+}
+
+/** The app exits once the stop's wait is over; a daemon it forked into its own tree that outlived the wait dies with it
+ *  (session-client.mjs:658-659), here ended by its pid's tree, bounded. */
+function appExits(outcome) {
+  if (outcome.stopped) return outcome;
+  note(`the daemon outlived the app's wait: ${JSON.stringify(outcome)}`);
+  for (const pid of outcome.inTree) {
+    const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+    // 128: the process ended between the wait and the kill.
+    if (ended.error || (ended.status !== 0 && ended.status !== 128)) throw new Error(`${c.name}: ending the daemon tree of pid ${pid} at the app's exit failed: ${ended.error?.message ?? ended.stderr}`);
+  }
+  return outcome;
 }
 
 const receipts = () => {

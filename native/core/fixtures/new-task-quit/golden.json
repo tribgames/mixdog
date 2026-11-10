@@ -116,7 +116,7 @@
           "prompt": "write the quarterly report"
         },
         "hold": {
-          "git": "-c core.longpaths=true rev-parse --is-bare-repository",
+          "git": "-c core.longpaths=true worktree lock --reason",
           "step": "requestWorktree"
         },
         "id": "s-quit-worktree",
