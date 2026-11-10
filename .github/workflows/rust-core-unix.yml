@@ -78,6 +78,39 @@ jobs:
           MIXDOG_TAG_GATE_REPS: "200"
         run: "cargo test -p mixdog-app-server-daemon --lib verdict::tag_gates::gate_3 -- --ignored --test-threads=1 --nocapture"
 
+      # The bundled Postgres runtime, from the release the manifest names (the same asset `ensure_runtime` would download), checked against the manifest's hash.
+      - name: Postgres runtime
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) platform=linux-x64 ;;
+            macOS-ARM64) platform=darwin-arm64 ;;
+            *) echo "no runtime asset for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          manifest=crates/mixdog-services/src/memory/pg/runtime_install/runtime-manifest.json
+          url=$(node -p "require('./$manifest').assets['$platform'].url")
+          sha=$(node -p "require('./$manifest').assets['$platform'].sha256")
+          archive="$RUNNER_TEMP/pg-runtime.tar.gz"
+          curl -fsSL "$url" -o "$archive"
+          echo "$sha  $archive" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/pg-runtime"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/pg-runtime"
+          echo "MIXDOG_PG_RUNTIME=$RUNNER_TEMP/pg-runtime" >> "$GITHUB_ENV"
+
+      # The nextest release the local runs use (`.config/nextest.toml` profiles), as its prebuilt binary.
+      - name: cargo-nextest
+        run: |
+          case "$RUNNER_OS" in
+            Linux) target=linux ;;
+            macOS) target=mac ;;
+          esac
+          curl -fsSL "https://get.nexte.st/0.9.151/$target" | tar -xzf - -C "${CARGO_HOME:-$HOME/.cargo}/bin"
+
+      # Replays Node's review recording against the core composed as the daemon composes it, stopped and composed again over one data directory:
+      # the `pg` profile (the same command the merge check runs).
+      - name: Review restart replay over the composed core
+        timeout-minutes: 20
+        run: cargo nextest run --profile pg --run-ignored only -p mixdog-app-server-daemon
+
       - name: Clippy
         run: cargo clippy -p mixdog-app-server-daemon --all-targets -- -D warnings
 
