@@ -3,11 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 646442,
+      "bytes": 3499253,
       "path": "golden.json",
-      "sha256": "ad161f93e721e35060e4debbea88f32b99d0d34f31134e6df98308fb9661d3c0"
+      "sha256": "38d48d8b1acf0a0859fe168cfe8d4047dbd5c36f8328a92daa90ef4aedee8009"
     }
   ],
+  "nodeRuntime": "v22.20.0",
+  "normalisations": {
+    "batchIds": "the batch_id of a trace row (and the batch_id inside a tool row's payload.batch) becomes <BATCH-n>, n by first appearance within the scenario",
+    "clockValues": "numbers under these keys become 0: createdAt, ts, at, elapsedMs, duration, tool_ms, started_at_ms, completed_at_ms, dispatchStartedAt, executionStartedAt, executionCompletedAt, postprocessStartedAt, resultCompletedAt, dispatch_wait_ms, execution_ms, result_collection_wait_ms, postprocess_ms, total_ms",
+    "keptWhole": "system messages, tool timings' keys, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate's audit records and every trace row of the session (context, batch, tool, usage) are recorded whole apart from the values above",
+    "sandboxPath": "the recorder's sandbox folder (and its forward-slash form), in every string, becomes <SANDBOX>"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -26,7 +33,19 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-call-tool.mjs",
+  "recorderSha256": "bc2577676d68a593ed5441a89894d0a58d3711b477b12bed2024aba48bb1e28a",
   "scenarios": 55,
   "set": "call-tool",
-  "totalBytes": 646442
+  "syntheticInputs": [
+    "the provider: a scripted `send` that returns each scenario's replies in order; for a streamed scenario it hands every call to `onToolCall` one macrotask apart and ends the response once the calls the twin run saw settle early (`settles`)",
+    "the session's tools: internal tools registered with `setInternalToolsProvider` (load_tool, the probe_* tools, and edit / apply_patch / shell / computer when a scenario names them) whose executors only record their arguments and answer `ran <name> <args>`, or fail when `fail` is set",
+    "the connected MCP server: `_registerMcpServerForTest` with one listed tool (`send`) whose callTool answers `ran <tool> <args>`; the catalog entries `gone` and `nope` are never listed or never live",
+    "the approvals: `onToolApproval` answers each card from the scenario's `answers`, in order, as the device `Pixel`",
+    "the hooks: `beforeToolHook` asks / denies / rewrites per the scenario (`ask`, `hookDeny`, `hookRewrite`), `afterToolHook` only records",
+    "the gates (`gates`): a step of one call (`pre`, `tool`, `post`, `card`, `grants`, `audit`) held until an entry of the timeline appears; each step also takes one macrotask",
+    "synchronous file work: `fs/promises` readFile / appendFile / mkdir of the human gate's grants.json and audit.jsonl are replaced by the same operation done synchronously after one macrotask (the recorder's `fileStep`), so the order of two concurrent approvals is the scenario's",
+    "the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt"
+  ],
+  "totalBytes": 3499253,
+  "twoRunIdentity": "two recordings in a row produce byte-identical golden.json and MANIFEST.json (compare their sha256 entries)"
 }
