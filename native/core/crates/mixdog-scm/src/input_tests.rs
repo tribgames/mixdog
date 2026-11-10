@@ -336,15 +336,6 @@ fn a_repository_request_is_keyed_by_the_directory_node_acted_on() {
     assert!(keyed > 0 && unkeyed > 0, "{keyed} keyed and {unkeyed} refused for their directory");
 }
 
-/// `String(x)` and `Number(x)` of an object whose own `toString` shadows the inherited one throw V8's TypeError, alone and inside
-/// lists, at every argument Node's host reads through a coercion before it acts (the GitHub request's action and sha, the history
-/// page): the core refuses with that text and starts nothing.
-#[tokio::test]
-async fn a_coercion_that_throws_refuses_with_nodes_text() {
-    let (refused, _) = compare_group(&["coerced-throw-"]).await;
-    assert!(refused > 0, "no coercion refused");
-}
-
 /// The global config key is one of three exact strings, checked after the value, with Node's text.
 #[tokio::test]
 async fn a_global_config_key_is_refused_with_nodes_text() {

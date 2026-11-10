@@ -160,75 +160,6 @@ pub fn to_number_of(value: Option<&Value>) -> f64 {
     value.map_or(f64::NAN, to_number)
 }
 
-/// V8's `TypeError` when ToPrimitive finds neither a callable `toString` nor a callable `valueOf` that gives a primitive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NoPrimitive;
-
-impl std::fmt::Display for NoPrimitive {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Cannot convert object to primitive value")
-    }
-}
-
-impl std::error::Error for NoPrimitive {}
-
-/// The hint of ToPrimitive: `String(...)` asks `toString` first, `Number(...)` asks `valueOf` first.
-#[derive(Debug, Clone, Copy)]
-enum Hint {
-    String,
-    Number,
-}
-
-/// ToPrimitive (ECMA-262 OrdinaryToPrimitive) of a JSON object or array, which has no `@@toPrimitive`: the two methods in the hint's
-/// order, each the own property of that name if there is one (a JSON value is never callable, so it is passed over) or else the
-/// inherited one. The inherited `valueOf` answers the object itself, which is no primitive; the inherited `toString` is
-/// `[object Object]` for an object and `join(',')` for an array, whose elements convert in turn (and may throw). Answers the
-/// primitive, always a string here.
-fn container_to_primitive(value: &Value, hint: Hint) -> Result<String, NoPrimitive> {
-    let order = match hint {
-        Hint::String => ["toString", "valueOf"],
-        Hint::Number => ["valueOf", "toString"],
-    };
-    for name in order {
-        if value.as_object().is_some_and(|own| own.contains_key(name)) {
-            continue;
-        }
-        if name == "toString" {
-            return match value {
-                Value::Array(items) => items
-                    .iter()
-                    .map(|item| if item.is_null() { Ok(String::new()) } else { try_value_to_string(item) })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map(|parts| parts.join(",")),
-                _ => Ok("[object Object]".into()),
-            };
-        }
-    }
-    Err(NoPrimitive)
-}
-
-/// `String(value)` for a parsed JSON value, failing where JavaScript throws: an object whose own `toString` shadows the inherited
-/// one (and whose `valueOf` gives no primitive), alone or anywhere inside an array.
-pub fn try_value_to_string(value: &Value) -> Result<String, NoPrimitive> {
-    match value {
-        Value::Array(_) | Value::Object(_) => container_to_primitive(value, Hint::String),
-        primitive => Ok(value_to_string(primitive)),
-    }
-}
-
-/// `Number(value)` for a parsed JSON value, failing where JavaScript throws (see [`try_value_to_string`]).
-pub fn try_to_number(value: &Value) -> Result<f64, NoPrimitive> {
-    match value {
-        Value::Array(_) | Value::Object(_) => container_to_primitive(value, Hint::Number).map(|text| string_to_number(&text)),
-        primitive => Ok(to_number(primitive)),
-    }
-}
-
-/// `Number(value)` of a value that may be absent (`undefined`, so NaN), failing where JavaScript throws.
-pub fn try_to_number_of(value: Option<&Value>) -> Result<f64, NoPrimitive> {
-    value.map_or(Ok(f64::NAN), try_to_number)
-}
-
 /// The JSON value a JavaScript number round-trips to through `JSON.stringify`/`JSON.parse`: an
 /// integral value inside the safe range is an integer (`-0` is 0), a non-finite one is null, and
 /// anything else is the number V8 prints, so serialising it gives V8's digits.
@@ -245,7 +176,6 @@ pub fn json_number(number: f64) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     /// `[input, expected]` rows written by Node: the expected `Number(input)` as its IEEE bits in
     /// hex (`-0` and NaN included).
@@ -302,24 +232,6 @@ mod tests {
             assert_eq!(json_number(number).to_string(), text, "{number}");
         }
         assert!(json_number(1.0).is_i64());
-    }
-
-    /// `[input, String(input), Number(input)]` rows written by Node (testdata/to_primitive.mjs): each conversion's value, or the
-    /// error it throws.
-    const PRIMITIVE_ROWS: &str = include_str!("../testdata/to_primitive.json");
-
-    #[test]
-    fn json_values_convert_or_throw_as_javascript_does() {
-        let rows: Vec<(String, Value, Value)> = serde_json::from_str(PRIMITIVE_ROWS).expect("fixture");
-        assert_eq!(rows.len(), 156);
-        let thrown = |error: NoPrimitive| json!({ "err": format!("TypeError: {error}") });
-        for (input, string, number) in rows {
-            let value: Value = serde_json::from_str(&input).expect("json");
-            let core_string = try_value_to_string(&value).map_or_else(thrown, |text| json!({ "ok": text }));
-            assert_eq!(core_string, string, "String({input})");
-            let core_number = try_to_number(&value).map_or_else(thrown, |n| json!({ "ok": bits(n) }));
-            assert_eq!(core_number, number, "Number({input})");
-        }
     }
 
     #[test]
