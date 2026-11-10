@@ -443,6 +443,11 @@ impl SessionWorkspaces {
         Ok(Box::new(self.inner.hold_project_folder(None, folder, true)?))
     }
 
+    /// Whether this runtime hosts `session`.
+    pub fn hosts(&self, session: &str) -> bool {
+        self.inner.host.session(session).is_some()
+    }
+
     /// The workspace `session` has now: the stored record, or the project folder (revision 0).
     pub fn workspace(&self, session: &str) -> Result<Workspace, ScmFailure> {
         self.inner.workspace(session)

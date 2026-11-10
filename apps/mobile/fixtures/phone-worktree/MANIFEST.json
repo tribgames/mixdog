@@ -1,0 +1,62 @@
+{
+  "cases": 187,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-worktree.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the relay transport (encryption, admission) and the window process; the daemon runs without memory worker and MCP servers (MIXDOG_DAEMON_SKIP_MEMORY, MIXDOG_DISABLE_MCP), with the supervisor binary the real-turn harness cached",
+    "runs": "executeRemoteFrame over createRemoteMethods (remote-methods.ts:828, :1256) with SessionHost (session-host.ts) attached to the tree's own daemon (session-client.mjs ensureDaemon, attachSession; session-protocol.mjs createSessionProtocolClient), one world and one daemon per group"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 208709,
+      "path": "golden.json",
+      "sha256": "4e874aca3f8d4dda5bfcbaba74f9a0248cd902fb31fbaa74fd34be670c71f3a7"
+    }
+  ],
+  "node": "v22.20.0",
+  "normalized": {
+    "session": "the session's own id is <session> in every answer (each product makes its own)",
+    "snapshot": "a non-value-only answer's session snapshot is <snapshot>: the page reads only .value of these calls (worktree-branch-model.ts invokeWorktree); the snapshot is the chat's (phone-chat-live)",
+    "time": "a field named *At is <time> (the run time)"
+  },
+  "notRecorded": {
+    "notProducible": "a request that is no object, names no or an unknown capability, has args that are no array, or a session id that is no id: the page's invokeCapability always sends {capability, args, sessionId?} with a capability it names and a session id it holds, and those requests go to the group that owns invokeCapability itself"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
+  "recorderFiles": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
+      "sha256": "b061f6a1f2be60760c71b540f4f0a7c9245afd26d953e9d5663e730e1f80ec9c"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "eec41958569e2413fba9721c3e6241758b0ea4dc65c9da84c5a9fa752bfb4ddc"
+    }
+  ],
+  "set": "phone-worktree",
+  "syntheticInput": {
+    "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
+  },
+  "totalBytes": 208709
+}

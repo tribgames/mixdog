@@ -311,8 +311,14 @@ export function createCapabilityLane({
   };
   return {
     async invoke<T>(capability: DesktopCapability, args: unknown[] = [], sessionId?: string) {
-      const value = (await send(capability, args, sessionId)) as T;
-      return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
+      try {
+        const value = (await send(capability, args, sessionId)) as T;
+        return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
+      } catch (error) {
+        // Node sent a call naming its session to that session (`session-host-lifecycle.ts` `invokeCapability` -> the daemon's
+        // `session-action.mjs`), which answers a session it does not have with its own text; the core answers `threadNotFound`.
+        throw sessionId && isThreadNotFound(error) ? new Error(`session ${sessionId} is not available`) : error;
+      }
     },
     async setSessionFavorite(sessionId, favorite) {
       await request('thread/metadata/update', { threadId: sessionIdOf(sessionId), favorite });
