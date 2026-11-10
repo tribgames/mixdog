@@ -324,13 +324,13 @@ async fn a_review_failure_keeps_the_message_node_threw() {
 }
 
 #[tokio::test]
-async fn a_thread_review_needs_its_thread_and_a_session_review_its_directory() {
+async fn a_thread_review_needs_its_thread_and_a_session_review_a_known_one() {
     let handle = service(Log::default());
     for params in [json!({ "scope": "turn" }), json!({ "scope": "session" })] {
         assert!(matches!(get(&handle, params).await, Err(CoreError::InvalidParams { path, .. }) if &*path == "threadId"));
     }
     assert!(matches!(
         get(&handle, json!({ "scope": "session", "threadId": "t2" })).await,
-        Err(CoreError::InvalidParams { path, .. }) if &*path == "threadId"
+        Err(CoreError::ThreadNotFound { thread_id }) if thread_id.as_str() == "t2"
     ));
 }

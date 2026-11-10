@@ -789,8 +789,18 @@ test('rewindToItem answers what Node recorded where the core refuses an unknown 
     assert.deepEqual(value, recorded.reply, recorded.name);
     assert.equal(calls[0].method, 'thread/rewind');
   }
-  const other = wireRefusal('threadNotFound', { threadId: 't1' });
+  const other = wireRefusal('turnNotActive', { threadId: 't1' });
   await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('rewindToItem', ['i1'], 't1'), other);
+});
+
+// A call naming a session the core does not have: Node's daemon answered its session action with its own text
+// (`session-action.mjs`), recorded for the phone's reads in apps/mobile/fixtures/phone-worktree.
+test('a call naming a session the core does not have is refused with the text Node answered', async () => {
+  const missing = wireRefusal('threadNotFound', { threadId: 'sess_gone' });
+  const { lane } = recordingLane(async () => {
+    throw missing;
+  });
+  await assert.rejects(lane.invoke('getTurnReviewDiff', [], 'sess_gone'), { message: 'session sess_gone is not available' });
 });
 
 test('prioritizeQueued answers what Node recorded: a prioritized entry accepted, one Node leaves alone (missing, slash command) a count of none', async () => {

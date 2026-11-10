@@ -78,7 +78,8 @@ impl Registry for mixdog_workspace::service::WorkspaceService {
         use mixdog_workspace::error::Reason;
         match self.catalog().resolve(path).await {
             Ok(found) => Ok(Some(found.to_string_lossy().into_owned())),
-            Err(error) if error.reason == Reason::PermissionDenied => Ok(None),
+            // No registered project at the path (`resolve`'s refusal): Node's `findRegisteredProject` answered `null`.
+            Err(error) if matches!(error.reason, Reason::PermissionDenied | Reason::Coded("PROJECT_UNAVAILABLE")) => Ok(None),
             Err(error) => Err(error.message),
         }
     }
