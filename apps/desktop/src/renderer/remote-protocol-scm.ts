@@ -95,14 +95,14 @@ async function operate(host: PhoneProtocolHost, name: string, args: unknown[]): 
   }
 }
 
-/** The page's arguments as Node's relay frame carried them to the PC: JSON wrote an array's undefined element as null
- *  (remote-shim-api.ts passes every position, `[cwd, source]`), so only an argument past the array's end was undefined there. */
-const relayed = (params: unknown[]): unknown[] => Array.from(params, (value) => (value === undefined ? null : value));
+/** An optional argument the page left out: the router hands it on as the relay's JSON wrote it (`null`), and at this boundary that is the
+ *  argument omitted (the fix of Node's relay methods, node-fix-relay-optional-args.patch). The shared checks still refuse `null` itself. */
+const omitted = (value: unknown): unknown => value ?? undefined;
 
 const operation =
   (name: string, args: (params: unknown[], os: string | undefined) => unknown[] = () => []): NodeCall =>
   (params, host) =>
-    operate(host, name, args(relayed(params), platformFamily(host)));
+    operate(host, name, args(params, platformFamily(host)));
 
 const cwdOnly = (name: string): NodeCall => operation(name, ([cwd], os) => [requiredRepositoryCwd(cwd, os)]);
 
@@ -131,7 +131,7 @@ const calls: Record<string, NodeCall> = {
     gitIgnore: operation('gitIgnore', ([cwd, path, scope], os) => [
       requiredRepositoryCwd(cwd, os),
       requiredGitPath(path, os),
-      requiredGitIgnoreScope(scope),
+      requiredGitIgnoreScope(omitted(scope)),
     ]),
     gitCommit: operation('gitCommit', ([cwd, message], os) => [
       requiredRepositoryCwd(cwd, os),
@@ -148,19 +148,19 @@ const calls: Record<string, NodeCall> = {
       requiredRepositoryCwd(cwd, os),
       requiredGitPath(path, os),
       untracked === true,
-      requiredGitDiscardMode(mode),
+      requiredGitDiscardMode(omitted(mode)),
     ]),
-    gitReview: operation('gitReview', ([cwd, source], os) => [requiredRepositoryCwd(cwd, os), requiredReviewSource(source)]),
+    gitReview: operation('gitReview', ([cwd, source], os) => [requiredRepositoryCwd(cwd, os), requiredReviewSource(omitted(source))]),
     gitReviewDiff: operation('gitReviewDiff', ([cwd, path, untracked, source], os) => [
       requiredRepositoryCwd(cwd, os),
       requiredGitPath(path, os),
       untracked === true,
-      requiredReviewSource(source),
+      requiredReviewSource(omitted(source)),
     ]),
     gitReviewDiffs: operation('gitReviewDiffs', ([cwd, files, source], os) => [
       requiredRepositoryCwd(cwd, os),
       requiredReviewDiffFiles(files, os),
-      requiredReviewSource(source),
+      requiredReviewSource(omitted(source)),
     ]),
     gitStash: operation('gitStash', ([cwd, message], os) => [requiredRepositoryCwd(cwd, os), requiredGitOptionalMessage(message)]),
     gitStashPop: cwdOnly('gitStashPop'),
