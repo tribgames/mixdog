@@ -44,7 +44,9 @@ fn server_config() -> ServerConfig {
             browser: available(),
             computer: available(),
             voice: available(),
+            remote: Default::default(),
         },
+        native_push: Arc::new(|| false),
         limits: Limits::default(),
         version_gate: Arc::new(|_| VersionOrder::Equal),
     }
