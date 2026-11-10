@@ -37,14 +37,22 @@ export async function openClockSocket(port, ms = DEADLINE_MS, connect = net.conn
 
 /** Ends the core and its children, and resolves when `taskkill` has finished and the core has exited (its files are released then). One
  *  deadline covers both: `taskkill` is a process of its own and can hang like the core can. */
-export function stopCore(core, ms = DEADLINE_MS) {
+export function stopCore(core, ms = DEADLINE_MS, run = spawn) {
   // A core that has already exited emits no further `exit`: waiting for one would end the process with nothing printed.
   const gone = core.child.exitCode !== null || core.child.signalCode !== null;
   const exited = gone ? Promise.resolve() : new Promise((resolve) => core.child.once('exit', resolve));
+  let killer;
   const killed = new Promise((resolve, reject) => {
-    const killer = spawn('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    killer = run('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     killer.once('error', reject);
-    killer.once('exit', resolve);
+    // 128 is taskkill's answer for a pid that no longer exists (the core exited first); any other status left the core running.
+    killer.once('exit', (status) =>
+      status === 0 || status === 128 ? resolve() : reject(new Error(`taskkill could not end the core (pid ${core.child.pid}): it exited with status ${status}`))
+    );
   });
-  return bounded(Promise.all([killed, exited]), `taskkill to end the core (pid ${core.child.pid}) and the core to exit`, ms);
+  return bounded(Promise.all([killed, exited]), `taskkill to end the core (pid ${core.child.pid}) and the core to exit`, ms).catch((error) => {
+    // A killer that hangs is ended with the failure, not left behind it.
+    killer.kill();
+    throw error;
+  });
 }

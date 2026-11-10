@@ -78,6 +78,7 @@ import {
 } from '../shared/desktop-pet';
 import { HEARTBEAT_INTERVAL_CHOICES } from '../../../../src/runtime/shared/heartbeat-interval.mjs';
 import { type BrowserPermissionPolicy, normalizeBrowserPermissionPolicy } from '../shared/browser-permission-policy';
+import { requiredString } from '../shared/remote-arguments';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
 import { isWorktreeCapability, validateWorktreeCapabilityArgs, WORKTREE_CAPABILITY_ARITY } from './worktree-validation';
@@ -653,7 +654,7 @@ export function optionalGithubLoginOptions(value: unknown): { openBrowser?: bool
   return openBrowser === undefined ? {} : { openBrowser };
 }
 
-export { requiredString } from '../shared/remote-arguments';
+export { requiredString };
 
 /** A paired device's local nickname: a string, where only an explicit '' clears
  *  it. Anything else is refused rather than read as a clear. */

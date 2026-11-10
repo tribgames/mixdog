@@ -42,6 +42,8 @@ struct State {
     /// Events below this sequence number were handed to a subscriber and are never merged into.
     handed_seq: u64,
     paused: bool,
+    /// The reader is parked at the gate, waiting for a consumer to catch up or for the feed to be resumed.
+    blocked: bool,
     /// The process was killed or ended: the reader no longer waits for consumers.
     released: bool,
     done: bool,
@@ -70,6 +72,7 @@ impl Feed {
                 stored: 0,
                 handed_seq: 0,
                 paused: false,
+                blocked: false,
                 released: false,
                 done: false,
                 consumers: Vec::new(),
@@ -107,7 +110,10 @@ impl Feed {
             if !state.paused && !over {
                 break;
             }
+            state.blocked = true;
+            self.changed.notify_waiters();
             state = self.gate.wait(state).unwrap_or_else(|e| e.into_inner());
+            state.blocked = false;
         }
         state.pushed += bytes.len() as u64;
         state.stored += bytes.len();
@@ -178,6 +184,24 @@ impl Feed {
     /// Output bytes pushed so far.
     pub(crate) fn pushed(&self) -> u64 {
         self.lock().pushed
+    }
+
+    /// Returns the bytes pushed once the reader is parked at the gate (a consumer trails by the ring bound, or the feed is paused): the
+    /// reader's own signal that it is held back, which no quiet period stands in for.
+    pub(crate) async fn blocked_pushed(&self) -> u64 {
+        loop {
+            let changed = self.changed.notified();
+            let mut changed = std::pin::pin!(changed);
+            // Registered before the check, so a reader that parks between check and await still wakes it.
+            changed.as_mut().enable();
+            {
+                let state = self.lock();
+                if state.blocked {
+                    return state.pushed;
+                }
+            }
+            changed.await;
+        }
     }
 
     pub(crate) fn set_paused(&self, paused: bool) {

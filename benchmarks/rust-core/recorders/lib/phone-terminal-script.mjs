@@ -180,6 +180,8 @@ export function sizeClaimScript(root) {
   const cwd = join(root, 'cwd');
   const [L1, L2, L4, L5, L6] = ['term_ph2_l1', 'term_ph2_l2', 'term_ph2_l4', 'term_ph2_l5', 'term_ph2_l6'];
   const tabs = [L1, L2, L4, L5, L6];
+  // An id that no tab ever has.
+  const NONE = 'term_ph2_none';
   const prompt = `PS ${cwd}>`;
   // A tab a claim has resized is settled (see the header) before it is attached, so its replay is a screen and not a race with
   // the re-render ConPTY sends for the new size.
@@ -209,6 +211,17 @@ export function sizeClaimScript(root) {
       ]),
       // From here the leases are timed.
       { op: 'clock' },
+      // Claims belong to the id, not to a running tab: Node announces them with no PTY there, and disposing an id that has no tab
+      // forgets nothing (terminal-manager.ts:536 returns first). Released before the first lease is timed.
+      { op: 'fire', name: 'termResize', params: [NONE, 90, 28, true] },
+      owner(NONE, 90, 28, true),
+      { op: 'call', name: 'termDispose', params: [NONE] },
+      { op: 'fire', name: 'termResize', params: [NONE, 91, 29, true], from: 'other' },
+      owner(NONE, 91, 29, false),
+      { op: 'fire', name: 'termResize', params: [NONE, 0, 0, true], from: 'other' },
+      owner(NONE, 90, 28, true, 2),
+      { op: 'fire', name: 'termResize', params: [NONE, 0, 0, true] },
+      owner(NONE, 0, 0, false),
       claim(L1, 100, 30),
       owner(L1, 100, 30, true),
       { op: 'advance', ms: 1000 },
@@ -269,6 +282,10 @@ export function sizeClaimScript(root) {
   };
 }
 
+/** A call's entry in the trace: its answer (a terminal text in it is the screen it draws) or its error text. */
+export const callEntry = (name, params, { value, error }) =>
+  error !== undefined ? { call: name, params, error } : { call: name, params, value: typeof value?.replay === 'string' ? { ...value, replay: screenOf(value.replay) } : value };
+
 /** The marker's own line is on the screen with the prompt right after it: what the shell wrote for the command is complete. */
 const onScreen = (text, { after, prompt }) => {
   const lines = linesOf(text).map((line) => line.trimEnd());
@@ -291,11 +308,12 @@ export async function play(script, driver) {
   const matches = (list, wanted) => list.filter((event) => JSON.stringify(event) === JSON.stringify(wanted)).length;
   for (const op of script.ops) {
     if (op.op === 'call') {
+      // A driver that records replies (Node's) has them in the order they were sent; the replay's has them as the call returns.
       try {
         const value = (await driver.call(op.name, op.params)) ?? null;
-        steps.push({ call: op.name, params: op.params, value: typeof value?.replay === 'string' ? { ...value, replay: screenOf(value.replay) } : value });
+        if (!driver.recordsReplies) steps.push(callEntry(op.name, op.params, { value }));
       } catch (error) {
-        steps.push({ call: op.name, params: op.params, error: error instanceof Error ? error.message : String(error) });
+        if (!driver.recordsReplies) steps.push(callEntry(op.name, op.params, { error: error instanceof Error ? error.message : String(error) }));
       }
     } else if (op.op === 'fire') {
       // The fire is the page's act, so it precedes the pushes it causes (Node's handler publishes inside the call).

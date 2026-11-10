@@ -49,10 +49,16 @@ fn scoped() -> Arc<MockScopedFeeds> {
     Arc::new(MockScopedFeeds::new(MockLimits::default()))
 }
 
-async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
-    while !ok() {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+/// Returns once `ok` holds. The state read has no event of its own to wait on (a process ending, a sampler thread count), so it is read again
+/// every 10 ms; the deadline turns a state that never comes into a failure that names it.
+async fn until(what: &str, mut ok: impl FnMut() -> bool) {
+    let waited = tokio::time::timeout(Duration::from_secs(60), async {
+        while !ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(waited.is_ok(), "never happened within 60 s: {what}");
 }
 
 type Published = Vec<(SectionName, Option<String>, SectionChange)>;
@@ -206,7 +212,7 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     // the order the phone got them): the first claim of a tab (`own`, its size) and the claim released by a non-positive size.
     let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
     let owners: Vec<&Value> = golden["trace"]["claims"]["order"].as_array().unwrap().iter().filter(|e| e["push"] == "sizeOwner").map(|e| &e["event"]).collect();
-    let (claimed, released) = (owners[0], owners[4]);
+    let (claimed, released) = (owners[0], owners[3]);
     assert_eq!((claimed["own"].clone(), released["own"].clone()), (json!(true), json!(false)), "the recorded claim owns, the recorded release does not");
     let attach = |connection: u64| {
         let service = Arc::clone(&service);
@@ -269,6 +275,67 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
         assert!(matches!(reply, Reply::Value(ref v) if v == &json!({})), "{method} answers with an empty result");
     }
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
+}
+
+/// Claims belong to the id, not to a running tab. Node announces a claim and a release whether or not a PTY exists, and disposing an id that has
+/// no tab forgets nothing (terminal-manager.ts:454-487, :536). Recorded: apps/mobile/fixtures/phone-terminal/golden.json, trace.claims.order,
+/// the `sizeOwner` pushes of `term_ph2_none` and the `termDispose` between the first and the second.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_claim_on_an_id_without_a_tab_is_published_and_a_dispose_of_it_forgets_nothing() {
+    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
+    let order = golden["trace"]["claims"]["order"].as_array().unwrap();
+    let first = order.iter().position(|e| e["push"] == "sizeOwner" && e["event"]["id"] == "term_ph2_none").expect("the recording claims an id with no tab");
+    assert_eq!(order[first + 1]["call"], "termDispose", "the recording disposes the id after its first claim");
+    assert_eq!(order[first + 1]["params"], json!(["term_ph2_none"]));
+    let announced: Vec<&Value> = order.iter().filter(|e| e["push"] == "sizeOwner" && e["event"]["id"] == "term_ph2_none").map(|e| &e["event"]).collect();
+    // What the recording's script did, in its order: the phone claims, the other connection claims, the other releases, the phone releases.
+    let sizes: Vec<(u64, u64, bool)> = announced.iter().map(|e| (e["cols"].as_u64().unwrap(), e["rows"].as_u64().unwrap(), e["own"].as_bool().unwrap())).collect();
+    assert_eq!(sizes.len(), 4, "{sizes:?}");
+
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let client_of = |connection: u64| {
+        let service = Arc::clone(&service);
+        let cwd = cwd.clone();
+        async move {
+            let Reply::Value(ensured) = service.call(request("terminal/ensure", json!({ "tabId": "term_bystander", "options": { "cwd": cwd } }), connection)).await.unwrap() else {
+                panic!("terminal/ensure answers with a value");
+            };
+            ensured["client"].as_str().unwrap().to_owned()
+        }
+    };
+    let (phone, other) = (client_of(1).await, client_of(2).await);
+    // The latest published row of the id: None when no row, Some(None) when its owner is null, Some(Some(..)) with the owner.
+    let row = || -> Option<Option<(String, u64, u64)>> {
+        let (_, _, change) = publisher.published().into_iter().rev().find(|(s, _, _)| *s == SectionName::TerminalTabs)?;
+        let SectionChange::Set(bytes) = change else { return None };
+        let tabs: Value = serde_json::from_slice(&bytes).ok()?;
+        let row = tabs.as_array()?.iter().find(|tab| tab["id"] == "term_ph2_none")?.clone();
+        assert_eq!(row["tab"], json!(false), "a row for an id with no tab says so");
+        Some(row["sizeOwner"].as_object().map(|o| (o["owner"].as_str().unwrap().to_owned(), o["cols"].as_u64().unwrap(), o["rows"].as_u64().unwrap())))
+    };
+    let expected = |at: usize| {
+        let (cols, rows, own) = sizes[at];
+        Some(Some((if own { phone.clone() } else { other.clone() }, cols, rows)))
+    };
+    let claim = |connection: u64, cols: u64, rows: u64| service.notify(Method("terminal/resize"), json!({ "tabId": "term_ph2_none", "cols": cols, "rows": rows, "claim": true }), ConnectionId(connection));
+
+    claim(1, sizes[0].0, sizes[0].1);
+    publisher.wait_for("the phone's claim on the id with no tab", |_| row() == expected(0)).await;
+    service.call(request("terminal/dispose", json!({ "tabId": "term_ph2_none" }), 1)).await.unwrap();
+    claim(2, sizes[1].0, sizes[1].1);
+    publisher.wait_for("the other connection's claim, which owns after the dispose of an id with no tab", |_| row() == expected(1)).await;
+    claim(2, 0, 0);
+    publisher.wait_for("the phone's claim, which the dispose did not forget, owning again", |_| row() == expected(2)).await;
+    claim(1, 0, 0);
+    publisher.wait_for("the release of the last claim", |_| row() == Some(None)).await;
+    assert_eq!((sizes[3].0, sizes[3].1, sizes[3].2), (0, 0, false), "the recording ends in a zero size nobody owns");
+    // The release is published once: the next publication of the tab list has no row for the id.
+    service.call(request("terminal/dispose", json!({ "tabId": "term_bystander" }), 1)).await.unwrap();
+    publisher.wait_for("the tab list without the released id", |_| row().is_none()).await;
 }
 
 /// A shell with the marker integration (only such a shell reports activity); the test picks one itself, so it does not depend on which

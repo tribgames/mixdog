@@ -686,6 +686,7 @@ mod tests {
     impl mixdog_spawn::terminal::TerminalEvents for NoEvents {
         fn activity(&self, _id: &str, _state: Option<mixdog_spawn::terminal::ActivityState>) {}
         fn size_owner(&self, _change: &mixdog_spawn::terminal::SizeOwnerChange) {}
+        fn size_claims_forgotten(&self, _id: &str) {}
     }
 
     struct Host {

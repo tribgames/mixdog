@@ -286,22 +286,14 @@ fn flood_command(path: &str) -> CommandSpec {
     shell(&format!("type \"{path}\""), &format!("cat '{path}'"))
 }
 
-async fn pushed_when_stable(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
-    // The shell takes a moment to start printing.
-    while m.output_pushed(h).unwrap() == 0 {
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    let mut last = m.output_pushed(h).unwrap();
-    loop {
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let now = m.output_pushed(h).unwrap();
-        if now == last {
-            return now;
-        }
-        last = now;
-    }
+/// The bytes pushed once the process's reader is parked at its feed's gate: held back by the stalled consumer or the paused feed. The wait is on
+/// the reader's own signal, so a loaded machine cannot end it early; the deadline fails a reader that never parks.
+async fn pushed_when_blocked(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
+    tokio::time::timeout(Duration::from_secs(60), m.output_blocked(h))
+        .await
+        .expect("the reader never parked at its feed's gate within 60 s")
+        .unwrap()
 }
-
 /// DS-PROC-4: a 10 MB flood to a client that does not read stalls the PTY reader at the ring
 /// bound, a second client's keystrokes still pass, another process is not slowed, and reading
 /// again lets the flood finish.
@@ -318,7 +310,7 @@ async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     m.spawn(pty_request(&h, cmd, PtySize { cols: 120, rows: 40 })).await.unwrap();
     // The client that never reads: subscribed, never polled.
     let mut client = m.subscribe(&h, None).unwrap();
-    let stalled_at = pushed_when_stable(&m, &h).await;
+    let stalled_at = pushed_when_blocked(&m, &h).await;
     assert!(
         stalled_at as usize <= RING && stalled_at as usize + 192 * 1024 >= RING,
         "reader stalled at {stalled_at}, ring bound {RING}"
@@ -379,7 +371,7 @@ async fn explicit_pause_stops_the_reader_and_resume_releases_it() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     m.set_output_paused(&h, true).unwrap();
-    let stalled = pushed_when_stable(&m, &h).await;
+    let stalled = pushed_when_blocked(&m, &h).await;
     assert!(stalled < 4 * 1024 * 1024, "paused reader consumed the whole flood: {stalled}");
     assert!(m.info(&h).unwrap().exit.is_none());
     m.set_output_paused(&h, false).unwrap();
@@ -510,7 +502,7 @@ async fn kill_releases_a_reader_held_by_a_stalled_client() {
     let cmd = flood_command(&path);
     m.spawn(pty_request(&h, cmd, PtySize { cols: 100, rows: 30 })).await.unwrap();
     let _client = m.subscribe(&h, None).unwrap();
-    pushed_when_stable(&m, &h).await;
+    pushed_when_blocked(&m, &h).await;
     m.kill(&h).unwrap();
     wait_exit(&m, &h).await;
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));

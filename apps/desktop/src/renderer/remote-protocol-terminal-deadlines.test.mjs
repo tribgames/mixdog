@@ -15,6 +15,23 @@ test('a core that never exits fails the teardown naming taskkill and the exit', 
   });
 });
 
+const fakeKiller = () => Object.assign(new EventEmitter(), { killed: false, kill() { this.killed = true; } });
+
+test('a taskkill that fails leaves the core running and says so, whatever the core does', async () => {
+  const core = { child: Object.assign(new EventEmitter(), { pid: 77, exitCode: 0, signalCode: null }) };
+  const killer = fakeKiller();
+  const stopping = stopCore(core, SHORT_MS, () => killer);
+  killer.emit('exit', 5);
+  await assert.rejects(stopping, { message: 'taskkill could not end the core (pid 77): it exited with status 5' });
+});
+
+test('a taskkill that hangs is ended with the failure', async () => {
+  const core = { child: Object.assign(new EventEmitter(), { pid: 77, exitCode: 0, signalCode: null }) };
+  const killer = fakeKiller();
+  await assert.rejects(stopCore(core, SHORT_MS, () => killer), { message: `taskkill to end the core (pid 77) and the core to exit (no answer within ${SHORT_MS} ms)` });
+  assert.equal(killer.killed, true, 'the hung killer was ended');
+});
+
 test('a core that has already exited does not wait for an exit that will not come', async () => {
   const core = { child: Object.assign(new EventEmitter(), { pid: NO_SUCH_PID, exitCode: 0, signalCode: null }) };
   await stopCore(core, 30_000);
