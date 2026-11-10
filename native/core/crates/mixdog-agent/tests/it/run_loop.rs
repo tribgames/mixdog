@@ -2017,6 +2017,62 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
     assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::Image(_))));
 }
 
+/// `image-strip-recovery.test.mjs` "agent loop heals one rejected tail image and the next turn
+/// stays usable": the provider's 400 names an invalid image, the adapter classifies it as an
+/// invalid request, and the one new stored image is healed out of the transcript.
+#[tokio::test]
+async fn a_confirmed_rejection_of_one_new_image_heals_it_out_of_the_transcript() {
+    use mixdog_core_api::domain::provider::BinarySource;
+    use mixdog_core_api::domain::provider::ContentPart;
+    let stored = |r: &str| ContentPart::File {
+        source: BinarySource::AttachmentRef(r.into()),
+        mime_type: "image/png".into(),
+        filename: None,
+        text: None,
+    };
+    let images = |content: &Content| match content {
+        Content::Parts(parts) => parts.iter().filter(|p| matches!(p, ContentPart::File { .. })).cloned().collect(),
+        Content::Text(_) => Vec::new(),
+    };
+    let sent_images = |request: &ModelRequest| request.messages.iter().flat_map(|m| images(&m.content)).collect::<Vec<_>>();
+    let mut invalid = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
+    invalid.status = Some(400);
+    invalid.message =
+        "The image data you provided does not represent a valid image. Please check your input and try again.".into();
+    let h = Harness::new(vec![Attempt::Reject(invalid), turn(vec![text("recovered"), done(StopReason::EndTurn)])]);
+    let messages = vec![
+        AgentMessage::user_content(Content::Parts(vec![stored("old-valid")])),
+        AgentMessage::assistant("seen", Vec::new()),
+        AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("inspect".into(), None), stored("new-bad")])),
+    ];
+    let output = finish(h.run(config(), vec![], messages)).await;
+    assert_eq!(output.response.content, "recovered");
+    let requests = h.provider.requests();
+    assert_eq!(sent_images(&requests[0]), [stored("old-valid"), stored("new-bad")]);
+    assert_eq!(sent_images(&requests[1]), [stored("old-valid")]);
+    let kept: Vec<ContentPart> = output.transcript.iter().flat_map(|m| images(&m.message.content)).collect();
+    assert_eq!(kept, [stored("old-valid")], "the rejected image leaves the transcript");
+    let replaced = h.sink.replaced.lock().unwrap();
+    assert_eq!(replaced.len(), 1, "the heal is persisted");
+    assert_eq!(replaced[0].1, Rewrite::default());
+    assert_eq!(
+        replaced[0].0[2].message.content,
+        Content::Parts(vec![
+            ContentPart::Text("inspect".into(), None),
+            ContentPart::Text(mixdog_agent::recovery_placeholder().into(), None),
+        ])
+    );
+    drop(replaced);
+
+    let mut next_turn = output.transcript.clone();
+    next_turn.push(AgentMessage::user("next turn"));
+    let next = Harness::new(vec![turn(vec![text("still usable"), done(StopReason::EndTurn)])]);
+    let output = finish(next.run(config(), vec![], next_turn)).await;
+    assert_eq!(output.response.content, "still usable");
+    assert_eq!(next.provider.requests().len(), 1);
+    assert_eq!(sent_images(&next.provider.requests()[0]), [stored("old-valid")]);
+}
+
 #[tokio::test]
 async fn a_retried_send_keeps_one_group_and_settles_nothing_on_success() {
     let h = Harness::new(vec![overloaded(), overloaded(), turn(vec![text("ok"), done(StopReason::EndTurn)])]);

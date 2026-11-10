@@ -19,10 +19,14 @@ use crate::run::Run;
 pub const IMAGE_STRIP_PLACEHOLDER: &str = "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]";
 const MAX_REASON_CHARS: usize = 240;
 
-fn has_image(message: &AgentMessage) -> bool {
-    matches!(message.role(), Role::User | Role::Tool)
-        && matches!(&message.message.content, Content::Parts(parts)
-            if parts.iter().any(|p| matches!(p, ContentPart::Image(_))))
+/// `partLooksLikeImage`: an inline image, or a stored one (`{type: "image",
+/// attachmentRef}` reads back as an image-typed file reference).
+fn is_image(part: &ContentPart) -> bool {
+    match part {
+        ContentPart::Image(_) => true,
+        ContentPart::File { mime_type, text: None, .. } => mime_type.starts_with("image/"),
+        _ => false,
+    }
 }
 
 /// Index of the first message of the latest turn: the one after the last
@@ -34,39 +38,104 @@ fn latest_turn_start(messages: &[AgentMessage]) -> usize {
         .map_or(0, |i| i + 1)
 }
 
-/// Whether the latest turn carries an inline image a strip could remove.
-pub(crate) fn latest_turn_has_images(messages: &[AgentMessage]) -> bool {
-    messages[latest_turn_start(messages)..].iter().any(has_image)
+/// An image-strip retry (`state.imageStrip`): the images it leaves out of
+/// every request until a send succeeds, and whether that success heals them
+/// out of the transcript.
+#[derive(Clone, Debug)]
+pub(crate) struct ImageStrip {
+    ids: Vec<ContentPart>,
+    pub(crate) persist: bool,
 }
 
-/// The transcript with the latest turn's images replaced by the placeholder
-/// text. A copy: a strip is local to the requests it was decided for.
-pub(crate) fn without_latest_images(messages: &[AgentMessage]) -> Vec<AgentMessage> {
-    let start = latest_turn_start(messages);
-    messages
+/// `stripInlineImages`: the user and tool messages from `start` with every
+/// image (only those in `ids`, when given) replaced by the placeholder text,
+/// and the distinct images it replaced. A copy.
+fn strip_images(
+    messages: &[AgentMessage],
+    start: usize,
+    ids: Option<&[ContentPart]>,
+) -> (Vec<AgentMessage>, Vec<ContentPart>) {
+    let mut stripped_ids: Vec<ContentPart> = Vec::new();
+    let next = messages
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            if i < start || !has_image(m) {
+            let Content::Parts(parts) = &m.message.content else { return m.clone() };
+            if i < start || !matches!(m.role(), Role::User | Role::Tool) {
                 return m.clone();
             }
-            let mut stripped = m.clone();
-            if let Content::Parts(parts) = &m.message.content {
-                stripped.message.content = Content::Parts(
-                    parts
-                        .iter()
-                        .map(|p| match p {
-                            ContentPart::Image(_) => {
-                                ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.to_owned(), None)
-                            }
-                            other => other.clone(),
-                        })
-                        .collect(),
-                );
+            let mut changed = false;
+            let content = parts
+                .iter()
+                .map(|p| {
+                    if !is_image(p) || ids.is_some_and(|ids| !ids.contains(p)) {
+                        return p.clone();
+                    }
+                    changed = true;
+                    if !stripped_ids.contains(p) {
+                        stripped_ids.push(p.clone());
+                    }
+                    ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.to_owned(), None)
+                })
+                .collect();
+            let mut out = m.clone();
+            if changed {
+                out.message.content = Content::Parts(content);
             }
-            stripped
+            out
         })
-        .collect()
+        .collect();
+    (next, stripped_ids)
+}
+
+/// `stripInlineImagesFromLatestTurn` + `persistsConfirmedImageRejection`: the
+/// strip of the latest turn's images, healed out of the transcript on success
+/// only when a confirmed rejection names exactly one distinct image. `None`
+/// when the latest turn has no image.
+pub(crate) fn latest_turn_strip(messages: &[AgentMessage], error: &ProviderError) -> Option<ImageStrip> {
+    let (_, ids) = strip_images(messages, latest_turn_start(messages), None);
+    if ids.is_empty() {
+        return None;
+    }
+    let persist = confirmed_image_rejection(error) && ids.len() == 1;
+    Some(ImageStrip { ids, persist })
+}
+
+/// The transcript with the strip's images replaced by the placeholder text,
+/// wherever they occur (`stripInlineImages(messages, { ids })`).
+pub(crate) fn with_images_stripped(messages: &[AgentMessage], strip: &ImageStrip) -> Vec<AgentMessage> {
+    strip_images(messages, 0, Some(&strip.ids)).0
+}
+
+fn error_code(error: &ProviderError) -> String {
+    error.code.as_deref().map(|c| c.trim().to_lowercase()).unwrap_or_default()
+}
+
+/// `isInvalidImageCode`.
+fn is_invalid_image_code(code: &str) -> bool {
+    matches!(code, "invalid_image" | "invalid-image")
+}
+
+fn says_invalid_image(error: &ProviderError) -> bool {
+    error.message.to_lowercase().contains("does not represent a valid image")
+}
+
+/// `isImageProcessingError`: a refusal an image explains (413, an invalid-image
+/// code, or the 400/500 texts the providers send for an image they cannot read).
+/// No adapter classifies these as [`ErrorKind::ImageRejected`], so the status,
+/// code and message decide here, as Node's loop decides.
+pub(crate) fn is_image_processing_error(error: &ProviderError) -> bool {
+    use mixdog_core_api::domain::provider::ErrorKind;
+    if error.kind == ErrorKind::ImageRejected || error.status == Some(413) || is_invalid_image_code(&error_code(error)) {
+        return true;
+    }
+    matches!(error.status, Some(400 | 500))
+        && (error.message.contains("Could not process image") || says_invalid_image(error))
+}
+
+/// `confirmedImageRejection`.
+fn confirmed_image_rejection(error: &ProviderError) -> bool {
+    error.status == Some(400) && (is_invalid_image_code(&error_code(error)) || says_invalid_image(error))
 }
 
 fn is_thinking_block(block: &JsonValue) -> bool {
@@ -208,15 +277,20 @@ mod tests {
 
     #[test]
     fn latest_turn_images_become_the_placeholder_and_history_is_untouched() {
-        let image = || ContentPart::Image(ImageSource::Url("u".into()));
-        let old = AgentMessage::user_content(Content::Parts(vec![image()]));
+        let image = |u: &str| ContentPart::Image(ImageSource::Url(u.into()));
+        let old = AgentMessage::user_content(Content::Parts(vec![image("old")]));
         let fresh = AgentMessage::user_content(Content::Parts(vec![
             ContentPart::Text("look".into(), None),
-            image(),
+            image("new"),
         ]));
         let messages = vec![old.clone(), AgentMessage::assistant("a", Vec::new()), fresh];
-        assert!(latest_turn_has_images(&messages));
-        let stripped = without_latest_images(&messages);
+        let error = ProviderError::new(
+            mixdog_core_api::domain::provider::ErrorKind::ImageRejected,
+            mixdog_core_api::domain::provider::DeliveryState::Accepted,
+        );
+        let strip = latest_turn_strip(&messages, &error).unwrap();
+        assert!(!strip.persist, "an unconfirmed rejection stays request-local");
+        let stripped = with_images_stripped(&messages, &strip);
         assert_eq!(stripped[0], old);
         assert_eq!(
             stripped[2].message.content,

@@ -265,8 +265,8 @@ impl Run {
         options.max_output_tokens_override = self.max_output_override.take().or(options.max_output_tokens_override);
         let messages = if self.unprojected {
             self.messages.iter().map(AgentMessage::wire).collect()
-        } else if self.image_strip_active {
-            crate::project::project_for_wire(&crate::recovery::without_latest_images(&self.messages))
+        } else if let Some(strip) = &self.image_strip {
+            crate::project::project_for_wire(&crate::recovery::with_images_stripped(&self.messages, strip))
         } else {
             crate::project::project_for_wire(&self.messages)
         };
@@ -318,7 +318,14 @@ impl Run {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
-                    self.image_strip_active = false;
+                    // `settleImageStrip`: a confirmed rejection of one image is
+                    // healed out of the transcript, so later turns never send it again.
+                    if let Some(strip) = self.image_strip.take()
+                        && strip.persist
+                    {
+                        self.messages = crate::recovery::with_images_stripped(&self.messages, &strip);
+                        self.env.sink.replace(&self.messages, &crate::env::Rewrite::default());
+                    }
                     self.image_strip_used = false;
                     if let Some(group) = self.send_group.take() {
                         group.complete();
@@ -727,14 +734,13 @@ impl Run {
             }
             // An image the provider refuses: replay once without the latest
             // turn's images, only when no tool ran and nothing was shown.
-            ErrorKind::ImageRejected
-                if !self.image_strip_used
-                    && replay_safe
-                    && partial.tool_calls.is_empty()
-                    && crate::recovery::latest_turn_has_images(&self.messages) =>
+            _ if !self.image_strip_used
+                && replay_safe
+                && partial.tool_calls.is_empty()
+                && crate::recovery::is_image_processing_error(error) =>
             {
+                self.image_strip = Some(crate::recovery::latest_turn_strip(&self.messages, error)?);
                 self.image_strip_used = true;
-                self.image_strip_active = true;
                 self.emit(RunEvent::Stage(Stage::Reconnecting {
                     attempt: 1,
                     max: 3,
