@@ -454,11 +454,9 @@ impl OpenAiAdapter {
         // the latch is set only when that plain request is accepted (the encoding was the cause).
         if packed.is_some() && matches!(response.status, 400 | 415) {
             let mut body = response.body;
-            body.hold_connection();
             while body.next().await.is_some() {}
-            let resent = self.http.send(wire, MODEL_STREAM_FETCH).await;
             drop(body);
-            response = resent?;
+            response = self.http.send(wire, MODEL_STREAM_FETCH).await?;
             if response.is_success() {
                 ZSTD_LATCHED.store(true, Ordering::Relaxed);
             }

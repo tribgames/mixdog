@@ -191,6 +191,8 @@ impl mixdog_ai::oauth::Pace for RecordedPace {
         let ms = duration.as_millis() as u64;
         self.0.push(json!({ "kind": "sleep", "ms": ms }));
         self.1.fetch_add(ms, Ordering::SeqCst);
+        // The recorder's pause is a `setImmediate` (`node-wire-capture.mjs`): one turn of the loop.
+        mixdog_rt::time::immediate().await;
     }
 
     fn draw(&self) -> f64 {
@@ -290,6 +292,9 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     // The latest send of the run and its reply: what a compaction scenario forks.
     let mut last_send: Option<(ModelRequest, ModelResponse)> = None;
     for scenario in selected(doc["scenarios"].as_array().unwrap(), only) {
+        // The event loop turns once between scenarios, as the recorder's does (`node-wire-capture.mjs`): undici gives a
+        // socket whose answer ended back to its pool one `setImmediate` later.
+        mixdog_rt::time::immediate().await;
         let id = text(&scenario["id"]);
         let provider = scenario["provider"].as_str().unwrap();
         let model = match provider {
@@ -333,6 +338,24 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
         } else {
             builder.build(provider, &config(provider)).await.unwrap()
         };
+        // A provider built just now has sent its socket warm-up (`preconnect`, a HEAD that ends its connection); in the
+        // recording every warm-up is answered before the scenario's first request starts (rank 2 against 3), and Node
+        // reads that answer and handles its socket's close while the send is still on its way out. Here the send would
+        // dispatch at once, so the replay lets the warm-up settle first: its client vacated, in its place in the pool.
+        // Grok warms its origin as its send starts (`header()`), and in the recording that warm-up is answered and its
+        // socket's close handled before the send dispatches (Node's token read is file I/O, slower than the loopback
+        // answer); the replay warms first, so the send's own warm-up finds the origin warmed, as Node's gate would.
+        let warmed_first = node.iter().find(|n| n["id"] == scenario["id"]).and_then(|n| n["traffic"][0]["line"].as_str());
+        if provider == "grok-oauth" && warmed_first.is_some_and(|line| line.starts_with("HEAD ")) {
+            let http: Arc<dyn mixdog_ai::transport::HttpSend> = tapped.clone();
+            mixdog_ai::transport::preconnect::preconnect(
+                &http,
+                "https://cli-chat-proxy.grok.com",
+                mixdog_ai::providers::grok::auth::now_ms(),
+                std::env::var("MIXDOG_LLM_KEEPALIVE_MS").ok(),
+            );
+        }
+        within(format_args!("{id}: the warm-up's end"), tapped.settled()).await;
         let stored = stored_session(&session, scenario, node);
         let outcome = if scenario["compaction"] == true {
             // The compaction summary as the core's compaction sends it (`RequestFork`, the fork of the session's

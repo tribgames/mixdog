@@ -1,8 +1,9 @@
 //! The pool of idle connections, by hand: undici's pool hands a request to the first free client in the order the
 //! clients were created, and a client's idle socket closes when its keep-alive runs out (`client-h1.js`
-//! `keepAliveTimeout`), not when another request next looks at it.
+//! `keepAliveTimeout`), not when another request next looks at it. A client whose socket has ended stays in its place
+//! and connects again for the next request it is given ([`Idle::Vacant`]).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -22,6 +23,20 @@ pub enum Idle {
     H1 { conn: Conn, until: Instant, stamp: u64 },
     /// An HTTP/2 connection is shared by every request: `id` is its creation number.
     H2 { id: u64, send: h2::client::SendRequest<Bytes> },
+    /// The client `slot` (an h1 connection's `born`) whose socket has ended ([`Conn`]'s drop): free, in its place in the
+    /// order, and connected again by the request that takes it.
+    Vacant { slot: u64 },
+}
+
+impl Idle {
+    /// The place in the pool's order of an HTTP/1.1 client.
+    fn slot(&self) -> Option<u64> {
+        match self {
+            Idle::H1 { conn, .. } => Some(conn.born),
+            Idle::Vacant { slot } => Some(*slot),
+            Idle::H2 { .. } => None,
+        }
+    }
 }
 
 /// A connection handed out by [`Pool::take`]. An HTTP/2 connection comes with its stream already counted open, in the
@@ -29,6 +44,8 @@ pub enum Idle {
 pub enum Taken {
     H1(Conn),
     H2 { id: u64, send: h2::client::SendRequest<Bytes>, guard: H2Guard },
+    /// A client without a socket: the request dials, and the new connection takes the client's number.
+    Vacant(u64),
 }
 
 /// What the pool knows of an HTTP/2 connection beyond its handle: the streams open on it, and the idle period whose
@@ -48,11 +65,13 @@ struct State {
     /// used was decided; one that meets a later count when it would go into the pool is closed instead, so a
     /// connection dialled or checked out while the route changed does not idle under its old route.
     generation: u64,
-    /// Connections whose answer was read whole by a caller that sends again at once ([`Pool::hold_h1`]), by key: each
-    /// with its hold's number and its keep-alive.
-    held: HashMap<String, Vec<(u64, Conn, Duration)>>,
-    /// The keys whose holds a request has claimed ([`Pool::claim_hold`]).
-    claimed: HashSet<String>,
+}
+
+/// Puts `idle` into `list` in the clients' order.
+fn insert_ordered(list: &mut Vec<Idle>, idle: Idle) {
+    let slot = idle.slot();
+    let at = list.iter().position(|other| other.slot().zip(slot).is_some_and(|(other, slot)| other > slot)).unwrap_or(list.len());
+    list.insert(at, idle);
 }
 
 impl State {
@@ -96,9 +115,63 @@ pub struct Pool {
     counter: AtomicU64,
     #[cfg(test)]
     hooks: Mutex<HashMap<At, Hook>>,
+    /// The exchanges whose connection's fate is not settled yet ([`Flight`]), and a wake for [`Pool::settled`].
+    #[cfg(any(test, feature = "test-support"))]
+    flights: (std::sync::atomic::AtomicUsize, tokio::sync::Notify),
+}
+
+/// An exchange of the pool, counted from its dispatch until what came of its connection is settled: back in the pool,
+/// its client vacated, or closed ([`Pool::settled`]). A connection carries one while the exchange is on it. Counted only
+/// in a test build; elsewhere it is nothing.
+pub struct Flight(#[cfg(any(test, feature = "test-support"))] Arc<Pool>);
+
+impl Clone for Flight {
+    fn clone(&self) -> Self {
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.0.flights.0.fetch_add(1, Ordering::SeqCst);
+            Flight(self.0.clone())
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        Flight()
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for Flight {
+    fn drop(&mut self) {
+        if self.0.flights.0.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.0.flights.1.notify_waiters();
+        }
+    }
 }
 
 impl Pool {
+    /// A new exchange's [`Flight`].
+    pub fn begin(self: &Arc<Self>) -> Flight {
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.flights.0.fetch_add(1, Ordering::SeqCst);
+            Flight(self.clone())
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        Flight()
+    }
+
+    /// Every exchange so far has settled: its connection is back in the pool, its client vacated, or closed.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn settled(&self) {
+        loop {
+            let settled = self.flights.1.notified();
+            tokio::pin!(settled);
+            settled.as_mut().enable();
+            if self.flights.0.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            settled.await;
+        }
+    }
+
     /// A new connection's number.
     pub fn birth(&self) -> u64 {
         self.counter.fetch_add(1, Ordering::Relaxed)
@@ -133,19 +206,16 @@ impl Pool {
         self.at(At::Put);
         let until = Instant::now() + ttl;
         let stamp = self.birth();
-        let born = conn.born;
+        let mut conn = conn;
+        // Settled once the connection is in the pool (or closed), whichever comes of it.
+        let _settled = conn.flight.take();
         {
             let mut state = self.lock();
             if conn.generation != state.generation {
                 drop(state);
                 return; // `conn` is dropped: closed, not kept
             }
-            let list = state.idle.entry(key.clone()).or_default();
-            let at = list
-                .iter()
-                .position(|other| matches!(other, Idle::H1 { conn: other, .. } if other.born > born))
-                .unwrap_or(list.len());
-            list.insert(at, Idle::H1 { conn, until, stamp });
+            insert_ordered(state.idle.entry(key.clone()).or_default(), Idle::H1 { conn, until, stamp });
         }
         // Without a runtime (a teardown) the connection is dropped with the pool.
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -159,54 +229,12 @@ impl Pool {
         }
     }
 
-    /// `conn`'s answer was read whole by a caller that sends its next request at once: undici gives the socket back one
-    /// `setImmediate` after the body ended (`client-h1.js:842-846`, undici 8.12.3), so that request, and any other
-    /// dispatched in the same turn of the event loop, finds it busy and a request a turn later finds it free
-    /// (`resendIfEncodingRejected`, request-compression.mjs:60-68). It stays out of the pool until the next request of
-    /// `key` has its connection and its task has yielded once ([`Pool::free_held`]) or the hold ends
-    /// ([`Pool::end_hold`]); the hold's number is returned.
-    pub fn hold_h1(&self, key: String, conn: Conn, ttl: Duration) -> u64 {
-        let hold = self.birth();
-        self.lock().held.entry(key).or_default().push((hold, conn, ttl));
-        hold
-    }
-
-    /// Whether a connection of `key` is held ([`Pool::hold_h1`]) and no request has claimed it yet; the caller claims
-    /// it, so it frees it ([`Pool::free_held`]) after its task has yielded once. A request dispatched after it in the
-    /// same turn does not wait for the hold: in undici the held socket is resumed by its own `setImmediate`, which no
-    /// other request's dispatch waits on.
-    pub fn claim_hold(&self, key: &str) -> bool {
+    /// The client `slot` of `key`, whose connection opened under route `generation`, has lost its socket: it is free and
+    /// keeps its place ([`Idle::Vacant`]), unless the route has changed since.
+    pub fn vacate(&self, key: String, slot: u64, generation: u64) {
         let mut state = self.lock();
-        state.held.contains_key(key) && state.claimed.insert(key.to_owned())
-    }
-
-    /// The next request of `key` has its connection and a turn has passed: every connection held for it goes into the
-    /// pool.
-    pub fn free_held(self: &Arc<Self>, key: &str) {
-        let freed = {
-            let mut state = self.lock();
-            state.claimed.remove(key);
-            state.held.remove(key).unwrap_or_default()
-        };
-        for (_, conn, ttl) in freed {
-            self.put_h1(key.to_owned(), conn, ttl);
-        }
-    }
-
-    /// The hold `hold` of `key` ends with no request after it: its connection goes into the pool if it is still held.
-    pub fn end_hold(self: &Arc<Self>, key: &str, hold: u64) {
-        let freed = {
-            let mut state = self.lock();
-            let Some(list) = state.held.get_mut(key) else { return };
-            let freed = list.iter().position(|(h, ..)| *h == hold).map(|at| list.remove(at));
-            if list.is_empty() {
-                state.held.remove(key);
-                state.claimed.remove(key);
-            }
-            freed
-        };
-        if let Some((_, conn, ttl)) = freed {
-            self.put_h1(key.to_owned(), conn, ttl);
+        if state.generation == generation {
+            insert_ordered(state.idle.entry(key).or_default(), Idle::Vacant { slot });
         }
     }
 
@@ -296,64 +324,60 @@ impl Pool {
     }
 
     /// The connection [`Pool::checkout`] chooses, once [`Pool::validated`].
+    #[cfg(test)]
     pub async fn take(self: &Arc<Self>, key: &str) -> Option<Taken> {
         let chosen = self.checkout(key);
-        self.validated(key, chosen).await
+        self.validated(chosen).await
     }
 
     /// `chosen` ready to be written to: a socket that was used is written to after one turn of the scheduler, so a close
-    /// that has arrived by then is seen and another one is chosen (`client-h1.js` `scheduleIdleSocketValidation`, a
-    /// `setImmediate`: on a replay's clock, the check phase after every timer of this turn).
-    /// Without a connection nothing waits: the caller dials within the same poll.
-    pub async fn validated(self: &Arc<Self>, key: &str, mut chosen: Option<Taken>) -> Option<Taken> {
-        loop {
-            let taken = chosen?;
-            mixdog_rt::time::immediate().await;
-            match taken {
-                Taken::H1(conn) if conn.is_closed() => {
-                    drop(conn);
-                    chosen = self.checkout(key);
-                }
-                taken => return Some(taken),
-            }
+    /// that has arrived by then is seen (`client-h1.js` `scheduleIdleSocketValidation`, a `setImmediate`: on a replay's
+    /// clock, the check phase after every timer of this turn), and the request stays with its client, which connects
+    /// again. Without a connection nothing waits: the caller dials within the same poll.
+    pub async fn validated(self: &Arc<Self>, chosen: Option<Taken>) -> Option<Taken> {
+        let taken = chosen?;
+        if matches!(taken, Taken::Vacant(_)) {
+            return Some(taken);
+        }
+        mixdog_rt::time::immediate().await;
+        match taken {
+            Taken::H1(conn) if conn.is_closed() => Some(Taken::Vacant(conn.into_slot())),
+            taken => Some(taken),
         }
     }
 
-    /// The oldest idle connection of `key` that is still open. It is chosen at once, as undici's pool picks a free
+    /// The first free client of `key` in the pool's order: its idle connection, or the client itself when its socket has
+    /// ended (closed or past its keep-alive), to be connected again. It is chosen at once, as undici's pool picks a free
     /// client inside `dispatch`, so a request after this one in the same turn finds it busy.
     pub fn checkout(self: &Arc<Self>, key: &str) -> Option<Taken> {
-        loop {
-            let found = {
-                let mut state = self.lock();
-                let State { idle, h2, .. } = &mut *state;
-                let list = idle.get_mut(key)?;
-                let found = match list.first() {
-                    Some(Idle::H2 { id, send }) => {
-                        // The stream is counted open, and an armed idle timer outdated, before the lock is let go.
-                        if let Some(meta) = h2.get_mut(id) {
-                            meta.open += 1;
-                            meta.stamp = self.birth();
-                        }
-                        Some(Idle::H2 { id: *id, send: send.clone() })
+        let found = {
+            let mut state = self.lock();
+            let State { idle, h2, .. } = &mut *state;
+            let list = idle.get_mut(key)?;
+            let found = match list.first() {
+                Some(Idle::H2 { id, send }) => {
+                    // The stream is counted open, and an armed idle timer outdated, before the lock is let go.
+                    if let Some(meta) = h2.get_mut(id) {
+                        meta.open += 1;
+                        meta.stamp = self.birth();
                     }
-                    Some(Idle::H1 { .. }) => Some(list.remove(0)),
-                    None => None,
-                };
-                if list.is_empty() {
-                    idle.remove(key);
+                    Some(Idle::H2 { id: *id, send: send.clone() })
                 }
-                found
+                Some(Idle::H1 { .. } | Idle::Vacant { .. }) => Some(list.remove(0)),
+                None => None,
             };
-            #[cfg(test)]
-            self.at(At::Checkout);
-            match found? {
-                Idle::H1 { conn, until, .. } => {
-                    if Instant::now() < until && !conn.is_closed() {
-                        return Some(Taken::H1(conn));
-                    }
-                }
-                Idle::H2 { id, send } => return Some(Taken::H2 { id, send, guard: H2Guard { pool: self.clone(), key: key.to_owned(), id } }),
+            if list.is_empty() {
+                idle.remove(key);
             }
+            found
+        };
+        #[cfg(test)]
+        self.at(At::Checkout);
+        match found? {
+            Idle::H1 { conn, until, .. } if Instant::now() < until && !conn.is_closed() => Some(Taken::H1(conn)),
+            Idle::H1 { conn, .. } => Some(Taken::Vacant(conn.into_slot())),
+            Idle::Vacant { slot } => Some(Taken::Vacant(slot)),
+            Idle::H2 { id, send } => Some(Taken::H2 { id, send, guard: H2Guard { pool: self.clone(), key: key.to_owned(), id } }),
         }
     }
 
