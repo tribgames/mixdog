@@ -155,6 +155,17 @@ pub enum Stage {
         message: String,
         tone: Tone,
     },
+    /// The provider's account pool moves on to the next account (`onStageChange('reconnecting', { message })`).
+    AccountSwitching {
+        message: String,
+    },
+    /// A fallback account became the provider's selected one (`onStageChange('account-changed', { provider,
+    /// accountId, at })`).
+    AccountChanged {
+        provider: String,
+        account_id: String,
+        at: i64,
+    },
     Compacting,
     ApprovalWait {
         waiting: bool,

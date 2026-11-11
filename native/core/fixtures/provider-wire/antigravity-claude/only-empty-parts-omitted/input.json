@@ -1,0 +1,77 @@
+{
+  "provider": "antigravity-oauth",
+  "config": {},
+  "credential": {
+    "file": "antigravity-oauth.json",
+    "document": {
+      "access_token": "fixture-access-token",
+      "refresh_token": "fixture-refresh-token",
+      "expires_at": 4000000000000,
+      "account_id": "acct-fixture",
+      "email": "fixture@example.invalid",
+      "project_id": "fixture-project"
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "claude-sonnet-5-5-low",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "first"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "providerReplay": {
+        "version": 1,
+        "provider": "antigravity",
+        "items": [
+          {
+            "text": ""
+          },
+          {
+            "text": ""
+          }
+        ],
+        "requestContext": {
+          "model": "claude-sonnet-5-5-low"
+        }
+      }
+    },
+    {
+      "role": "user",
+      "content": "second"
+    }
+  ],
+  "tools": [
+    {
+      "name": "glob",
+      "description": "Find files",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    }
+  ],
+  "opts": {},
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}

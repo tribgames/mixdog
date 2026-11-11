@@ -1,0 +1,56 @@
+{
+  "ok": {
+    "content": "The answer is 42.",
+    "model": "gemini-2.5-pro",
+    "providerReplay": {
+      "version": 1,
+      "provider": "gemini",
+      "items": [
+        {
+          "text": "The answer "
+        },
+        {
+          "text": "is 42."
+        }
+      ],
+      "requestContext": {
+        "model": "gemini-2.5-pro"
+      }
+    },
+    "usage": {
+      "inputTokens": 0,
+      "outputTokens": 200,
+      "cachedTokens": 0,
+      "raw": {
+        "prompt_token_count": 0,
+        "total_token_count": 1200,
+        "candidates_token_count": 175,
+        "thoughts_token_count": 25
+      },
+      "promptTokens": 0
+    }
+  },
+  "dispatchedToolCalls": [],
+  "events": [
+    {
+      "on": "streamDelta",
+      "kind": "transport"
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "The answer "
+    },
+    {
+      "on": "streamDelta",
+      "kind": "text"
+    },
+    {
+      "on": "textDelta",
+      "text": "is 42."
+    }
+  ]
+}

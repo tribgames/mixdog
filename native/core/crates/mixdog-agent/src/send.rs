@@ -186,8 +186,8 @@ fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
 
 /// The provider's retry policy for one request: `retry_529: false` (Node `opts.retry529 === false`,
 /// `retry-executor.mjs`) stops an overload retrying, ahead of the overload fallback.
-fn request_policy(provider: &dyn ProviderAdapter, retry_529: bool) -> std::borrow::Cow<'_, RetryPolicy> {
-    let policy = provider.retry_policy();
+fn request_policy<'a>(provider: &'a dyn ProviderAdapter, model: &str, retry_529: bool) -> std::borrow::Cow<'a, RetryPolicy> {
+    let policy = provider.retry_policy_for(model);
     if retry_529 {
         return std::borrow::Cow::Borrowed(policy);
     }
@@ -499,6 +499,27 @@ impl Run {
                 }
                 // `onStageChange('notice', { tone, message })`: shown in the transcript, nothing else.
                 StreamEvent::Notice { message, warn } => self.show_notice(message, *warn),
+                // The account pool's `onStageChange`, in the order the pool raised it.
+                StreamEvent::AccountStage(stage) => self.emit(RunEvent::Stage(match stage {
+                    mixdog_core_api::domain::provider::AccountStage::Switching { message } => {
+                        Stage::AccountSwitching { message: message.clone() }
+                    }
+                    mixdog_core_api::domain::provider::AccountStage::Changed { provider, account_id, at } => {
+                        Stage::AccountChanged { provider: provider.clone(), account_id: account_id.clone(), at: *at }
+                    }
+                })),
+                // `sendOnRoute`'s reroute: a session whose pin named this provider and model takes the new route; the
+                // turn's later sends read it, and the host saves it with the carry.
+                StreamEvent::WireRerouted(route) => {
+                    let new = mixdog_core_api::domain::provider::WirePin::from_route(route);
+                    if let (Some(pin), Some(new)) = (&self.config.options.wire_pin, new)
+                        && pin.provider == new.provider
+                        && pin.model == new.model
+                    {
+                        self.config.options.wire_pin = Some(new);
+                        self.carry.wire_route = Some(route.clone());
+                    }
+                }
                 _ => {}
             }
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));
@@ -597,7 +618,7 @@ impl Run {
         let mut class = first_class(midstream);
         let mut spent: Vec<RetryState> = Vec::new();
         let provider = Arc::clone(&self.provider);
-        let policy = request_policy(provider.as_ref(), self.config.retry_529);
+        let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
         let committed = loop {
             let decision = self.env.decider.verdict(
                 &decide_on,

@@ -597,7 +597,10 @@ fn a_gateway_failure_in_the_stream_is_typed() {
             "data: {{\"choices\":[{{\"delta\":{{\"content\":\"hi\"}},\"finish_reason\":\"{reason}\"}}]}}\n\ndata: [DONE]\n\n"
         );
         let mut decoder = codec.decoder(&base_request("m"));
-        let err = decoder.feed(sse.as_bytes()).expect_err(reason);
+        // The text decoded before the failure in the same chunk is delivered first; the failure ends the stream.
+        let first = decoder.feed(sse.as_bytes()).expect(reason);
+        assert!(first.iter().any(|e| matches!(e, StreamEvent::TextDelta(_))), "{reason}");
+        let err = decoder.finish().expect_err(reason);
         assert_eq!(err.kind, ErrorKind::Transient, "{reason}");
         assert_eq!(err.status, status, "{reason}");
         assert!(err.exposure.text_emitted);
@@ -1299,11 +1302,9 @@ mod responses_heads {
         assert_eq!(body("grok-4.3", "HIGH", None)["reasoning"], json!({"effort": "high"}));
         assert!(body("grok-4-fast", "high", None).get("reasoning").is_none());
         assert!(body("grok-4.3", "none", None).get("reasoning").is_none());
-        let forced = body("grok-4.3", "low", Some("Read"));
-        assert_eq!(forced["tool_choice"], json!({"type": "function", "name": "Read"}));
-        let keys: Vec<_> = forced.as_object().unwrap().keys().cloned().collect();
-        let at = |k: &str| keys.iter().position(|x| x == k).unwrap();
-        assert!(at("parallel_tool_calls") < at("tool_choice") && at("tool_choice") < at("reasoning"), "{keys:?}");
+        // xAI's Responses send forces no choice (`applyCompatToolChoice(params, opts)` without a wire context,
+        // openai-compat-xai-send.mjs:58; recorded in fixtures/provider-wire/hosted-search/grok-oauth).
+        assert!(body("grok-4.3", "low", Some("Read")).get("tool_choice").is_none());
     }
 
     /// Golden recorded from Node's real xAI send path (`sendXaiResponses`) and
