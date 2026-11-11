@@ -43,6 +43,24 @@
           "routine-results-2.json.bak",
           "sessions\\sess_home_lead.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-2.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-2.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": false,\n  \"name\": \"Buddy\"\n}\n"
+          }
         ]
       }
     },
@@ -79,6 +97,24 @@
           "heartbeat-6.json",
           "routine-results-5.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-4.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-6.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-5.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true,\n  \"name\": \"Buddy\"\n}\n"
+          }
         ]
       }
     },
@@ -128,6 +164,28 @@
           "routine-results-8.json",
           "sessions\\sess_home_lead.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-7.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-9.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-8.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Project A is building; it got to step 3.\"},{\"role\":\"assistant\",\"content\":\"Project B finished its tests.\"},{\"role\":\"user\",\"content\":\"What is B doing?\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
         ]
       }
     },
@@ -176,6 +234,28 @@
           "routine-results-11.json",
           "sessions\\sess_home_lead.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-10.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-12.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-11.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Daily news: three items.\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
         ]
       }
     },
@@ -217,6 +297,24 @@
           "heartbeat-15.json",
           "routine-results-14.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-13.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-15.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-14.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
         ]
       }
     },
@@ -261,6 +359,24 @@
           "routine-results-17.json.bak",
           "sessions\\sess_home_lead.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-17.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-17.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Project A is building; it got to step 3.\"},{\"role\":\"assistant\",\"content\":\"Project B finished its tests.\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
         ]
       }
     },
@@ -283,6 +399,20 @@
           "routine-results-20.json",
           "routine-results-20.json.bak",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-20.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-20.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": false\n}\n"
+          }
         ]
       }
     },
@@ -317,6 +447,24 @@
           "routine-results-23.json.bak",
           "sessions\\sess_home_lead.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "routine-results-23.json",
+            "text": "{\n  \"homes\": {},\n  \"omitted\": {},\n  \"delivered\": {\n    \"sess_home_lead\": [\n      \"heartbeat_1\"\n    ]\n  },\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "routine-results-23.json.bak",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "sessions\\sess_home_lead.json",
+            "text": "{\"id\":\"sess_home_lead\",\"messages\":[{\"role\":\"assistant\",\"content\":\"Project A is building; it got to step 3.\"},{\"role\":\"assistant\",\"content\":\"Project B finished its tests.\"}]}"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
         ]
       }
     },
@@ -355,6 +503,24 @@
           "heartbeat-27.json",
           "routine-results-26.json",
           "agents\\lead\\agent.json"
+        ],
+        "profileContentsAfter": [
+          {
+            "file": "heartbeat-25.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "heartbeat-27.json",
+            "text": "{\n  \"lastBeatAt\": 1800000000000,\n  \"lastAttemptAt\": 0,\n  \"lastUserInputAt\": 0,\n  \"lastAppInputAt\": 0,\n  \"approvals\": 0,\n  \"lastHash\": \"\",\n  \"routines\": {},\n  \"pending\": [],\n  \"dismissed\": [],\n  \"unreleased\": [],\n  \"reviews\": {},\n  \"lastReport\": null\n}\n"
+          },
+          {
+            "file": "routine-results-26.json",
+            "text": "{\n  \"homes\": {\n    \"sess_home_lead\": [\n      {\n        \"runId\": \"heartbeat_1\",\n        \"kind\": \"agent-message\",\n        \"text\": \"Project A got to step 3.\",\n        \"at\": 1\n      }\n    ]\n  },\n  \"omitted\": {},\n  \"delivered\": {},\n  \"rounds\": {},\n  \"watches\": {},\n  \"owned\": {},\n  \"wakes\": {}\n}\n"
+          },
+          {
+            "file": "agents\\lead\\agent.json",
+            "text": "{\n  \"created\": true\n}\n"
+          }
         ]
       }
     },

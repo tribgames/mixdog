@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 14078,
+      "bytes": 25871,
       "path": "golden.json",
-      "sha256": "973f1a38b7abacbdf47379990464214442809dbbac43efb43fc128f0661e9286"
+      "sha256": "4e0868e25ef6fbb85aa59c6d0758f7679a562ab1cbda5427833952fabc9b148d"
     }
   ],
   "inputs": [
@@ -67,12 +67,13 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mixy-presence-cases.mjs",
-  "recorderSha256": "7ceb4ae8c8f18b69b36d5b5d6fcc22bda6a2191be004be2c41a5cb712b3f3b73",
+  "recorderSha256": "61d49ec5bc63ed715efca9baa3f46928a9ba576a7591ef66a5a0eccd4b4a6cca",
   "replay": {
-    "compare": "mixdog-core run_host heartbeat_parts.rs, home_directory.rs (mixy_exists), routine owner check and the home delivery drain: build the same profile (setup) and compare answers, the lead status, the lead manifest bytes and the profile file list after",
+    "compare": "mixdog-core run_host heartbeat_parts.rs, home_directory.rs (mixy_exists), routine owner check and the home delivery drain: build the same profile (setup) and compare answers, the lead status, the lead manifest bytes, the profile file list after and the text of each of those files (the session file rebuilt from the core's thread as Node wrote it)",
     "entry": "Drive these public items on o1: mixdog-core/src/run_host/heartbeat_parts.rs:262 production_heartbeat; mixdog-core-agents/src/agents/mod.rs:209 AgentDefinitions (lead_status (agents/mod.rs:701), set_lead_created (agents/lead.rs:134), mixy_exists (agents/mod.rs:715)); mixdog-services/src/bots/delivery/home.rs:589 drain; mixdog-services/src/bots/delivery/queue.rs:536 pending_homes.",
     "declared": {
-      "cases[*].observed.profileFilesAfter": "compared, with two mappings: the core's session store keeps the home thread as sessions\\<id>\\log.<n>, Node as sessions\\<id>.json (record-mixy-presence-cases.mjs:48-49), so a session directory counts as Node's one file, at Node's depth in the readdir walk (:74); and these core-only files, which Node's profile has no counterpart of, are left out by name: index\\store.sqlite, index\\store.sqlite-shm, index\\store.sqlite-wal (the core's session/search index database; Node keeps no index file), migration\\complete.json, migration\\journal.000000, migration\\manifest.json (the core's record that the profile was imported from the Node layout; Node is that layout). Every other file, the heartbeat and routine-result state files and agents\\lead\\agent.json included, must be the same name in the same order"
+      "cases[*].observed.profileFilesAfter": "compared, with two mappings: the core's session store keeps the home thread as sessions\\<id>\\log.<n>, Node as sessions\\<id>.json (record-mixy-presence-cases.mjs:48-49), so a session directory counts as Node's one file, at Node's depth in the readdir walk (:74); and these core-only files, which Node's profile has no counterpart of, are left out by name: index\\store.sqlite, index\\store.sqlite-shm, index\\store.sqlite-wal (the core's session/search index database; Node keeps no index file), migration\\complete.json, migration\\journal.000000, migration\\manifest.json (the core's record that the profile was imported from the Node layout; Node is that layout). Every other file, the heartbeat and routine-result state files and agents\\lead\\agent.json included, must be the same name in the same order",
+      "cases[*].observed.profileContentsAfter": "every file's text is compared byte for byte with the core's file of the same name, except sessions\\sess_home_lead.json: the core keeps the thread as framed binary logs (sessions\\sess_home_lead\\log.<n>, FORMAT.md §2), which cannot equal Node's one JSON text. Its text is rebuilt from the core's thread/read items as Node wrote it (`{\"id\":<id>,\"messages\":[{\"role\":\"user\"|\"assistant\",\"content\":<text>}]}`, userMessage as user, agentMessage as assistant), so the thread's messages, their order and their roles are compared. The core-only files of profileFilesAfter have no entry"
     },
     "existsButNotPublicOnO1": [
       "routineOwnerProblem: mixdog-core/src/run_host/routine_host.rs:114 `owner_problem` is private",
@@ -109,6 +110,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "mixy-presence-cases",
-  "totalBytes": 14078,
+  "totalBytes": 25871,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
