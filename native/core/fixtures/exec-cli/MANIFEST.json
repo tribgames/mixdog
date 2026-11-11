@@ -4,19 +4,26 @@
   "exact": true,
   "exclusions": {
     "chunking": "consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process",
-    "others (core only): models.dev catalog": "the core fetches the models.dev and GitHub model catalogs at start (the stand-in's certificate covers neither host, so the connect is the record); Node's exec does not",
+    "others (core only): GitHub catalog connect": "the core fetches the GitHub model catalog at start (the stand-in's certificate does not cover the host, so the connect is the record); Node's exec does not",
+    "others (core only): models.dev connect": "the core fetches the models.dev model catalog at start (the stand-in's certificate does not cover the host, so the connect is the record); Node's exec does not",
     "others (core only): provider cost report": "the core reads the provider's cost report at start; Node's exec does not",
-    "others (node only): tool binary downloads": "Node fetches its three tool binaries (graph, patch, spawn) on first use and tries to download the memory runtime for its session ingest; the core ships its tools natively and downloads nothing here",
+    "others (node only): graph binary download": "Node fetches its graph tool binary on first use; the core ships its tools natively and downloads nothing here",
+    "others (node only): memory runtime download": "Node's exec ingests its session into the memory runtime, downloading it into its throwaway data folder (served here as the release serves it); whether the exec asks before it ends follows timing, the core keeps no such runtime",
+    "others (node only): patch binary download": "Node fetches its patch tool binary on first use; the core ships its tools natively and downloads nothing here",
+    "others (node only): spawn binary download": "Node fetches its spawn tool binary on first use; the core ships its tools natively and downloads nothing here",
     "stderr (core only): goal recovery line": "the core logs its boot-time goal recovery summary to the exec's stderr; Node's exec keeps its daemon log in a file",
-    "stderr (core only): lifecycle not bound": "the exec composes its in-process core without the serving lifecycle that `serve` binds, so the core logs its startup-bug line for each request (compose.rs request_started); Node's exec writes nothing of the kind",
-    "stderr (core only): model catalog fetch failure": "the core fetches the models.dev and GitHub catalogs (the others it makes that Node's exec does not) and logs the stand-in's refusal",
-    "stderr (node only): ask error diagnostic": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
-    "stderr (node only): lock wait diagnostic": "Node logs a wait on its own session-summary lock file; the wait is a timing fact of its file layer",
-    "stderr (node only): model listing diagnostic": "Node logs its background model listing that the stand-in answers 404; the core writes no such line, and its place follows a background timer",
+    "stderr (core only): model catalog fetch failure (GitHub)": "the core fetches the GitHub model catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
+    "stderr (core only): model catalog fetch failure (models.dev)": "the core fetches the models.dev catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
+    "stderr (node only): ask error diagnostic (refused request)": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
+    "stderr (node only): ask error diagnostic (stream error)": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
+    "stderr (node only): lock wait diagnostic": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer (the durations and the throwaway folder's name are normalized)",
+    "stderr (node only): model listing diagnostic": "Node logs its background model listing that the stand-in answers 404 (twice per run); the core writes no such line",
     "stderr (node only): node process warning": "Node writes its own process warning for the built-in SQLite module; no other runtime has the module",
     "stderr (node only): node warning hint": "the second line of the same Node process warning",
-    "stderr (node only): session ingest diagnostic": "after the answer Node's exec ingests its session into the memory runtime, which it tries to download (the stand-in answers 404), and logs the failure if the process is still alive to; whether the line is written before the process ends follows timing",
-    "stderr (node only): titling diagnostic": "Node logs its background session titling (start, disabled, generated); its place follows a background timer"
+    "stderr (node only): titling disabled diagnostic": "Node logs that its titling has no maintenance route; the core has no titling in the exec",
+    "stderr (node only): titling generated diagnostic": "Node logs the empty title its titling got from the stand-in's refused request; the core has no titling in the exec",
+    "stderr (node only): titling start diagnostic (session)": "Node logs the start of its background session titling; the core has no titling in the exec",
+    "stderr (node only): titling start diagnostic (thread)": "the same line of the --json run, which names the thread by its exec id"
   },
   "fileCount": 7,
   "files": [
@@ -73,21 +80,46 @@
   "nodeVersion": "v22.20.0",
   "othersNotCompared": [
     {
-      "name": "tool binary downloads",
-      "pattern": "^GET https://github\\.com/tribgames/mixdog/releases/download/",
-      "reason": "Node fetches its three tool binaries (graph, patch, spawn) on first use and tries to download the memory runtime for its session ingest; the core ships its tools natively and downloads nothing here",
+      "name": "graph binary download",
+      "reason": "Node fetches its graph tool binary on first use; the core ships its tools natively and downloads nothing here",
+      "request": "GET https://github.com/tribgames/mixdog/releases/download/graph-v0.1.35/mixdog-graph-win32-x64.exe",
       "side": "node"
     },
     {
-      "name": "models.dev catalog",
-      "pattern": "^CONNECT (models\\.dev|raw\\.githubusercontent\\.com)$",
-      "reason": "the core fetches the models.dev and GitHub model catalogs at start (the stand-in's certificate covers neither host, so the connect is the record); Node's exec does not",
+      "name": "patch binary download",
+      "reason": "Node fetches its patch tool binary on first use; the core ships its tools natively and downloads nothing here",
+      "request": "GET https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-win32-x64.exe",
+      "side": "node"
+    },
+    {
+      "name": "spawn binary download",
+      "reason": "Node fetches its spawn tool binary on first use; the core ships its tools natively and downloads nothing here",
+      "request": "GET https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.12/mixdog-spawn-win32-x64.exe",
+      "side": "node"
+    },
+    {
+      "name": "memory runtime download",
+      "reason": "Node's exec ingests its session into the memory runtime, downloading it into its throwaway data folder (served here as the release serves it); whether the exec asks before it ends follows timing, the core keeps no such runtime",
+      "request": "GET https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz",
+      "side": "node",
+      "timing": true
+    },
+    {
+      "name": "models.dev connect",
+      "reason": "the core fetches the models.dev model catalog at start (the stand-in's certificate does not cover the host, so the connect is the record); Node's exec does not",
+      "request": "CONNECT models.dev",
+      "side": "core"
+    },
+    {
+      "name": "GitHub catalog connect",
+      "reason": "the core fetches the GitHub model catalog at start (the stand-in's certificate does not cover the host, so the connect is the record); Node's exec does not",
+      "request": "CONNECT raw.githubusercontent.com",
       "side": "core"
     },
     {
       "name": "provider cost report",
-      "pattern": "^GET https://api\\.anthropic\\.com/v1/organizations/cost_report$",
       "reason": "the core reads the provider's cost report at start; Node's exec does not",
+      "request": "GET https://api.anthropic.com/v1/organizations/cost_report",
       "side": "core"
     }
   ],
@@ -109,67 +141,86 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-exec-cli.mjs",
-  "recorderSha256": "87f412027e1c65708a39804d093e30120de0541c8c0520997b8a260d493dcb82",
+  "recorderSha256": "771950f4652556aeba87d0ce0c8349cc1082030d2b12cbc596d76dc44dff064a",
   "set": "exec-cli",
   "stderrNotCompared": [
     {
+      "line": "(node:<pid>) ExperimentalWarning: SQLite is an experimental feature and might change at any time",
       "name": "node process warning",
-      "pattern": "^\\(node:<pid>\\) ExperimentalWarning: SQLite is an experimental feature",
       "reason": "Node writes its own process warning for the built-in SQLite module; no other runtime has the module",
       "side": "node"
     },
     {
+      "line": "(Use `node --trace-warnings ...` to show where the warning was created)",
       "name": "node warning hint",
-      "pattern": "^\\(Use `node --trace-warnings \\.\\.\\.` to show where the warning was created\\)$",
       "reason": "the second line of the same Node process warning",
       "side": "node"
     },
     {
+      "line": "[anthropic] listModels fetch failed (list_models 404)",
       "name": "model listing diagnostic",
-      "pattern": "^\\[anthropic\\] listModels fetch failed \\(list_models 404\\)$",
-      "reason": "Node logs its background model listing that the stand-in answers 404; the core writes no such line, and its place follows a background timer",
+      "reason": "Node logs its background model listing that the stand-in answers 404 (twice per run); the core writes no such line",
       "side": "node"
     },
     {
-      "name": "titling diagnostic",
-      "pattern": "^\\[mixdog\\] llm-title ",
-      "reason": "Node logs its background session titling (start, disabled, generated); its place follows a background timer",
+      "line": "[mixdog] llm-title start id=<session> stage=first chars=2",
+      "name": "titling start diagnostic (session)",
+      "reason": "Node logs the start of its background session titling; the core has no titling in the exec",
       "side": "node"
     },
     {
-      "name": "ask error diagnostic",
-      "pattern": "^\\[ask-error\\] ",
+      "line": "[mixdog] llm-title start id=<thread> stage=first chars=2",
+      "name": "titling start diagnostic (thread)",
+      "reason": "the same line of the --json run, which names the thread by its exec id",
+      "side": "node"
+    },
+    {
+      "line": "[mixdog] llm-title disabled stage=first (maintenance route unresolved; llm titling off)",
+      "name": "titling disabled diagnostic",
+      "reason": "Node logs that its titling has no maintenance route; the core has no titling in the exec",
+      "side": "node"
+    },
+    {
+      "line": "[mixdog] llm-title generated id=<session> stage=first title=\"\"",
+      "name": "titling generated diagnostic",
+      "reason": "Node logs the empty title its titling got from the stand-in's refused request; the core has no titling in the exec",
+      "side": "node"
+    },
+    {
+      "line": "[ask-error] session=<session> name=AnthropicSseError status=400 code=invalid_request_error type=invalid_request_error kind=permanent msg=\"Anthropic SSE error invalid_request_error: the turn broke\"",
+      "name": "ask error diagnostic (stream error)",
       "reason": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
       "side": "node"
     },
     {
+      "line": "[ask-error] session=<session> name=Error status=400 code=invalid_request_error kind=permanent msg=\"400 {\\\"type\\\":\\\"error\\\",\\\"error\\\":{\\\"type\\\":\\\"invalid_request_error\\\",\\\"message\\\":\\\"the request was refused\\\"}}\"",
+      "name": "ask error diagnostic (refused request)",
+      "reason": "Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes",
+      "side": "node"
+    },
+    {
+      "line": "[atomic-file] async lock wait <ms>: queueWaitMs=<ms> osAcquireMs=<ms> <sandbox>\\tmp\\mixdog-headless-pristine-<id>\\data\\session-summaries.json.lock",
       "name": "lock wait diagnostic",
-      "pattern": "^\\[atomic-file\\] async lock wait ",
-      "reason": "Node logs a wait on its own session-summary lock file; the wait is a timing fact of its file layer",
-      "side": "node"
+      "reason": "Node logs a wait on its own session-summary lock file when the OS is slow to grant it; whether and for how long is a timing fact of its file layer (the durations and the throwaway folder's name are normalized)",
+      "side": "node",
+      "timing": true
     },
     {
-      "name": "session ingest diagnostic",
-      "pattern": "^\\[session-search\\] ingest <session> failed: ",
-      "reason": "after the answer Node's exec ingests its session into the memory runtime, which it tries to download (the stand-in answers 404), and logs the failure if the process is still alive to; whether the line is written before the process ends follows timing",
-      "side": "node"
-    },
-    {
-      "name": "lifecycle not bound",
-      "pattern": "^\\[daemon\\] a request was admitted before the lifecycle was bound; it is not counted$",
-      "reason": "the exec composes its in-process core without the serving lifecycle that `serve` binds, so the core logs its startup-bug line for each request (compose.rs request_started); Node's exec writes nothing of the kind",
-      "side": "core"
-    },
-    {
+      "line": "[daemon] active Goal recovery found=0 resumed=0 skipped=0 failed=0",
       "name": "goal recovery line",
-      "pattern": "^\\[daemon\\] active Goal recovery found=",
       "reason": "the core logs its boot-time goal recovery summary to the exec's stderr; Node's exec keeps its daemon log in a file",
       "side": "core"
     },
     {
-      "name": "model catalog fetch failure",
-      "pattern": "^\\[model-catalog\\] ",
-      "reason": "the core fetches the models.dev and GitHub catalogs (the others it makes that Node's exec does not) and logs the stand-in's refusal",
+      "line": "[model-catalog] models.dev fetch failed: fetch failed",
+      "name": "model catalog fetch failure (models.dev)",
+      "reason": "the core fetches the models.dev catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
+      "side": "core"
+    },
+    {
+      "line": "[model-catalog] fetch failed: fetch failed",
+      "name": "model catalog fetch failure (GitHub)",
+      "reason": "the core fetches the GitHub model catalog at start, which Node's exec does not, and logs the failed connect (the stand-in's certificate does not cover the host)",
       "side": "core"
     }
   ],

@@ -146,6 +146,8 @@ impl CoreLauncher for InProcessLauncher {
             .spawn(async move { mixdog_app_server_daemon::compose::compose(&tokens, config).await.map_err(|error| error.to_string()) })
             .await
             .map_err(|error| error.to_string())??;
+        // Before the first request: the lifecycle counts the exec's calls as the daemon's counts its own.
+        core.late_lifecycle().bind_in_process().map_err(|cell| format!("the {cell} was already bound"))?;
         let core = Arc::new(core);
         let (connector, shutdown) = mixdog_app_server_daemon::server::serve_in_process(core.clone(), outgoing).map_err(|error| format!("{error:?}"))?;
         let info: ClientInfo = serde_json::from_value(serde_json::json!({ "name": "mixdog-exec", "version": env!("CARGO_PKG_VERSION"), "kind": "cli" })).map_err(|error| error.to_string())?;
