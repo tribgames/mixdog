@@ -165,8 +165,44 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Notification, "host/update/report", &["/state/message"]),
     (Kind::Answer, "host/update/command", &["/message"]),
     (Kind::Answer, "host/screen/displays", &["/*/label"]),
-    // Language-server params the editor wrote (a rename's new name, a symbol query), sent to the server process.
-    (Kind::Request, "lsp/request", &["/request/params/**"]),
+    // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): only text the server shows or
+    // writes into a document as given. A rename's new name, a symbol query, a command, a trigger character, a URI, a token,
+    // a diagnostic and a server's own `data` are looked up, run or matched by the server: refused (recorded,
+    // native/core/fixtures/lone-surrogate-wire).
+    (
+        Kind::Request,
+        "lsp/request",
+        &[
+            "/request/params/detail",
+            "/request/params/documentation",
+            "/request/params/documentation/value",
+            "/request/params/labelDetails/detail",
+            "/request/params/labelDetails/description",
+            "/request/params/insertText",
+            "/request/params/textEditText",
+            "/request/params/textEdit/newText",
+            "/request/params/additionalTextEdits/*/newText",
+            "/request/params/textEdits/*/newText",
+            "/request/params/title",
+            "/request/params/command/title",
+            "/request/params/label/*/command/title",
+            "/request/params/disabled/reason",
+            "/request/params/tooltip",
+            "/request/params/tooltip/value",
+            "/request/params/label/*/tooltip",
+            "/request/params/label/*/tooltip/value",
+            "/request/params/edit/changes/*/*/newText",
+            "/request/params/edit/documentChanges/*/edits/*/newText",
+            "/request/params/edit/changeAnnotations/*/label",
+            "/request/params/edit/changeAnnotations/*/description",
+            "/request/params/item/detail",
+            "/request/params/context/activeSignatureHelp/signatures/*/label",
+            "/request/params/context/activeSignatureHelp/signatures/*/documentation",
+            "/request/params/context/activeSignatureHelp/signatures/*/documentation/value",
+            "/request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation",
+            "/request/params/context/activeSignatureHelp/signatures/*/parameters/*/documentation/value",
+        ],
+    ),
     // A patch's text (file content), given to `git apply`.
     (Kind::Request, "git/applyPatch", &["/patch"]),
     // Values a person types into a form: a workflow's inputs, a provider's or a server's header values and extra body fields.
@@ -276,7 +312,9 @@ mod tests {
         // A map: its values are free text by `*`, its keys stay refused unless a `{}` pattern names them.
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/env/HOME")]), None);
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[LoneAt::Key("/input/env/HOME".into())]), Some("/input/env/HOME"));
-        // A server's header value goes on the wire: refused.
+        // A server's header value goes on the wire: refused. A language server's params per field.
         assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/headers/X-Token")]), Some("/input/headers/X-Token"));
+        assert_eq!(refused(Kind::Request, "lsp/request", &[text("/request/params/newName")]), Some("/request/params/newName"));
+        assert_eq!(refused(Kind::Request, "lsp/request", &[text("/request/params/textEdit/newText")]), None);
     }
 }
