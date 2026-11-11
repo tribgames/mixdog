@@ -69,7 +69,7 @@ async fn all_shown(announced: watch::Receiver<u64>, shown: &std::sync::Mutex<Vec
     };
     let deadline = tokio::time::Instant::now() + SHOWN_DEADLINE;
     for (thread, mut follower) in followers {
-        if tokio::time::timeout_at(deadline, follower.wait_for(|count| *count >= target)).await.is_err() {
+        if mixdog_rt::time::timeout_at(deadline,follower.wait_for(|count| *count >= target)).await.is_err() {
             tracing::warn!("thread {thread} did not show settings change {target} within {}s; the settings call answers without it", SHOWN_DEADLINE.as_secs());
         }
     }
