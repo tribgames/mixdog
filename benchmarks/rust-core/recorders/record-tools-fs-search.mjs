@@ -669,6 +669,16 @@ const SCENARIOS = [
         `hit ${'f'.repeat(1200)}`,
       ].join('\n')}\n`,
       'bin/ok.ts': 'export const ok = "hit";\n',
+      // Several patterns' attribution (lib/grep-pattern-fanout.mjs attributeCombinedLines): each JavaScript regex is
+      // tested on the clipped output line, so a match past column 500 or one only ripgrep's dialect sees is unattributed.
+      'attr/a.ts': lines(6, (i) => [
+        `${'x'.repeat(520)} needle`,
+        'needle and other',
+        'just other',
+        `${'y'.repeat(510)} other needle`,
+        `needle ${'z'.repeat(600)}`,
+        'q7 posix class',
+      ][i]),
     };
     const mtimes = {};
     for (const d of ['f1', 'f2', 'f3', 'f4', 'f5']) {
@@ -742,6 +752,18 @@ const SCENARIOS = [
         ...both({ pattern: 'edge', context: 0 }, ['edge', 'm'], 'edge'),
         ...both({ pattern: 'edge' }, ['edge/edges.ts', 'm'], 'edge/edges.ts'),
         ...both({ pattern: 'last', context: 3 }, ['edge/edges.ts', 'bin/ok.ts'], 'edge/edges.ts'),
+        ...both({ pattern: 'needle' }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['needle', 'other'] }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['needle', 'other'], context: 0 }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['needle', 'other'], context: 2 }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['q[[:digit:]]', 'other'] }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['q[[:digit:]]', 'other'], context: 0 }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['zzz1', 'zzz2'] }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['zzz1', 'zzz2'], context: 0 }, ['attr', 'edge'], 'attr'),
+        // The pattern list (grep-request.mjs resolveGrepRequest): non-empty, each once, the first 10 with a note.
+        ...both({ pattern: ['other', '', 'other'], context: 0 }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['just', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'other'], context: 0 }, ['attr', 'edge'], 'attr'),
+        ...both({ pattern: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'just'], output_mode: 'files_with_matches' }, ['attr', 'edge'], 'attr'),
       ],
     }];
   })(),

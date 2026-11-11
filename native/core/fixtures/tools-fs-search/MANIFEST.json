@@ -97,9 +97,9 @@
       "sha256": "5264200a9744bedbeec9da4deb056f167d4da8e6486f2b4414c1476d90a26029"
     },
     {
-      "bytes": 260061,
+      "bytes": 294674,
       "path": "grep-render.json",
-      "sha256": "59bf301de8df0ee7f0a9061c807607832e73a5cc836950be040ba5d9326d9f6b"
+      "sha256": "f47d0462c5584598017b3da13012e3d0464491a57624b54cafd5ee73603edab0"
     },
     {
       "bytes": 8255,
@@ -202,7 +202,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "506e4117876bc2cdddbe4fe6c95214aebd7151b719381c7332d742ffd02803e1",
+  "recorderSha256": "508ae9de12240574653cf842e420d5f0985b5f56f5366cbe5776d5c9cd97e391",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -233,5 +233,5 @@
     "path-arg-shapes"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 2539364
+  "totalBytes": 2573977
 }
