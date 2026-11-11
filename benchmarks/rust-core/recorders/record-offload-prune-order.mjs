@@ -32,7 +32,14 @@
 //                       a `stray` nothing names: resumed while the archive cannot be read (a directory in its place),
 //                       closed, the archive put back, resumed again;
 //   nothing-to-prune    a session (not compacted) whose transcript names its old sidecar and whose other sidecar is
-//                       young: resumed; each file's mtime is recorded too.
+//                       young: resumed; each file's mtime is recorded too;
+//   clear-fork          a session (not compacted) whose transcript names `named` (a `stray` nothing names) is cleared
+//                       as an agent home's fresh start (`archiveAs`: its conversation copied to the fork first),
+//                       closed and resumed: the fork keeps `named`;
+//   heir-fork           as clear-fork, but a new session inherits the conversation (`inheritToNewSession`), the heir
+//                       is cleared with a fork and the source without one: the heir's fork keeps `named`;
+//   owner-let-go        the session is resumed and closed (its writer claim let go) while the resume's reconcile
+//                       lists its directory: nothing is deleted; it is resumed again.
 // "Adopted, before its save" is the commit's timing line (`recordCompactionTiming`); "while it lists" is the prune's
 // `readdir` of the session's tool-result directory. At each observed point the recording holds the session's
 // tool-result directory whole (every file in `readdir` order, its text) and the stored transcript whole (the session's
@@ -84,12 +91,16 @@ const { parseSessionLog, resolveSessionRecordSync } = await importFrom(tree, `${
 const { encodePatch } = await importFrom(tree, `${S}/store/session-log-format.mjs`);
 const { loadLegacySession } = await importFrom(tree, `${S}/store/legacy-session.mjs`);
 const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
-// The prune's listing: `pruneOffloadSession` reads the directory with `readdir` of node:fs/promises.
+const { createLifecycleApi } = await importFrom(tree, 'src/session-runtime/lifecycle-api.mjs');
+// The prune's listing: `pruneOffloadSession` reads the directory with `readdir` of node:fs/promises. `onListing` sees
+// it; `holdListing` may return a promise the listing waits for.
 let onListing = null;
+let holdListing = null;
 const readdir = fsp.readdir;
 fsp.readdir = function (path, ...rest) {
   onListing?.(String(path));
-  return readdir.call(this, path, ...rest);
+  const held = holdListing?.(String(path));
+  return held ? held.then(() => readdir.call(this, path, ...rest)) : readdir.call(this, path, ...rest);
 };
 syncBuiltinESMExports();
 
@@ -340,6 +351,51 @@ const SCENARIOS = {
     points.push({ ...(await resumed(seeded)), at: 'after-readable-resume' });
     return [{ changed: null, error: null }, points];
   },
+  'clear-fork': async (seeded) => {
+    // An agent home's fresh start: the conversation is copied to the archive id (the fork), then cleared.
+    const forkId = `${seeded.sessionId}_archive`;
+    seeded.seed.forkId = forkId;
+    if (!(await manager.clearSessionMessages(seeded.sessionId, { archiveAs: forkId }))) throw new Error('not cleared');
+    await settleRecorder(forkId);
+    await settleRecorder(seeded.sessionId);
+    const points = [point('after-clear', seeded)];
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    points.push(await resumed(seeded));
+    return [{ changed: null, error: null }, points];
+  },
+  'heir-fork': async (seeded) => {
+    // A new session inherits the conversation (`inheritToNewSession`); the heir is cleared with a fork (the fork holds
+    // the copy), the source without one (`fork: false`).
+    const provider = { name: 'anthropic', contextWindow: 128_000, send: async () => ({ content: 'no turn runs' }) };
+    const lifecycle = createLifecycleApi({ getSession: () => null, getRoute: () => ({ provider: 'anthropic', model: 'fake-model' }), mgr: manager, invalidateContextStatusCache() {}, saveSession() {} });
+    const { sessionId: heirId } = await _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(seeded.sessionId));
+    if (!(await manager.clearSessionMessages(heirId))) throw new Error('the heir was not cleared');
+    if (!(await manager.clearSessionMessages(seeded.sessionId, { fork: false }))) throw new Error('not cleared');
+    await settleRecorder(heirId);
+    await settleRecorder(seeded.sessionId);
+    const points = [point('after-clear', seeded)];
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    points.push(await resumed(seeded));
+    return [{ changed: null, error: null }, points];
+  },
+  'owner-let-go': async (seeded) => {
+    // The resume's reconcile has listed the directory; the session is closed (its writer claim let go) before the
+    // reconcile reads on. It is then resumed again.
+    let release;
+    const listed = new Promise((resolve) => (release = resolve));
+    holdListing = (path) => (path.endsWith(seeded.sessionId) ? listed : null);
+    try {
+      evictLiveSession(seeded.sessionId);
+      if (!(await manager.resumeSession(seeded.sessionId))) throw new Error(`${seeded.sessionId} was not resumed`);
+      if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    } finally {
+      holdListing = null;
+      release();
+    }
+    await _settleDeferredPrunesForTest();
+    await settleRecorder(seeded.sessionId);
+    return [{ changed: null, error: null }, [point('after-close', seeded), await resumed(seeded)]];
+  },
   'nothing-to-prune': async (seeded) => {
     const before = point('before-resume', seeded, { mtimes: true });
     evictLiveSession(seeded.sessionId);
@@ -365,6 +421,23 @@ const PLAIN = {
         { role: 'assistant', content: 'noted' },
       ]
     ),
+  ...Object.fromEntries(
+    ['clear-fork', 'heir-fork', 'owner-let-go'].map((tag) => [
+      tag,
+      () =>
+        plainSession(
+          tag,
+          [
+            { role: 'named', content: `named output of ${tag}`, mtimeMs: SIDECAR_MTIME_MS },
+            { role: 'stray', content: `stray output of ${tag}`, mtimeMs: SIDECAR_MTIME_MS },
+          ],
+          (files) => [
+            { role: 'user', content: `the result is at ${files.named}` },
+            { role: 'assistant', content: 'noted' },
+          ]
+        ),
+    ])
+  ),
   'nothing-to-prune': () =>
     plainSession(
       'nothing-to-prune',
@@ -458,6 +531,8 @@ writeSetManifest(stage, {
     exclusions: {
       sessionFiles: "the session store's own files (sessions/<id>.json, <id>.log.jsonl) are Node's format; the core's store writes its own record log, so their names and bytes are not compared: the stored transcript is, whole, as each store reads it back",
       summary: 'the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere (compaction-commit)',
+      forks:
+        "clear-fork and heir-fork record the cleared session's directory and transcript; the fork's and the heir's transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
     },
   },
 });
