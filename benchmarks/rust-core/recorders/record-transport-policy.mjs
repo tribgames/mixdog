@@ -12,7 +12,8 @@ const rec = await startRecording({
   set: 'provider-transport-policy',
   net: false,
   entry: 'openai-transport-policy.mjs resolveOpenAiTransportPolicy / resolveResponsesTransportPolicy / _normalizeTransportMode / _gateTransportMode, openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame, openai-codex-metadata.mjs _withCodexWsClientMetadata, openai-ws-stream.mjs _captureTurnStateFromEvent, gemini-stream.mjs geminiChunkProgressKind, shared/stream-progress.mjs isVisibleStreamProgress, openai-ws-pool.mjs acquireWebSocket / releaseWebSocket with _setOpenSocketForTest(opener) scripted. Not run: a real socket.',
-  replay: 'mixdog-ai registry builder.rs:461-467 (transport mapping; K1 gaps G11: ws-full/ws-delta env pins), providers::openai delta.rs / client_meta.rs:108-147 / pool.rs:178-230, and mixdog-core stream-progress: feed `input` and compare `result` whole.',
+  compare: 'mixdog-ai registry builder.rs:461-467 (transport mapping; K1 gaps G11: ws-full/ws-delta env pins), providers::openai delta.rs / client_meta.rs:108-147 / pool.rs:178-230, and mixdog-core stream-progress: feed `input` and compare `result` whole.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:494), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178). The mode selection is DefaultProviderBuilder::build (registry/builder.rs:1295).",
 });
 const P = 'agent/orchestrator/providers/';
 const policy = await rec.P(`${P}openai-transport-policy.mjs`);
@@ -159,10 +160,10 @@ await run('turn-state-never-enters-connection-handshake', 370, {}, async () => {
     first.entry.socket.readyState = 3;
     const replacement = await acquireWebSocket({ auth, poolKey, cacheKey });
     const replacementState = { opened: [...openedWith], turnState: replacement.entry.turnState };
-    // A concurrent acquire for the same session waits for the live owner: one event-loop turn shows it has not resolved.
+    // A concurrent acquire for the same session waits for the live owner: after 1 ms of virtual time (every due timer run, microtasks drained) it has not resolved.
     let parallelResolved = false;
     const parallelPromise = acquireWebSocket({ auth, poolKey, cacheKey }).then((value) => { parallelResolved = true; return value; });
-    await new Promise((resolve) => setImmediate(resolve));
+    await rec.clock.advance(1);
     const waiting = { resolved: parallelResolved, opened: openedWith.length };
     releaseWebSocket({ entry: replacement.entry, poolKey, keep: true });
     const parallel = await parallelPromise;

@@ -1,6 +1,7 @@
 {
   "set": "provider-transport-policy",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "policy-defaults-and-modes",
@@ -126,6 +127,46 @@
             }
           }
         }
+      ],
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-full"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-delta"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "http-sse"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "quantum"
+            }
+          ]
+        }
       ]
     },
     {
@@ -178,7 +219,63 @@
             "verbosity": "low"
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._buildResponseCreateFrame",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "input": [
+                {
+                  "a": 1
+                },
+                {
+                  "b": 2
+                }
+              ],
+              "stream": true,
+              "background": false,
+              "text": {
+                "verbosity": "low"
+              }
+            },
+            {
+              "omitTransportFields": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._buildResponseCreateFrame",
+          "args": [
+            {
+              "model": "gpt-5.5",
+              "input": [
+                {
+                  "a": 1
+                },
+                {
+                  "b": 2
+                }
+              ],
+              "stream": true,
+              "background": false,
+              "text": {
+                "verbosity": "low"
+              }
+            },
+            {
+              "previousResponseId": "resp_prev",
+              "inputOverride": [
+                {
+                  "b": 2
+                }
+              ],
+              "omitTransportFields": true
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "mode-token-aliases",
@@ -228,6 +325,56 @@
           "bogus",
           null
         ]
+      ],
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            "WS_FULL"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            "  ws delta "
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            "http/sse"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            "sse"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            "auto"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            "official"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            ""
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._normalizeTransportMode",
+          "args": [
+            "bogus"
+          ]
+        }
       ]
     },
     {
@@ -282,7 +429,43 @@
             ]
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  }
+                ],
+                "lastResponseItems": []
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "prev"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "ws-full-forces-computeDelta-full",
@@ -328,7 +511,38 @@
             ]
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs._computeDelta",
+          "args": [
+            {
+              "entry": {
+                "lastRequestSansInput": "{\"model\":\"gpt-5.5\"}",
+                "lastResponseId": "resp_prev",
+                "lastRequestInput": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ],
+                "lastResponseItems": []
+              },
+              "body": {
+                "model": "gpt-5.5",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "responses-policy-full-caps-equal-legacy",
@@ -539,6 +753,109 @@
           },
           "equal": true
         }
+      ],
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {},
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-full"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-full"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-delta"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-delta"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "http-sse"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "http-sse"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveOpenAiTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "quantum"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "quantum"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        }
       ]
     },
     {
@@ -595,7 +912,22 @@
             "delta": true
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-delta"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "responses-policy-xai",
@@ -682,7 +1014,72 @@
             "delta": true
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {},
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "auto"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-delta"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "ws-full"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs.resolveResponsesTransportPolicy",
+          "args": [
+            {
+              "MIXDOG_OAI_TRANSPORT": "http-sse"
+            },
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "stream-progress-visible-ttft",
@@ -773,7 +1170,131 @@
             "kind": "tool"
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/shared/stream-progress.mjs.isVisibleStreamProgress",
+          "args": [
+            "transport"
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/stream-progress.mjs.isVisibleStreamProgress",
+          "args": [
+            "semantic"
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/stream-progress.mjs.isVisibleStreamProgress",
+          "args": [
+            "text"
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/stream-progress.mjs.isVisibleStreamProgress",
+          "args": [
+            "reasoning"
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/stream-progress.mjs.isVisibleStreamProgress",
+          "args": [
+            "tool"
+          ]
+        },
+        {
+          "entry": "src/runtime/shared/stream-progress.mjs.isVisibleStreamProgress",
+          "args": [
+            {
+              "$exact": "undefined"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.geminiChunkProgressKind",
+          "args": [
+            {
+              "usageMetadata": {}
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.geminiChunkProgressKind",
+          "args": [
+            {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "thought": true,
+                        "text": "thinking"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.geminiChunkProgressKind",
+          "args": [
+            {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "thought": true,
+                        "thoughtSignature": "opaque"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.geminiChunkProgressKind",
+          "args": [
+            {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "text": "answer"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.geminiChunkProgressKind",
+          "args": [
+            {
+              "candidates": [
+                {
+                  "content": {
+                    "parts": [
+                      {
+                        "functionCall": {
+                          "name": "read"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "gate-transport-mode-down-shifts",
@@ -871,7 +1392,185 @@
             ]
           ]
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "auto",
+            {
+              "ws": true,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-full",
+            {
+              "ws": true,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-delta",
+            {
+              "ws": true,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "http-sse",
+            {
+              "ws": true,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "auto",
+            {
+              "ws": false,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-full",
+            {
+              "ws": false,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-delta",
+            {
+              "ws": false,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "http-sse",
+            {
+              "ws": false,
+              "http": true,
+              "delta": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "auto",
+            {
+              "ws": true,
+              "http": false,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-full",
+            {
+              "ws": true,
+              "http": false,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-delta",
+            {
+              "ws": true,
+              "http": false,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "http-sse",
+            {
+              "ws": true,
+              "http": false,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "auto",
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-full",
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "ws-delta",
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs._gateTransportMode",
+          "args": [
+            "http-sse",
+            {
+              "ws": true,
+              "http": true,
+              "delta": true
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "turn-state-captured-once-never-synthesized",
@@ -904,7 +1603,44 @@
             "turnState": "tok-1"
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._captureTurnStateFromEvent",
+          "args": [
+            {},
+            {
+              "type": "response.created",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._captureTurnStateFromEvent",
+          "args": [
+            {},
+            {
+              "type": "response.created",
+              "headers": {
+                "x-codex-turn-state": "tok-1"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._captureTurnStateFromEvent",
+          "args": [
+            {
+              "turnState": "tok-1"
+            },
+            {
+              "headers": {
+                "x-codex-turn-state": "tok-2"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "turn-state-nested-header-shapes",
@@ -917,7 +1653,37 @@
         "fromMeta": {
           "turnState": "tok-m"
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._captureTurnStateFromEvent",
+          "args": [
+            {},
+            {
+              "response": {
+                "headers": {
+                  "x-codex-turn-state": "tok-r"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._captureTurnStateFromEvent",
+          "args": [
+            {},
+            {
+              "response": {
+                "metadata": {
+                  "headers": {
+                    "x-codex-turn-state": "tok-m"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "turn-state-echoed-within-turn-dropped-across",
@@ -975,7 +1741,66 @@
           "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65",
           "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65"
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs._withCodexWsClientMetadata",
+          "args": [
+            {},
+            {
+              "turnState": "tok-A"
+            },
+            true,
+            {
+              "sendOpts": {
+                "turnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+                "codexSessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+                "threadId": "019fc135-f07a-7880-8767-ec3b7be1de63"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs._withCodexWsClientMetadata",
+          "args": [
+            {},
+            {
+              "turnState": "tok-A",
+              "turnStateScope": null,
+              "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+              "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+            },
+            true,
+            {
+              "sendOpts": {
+                "turnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+                "codexSessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+                "threadId": "019fc135-f07a-7880-8767-ec3b7be1de63"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs._withCodexWsClientMetadata",
+          "args": [
+            {},
+            {
+              "turnState": "tok-A",
+              "turnStateScope": null,
+              "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+              "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+            },
+            true,
+            {
+              "sendOpts": {
+                "turnId": "019fc135-f07a-7880-8767-ec3b7be1de65",
+                "codexSessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+                "threadId": "019fc135-f07a-7880-8767-ec3b7be1de63"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "turn-state-prewarm-seeds-logical-turn",
@@ -1032,7 +1857,87 @@
           "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65",
           "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de65"
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs._withCodexWsClientMetadata",
+          "args": [
+            {},
+            {},
+            true,
+            {
+              "poolKey": "prewarm-turn-state-session",
+              "sendOpts": {
+                "requestKind": "prewarm",
+                "turnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+                "codexSessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+                "threadId": "019fc135-f07a-7880-8767-ec3b7be1de63"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs._captureTurnStateFromEvent",
+          "args": [
+            {
+              "turnState": null,
+              "turnStateScope": "prewarm-turn-state-session",
+              "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+              "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+            },
+            {
+              "type": "response.metadata",
+              "headers": {
+                "x-codex-turn-state": "tok-prewarm"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs._withCodexWsClientMetadata",
+          "args": [
+            {},
+            {
+              "turnState": "tok-prewarm",
+              "turnStateScope": "prewarm-turn-state-session",
+              "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+              "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+            },
+            true,
+            {
+              "poolKey": "prewarm-turn-state-session",
+              "sendOpts": {
+                "requestKind": "turn",
+                "turnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+                "codexSessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+                "threadId": "019fc135-f07a-7880-8767-ec3b7be1de63"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs._withCodexWsClientMetadata",
+          "args": [
+            {},
+            {
+              "turnState": "tok-prewarm",
+              "turnStateScope": "prewarm-turn-state-session",
+              "turnStateTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64",
+              "currentTurnId": "019fc135-f07a-7880-8767-ec3b7be1de64"
+            },
+            true,
+            {
+              "poolKey": "prewarm-turn-state-session",
+              "sendOpts": {
+                "requestKind": "turn",
+                "turnId": "019fc135-f07a-7880-8767-ec3b7be1de65",
+                "codexSessionId": "019fc135-f07a-7880-8767-ec3b7be1de63",
+                "threadId": "019fc135-f07a-7880-8767-ec3b7be1de63"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "turn-state-parity-disabled-untouched",
@@ -1046,7 +1951,26 @@
         "entryAfter": {
           "turnState": "tok-A"
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-codex-metadata.mjs._withCodexWsClientMetadata",
+          "args": [
+            {
+              "input": []
+            },
+            {
+              "turnState": "tok-A"
+            },
+            false,
+            {
+              "sendOpts": {
+                "turnId": "turn-A"
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "turn-state-never-enters-connection-handshake",
@@ -1081,7 +2005,115 @@
             null
           ]
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
+          "args": [
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "account_id": "acct-1"
+              },
+              "poolKey": "sess-turn-state-1",
+              "cacheKey": "cache-turn-state-1"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "Maximum call stack size exceeded"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "account_id": "acct-1"
+              },
+              "poolKey": "sess-turn-state-1",
+              "cacheKey": "cache-turn-state-1"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "account_id": "acct-1"
+              },
+              "poolKey": "sess-turn-state-1",
+              "cacheKey": "cache-turn-state-1"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "Maximum call stack size exceeded"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "account_id": "acct-1"
+              },
+              "poolKey": "sess-turn-state-2",
+              "cacheKey": "cache-turn-state-1"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "Maximum call stack size exceeded"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "Maximum call stack size exceeded"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
+          "args": [
+            null
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
+          "args": []
+        }
+      ]
     }
   ]
 }
