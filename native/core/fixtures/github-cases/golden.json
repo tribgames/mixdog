@@ -4440,14 +4440,9 @@
           {
             "rejected": {
               "$exact": "error",
-              "name": "Error",
-              "message": "EEXIST: file already exists, mkdir '<tmp>\\github-clone-race-XXXXXX\\clone'",
-              "code": "EEXIST",
-              "props": {
-                "errno": -4075,
-                "syscall": "mkdir",
-                "path": "<tmp>\\github-clone-race-XXXXXX\\clone"
-              }
+              "name": "TypeError",
+              "message": "Clone destination already exists. Choose a new directory; existing files are never removed.",
+              "props": {}
             }
           }
         ]
