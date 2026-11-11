@@ -75,119 +75,124 @@
         {
           "label": "other session is current",
           "deleted": true,
-          "calls": [
-            [
-              "close",
-              "parent",
-              "desktop-session-delete",
-              {
-                "tombstone": false,
-                "isSessionLive": {
-                  "function": "isSessionLive",
-                  "result": false
+          "view": {
+            "calls": [
+              [
+                "close",
+                "parent",
+                "desktop-session-delete",
+                {
+                  "tombstone": false,
+                  "isSessionLive": {
+                    "function": "isSessionLive",
+                    "resultAtCall": false,
+                    "resultAfterOp": false
+                  }
                 }
-              }
+              ],
+              [
+                "cancelTasks",
+                {
+                  "reason": "desktop-session-delete",
+                  "notify": false,
+                  "executionSessionId": "parent"
+                }
+              ],
+              [
+                "clearRoute",
+                "parent"
+              ],
+              [
+                "delete",
+                "parent"
+              ]
             ],
-            [
-              "cancelTasks",
-              {
-                "reason": "desktop-session-delete",
-                "notify": false,
-                "executionSessionId": "parent"
-              }
+            "cleaned": [
+              [
+                "parent",
+                "other",
+                "C:\\one"
+              ]
             ],
-            [
-              "clearRoute",
+            "forgotten": [
               "parent"
             ],
-            [
-              "delete",
-              "parent"
-            ]
-          ],
-          "cleaned": [
-            [
-              "parent",
-              "other",
-              "C:\\one"
-            ]
-          ],
-          "forgotten": [
-            "parent"
-          ],
-          "state": {
-            "session": {
-              "id": "other"
-            },
-            "route": {
-              "provider": "p",
-              "model": "m",
-              "effort": "low"
-            },
-            "desktop": null,
-            "cwd": "C:\\one"
+            "state": {
+              "session": {
+                "id": "other"
+              },
+              "route": {
+                "provider": "p",
+                "model": "m",
+                "effort": "low"
+              },
+              "desktop": null,
+              "cwd": "C:\\one"
+            }
           }
         },
         {
           "label": "a bound current session is deleted",
           "deleted": true,
-          "calls": [
-            [
-              "cancelTasks",
-              {
-                "reason": "desktop-session-delete",
-                "notify": false,
-                "executionSessionId": "parent"
-              }
+          "view": {
+            "calls": [
+              [
+                "cancelTasks",
+                {
+                  "reason": "desktop-session-delete",
+                  "notify": false,
+                  "executionSessionId": "parent"
+                }
+              ],
+              [
+                "clearRoute",
+                "parent"
+              ],
+              [
+                "close",
+                "parent",
+                "desktop-session-delete",
+                {
+                  "tombstone": true
+                }
+              ],
+              [
+                "cwd",
+                "C:\\project"
+              ],
+              [
+                "invalidateContext"
+              ],
+              [
+                "invalidateTools"
+              ],
+              [
+                "create"
+              ]
             ],
-            [
-              "clearRoute",
+            "cleaned": [
+              [
+                "parent",
+                "fresh",
+                "C:\\project"
+              ]
+            ],
+            "forgotten": [
               "parent"
             ],
-            [
-              "close",
-              "parent",
-              "desktop-session-delete",
-              {
-                "tombstone": true
-              }
-            ],
-            [
-              "cwd",
-              "C:\\project"
-            ],
-            [
-              "invalidateContext"
-            ],
-            [
-              "invalidateTools"
-            ],
-            [
-              "create"
-            ]
-          ],
-          "cleaned": [
-            [
-              "parent",
-              "fresh",
-              "C:\\project"
-            ]
-          ],
-          "forgotten": [
-            "parent"
-          ],
-          "state": {
-            "session": {
-              "id": "fresh",
-              "messages": []
-            },
-            "route": {
-              "provider": "p",
-              "model": "m",
-              "effort": "low"
-            },
-            "desktop": null,
-            "cwd": "C:\\project"
+            "state": {
+              "session": {
+                "id": "fresh",
+                "messages": []
+              },
+              "route": {
+                "provider": "p",
+                "model": "m",
+                "effort": "low"
+              },
+              "desktop": null,
+              "cwd": "C:\\project"
+            }
           }
         }
       ]
@@ -275,8 +280,17 @@
             "visibility": "agent-only",
             "ownerSessionId": "parent",
             "realTurnCount": 1,
+            "updatedAt": {
+              "$exact": "undefined"
+            },
             "lastUsedAt": 0,
             "cwd": "",
+            "model": {
+              "$exact": "undefined"
+            },
+            "provider": {
+              "$exact": "undefined"
+            },
             "messageCount": 1,
             "title": "",
             "preview": "hi",
@@ -297,7 +311,8 @@
               "tombstone": false,
               "isSessionLive": {
                 "function": "isSessionLive",
-                "result": false
+                "resultAtCall": false,
+                "resultAfterOp": false
               }
             }
           ],
@@ -382,7 +397,8 @@
               "tombstone": false,
               "isSessionLive": {
                 "function": "isSessionLive",
-                "result": false
+                "resultAtCall": false,
+                "resultAfterOp": false
               }
             }
           ],
@@ -747,7 +763,7 @@
           "desktop": null,
           "cwd": "C:\\one"
         },
-        "sessionStoreDir": "<DATA>/sessions"
+        "sessionStoreDir": "<DATA>\\sessions"
       }
     }
   ]
