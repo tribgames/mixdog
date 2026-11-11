@@ -281,7 +281,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     // The core takes a custom provider under a `custom-<uuid>` id; Node's recording registered it as `sensitive-writes`. The
     // secret card's audit row names the answering client (this one); Node's recording answered in process, with no client.
     // The core's data folder is `home/.mixdog/data`, Node's recording's `mixdog_data_dir` (the paths an archive reference names).
-    const aliases = [[CUSTOM, 'sensitive-writes'], ['"device":"sw-replay"', '"device":""'], [p.data, join('<profile>', 'mixdog_data_dir')]];
+    const aliases = [[CUSTOM, 'sensitive-writes'], ['"decision":"entered","device":"sw-replay"', '"decision":"entered","device":""'], [p.data, join('<profile>', 'mixdog_data_dir')]];
     const normalized = normalizeTree(profile, { sessionId: threadId, workspace: ws, aliases });
     // 2. The model input per provider call, against Node's, after the same normalisation.
     if (requests.length !== golden.sends.length) {
@@ -300,14 +300,21 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const coreFiles = Object.keys(normalized.files);
     writeFileSync(join(base, 'files.json'), JSON.stringify(normalized.files, null, 1));
     console.log(`the cores wrote ${coreFiles.length} files:\n  ${coreFiles.join('\n  ')}`);
-    for (const [name, want] of Object.entries(golden.files)) {
+    for (let [name, want] of Object.entries(golden.files)) {
       if (typeof want !== 'string' || Object.hasOwn(golden.noCoreCounterpart ?? {}, name) || Object.hasOwn(golden.notCompared ?? {}, name)) continue;
       const core = coreFiles.find((file) => file.endsWith(name.replace(/^mixdog_data_dir\//, '.mixdog/data/')));
       if (!core) {
         console.log(`NODE-ONLY ${name}`);
         continue;
       }
-      const got = normalized.files[core];
+      // Ids are numbered by first appearance across the whole tree, and the core keeps files Node does not (its own data
+      // folder's install files) ahead of these: a file is compared with its ids numbered by first appearance in it.
+      const local = (text) => {
+        const seen = new Map();
+        return text.replace(/<id:\d+>/g, (id) => (seen.has(id) ? seen.get(id) : seen.set(id, `<id:${seen.size}>`).get(id)));
+      };
+      const got = local(normalized.files[core]);
+      want = local(want);
       console.log(`${got === want ? 'SAME' : 'DIFF'} ${name}`);
       if (got !== want) {
         bad += 1;

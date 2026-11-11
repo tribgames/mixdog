@@ -165,7 +165,9 @@ async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -
     let rows = ctx.redactor.redact(transcript.iter().map(|m| ctx.rows.row(m)).collect());
     let mut out = String::new();
     for (message, row) in transcript.iter().zip(&rows) {
-        let line = format!("{}\n", mixdog_js::json_stringify(row));
+        let mut row = row.clone();
+        without_message_ids(&mut row);
+        let line = format!("{}\n", mixdog_js::json_stringify(&row));
         if line.len() < ARCHIVE_BLOB_MIN_BYTES {
             out.push_str(&line);
             continue;
@@ -184,6 +186,34 @@ async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -
         out.push_str(&format!("{}\n", mixdog_js::json_stringify(&JsonValue::Object(wrapper))));
     }
     Ok(out)
+}
+
+/// `withoutMessageIdsReplacer` (`message-ids.mjs`): every `meta` whose `transcript.messageId` is a string loses the id and
+/// its `reactions` (display bookkeeping), an emptied `transcript` and an emptied `meta` going with them.
+fn without_message_ids(value: &mut JsonValue) {
+    match value {
+        JsonValue::Array(items) => items.iter_mut().for_each(without_message_ids),
+        JsonValue::Object(object) => {
+            let strip = object
+                .get("meta")
+                .and_then(|meta| meta.pointer("/transcript/messageId"))
+                .is_some_and(JsonValue::is_string);
+            if strip && let Some(JsonValue::Object(meta)) = object.get_mut("meta") {
+                if let Some(JsonValue::Object(transcript)) = meta.get_mut("transcript") {
+                    transcript.shift_remove("messageId");
+                    transcript.shift_remove("reactions");
+                    if transcript.is_empty() {
+                        meta.shift_remove("transcript");
+                    }
+                }
+                if meta.is_empty() {
+                    object.shift_remove("meta");
+                }
+            }
+            object.values_mut().for_each(without_message_ids);
+        }
+        _ => {}
+    }
 }
 
 /// Dump paths a recovery reminder names, oldest first.
