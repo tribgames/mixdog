@@ -161,7 +161,7 @@ impl ConnectionHub {
         let period = Duration::from_millis(self.inner.limits.heartbeat_tick_ms);
         mixdog_rt::spawn("transport.heartbeat", TaskClass::Control, async move {
             let mut interval =
-                tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+                mixdog_rt::time::interval_at(tokio::time::Instant::now() + period, period);
             loop {
                 interval.tick().await;
                 let Some(inner) = hub.upgrade() else { return };

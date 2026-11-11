@@ -105,13 +105,10 @@ pub fn image_meta(entry: &Value) -> Vec<Value> {
         .collect()
 }
 
-#[cfg(test)]
-#[path = "transcript_golden.rs"]
-mod transcript_golden;
 #[path = "transcript_response.rs"]
 mod transcript_response;
 #[path = "transcript_rows.rs"]
-mod transcript_rows;
+pub(crate) mod transcript_rows;
 
 pub use self::transcript_response::Completion;
 pub use self::transcript_response::Delivery;

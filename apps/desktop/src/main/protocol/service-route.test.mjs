@@ -237,6 +237,17 @@ test('setVisibleSessions resumes the new visible threads and unsubscribes the on
   ]);
 });
 
+test('a visible set older than or equal to the newest one sent changes nothing; an unversioned one applies', async () => {
+  const { calls, service } = lane();
+  await service.call('setVisibleSessions', [['a'], 2]);
+  assert.equal(await service.call('setVisibleSessions', [['b'], 1]), true);
+  assert.equal(await service.call('setVisibleSessions', [['b'], 2]), true);
+  assert.deepEqual(calls.map((call) => [call.method, call.params.threadId]), [['thread/resume', 'a']]);
+  await service.call('setVisibleSessions', [['c']]);
+  await assert.rejects(service.call('setVisibleSessions', [['d'], 0]), /visible session version/);
+  assert.deepEqual(calls.map((call) => [call.method, call.params.threadId]), [['thread/resume', 'a'], ['thread/unsubscribe', 'a'], ['thread/resume', 'c']]);
+});
+
 test('a replaced core client gets the visible threads resumed again; one it refuses is dropped and resumed by the next visible set', async () => {
   const calls = [];
   let replaced;

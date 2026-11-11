@@ -52,7 +52,7 @@ pub trait ConfigSeams: Send + Sync + 'static {
     /// the thread whose header is `header`.
     fn route_config(&self, header: &Header) -> mixdog_app_protocol::v2::thread::ThreadRoute;
     /// The saved configuration's change counter: it moves when a settings change is applied (`announceSettingsChange`).
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>>;
+    fn settings_changes(&self, thread: &ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed>;
     /// `readSection('agent').instructionFiles`, the stored setting.
     fn stored_instruction_files(&self) -> Option<Value>;
     /// The install's reply language `(code, name)` (`build_lead_language`), asked only for a header that

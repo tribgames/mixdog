@@ -7,8 +7,6 @@ mod store;
 
 #[cfg(test)]
 mod asks_tests;
-#[cfg(test)]
-mod tests;
 
 pub use store::GatewayUsage;
 pub use store::LEGACY_FILE;

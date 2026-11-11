@@ -103,7 +103,7 @@ impl RouteMaintainer {
 #[async_trait]
 impl Maintainer for RouteMaintainer {
     async fn decide(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
-        tokio::time::timeout(self.timeout, self.step(step)).await.unwrap_or_else(|_| Err(TIMED_OUT.into()))
+        mixdog_rt::time::timeout(self.timeout, self.step(step)).await.unwrap_or_else(|_| Err(TIMED_OUT.into()))
     }
 }
 

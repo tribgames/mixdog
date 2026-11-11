@@ -482,6 +482,9 @@ impl SessionState {
     /// The route section as clients hold it: the session's route (`baseRouteState`) under what producers published.
     pub fn route(&self) -> ThreadRoute {
         let header_text = |key: &str| self.header.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        // A pick held for the next turn (`pendingRoute`) is the runtime's route already (Node's `getRoute()`): the state shows its
+        // provider, model and effort while the session still runs on its own (`sessionProvider` / `sessionModel`).
+        let held_text = |key: &str| self.held_pick().and_then(|pick| pick.get(key)).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
         let initial = ThreadRoute {
             session_provider: header_text("provider"),
             session_model: header_text("model"),
@@ -489,9 +492,9 @@ impl SessionState {
             fast_capable: Some(false),
             auto_effort: Some(true),
             model_parameters: Some(Default::default()),
-            effort: header_text("effort"),
-            provider: header_text("provider"),
-            model: header_text("model"),
+            effort: held_text("effort").or_else(|| header_text("effort")),
+            provider: held_text("provider").or_else(|| header_text("provider")),
+            model: held_text("model").or_else(|| header_text("model")),
             effort_options: Some(Vec::new()),
             cwd: header_text("cwd"),
             session_forked_from: header_text("forkedFrom"),
@@ -505,9 +508,16 @@ impl SessionState {
     pub fn context(&self) -> ThreadContext {
         let header_number = |key: &str| self.header.get(key).and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map(|n| n as i64);
         let initial = ThreadContext {
-            display_context_window: Some(0),
-            auto_compact_token_limit: Some(0),
-            compact_boundary_tokens: Some(0),
+            // The display window and the compaction limits Node fills on its first status pass (`syncContextDisplayFields`) are the
+            // session's seated route figures its header records: the core shows the settled values from the start.
+            display_context_window: Some(header_number("contextWindow").unwrap_or(0)),
+            auto_compact_token_limit: Some(header_number("autoCompactTokenLimit").unwrap_or(0)),
+            compact_boundary_tokens: Some(header_number("compactBoundaryTokens").unwrap_or(0)),
+            // `runtime.contextPercent`, the selected route's: a held pick's once one is held.
+            context_percent: self.held_pick().and_then(|pick| pick.get("contextPercent")).and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0),
+            // `runtime.contextWindow` (baseRouteState), the session's window as its header holds it: Node publishes it on the first
+            // status pass, the core holds it from the start.
+            context_window: header_number("contextWindow"),
             raw_context_window: header_number("rawContextWindow"),
             effective_context_window_percent: header_number("effectiveContextWindowPercent"),
             stats: Some(super::stats::SessionStats::default().json(0)),
@@ -519,6 +529,11 @@ impl SessionState {
     /// The workflow section before a producer publishes one: the session's workflow meta (`toSessionWorkflowMeta`:
     /// `id`, `name`, `description`, `source`, `delegatesAgents`) as the header holds it, the configured orchestration
     /// mode (`getOrchestrationMode`, `balanced` by default), and no pending switch (`baseRouteState`).
+    /// The route pick held for the next turn (`pendingRoute`, Node's `heldRoutePick`).
+    fn held_pick(&self) -> Option<&serde_json::Map<String, Value>> {
+        self.header.get("pendingRoute").and_then(Value::as_object)
+    }
+
     fn initial_workflow(&self) -> ThreadWorkflow {
         ThreadWorkflow {
             workflow: self.header.get("workflow").filter(|workflow| workflow.is_object()).cloned(),

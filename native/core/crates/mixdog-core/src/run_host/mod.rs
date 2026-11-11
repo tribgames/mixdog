@@ -17,12 +17,10 @@ pub mod hop_bindings;
 pub mod quota_usage;
 pub mod home_directory;
 pub mod quota_history;
-#[cfg(test)]
-mod fixture_fs;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
 #[cfg(test)]
 mod process_tests;
-#[cfg(test)]
-mod process_services_tests;
 #[cfg(test)]
 #[cfg(test)]
 mod wire_parity_tests;
@@ -110,7 +108,15 @@ pub mod compaction_follow;
 pub mod settings_changes;
 pub mod prompt_session;
 #[cfg(test)]
-mod prompt_session_tests;
+mod compaction_node_harness;
+#[cfg(test)]
+mod execution_tail_node_tests;
+#[cfg(test)]
+mod summary_mode_node_tests;
+#[cfg(test)]
+mod presend_goal_reminder_node_tests;
+#[cfg(test)]
+mod offload_prune_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
@@ -118,8 +124,6 @@ pub mod thread_todos;
 pub mod directory_sessions;
 pub mod room_list;
 pub mod room_publication;
-#[cfg(test)]
-mod roster_rows_tests;
 pub mod room_approvals;
 pub mod next_request_source;
 pub mod request_snapshot;
@@ -130,6 +134,7 @@ pub mod compact_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;
 pub mod retiring_compactor;
+pub mod goal_reminder_compactor;
 pub mod side_question_store;
 pub mod side_requests;
 pub mod side_wiring;

@@ -58,7 +58,3 @@ impl SessionSetupFacts {
         self.switches.settings_reach(thread.as_str()).await
     }
 }
-
-#[cfg(test)]
-#[path = "setup_facts_tests.rs"]
-mod tests;

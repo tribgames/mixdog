@@ -33,6 +33,8 @@ pub mod signals;
 pub mod status_rows;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_marks_tests;
 
 pub use self::sessions::AgentOwnerTeardown;
 pub use self::sessions::AgentSessions;
@@ -1237,6 +1239,8 @@ pub struct StoreWorkers {
     index: SqliteStore,
     threads: Arc<dyn ThreadState>,
     writes: mpsc::UnboundedSender<WriteOp>,
+    /// Each write numbered as it is queued, reported once its patch was applied or failed.
+    marks: Arc<mixdog_rt::WriteMarks>,
     io: InteractiveIo,
     /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
     signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
@@ -1244,9 +1248,10 @@ pub struct StoreWorkers {
 }
 
 /// What the writer task is asked: one session's map, a kept session's map, or to say when everything before it was applied.
+/// A map from `WorkerStore::write` carries its number in [`StoreWorkers::marks`].
 enum WriteOp {
-    Write(String, Option<Row>),
-    Keep(String, Option<Row>),
+    Write(String, Option<Row>, u64),
+    Keep(String, Option<Row>, Option<u64>),
     Barrier(tokio::sync::oneshot::Sender<Result<(), String>>),
 }
 
@@ -1353,6 +1358,8 @@ impl StoreWorkers {
     pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo, kept: Arc<KeptRows>) -> Self {
         let (writes, mut rx) = mpsc::unbounded_channel::<WriteOp>();
         let (patcher, keeper) = (threads.clone(), kept.clone());
+        let marks = Arc::new(mixdog_rt::WriteMarks::new("the agent index"));
+        let reported = marks.clone();
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
             // Kept writes the table refused, in order, each session's newest only: they stay queued ahead of newer writes and
             // are retried by the next write, a flush (`settled`) or the retry timer, as Node's index queue requeues a failed
@@ -1371,16 +1378,26 @@ impl StoreWorkers {
                     }
                 };
                 let Some(op) = op else { break };
-                if let WriteOp::Keep(session, _) = &op {
+                if let WriteOp::Keep(session, ..) = &op {
                     owed.retain(|(id, _)| id != session);
                 }
                 let refused = retry_owed(&keeper, &mut owed).await;
-                let (session, worker) = match op {
-                    WriteOp::Write(session, worker) => (session, worker),
-                    WriteOp::Keep(session, worker) => {
-                        if let Err(error) = keeper.put(&session, worker.clone()).await {
-                            tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
-                            owed.push((session, worker));
+                let (session, worker, mark) = match op {
+                    WriteOp::Write(session, worker, mark) => (session, worker, mark),
+                    WriteOp::Keep(session, worker, mark) => {
+                        match keeper.put(&session, worker.clone()).await {
+                            Ok(()) => {
+                                if let Some(mark) = mark {
+                                    reported.written(mark);
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "[agent] a kept worker row was not saved; it stays queued");
+                                if let Some(mark) = mark {
+                                    reported.failed(mark, format!("the kept worker row of {session}: {error}"));
+                                }
+                                owed.push((session, worker));
+                            }
                         }
                         continue;
                     }
@@ -1397,7 +1414,7 @@ impl StoreWorkers {
                 let thread = ThreadId::from(session.as_str());
                 // A failed patch leaves the registry's own copy in force; it is retried by the
                 // next write of the session.
-                let _ = match worker {
+                let patched = match worker {
                     Some(map) => {
                         let mut set = Map::new();
                         set.insert("worker".into(), Value::Object(map));
@@ -1405,9 +1422,13 @@ impl StoreWorkers {
                     }
                     None => patcher.patch_header(&thread, Map::new(), vec!["worker".into()]).await,
                 };
+                match patched {
+                    Ok(()) => reported.written(mark),
+                    Err(error) => reported.failed(mark, format!("the worker row of {session}: {error:?}")),
+                }
             }
         }));
-        Self { index, threads, writes, io, signals: std::sync::OnceLock::new(), kept }
+        Self { index, threads, writes, marks, io, signals: std::sync::OnceLock::new(), kept }
     }
 }
 
@@ -1427,7 +1448,7 @@ impl WorkerStore for StoreWorkers {
         if worker.is_some() {
             self.kept.ids().insert(session.to_owned());
         }
-        let _ = self.writes.send(WriteOp::Keep(session.to_owned(), worker));
+        let _ = self.writes.send(WriteOp::Keep(session.to_owned(), worker, None));
     }
 
     fn kept(&self, session: &str) -> bool {
@@ -1454,8 +1475,15 @@ impl WorkerStore for StoreWorkers {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
-        let op = if self.kept.holds(session) { WriteOp::Keep(session.to_owned(), worker) } else { WriteOp::Write(session.to_owned(), worker) };
-        let _ = self.writes.send(op);
+        let mark = self.marks.accept();
+        let op = if self.kept.holds(session) {
+            WriteOp::Keep(session.to_owned(), worker, Some(mark))
+        } else {
+            WriteOp::Write(session.to_owned(), worker, mark)
+        };
+        if self.writes.send(op).is_err() {
+            self.marks.withdrawn(mark);
+        }
         // Node's registry announces a row change where it makes it, not when the file settles.
         if let Some(signals) = self.signals.get() {
             signals.worker_rows(session);
@@ -1471,6 +1499,12 @@ impl StoreWorkers {
         let (done, applied) = tokio::sync::oneshot::channel();
         self.writes.send(WriteOp::Barrier(done)).map_err(|_| "the worker writer is closed".to_owned())?;
         applied.await.map_err(|_| "the worker writer ended before the flush".to_owned())?
+    }
+
+    /// The writes' numbers: a barrier takes `accepted()` when it arrives and waits for `reached` of it, every write made
+    /// before it applied to the headers (after `AgentRegistry::flush_active_worker_rows`, Node's `store.flushSync()`).
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.marks
     }
 
     /// Binds the status signals; a second bind is refused.

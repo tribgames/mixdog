@@ -75,7 +75,7 @@ impl RuntimeHooks for OfficeStartup {
             mixdog_rt::spawn("office-journal-sweep", mixdog_rt::TaskClass::Work, async move {
                 #[cfg(test)]
                 let thread = call.thread.clone();
-                let finished = matches!(tokio::time::timeout(SWEEP_LIMIT, sweep(pool, call)).await, Ok(true));
+                let finished = matches!(mixdog_rt::time::timeout(SWEEP_LIMIT, sweep(pool, call)).await, Ok(true));
                 sweeps.end(finished);
                 #[cfg(test)]
                 if finished {

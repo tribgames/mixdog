@@ -122,6 +122,9 @@ impl Runner<'_> {
             Err(ScmFailure::Cancelled) => GitRun::failed(RunError::Aborted),
             Err(ScmFailure::TimedOut { .. }) => GitRun::failed(RunError::TimedOut),
             Err(ScmFailure::OutputTooLarge { .. }) => GitRun::failed(RunError::Overflow),
+            // `result.error.code || result.error.message`: a refused start is named by its code alone.
+            Err(ScmFailure::Spawn { code: "ENOENT", .. }) => GitRun::failed(RunError::NotFound),
+            Err(ScmFailure::Spawn { code, .. }) => GitRun::failed(RunError::Spawn(code.to_owned())),
             Err(other) => GitRun::failed(RunError::Spawn(other.to_string())),
         }
     }
@@ -140,7 +143,7 @@ impl Runner<'_> {
                 return run;
             }
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(delay)) => {}
+                _ = mixdog_rt::time::sleep(Duration::from_millis(delay)) => {}
                 _ = self.cancel.cancelled() => return run,
             }
             retry_ms += delay;
@@ -351,6 +354,48 @@ mod tests {
         assert!(capped.truncated && capped.total_lines == 4);
         let capped = cap_output("aaaa\nbbbb\ncccc\n", Cap { lines: 10, chars: 7 });
         assert!(capped.text.starts_with("aaaa\n[output capped at 7 chars; 2 more lines (10 chars) omitted;"));
+    }
+
+    /// A process manager whose every start the system refuses for access (libuv's EPERM on Windows, EACCES elsewhere).
+    struct Refused;
+
+    use mixdog_core_api::domain::process as p;
+
+    #[async_trait::async_trait]
+    impl p::ProcessManager for Refused {
+        async fn spawn(&self, _request: p::SpawnRequest) -> Result<p::SpawnedProcess, p::ProcessError> {
+            Err(p::ProcessError::PermissionDenied)
+        }
+        fn subscribe(&self, _handle: &mixdog_protocol::ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<p::ProcessEvent>>, p::ProcessError> {
+            Err(p::ProcessError::UnknownHandle)
+        }
+        async fn write_stdin(&self, _handle: &mixdog_protocol::ProcessHandle, _bytes: Vec<u8>) -> Result<(), p::ProcessError> {
+            Err(p::ProcessError::UnknownHandle)
+        }
+        fn close_stdin(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), p::ProcessError> {
+            Err(p::ProcessError::UnknownHandle)
+        }
+        fn resize_pty(&self, _handle: &mixdog_protocol::ProcessHandle, _size: p::PtySize) -> Result<(), p::ProcessError> {
+            Err(p::ProcessError::UnknownHandle)
+        }
+        fn kill(&self, _handle: &mixdog_protocol::ProcessHandle) -> Result<(), p::ProcessError> {
+            Err(p::ProcessError::UnknownHandle)
+        }
+        fn list(&self) -> Vec<p::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    /// `runGit`'s `result.error.code || result.error.message`: the git tool names a refused start by its code alone,
+    /// `git process failed (EPERM)`.
+    #[tokio::test]
+    async fn a_refused_git_start_is_named_by_its_code_alone() {
+        let exec = Exec::new(std::sync::Arc::new(Refused));
+        let cancel = CancellationToken::new();
+        let runner = Runner { exec: &exec, cancel: &cancel, lane: mixdog_rt::testing::tokens().maintenance_io };
+        let run = runner.run_in(&std::env::temp_dir(), &[], &["status".to_owned()], true).await;
+        let code = if cfg!(windows) { "EPERM" } else { "EACCES" };
+        assert!(matches!(&run.error, Some(RunError::Spawn(text)) if text == code), "the start is named {code}");
     }
 
     #[test]
