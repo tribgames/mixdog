@@ -1,16 +1,28 @@
 #!/usr/bin/env node
-// Records what a manual compaction leaves on disk when the session moves around its prune, through Node's own
+// Records what a compaction leaves on disk when the session moves around its prune, through Node's own
 // `compactSessionMessages` with the prune-after-save fix (the prune runs once the compacted transcript is stored, idle
-// only; a prune a running turn stopped runs once the turn ends: `pruneCompactedOffloads`, `pruneOffloadSession`). A
-// stored session holds three sidecars an hour old on the recorder's clock: `kept` (the summary names it), `queued` (only
-// a queued message may name it) and `stray` (only the request the compaction drops names it). Cases:
+// only, reading the references the session holds when it deletes; a prune a running turn stopped is pending on disk,
+// `.prune-pending` in the session's tool-result directory, and runs once the turn ends or when the session is next
+// resumed: `pruneCompactedOffloads`, `pruneOffloadSession`, `resumePendingOffloadPrune`). A stored session holds three
+// sidecars an hour old on the recorder's clock: `kept` (the summary names it), `queued` (only a queued message may name
+// it) and `stray` (only the request the compaction drops names it). "A turn" is Node's own ask markers
+// (`markSessionAskStart`, and `markSessionDone` / `markSessionCancelled` / `markSessionError` for its end): the turn's
+// state and its end, no turn rows. Cases:
 //   queued-at-listing   a message naming `queued` is queued while the prune lists the session's sidecars;
 //   turn-before-save    a turn starts once the compaction is adopted, before its save; the turn then ends, and the
 //                       prune it stopped runs with no second compaction (`after-turn-end`);
 //   queued-before-save  the message is queued once the compaction is adopted, before its save;
 //   dropped             a delete's fence lands before the save: the save resolves dropped;
 //   superseded          another writer records after this copy before the save: the save is refused;
-//   thrown              the save's fsync fails.
+//   thrown              the save's fsync fails;
+//   auto-clear          the automatic compaction (`requireReduction`, the idle auto-clear's): pruned once saved;
+//   cancelled-turn      as turn-before-save, the turn cancelled;
+//   failed-turn         as turn-before-save, the turn failed;
+//   closed-before-turn-end  the session is closed (no tombstone, as a resume-away or an exit closes it) before the
+//                       turn ends, then resumed;
+//   process-stopped     the process stops before the turn ends (a child recorder process, which exits), then the
+//                       session is resumed;
+//   re-referenced       before the turn ends, the stored transcript names `stray` again: the prune keeps it.
 // "Adopted, before its save" is the commit's timing line (`recordCompactionTiming`); "while it lists" is the prune's
 // `readdir` of the session's tool-result directory. At each observed point the recording holds the session's
 // tool-result directory whole (every file in `readdir` order, its text) and the stored transcript whole (the session's
@@ -20,11 +32,14 @@
 //     --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch [--only <case>]
 //
 // Output: native/core/fixtures/offload-prune-order/golden.json (+ MANIFEST.json).
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import { appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { freezeClock } from './lib/mc-record.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -41,11 +56,16 @@ const CLOCK_MS = 1_800_000_000_000;
 const SIDECAR_MTIME_MS = CLOCK_MS - 3_600_000;
 freezeClock(CLOCK_MS);
 
-const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-offload-prune-order-'));
+// `--child process-stopped --data <dir>`: the process the case stops, on the parent's data dir.
+const child = args.get('child');
+const dataDir = child ? args.get('data') : mkdtempSync(join(tmpdir(), 'mixdog-offload-prune-order-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 const S = 'src/runtime/agent/orchestrator/session';
 const manager = await importFrom(tree, `${S}/manager.mjs`);
-const { drainSessionStore, fenceSessionWrites, loadSession, saveSessionAsync } = await importFrom(tree, `${S}/store.mjs`);
+const { drainSessionStore, evictLiveSession, fenceSessionWrites, loadSession, saveSessionAsync } = await importFrom(tree, `${S}/store.mjs`);
+const { settleRecorder } = await importFrom(tree, `${S}/store/session-writers.mjs`);
+const { settleSessionSummaryIndex } = await importFrom(tree, `${S}/store/listing.mjs`);
+const { closeSessionCatalogDb } = await importFrom(tree, `${S}/catalog-db/index.mjs`);
 const { persistToolResultArtifactSync } = await importFrom(tree, `${S}/tool-result-offload.mjs`);
 const { settlePendingMessageWrites } = await importFrom(tree, `${S}/manager/pending-messages.mjs`);
 const { _settleDeferredPrunesForTest } = await importFrom(tree, `${S}/manager/compaction-runner.mjs`);
@@ -93,9 +113,17 @@ async function storedSession(tag) {
   return { ...seeded, seed: { sessionId, sidecars, transcript: storedTranscript(seeded) } };
 }
 
+/** `storedSession(tag)`'s names, for the session another process stores. */
+function seededElsewhere(tag) {
+  const sessionId = `sess_prune_order_${tag.replaceAll('-', '_')}`;
+  const dir = join(dataDir, 'tool-results', sessionId);
+  const files = Object.fromEntries(ROLES.map((role) => [role, join(dir, `${createHash('sha256').update(`${role} output of ${tag}`).digest('hex')}.txt`)]));
+  return { sessionId, files, dir };
+}
+
 // `compactSessionMessages` with a summary naming `kept`; `adopted` runs once the compaction is adopted (the live session
 // then holds the compacted transcript, kept as `compacted`), before it is saved.
-async function compact(seeded, { adopted = () => {}, listing = () => {} } = {}) {
+async function compact(seeded, { adopted = () => {}, listing = () => {}, options = {} } = {}) {
   const { sessionId, files } = seeded;
   const write = process.stderr.write;
   process.stderr.write = function (chunk, ...rest) {
@@ -110,7 +138,7 @@ async function compact(seeded, { adopted = () => {}, listing = () => {} } = {}) 
   };
   const provider = { name: 'anthropic', send: async () => ({ content: summaryNaming(files.kept) }) };
   try {
-    return await _withRegisteredProviderForTestAsync('anthropic', provider, () => manager.compactSessionMessages(sessionId));
+    return await _withRegisteredProviderForTestAsync('anthropic', provider, () => manager.compactSessionMessages(sessionId, options));
   } finally {
     process.stderr.write = write;
     onListing = null;
@@ -150,6 +178,26 @@ async function settled(run) {
 }
 
 const queue = (seeded) => manager.enqueuePendingMessage(seeded.sessionId, { content: `look at ${seeded.files.queued}` });
+// A turn starts once the compaction is adopted, before its save: the prune is left pending.
+const underATurn = (seeded) => settled(compact(seeded, { adopted: () => manager.markSessionAskStart(seeded.sessionId) }));
+// The turn ends (`end`), and the prune it stopped has run.
+async function turnEnds(seeded, end) {
+  end(seeded.sessionId);
+  await _settleDeferredPrunesForTest();
+  return point('after-turn-end', seeded);
+}
+// The session is resumed (`resumeSession`, from its stored copy), and the pending prune has run.
+async function resumed(seeded) {
+  evictLiveSession(seeded.sessionId);
+  if (!(await manager.resumeSession(seeded.sessionId))) throw new Error(`${seeded.sessionId} was not resumed`);
+  await _settleDeferredPrunesForTest();
+  await settleRecorder(seeded.sessionId);
+  return point('after-resume', seeded);
+}
+const ended = (end) => async (seeded) => {
+  const outcome = await underATurn(seeded);
+  return [outcome, [point('after-commit', seeded), await turnEnds(seeded, end)]];
+};
 const SCENARIOS = {
   'queued-at-listing': async (seeded) => [await settled(compact(seeded, { listing: () => queue(seeded) })), [point('after-commit', seeded)]],
   'turn-before-save': async (seeded) => {
@@ -186,20 +234,65 @@ const SCENARIOS = {
       io.fsync = fsync;
     }
   },
+  'auto-clear': async (seeded) => [await settled(compact(seeded, { options: { requireReduction: true } })), [point('after-commit', seeded)]],
+  'cancelled-turn': ended((id) => manager.markSessionCancelled(id)),
+  'failed-turn': ended((id) => manager.markSessionError(id, 'the provider failed')),
+  'closed-before-turn-end': async (seeded) => {
+    const outcome = await underATurn(seeded);
+    const points = [point('after-commit', seeded)];
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    await _settleDeferredPrunesForTest();
+    points.push(point('after-close', seeded), await resumed(seeded));
+    return [outcome, points];
+  },
+  'process-stopped': async (seeded) => {
+    // The child recorder seeds this case's session on this data dir, compacts it under a turn and exits.
+    const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', args.get('tree'), '--patch', args.get('patch'), '--child', 'process-stopped', '--data', dataDir], {
+      encoding: 'utf8',
+      timeout: 120_000,
+      windowsHide: true,
+    });
+    if (run.status !== 0) throw new Error(`the stopped process failed: ${run.error ?? run.stderr}`);
+    const stopped = JSON.parse(run.stdout.trim().split('\n').at(-1));
+    seeded.seed = stopped.seed;
+    seeded.compacted = stopped.compacted;
+    return [stopped.outcome, [point('after-stop', seeded), await resumed(seeded)]];
+  },
+  're-referenced': async (seeded) => {
+    const outcome = await underATurn(seeded);
+    const points = [point('after-commit', seeded)];
+    // The turn names `stray` again; the session's transcript is stored before the turn ends.
+    const session = loadSession(seeded.sessionId);
+    session.messages.push({ role: 'user', content: `look again at ${seeded.files.stray}` });
+    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    points.push(point('after-reference', seeded), await turnEnds(seeded, (id) => manager.markSessionDone(id)));
+    return [outcome, points];
+  },
 };
+
+if (child === 'process-stopped') {
+  const seeded = await storedSession(child);
+  const outcome = await underATurn(seeded);
+  console.log(JSON.stringify({ seed: seeded.seed, compacted: seeded.compacted, outcome }));
+  process.exit(0);
+}
 
 const only = args.get('only');
 if (only && !SCENARIOS[only]) throw new Error(`no case ${only}`);
 const cases = [];
 for (const [name, scenario] of Object.entries(SCENARIOS)) {
   if (only && only !== name) continue;
-  const seeded = await storedSession(name);
+  // The stopped process seeds its own session (`--child`).
+  const seeded = name === 'process-stopped' ? seededElsewhere(name) : await storedSession(name);
   const [outcome, points] = await scenario(seeded);
   cases.push(masked({ name, ...outcome, seed: seeded.seed, compacted: seeded.compacted, points }));
 }
 
 await settlePendingMessageWrites({ throwOnTimeout: true });
 drainSessionStore();
+// A resume indexes the session in the catalog: its database is closed before the data dir is removed.
+await settleSessionSummaryIndex();
+await closeSessionCatalogDb();
 rmSync(dataDir, { recursive: true, force: true });
 if (only) {
   console.log(JSON.stringify(cases));
