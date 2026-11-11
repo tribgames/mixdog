@@ -165,6 +165,10 @@ wal_recycle = off
 /// Appends `SCRUB_CONF` to `postgresql.conf` when it lacks it (before the postmaster reads it).
 async fn ensure_scrub_conf(lane: DurabilityIo, data_dir: &Path) -> Result<()> {
     let conf = data_dir.join("postgresql.conf");
+    // No configuration file: nothing to append to, the postmaster's own start reports it.
+    if !fsio::exists(lane, &conf).await? {
+        return Ok(());
+    }
     let mut text = fsio::read_to_string(lane, &conf).await?;
     if text.contains(SCRUB_CONF_MARKER) {
         return Ok(());

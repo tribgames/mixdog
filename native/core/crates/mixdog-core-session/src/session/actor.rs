@@ -5417,8 +5417,19 @@ impl SessionActor {
     }
 
     /// A mark: the cwd's persisted prompt history keeps the marked values as the marker, entries written before included.
+    /// The lists the thread holds go the same way, so the history a client is sent after the mark carries the marker only.
     fn redact_prompts(&mut self) {
         let (prompts, cwd, marks, thread) = (self.deps.prompts.clone(), self.cwd(), self.deps.sensitive.clone(), self.id.clone());
+        let redact = |list: &[String]| -> Vec<String> { list.iter().map(|text| marks.redact_text(&thread, text)).collect() };
+        // Oldest first into `recompute`: two entries the marker made equal keep the newer one.
+        let session = prompt_history::recompute(&redact(&self.acked.prompt_session).into_iter().rev().collect::<Vec<_>>());
+        let persisted = redact(&self.acked.prompt_persisted);
+        if session != self.acked.prompt_session {
+            self.accept_view(Change::PromptSession { session, publish: true }, Vec::new());
+        }
+        if persisted != self.acked.prompt_persisted {
+            self.accept_view(Change::PromptPersisted(persisted), Vec::new());
+        }
         let _ = self.deps.lanes.durability.submit(&CancellationToken::new(), move |lane| {
             prompts.redact(lane, &cwd, &|text| marks.redact_text(&thread, text));
         });
