@@ -119,6 +119,12 @@ impl MemoryModule for LocalMemory {
 
     async fn memory(&self, args: Value) -> String {
         if args.get("action").and_then(Value::as_str) == Some("ingest_session") {
+            // Node's proxy projects the transcript before the runtime sees it (`prepareMemoryToolArgumentsForWire`), so
+            // the ingest's `limit` window and the collected rows' times count the projected rows.
+            let mut args = args;
+            if let Some(messages) = args.get_mut("messages").filter(|m| m.is_array()) {
+                *messages = Value::Array(crate::memory::ingest_shape::project_session_messages_for_ingest(messages));
+            }
             return self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message());
         }
         self.memory_reply(&args).await.text
