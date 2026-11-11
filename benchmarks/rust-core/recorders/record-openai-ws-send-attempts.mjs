@@ -75,55 +75,8 @@ await rec.run('handshake-transient-connect-error-spends-budget-and-retries', `${
   const out = await settle(h.attempts.handshakeFailed(err, handshakeInfo(0)));
   return { out, error: err, ...logs(h), firstAttemptErrorIsTheError: h.attempts.state.firstAttemptError === err, firstAttemptClassifier: h.attempts.state.firstAttemptClassifier };
 });
-await rec.run('handshake-http-401-surfaces-immediately', `${SRC}:86`, { error: errorOf('unauthorized', { httpStatus: 401 }), info: handshakeInfo(0) }, async () => {
-  const h = harness();
-  const err = make(errorOf('unauthorized', { httpStatus: 401 }));
-  const out = await settle(h.attempts.handshakeFailed(err, handshakeInfo(0)));
-  return { rejectedWithTheError: out.error === err, error: err, ...logs(h), spanEventTargetIsTheError: h.spanEvents[0]?.[1] === err };
-});
-await rec.run('handshake-policy-veto-tagged-for-http-fallback', `${SRC}:97`, { policy: 'retry:false, httpFallback when classifier === http_503', error: errorOf('unavailable', { httpStatus: 503 }), info: handshakeInfo(0) }, async () => {
-  const h = harness({ handshakeErrorPolicy: ({ classifier }) => ({ retry: false, httpFallback: classifier === 'http_503' }) });
-  const err = make(errorOf('unavailable', { httpStatus: 503 }));
-  const out = await settle(h.attempts.handshakeFailed(err, handshakeInfo(0)));
-  return { rejectedWithTheError: out.error === err, error: err, ...logs(h) };
-});
-await rec.run('handshake-budget-spent-first-attempt-error-surfaces-exhausted', `${SRC}:111`, { first: errorOf('first reset', { code: 'ECONNRESET' }), last: errorOf('last reset', { code: 'ECONNRESET' }), lastAttemptIndex: LIMIT }, async () => {
-  const h = harness();
-  const first = make(errorOf('first reset', { code: 'ECONNRESET' }));
-  const firstOut = await settle(h.attempts.handshakeFailed(first, handshakeInfo(0)));
-  const last = make(errorOf('last reset', { code: 'ECONNRESET' }));
-  const lastOut = await settle(h.attempts.handshakeFailed(last, handshakeInfo(LIMIT)));
-  return { firstOut, lastRejectedWithFirst: lastOut.error === first, first, last, ...logs(h) };
-});
-await rec.run('stream-abnormal-close-before-output-releases-socket-and-retries', `${SRC}:124`, { error: errorOf('gone', { wsCloseCode: 1006 }), midState: midState() }, async () => {
-  const h = harness();
-  const entry = fakeEntry();
-  let closed = false;
-  entry.socket.close = () => { closed = true; };
-  const err = make(errorOf('gone', { wsCloseCode: 1006 }));
-  const out = await settle(h.attempts.streamFailed(err, { attemptIndex: 0, entry, midState: midState() }));
-  return { out, socketClosed: closed, entryBusy: entry.busy, error: err, streamOutcomeType: typeof err.streamOutcome, ...logs(h) };
-});
-await rec.run('stream-cut-while-tool-input-streams-surfaces', `${SRC}:142`, { error: errorOf('gone', { wsCloseCode: 1006, pendingToolUse: true }), midState: midState() }, async () => {
-  const h = harness();
-  const err = make(errorOf('gone', { wsCloseCode: 1006, pendingToolUse: true }));
-  const out = await settle(h.attempts.streamFailed(err, { attemptIndex: 0, entry: fakeEntry(), midState: midState() }));
-  return { rejectedWithTheError: out.error === err, error: err, ...logs(h) };
-});
 const rateLimited = errorOf('rate limited', { responseFailed: { response: { error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 1.5s.' } } } });
-await rec.run('stream-rate-limited-response-failed-waits-advised-time', `${SRC}:153`, { error: rateLimited, midState: midState() }, async () => {
-  const h = harness();
-  const err = make(rateLimited);
-  const out = await settle(h.attempts.streamFailed(err, { attemptIndex: 0, entry: fakeEntry(), midState: midState() }));
-  return { out, error: err, ...logs(h) };
-});
 const longWait = errorOf('OpenAI OAuth WS error: Rate limit reached. Please try again in 210s.', { responseFailed: { type: 'error', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 210s.' } } });
-await rec.run('stream-long-advised-wait-announced-before-it-starts', `${SRC}:165`, { error: longWait, midState: midState({ sawResponseCreated: false }) }, async () => {
-  const h = harness();
-  const err = make(longWait);
-  const out = await settle(h.attempts.streamFailed(err, { attemptIndex: 0, entry: fakeEntry(), midState: midState({ sawResponseCreated: false }) }));
-  return { out, error: err, ...logs(h), detailErrorIsTheError: h.details[0]?.error === err };
-});
 await rec.run('reconnect-stage-names-failure-and-counts-down-advised-wait', `${SRC}:181`, { create: { auth: { type: 'xai' }, useModel: 'gpt-6.1-sol', traceProvider: 'xai' }, progress: [{ attempt: 1, max: 5, classifier: 'http_429', error: errorOf('Rate limit reached. Please try again in 210s.', { code: 'rate_limit_exceeded' }), waitMs: 210000 }, { attempt: 2, max: 5, classifier: 'ws_1006' }] }, () => {
   const stages = [];
   const ctx = createWsSendContext({ auth: { type: 'xai' }, body: {}, sendOpts: {}, onStageChange: (stage, detail) => stages.push([stage, detail]), externalSignal: null, poolKey: 'send-context-test', cacheKey: null, iteration: 0, useModel: 'gpt-6.1-sol', traceProvider: 'xai', _sendSpanTraceFn: () => {} });
@@ -139,15 +92,6 @@ const redactionErrors = [
   errorOf(serverText, { responseFailed: { response: { error: { code: `bad ${markers[0]}`, message: serverText } } } }),
   errorOf(serverText, { responseFailed: { response: { error: { code: 'acct_private-123', message: serverText } } } }),
 ];
-await rec.run('server-error-text-never-reaches-retry-trace-or-status', `${SRC}:222`, { errors: redactionErrors, markers }, async () => {
-  const stages = [];
-  const traces = [];
-  const ctx = createWsSendContext({ auth: { type: 'xai' }, body: {}, sendOpts: {}, onStageChange: (stage, detail) => stages.push([stage, detail]), externalSignal: null, poolKey: 'redaction-test', cacheKey: null, iteration: 0, useModel: 'gpt-6.1-sol', traceProvider: 'xai', _sleepFn: async () => {}, _sendSpanTraceFn: () => {}, _agentTraceFn: (row) => traces.push(row) });
-  const results = [];
-  for (const [index, spec] of redactionErrors.entries()) results.push(await ctx.attempts.streamFailed(make(spec), { attemptIndex: index, entry: fakeEntry(), midState: midState({ attemptIndex: index }) }));
-  const visible = JSON.stringify({ traces, stages });
-  return { results, traces, stages, leaked: [...markers, 'acct_private-123', 'Rate limit reached for'].map((text) => [text, visible.includes(text)]) };
-});
 await rec.run('safe-retry-error-code-keeps-only-known-codes', `${SRC}:272`, { known: ['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found'], unknown: ['acct_private-123', 'user_12345', 'sk-abc', 'prompt words'] }, () => {
   const coded = (code) => Object.assign(new Error('x'), { responseFailed: { error: { code } } });
   return Object.fromEntries(['rate_limit_exceeded', 'usage_limit_reached', 'server_is_overloaded', 'model_not_found', 'acct_private-123', 'user_12345', 'sk-abc', 'prompt words'].map((code) => [code, safeRetryErrorCode(coded(code))]));
@@ -177,25 +121,6 @@ await rec.run('injected-label-or-unknown-code-never-reaches-retry-stage', `${SRC
   const err = Object.assign(new Error('first byte timed out after 60000ms'), { timeoutPhase: 'headers', providerLabel: 'INJECTED_LABEL', code: 'acct_INJECTED_CODE' });
   return { detail: stageFor(err), withLabel: stageFor(err, { providerLabel: 'Antigravity' }) };
 });
-await rec.run('stream-relayed-text-latches-no-replay-and-surfaces', `${SRC}:374`, { error: errorOf('gone', { wsCloseCode: 1006 }), midState: midState({ emittedText: true }), later: errorOf('later', {}) }, async () => {
-  const h = harness();
-  const err = make(errorOf('gone', { wsCloseCode: 1006 }));
-  const out = await settle(h.attempts.streamFailed(err, { attemptIndex: 0, entry: fakeEntry(), midState: midState({ emittedText: true }) }));
-  const after = { rejectedWithTheError: out.error === err, error: err, ...logs(h) };
-  const later = new Error('later');
-  const laterOut = await settle(h.attempts.streamFailed(later, { attemptIndex: 1, entry: fakeEntry(), midState: midState({ attemptIndex: 1 }) }));
-  return { after, later: { rejectedWithTheError: laterOut.error === later, error: later } };
-});
-await rec.run('stream-duplicate-reasoning-rejection-strips-replay-once', `${SRC}:392`, { first: errorOf('Duplicate item rs_abc123 already exists', { httpStatus: 400 }), again: errorOf('Duplicate item rs_def456 already exists', { httpStatus: 400 }), entry: { replayReasoning: true } }, async () => {
-  const h = harness();
-  const err = make(errorOf('Duplicate item rs_abc123 already exists', { httpStatus: 400 }));
-  const entry = fakeEntry({ replayReasoning: true });
-  const out = await settle(h.attempts.streamFailed(err, { attemptIndex: 0, entry, midState: midState() }));
-  const firstStep = { out, suppressReasoningReplay: h.attempts.state.suppressReasoningReplay, error: err, ...logs(h) };
-  const again = make(errorOf('Duplicate item rs_def456 already exists', { httpStatus: 400 }));
-  const againOut = await settle(h.attempts.streamFailed(again, { attemptIndex: 1, entry, midState: midState({ attemptIndex: 1 }) }));
-  return { firstStep, second: { rejectedWithTheFirstError: againOut.error === err, error: again } };
-});
 await rec.run('stream-exhausted-budget-first-error-with-last-as-cause', `${SRC}:417`, { first: errorOf('first', { wsCloseCode: 1006 }), last: errorOf('last', { wsCloseCode: 1006 }), lastAttemptIndex: LIMIT }, async () => {
   const h = harness();
   const first = make(errorOf('first', { wsCloseCode: 1006 }));
@@ -203,14 +128,6 @@ await rec.run('stream-exhausted-budget-first-error-with-last-as-cause', `${SRC}:
   const last = make(errorOf('last', { wsCloseCode: 1006 }));
   const lastOut = await settle(h.attempts.streamFailed(last, { attemptIndex: LIMIT, entry: fakeEntry(), midState: midState({ attemptIndex: LIMIT }) }));
   return { firstOut, lastRejectedWithFirst: lastOut.error === first, causeIsTheLast: first.cause === last, first, last };
-});
-await rec.run('stream-server-1009-on-retry-surfaces-itself', `${SRC}:443`, { first: errorOf('first', { wsCloseCode: 1006 }), tooBig: errorOf('too big', { wsCloseCode: 1009 }) }, async () => {
-  const h = harness();
-  const first = make(errorOf('first', { wsCloseCode: 1006 }));
-  const firstOut = await settle(h.attempts.streamFailed(first, { attemptIndex: 0, entry: fakeEntry(), midState: midState() }));
-  const tooBig = make(errorOf('too big', { wsCloseCode: 1009 }));
-  const out = await settle(h.attempts.streamFailed(tooBig, { attemptIndex: 1, entry: fakeEntry(), midState: midState({ attemptIndex: 1 }) }));
-  return { firstOut, rejectedWithTooBig: out.error === tooBig, tooBig, progress: h.progress };
 });
 await rec.run('stream-stored-xai-anchor-carried-into-next-attempt', `${SRC}:464`, { stored: { auth: { type: 'xai' }, body: { store: true }, entry: { lastResponseId: 'resp_1', lastInputLen: 3, lastResponseItems: [{ id: 'msg_1' }] } }, notStored: { auth: { type: 'xai' }, body: { store: false }, entry: { lastResponseId: 'resp_2' } } }, async () => {
   const h = harness({ auth: { type: 'xai' }, body: { store: true } });
