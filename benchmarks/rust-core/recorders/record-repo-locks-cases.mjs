@@ -211,11 +211,7 @@ writeSetManifest(stage, {
   extra: {
     ...recorderProvenance(import.meta.url),
     compared: "keys: which spellings share one key; order: every snapshot of the events and every write's outcome",
-    excluded: {
-      'a queued git repo lock aborts without running or blocking later work':
-        'DIFFERENCE: the aborted write fails with Node\'s AbortError "This operation was aborted"; the core\'s ' +
-        'RepoLocks::acquire fails with ScmFailure::Cancelled ("cancelled"); the order and outcomes are otherwise the same',
-    },
+    excluded: {},
   },
 });
 commitStage(stage, finalDir);

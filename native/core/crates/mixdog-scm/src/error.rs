@@ -43,7 +43,8 @@ pub enum ScmFailure {
     TimedOut { command: String, millis: u64 },
     #[error("{command} exceeded {limit} output bytes")]
     OutputTooLarge { command: String, limit: u64 },
-    #[error("cancelled")]
+    /// Node's `AbortError` message, which an aborted git call carries.
+    #[error("This operation was aborted")]
     Cancelled,
     /// A lane queue is full: the caller answers overloaded at once.
     #[error("lane {queue} is full")]
