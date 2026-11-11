@@ -41,6 +41,10 @@
   "code": 0,
   "output": [
     {
+      "stream": "stderr",
+      "text": "(node:<pid>) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n[anthropic] listModels fetch failed (list_models 404)\n[anthropic] listModels fetch failed (list_models 404)\n[mixdog] llm-title start id=<session> stage=first chars=2\n[mixdog] llm-title disabled stage=first (maintenance route unresolved; llm titling off)\n"
+    },
+    {
       "stream": "stdout",
       "text": "done\n"
     }

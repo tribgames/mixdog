@@ -15,10 +15,11 @@
 //
 // Output: native/core/fixtures/exec-cli/.
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 // The child's tap (loaded there with --import); imported here so the manifest lists it.
@@ -74,6 +75,8 @@ const CASES = {
   'failed-turn': { argv: [...ARGV, 'go'], replies: ['read', 'broken'] },
   'ctrl-c': { argv: [...ARGV, 'go'], replies: ['read', 'hold'], interrupt: 'ctrl-c' },
   kill: { argv: [...ARGV, 'go'], replies: ['read', 'hold'], interrupt: 'kill' },
+  // The text case with Node's daemon running on the same data folder and temp folder (the folders of a user who has the app open).
+  'beside-daemon': { argv: [...ARGV, 'go'], replies: ['read', 'done'], daemon: true },
 };
 
 // The environment both CLIs are started with (`<sandbox>` is the case's own folder; `<host>` is the value this process
@@ -94,11 +97,32 @@ const ENV = {
   MIXDOG_SKIP_USER_DATA_BACKUP: '1',
   MIXDOG_DISABLE_TOOL_PREWARM: '1',
 };
+// The recording keeps every stderr line and every request; the replay leaves out of each side exactly the stderr lines
+// matching one of the patterns named for that side (a diagnostic only that runtime writes) and compares the rest whole, in order.
+const STDERR_NOT_COMPARED = [
+  { side: 'node', name: 'node process warning', pattern: '^\\(node:<pid>\\) ExperimentalWarning: SQLite is an experimental feature', reason: 'Node writes its own process warning for the built-in SQLite module; no other runtime has the module' },
+  { side: 'node', name: 'node warning hint', pattern: '^\\(Use `node --trace-warnings \\.\\.\\.` to show where the warning was created\\)$', reason: 'the second line of the same Node process warning' },
+  { side: 'node', name: 'model listing diagnostic', pattern: '^\\[anthropic\\] listModels fetch failed \\(list_models 404\\)$', reason: 'Node logs its background model listing that the stand-in answers 404; the core writes no such line, and its place follows a background timer' },
+  { side: 'node', name: 'titling diagnostic', pattern: '^\\[mixdog\\] llm-title ', reason: 'Node logs its background session titling (start, disabled, generated); its place follows a background timer' },
+  { side: 'node', name: 'ask error diagnostic', pattern: '^\\[ask-error\\] ', reason: 'Node logs the failed ask a second time in its diagnostic form, beside the `mixdog: ` line the exec writes' },
+  { side: 'node', name: 'lock wait diagnostic', pattern: '^\\[atomic-file\\] async lock wait ', reason: 'Node logs a wait on its own session-summary lock file; the wait is a timing fact of its file layer' },
+  { side: 'node', name: 'session ingest diagnostic', pattern: '^\\[session-search\\] ingest <session> failed: ', reason: 'after the answer Node\'s exec ingests its session into the memory runtime, which it tries to download (the stand-in answers 404), and logs the failure if the process is still alive to; whether the line is written before the process ends follows timing' },
+  { side: 'core', name: 'lifecycle not bound', pattern: '^\\[daemon\\] a request was admitted before the lifecycle was bound; it is not counted$', reason: 'the exec composes its in-process core without the serving lifecycle that `serve` binds, so the core logs its startup-bug line for each request (compose.rs request_started); Node\'s exec writes nothing of the kind' },
+  { side: 'core', name: 'goal recovery line', pattern: '^\\[daemon\\] active Goal recovery found=', reason: 'the core logs its boot-time goal recovery summary to the exec\'s stderr; Node\'s exec keeps its daemon log in a file' },
+  { side: 'core', name: 'model catalog fetch failure', pattern: '^\\[model-catalog\\] ', reason: 'the core fetches the models.dev and GitHub catalogs (the others it makes that Node\'s exec does not) and logs the stand-in\'s refusal' },
+];
+// The requests that are not the turn's, answered 404. The replay compares the rest of them whole, as a sorted set (their
+// order follows background timers), after leaving out of each side the ones named here.
+const OTHERS_NOT_COMPARED = [
+  { side: 'node', name: 'tool binary downloads', pattern: '^GET https://github\\.com/tribgames/mixdog/releases/download/', reason: 'Node fetches its three tool binaries (graph, patch, spawn) on first use and tries to download the memory runtime for its session ingest; the core ships its tools natively and downloads nothing here' },
+  { side: 'core', name: 'models.dev catalog', pattern: '^CONNECT (models\\.dev|raw\\.githubusercontent\\.com)$', reason: 'the core fetches the models.dev and GitHub model catalogs at start (the stand-in\'s certificate covers neither host, so the connect is the record); Node\'s exec does not' },
+  { side: 'core', name: 'provider cost report', pattern: '^GET https://api\\.anthropic\\.com/v1/organizations/cost_report$', reason: 'the core reads the provider\'s cost report at start; Node\'s exec does not' },
+];
 // What the recording leaves out of what the process did, each with its reason (the replay compares everything else whole).
 const EXCLUSIONS = {
   chunking: 'consecutive chunks of one stream are joined: the size of one pipe read depends on the OS, only the order of the streams is a fact of the process',
-  stderr: 'stderr is kept to the exec\'s own `mixdog: ` lines: the other lines are the runtime\'s diagnostic log (Node\'s process warnings, `[tag] ...` lines of background work), whose place follows background timers',
-  others: 'the requests that are not the turn\'s (model listing, tool binary and update checks) are a sorted set, not compared: Node fetches its tool binaries there and the core does not need them, while it lists models.dev and the provider\'s cost report',
+  ...Object.fromEntries(STDERR_NOT_COMPARED.map(({ name, side, reason }) => [`stderr (${side} only): ${name}`, reason])),
+  ...Object.fromEntries(OTHERS_NOT_COMPARED.map(({ name, side, reason }) => [`others (${side} only): ${name}`, reason])),
 };
 const FOLDERS = ['home/AppData/Roaming', 'home/AppData/Local', 'host-data', 'tmp', 'work'];
 
@@ -112,25 +136,19 @@ function normalize(text, sandbox) {
   let out = text;
   for (const form of [JSON.stringify(sandbox).slice(1, -1), sandbox, sandbox.replaceAll('\\', '/')]) out = out.split(form).join('<sandbox>');
   return out
+    .replace(/\(node:\d+\)/g, '(node:<pid>)')
     .replace(/sess_[A-Za-z0-9_]+/g, '<session>')
     .replace(/exec_[0-9a-f]{32}/g, '<thread>')
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, '<time>')
     .replace(/"(duration_ms|duration_api_ms|queue_ms|dispatch_ms|execution_ms|batch_wait_ms|postprocess_ms|total_ms)":\d+(?:\.\d+)?/g, '"$1":0');
 }
 
-/**
- * The exec's output: stdout, and the stderr lines the exec itself writes (`mixdog: ...`), consecutive chunks of one
- * stream joined, each normalized. The other stderr lines are the runtime's diagnostic log (Node's process warnings, the
- * `[tag] ...` lines of background work such as titling or model listing): their place among the output follows
- * background timers, so they are not part of the recording.
- */
+/** The exec's output as the recording keeps it: every stdout and stderr line, consecutive chunks of one stream joined, each normalized. */
 function ordered(chunks, sandbox) {
   const joined = [];
   for (const { stream: name, text } of chunks) {
-    const kept = name === 'stdout' ? text : text.split(/(?<=\n)/).filter((line) => line.startsWith('mixdog: ')).join('');
-    if (!kept) continue;
-    if (joined.at(-1)?.stream === name) joined.at(-1).text += kept;
-    else joined.push({ stream: name, text: kept });
+    if (joined.at(-1)?.stream === name) joined.at(-1).text += text;
+    else joined.push({ stream: name, text });
   }
   return joined.map(({ stream: name, text }) => ({ stream: name, text: normalize(text, sandbox) }));
 }
@@ -178,7 +196,107 @@ function ctrlC(pid) {
   if (sent.status !== 0) throw new Error(`Ctrl+C to ${pid} was not sent (${sent.status}): ${sent.stderr}`);
 }
 
-async function runCase(tree, name) {
+/** `deadline`: the promise, or a rejection naming `what` when it has not settled in `ms`. */
+function bounded(what, promise, ms) {
+  let timer;
+  const expired = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what}: not done after ${ms} ms`)), ms); });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The daemon's PostgreSQL runtime, installed as `ensureRuntime` leaves one (`runtime-fetcher.mjs`): the daemon downloads the
+ * runtime on boot unless `cachedRuntimeDir` (`runtime-fetcher.mjs:494,675`) finds, in `<data>/runtime`, an `active-version`
+ * naming `runtime-<version>-<sha256 prefix>` whose `.version-sha256` stamp is the asset's digest. A copy of an unpacked runtime
+ * (MIXDOG_PG_RUNTIME, the one the PostgreSQL tests use) is laid out so.
+ */
+function installRuntime(tree, source, data) {
+  const manifest = JSON.parse(readFileSync(join(tree, 'src/runtime/memory/data/runtime-manifest.json'), 'utf8'));
+  const asset = manifest.assets[`${process.platform}-${process.arch}`];
+  const key = `pg${manifest.pg.major}.${manifest.pg.minor}+pgvector-${manifest.pgvector.version}-${asset.sha256.slice(0, 12)}`;
+  const target = join(data, 'runtime', `runtime-${key}`);
+  cpSync(source, target, { recursive: true });
+  writeFileSync(join(target, '.version-sha256'), asset.sha256);
+  writeFileSync(join(data, 'runtime', 'active-version'), key);
+  return target;
+}
+
+/** Node's daemon on the case's own data and temp folders, started as the desktop starts one for session views; resolves once it published `daemon.json`. */
+async function startDaemon(tree, sandbox, runtimeSource) {
+  const runtimeDir = installRuntime(tree, runtimeSource, join(sandbox, 'host-data'));
+  const root = join(sandbox, 'tmp', 'mixdog');
+  const env = {
+    ...envFor(sandbox),
+    MIXDOG_DAEMON_SPAWNED_FOR: 'session',
+    MIXDOG_DISABLE_MCP: '1',
+    MIXDOG_DISABLE_PROVIDER_WARMUP: '1',
+    MIXDOG_DISABLE_MODEL_PREFETCH: '1',
+    MIXDOG_DISABLE_MODEL_CATALOG_WARMUP: '1',
+  };
+  const child = spawn(process.execPath, [join(tree, 'src', 'standalone', 'daemon.mjs')], { cwd: join(sandbox, 'work'), env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+  const daemon = { child, runtimeDir, sandbox, doc: null, stderr: '' };
+  child.stderr.on('data', (chunk) => { daemon.stderr += chunk; });
+  const read = () => {
+    try {
+      const doc = JSON.parse(readFileSync(join(root, 'daemon.json'), 'utf8'));
+      if (doc.pid === child.pid && doc.endpoints?.session?.port) return doc;
+    } catch {}
+    return null;
+  };
+  let watcher;
+  const ready = new Promise((resolve, reject) => {
+    watcher = watch(join(sandbox, 'tmp'), { recursive: true }, () => {
+      const doc = read();
+      if (doc) resolve(doc);
+    });
+    child.once('exit', (code) => reject(new Error(`the daemon exited ${code} before it was ready: ${daemon.stderr}`)));
+    const doc = read();
+    if (doc) resolve(doc);
+  });
+  try {
+    daemon.doc = await bounded('the daemon to publish daemon.json', ready, 60_000);
+  } catch (error) {
+    endTree(child.pid);
+    throw error;
+  } finally {
+    watcher.close();
+  }
+  return daemon;
+}
+
+/** A session-transport request of the daemon, answered within `ms`. */
+async function daemonPost(doc, path, body, ms) {
+  const response = await fetch(`http://127.0.0.1:${doc.endpoints.session.port}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-mixdog-daemon-token': doc.endpoints.session.token },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(ms),
+  });
+  return response.status;
+}
+
+/** Whether the daemon still answers a client registering (as a desktop session view does), the exec having ended. */
+async function daemonAnswers(tree, daemon) {
+  if (daemon.child.exitCode !== null || daemon.child.signalCode !== null) return false;
+  const { SESSION_PROTOCOL, SESSION_REVISION } = await import(pathToFileURL(join(tree, 'src/standalone/session-wire.mjs')).href);
+  return (await daemonPost(daemon.doc, '/client/register', { protocol: SESSION_PROTOCOL, revision: SESSION_REVISION, clientKind: 'desktop', lifecycle: false }, 30_000)) === 200;
+}
+
+/** Ends the daemon (a stop request, then its process tree) and the postmaster it may have left in the data folder. */
+async function endDaemon(daemon) {
+  const { child } = daemon;
+  const gone = () => child.exitCode !== null || child.signalCode !== null;
+  const exited = new Promise((resolve) => (gone() ? resolve() : child.once('exit', resolve)));
+  if (!gone()) await daemonPost(daemon.doc, '/stop', { force: true }, 15_000).catch(() => {});
+  await bounded('the daemon to exit after its stop request', exited, 60_000).catch(() => endTree(child.pid));
+  await bounded(`the daemon pid ${child.pid} to exit`, exited, 15_000);
+  const pgdata = join(daemon.sandbox, 'host-data', 'pgdata');
+  if (existsSync(join(pgdata, 'postmaster.pid'))) {
+    const stop = spawnSync(join(daemon.runtimeDir, 'bin', 'pg_ctl.exe'), ['stop', '-m', 'fast', '-w', '-t', '30', '-D', pgdata], { stdio: 'ignore', timeout: 40_000, windowsHide: true });
+    if (stop.status !== 0 && existsSync(join(pgdata, 'postmaster.pid'))) throw new Error(`pg_ctl stop failed; the postmaster in ${pgdata} is still running`);
+  }
+}
+
+async function runCase(tree, name, runtimeSource) {
   const spec = CASES[name];
   const sandbox = mkdtempSync(join(tmpdir(), 'exec-cli-'));
   for (const folder of FOLDERS) mkdirSync(join(sandbox, folder), { recursive: true });
@@ -208,6 +326,7 @@ async function runCase(tree, name) {
     res.writeHead(reply.status, { 'content-type': reply.contentType }).end(reply.body);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const daemon = spec.daemon ? await startDaemon(tree, sandbox, runtimeSource) : null;
   const log = join(sandbox, 'chunks.jsonl');
   writeFileSync(log, '');
   const tap = `data:text/javascript,import { installExecCliTap } from ${JSON.stringify(new URL('./lib/exec-cli-tap.mjs', import.meta.url).href)}; installExecCliTap();`;
@@ -224,7 +343,7 @@ async function runCase(tree, name) {
   // A killed run has no exit code of its own: `null`.
   const exited = new Promise((resolve) => child.on('close', (code) => resolve(spec.interrupt === 'kill' ? null : code)));
   let deadline;
-  const timedOut = new Promise((_, reject) => { deadline = setTimeout(() => { endTree(child.pid); reject(new Error(`${name}: the run did not end in ${RUN_DEADLINE_MS} ms`)); }, RUN_DEADLINE_MS); });
+  const timedOut = new Promise((_, reject) => { deadline = setTimeout(() => { endTree(child.pid); if (daemon) endTree(daemon.child.pid); reject(new Error(`${name}: the run did not end in ${RUN_DEADLINE_MS} ms`)); }, RUN_DEADLINE_MS); });
   let left = null;
   if (spec.interrupt) {
     await Promise.race([held, timedOut]);
@@ -233,6 +352,9 @@ async function runCase(tree, name) {
   }
   const code = await Promise.race([exited, timedOut]);
   clearTimeout(deadline);
+  // What the exec did to the daemon beside it: whether it still answers a client.
+  const beside = daemon ? { aliveAfterExec: await daemonAnswers(tree, daemon) } : null;
+  if (daemon) await endDaemon(daemon);
   if (spec.interrupt) {
     const children = childrenOf(child.pid);
     const roots = readdirSync(join(sandbox, 'tmp')).filter((entry) => entry.startsWith('mixdog-headless-pristine-'));
@@ -248,9 +370,9 @@ async function runCase(tree, name) {
   }
   const files = Object.fromEntries(readdirSync(join(sandbox, 'work')).sort().map((file) => [file, readFileSync(join(sandbox, 'work', file), 'utf8')]));
   rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-  // `others`: the requests that are not the turn's (model listing, tool binary and update checks), answered 404; their
-  // order follows background timers, so they are kept as a sorted set.
-  return { case: name, argv: spec.argv, stdin: '', env: ENV, replies, repeat: spec.repeat === true, code, output: ordered(chunks, sandbox), requests, others: [...new Set(others)].sort(), files, ...(left ? { left } : {}) };
+  // `others`: the requests that are not the turn's, answered 404; their order follows background timers, so they are kept as a
+  // sorted set.
+  return { case: name, argv: spec.argv, stdin: '', env: ENV, replies, repeat: spec.repeat === true, code, output: ordered(chunks, sandbox), requests, others: [...new Set(others)].sort(), files, ...(left ? { left } : {}), ...(beside ? { daemon: beside } : {}) };
 }
 
 async function main() {
@@ -260,8 +382,10 @@ async function main() {
   const identity = exactProductIdentity(tree, args.get('commit'));
   const finalDir = join(FIXTURES_ROOT, 'exec-cli');
   const stage = stageSet(finalDir);
-  for (const name of Object.keys(CASES)) writeJson(join(stage, `${name}.json`), await runCase(tree, name));
-  writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url), exclusions: EXCLUSIONS } });
+  const runtimeSource = args.get('runtime') ?? process.env.MIXDOG_PG_RUNTIME;
+  if (!runtimeSource || !existsSync(join(runtimeSource, 'bin'))) throw new Error('--runtime <unpacked PostgreSQL runtime> (or MIXDOG_PG_RUNTIME) is required: the daemon of the beside-daemon case installs it instead of downloading one');
+  for (const name of Object.keys(CASES)) writeJson(join(stage, `${name}.json`), await runCase(tree, name, runtimeSource));
+  writeSetManifest(stage, { set: 'exec-cli', recorder, command: `node ${recorder} --tree <tree> --commit ${args.get('commit')}`, identity, extra: { exact: true, ...recorderProvenance(import.meta.url), besideDaemon: 'the beside-daemon case starts Node\'s daemon (src/standalone/daemon.mjs, MIXDOG_DAEMON_SPAWNED_FOR=session) on the case\'s data and temp folders, with an unpacked PostgreSQL runtime laid out in <data>/runtime as an installed one is (active-version and the digest stamp that runtime-fetcher.mjs cachedRuntimeDir, :494 and :675, accepts) so it downloads none; the daemon\'s own network is not tapped and not recorded; the recording keeps whether the daemon still answers a client registering once the exec has ended', exclusions: EXCLUSIONS, stderrNotCompared: STDERR_NOT_COMPARED, othersNotCompared: OTHERS_NOT_COMPARED } });
   commitStage(stage, finalDir);
 }
 await main();
