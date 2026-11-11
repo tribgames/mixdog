@@ -131,6 +131,9 @@ pub struct RawEmbedFlush {
     cache_max_rows: i64,
     /// The root flush running now, if any: `_flushInFlight`.
     roots_in_flight: Mutex<Option<root::Flight>>,
+    /// Each `flush` call (limit, ids), in order.
+    #[cfg(test)]
+    pub(crate) calls: Mutex<Vec<(usize, Option<Vec<i64>>)>>,
 }
 
 pub struct FlushOutcome {
@@ -150,12 +153,16 @@ impl RawEmbedFlush {
             pruned_at: Mutex::new(None),
             cache_max_rows: resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref()),
             roots_in_flight: Mutex::new(None),
+            #[cfg(test)]
+            calls: Mutex::new(Vec::new()),
         }
     }
 
     /// Embeds up to `limit` unembedded raw rows; `ids` restricts the claim to
     /// those rows (an empty list means nothing to do, never a backlog sweep).
     pub async fn flush(&self, limit: usize, ids: Option<&[i64]>) -> FlushOutcome {
+        #[cfg(test)]
+        self.calls.lock().expect("flush calls").push((limit, ids.map(<[i64]>::to_vec)));
         let idle = FlushOutcome { attempted: 0, embedded: 0, pruned: None };
         if !onnx_runtime_supported() || ids.is_some_and(<[i64]>::is_empty) {
             return idle;
