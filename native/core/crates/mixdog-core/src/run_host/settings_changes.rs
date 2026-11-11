@@ -57,7 +57,9 @@ type Followers = Arc<std::sync::Mutex<Vec<(String, watch::Receiver<u64>)>>>;
 const SHOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Resolves once every following thread has shown the count announced when it was called; a thread that is closing, crashed or
-/// gone (its feed dropped) is not waited for. A thread still behind at [`SHOWN_DEADLINE`] is named in the error.
+/// gone (its feed dropped) is not waited for. At [`SHOWN_DEADLINE`] it resolves all the same, logging each thread still behind: Node
+/// answers a settings write without waiting for any session (config-writers.mjs:67-75 debounces the save behind the answer), so a
+/// slow thread never turns that answer into an error.
 async fn all_shown(announced: watch::Receiver<u64>, shown: &std::sync::Mutex<Vec<(String, watch::Receiver<u64>)>>) -> Result<(), String> {
     let target = *announced.borrow();
     let followers = {
@@ -68,7 +70,7 @@ async fn all_shown(announced: watch::Receiver<u64>, shown: &std::sync::Mutex<Vec
     let deadline = tokio::time::Instant::now() + SHOWN_DEADLINE;
     for (thread, mut follower) in followers {
         if tokio::time::timeout_at(deadline, follower.wait_for(|count| *count >= target)).await.is_err() {
-            return Err(format!("thread {thread} did not show settings change {target} within {}s", SHOWN_DEADLINE.as_secs()));
+            tracing::warn!("thread {thread} did not show settings change {target} within {}s; the settings call answers without it", SHOWN_DEADLINE.as_secs());
         }
     }
     Ok(())
@@ -240,9 +242,10 @@ mod tests {
         assert_eq!(shown.await, Ok(()), "a closed thread is not waited for");
     }
 
-    /// A thread that never shows the change fails the call at the deadline, named, instead of hanging it.
+    /// A thread that never shows the change does not fail the call: at the deadline it answers as Node's settings write does, without
+    /// the thread, and no earlier.
     #[tokio::test(flavor = "current_thread", start_paused = true)]
-    async fn a_settings_call_fails_naming_a_thread_that_does_not_show_its_change() {
+    async fn a_settings_call_answers_at_the_deadline_without_a_thread_that_does_not_show_its_change() {
         let dir = tempfile::tempdir().expect("dir");
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -257,8 +260,9 @@ mod tests {
             })
             .await
             .expect("a setting");
-        let failed = config.shown().await.expect_err("bounded");
-        assert!(failed.contains("thread wedged"), "{failed}");
+        let started = tokio::time::Instant::now();
+        assert_eq!(config.shown().await, Ok(()), "the call answers as Node's");
+        assert!(tokio::time::Instant::now() - started >= SHOWN_DEADLINE, "after the wedged thread's deadline");
     }
 
     /// A thread held inside a turn shows a settings change from its mailbox at once: the settings call never waits for the turn.
