@@ -83,15 +83,15 @@ pub(crate) struct Connection {
     /// is what keeps a server request from overtaking the response on the control lane.
     handshake_done: AtomicBool,
     inflight: [AtomicU32; 4],
-    /// Reads that found their class full, per class in arrival order; `None` once closed. A freed place goes to the
-    /// oldest of them, and the count only falls with no read waiting, both under this lock.
+    /// Requests that found their class full, per class in arrival order; `None` once closed. A freed place goes to the
+    /// oldest of them, and the count only falls with no request waiting, both under this lock.
     queued: Mutex<Option<[VecDeque<Queued>; 4]>>,
     subs: Mutex<Option<HashMap<FeedId, Sub>>>,
     next_sub: AtomicU64,
     host: Mutex<HostState>,
 }
 
-/// A read waiting for an in-flight place: given the connection once it holds one ([`Connection::granted`]).
+/// A request waiting for an in-flight place: given the connection once it holds one ([`Connection::granted`]).
 pub(crate) type Queued = Box<dyn FnOnce(Arc<Connection>) + Send>;
 
 /// What a closing connection leaves behind for the caller to release.
@@ -128,7 +128,7 @@ impl Drop for Slot {
             }
             next
         };
-        // The place passes to the oldest waiting read, which runs on its own task (never inside this drop).
+        // The place passes to the oldest waiting request, which runs on its own task (never inside this drop).
         if let Some(next) = next {
             let conn = Arc::clone(&self.conn);
             mixdog_rt::spawn("request", mixdog_rt::TaskClass::Work, async move { next(conn) });
@@ -178,28 +178,9 @@ impl Connection {
         self.handshake_done.store(true, Ordering::Release);
     }
 
-    /// Takes an in-flight slot of `class`, or answers the class cap.
-    /// `request_started` runs only for an admitted request: its guard goes into the slot.
-    pub(crate) fn admit(
-        self: &Arc<Self>,
-        class: RequestClass,
-        cap: u32,
-        request_started: impl FnOnce() -> mixdog_core_api::handle::RequestGuard,
-    ) -> Result<Slot, u32> {
-        self.inflight[class_index(class)]
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                (count < cap).then_some(count + 1)
-            })
-            .map(|_| Slot {
-                conn: Arc::clone(self),
-                class,
-                _request: request_started(),
-            })
-            .map_err(|_| cap)
-    }
-
-    /// [`Self::admit`] for a read: a full class queues it (`later` makes what runs once it has a place) unless `bound`
-    /// reads already wait. `Ok` gives the slot and `item` back; `Err(None)` is queued; `Err(Some(cap))` is refused.
+    /// Takes an in-flight slot of `class` (`request_started` runs only then: its guard goes into the slot). A full class, or
+    /// one with requests already waiting, queues it instead (`later` makes what runs once it has a place) unless `bound`
+    /// requests already wait. `Ok` gives the slot and `item` back; `Err(None)` is queued; `Err(Some(cap))` is refused.
     pub(crate) fn admit_or_queue<T>(
         self: &Arc<Self>,
         class: RequestClass,
@@ -225,7 +206,7 @@ impl Connection {
         Err(None)
     }
 
-    /// The slot a queued read was handed by the slot that freed its place (the count already holds it).
+    /// The slot a queued request was handed by the slot that freed its place (the count already holds it).
     pub(crate) fn granted(self: &Arc<Self>, class: RequestClass, request: mixdog_core_api::handle::RequestGuard) -> Slot {
         Slot { conn: Arc::clone(self), class, _request: request }
     }
@@ -365,7 +346,7 @@ impl Connection {
     /// elsewhere. Pending `host/*` requests are dropped, which fails their waiters.
     pub(crate) fn close(&self) -> Closed {
         self.cancel.cancel();
-        // Waiting reads are dropped unanswered, as the connection's running work is cancelled.
+        // Waiting requests are dropped unanswered, as the connection's running work is cancelled.
         let waiting = lock(&self.queued).take();
         drop(waiting);
         let subs = lock(&self.subs)
