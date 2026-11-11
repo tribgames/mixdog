@@ -174,7 +174,8 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       const headers = new Headers(init?.headers ?? req?.headers ?? {});
       headers.set('x-bench-origin', url.origin);
       const target = `http://127.0.0.1:${port}${url.pathname}${url.search}`;
-      return realFetch(target, req ? { method: req.method, body: req.body, duplex: 'half', signal: req.signal, ...init, headers } : { ...init, headers });
+      // The response says it came from the address the product asked for (the loopback port is random).
+      return realFetch(target, req ? { method: req.method, body: req.body, duplex: 'half', signal: req.signal, ...init, headers } : { ...init, headers }).then((response) => Object.defineProperty(response, 'url', { value: url.href }));
     };
   }
 
@@ -248,6 +249,8 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     view,
     T0,
     describe,
+    /** A scripted fetch Response (status, headers, body chunks as delivered), recorded as such when handed to the product. */
+    response: scriptedResponse,
     /** A real WebSocket server on loopback (lib/ws-world.mjs); closed when the recording finishes. */
     wsWorld: async () => (wsWorld ??= await startWsWorld({ tree })),
     /** A product module as it is, its calls not logged (plumbing the recorder drives, not the entry under test). */
