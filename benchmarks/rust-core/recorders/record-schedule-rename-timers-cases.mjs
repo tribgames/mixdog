@@ -130,7 +130,11 @@ async function scenario(outcome) {
           advanceTo(due);
           await until(() => scheduler.renameBlocked?.has('other'), 'the one-shot due during the rename to be refused');
           advanceTo(renameTakesUntil);
-          return renameSchedule('other', RENAMED);
+          const moved = await renameSchedule('other', RENAMED);
+          // The row moved and the answer was lost (the worker's call timing out, channel-config-api.mjs:63): the scheduler
+          // sees a failed rename, the table has the new name.
+          if (outcome === 'applied') throw new Error('timeout');
+          return moved;
         },
         {
           newName: 'renamed',
@@ -145,7 +149,14 @@ async function scenario(outcome) {
         (error) => error
       );
     if (renameRan) steps.push({ renameAdvancesTo: [due, renameTakesUntil] });
-    const refused = { at: new Date().toISOString(), error: errorOf(refusal), renameRan, status: scheduler.getStatus() };
+    const armed = () => [...new Set([...scheduler.cronJobs.keys(), ...scheduler.oneShotTimers.keys()])].sort();
+    const refused = { at: new Date().toISOString(), error: errorOf(refusal), renameRan, status: scheduler.getStatus(), armed: armed() };
+    if (outcome === 'applied') {
+      // What the client does after an unanswered rename (channel-config-api.mjs:61 reloadChannelsSoon): the worker re-reads the table.
+      await scheduler.reloadConfig(await listSchedules());
+      await settle();
+      steps.push({ reloadedFromStore: true, status: scheduler.getStatus(), armed: armed() });
+    }
     if (release) {
       release();
       await until(() => table.get('other')?.status === 'done', 'the held run to finish');
@@ -159,7 +170,7 @@ async function scenario(outcome) {
       await until(() => scheduler.running.size === 0, `the runs due by ${instant} to finish`);
       steps.push({ ranBy: instant, runs: runs.slice(before) });
     }
-    return { outcome, start: START, loaded: [OTHER, KEEP], stored: outcome === 'nameTaken' ? [OTHER, KEEP, TAKEN] : [OTHER, KEEP], renamedTo: RENAMED, steps, refused, runs, statusAtEnd: scheduler.getStatus() };
+    return { outcome, start: START, loaded: [OTHER, KEEP], stored: outcome === 'nameTaken' ? [OTHER, KEEP, TAKEN] : [OTHER, KEEP], renamedTo: RENAMED, steps, refused, runs, statusAtEnd: scheduler.getStatus(), armedAtEnd: armed() };
   } finally {
     scheduler.stop();
     mock.timers.reset();
@@ -170,7 +181,7 @@ const OUTCOMES = [
   ['the new name is taken (SCHEDULE_NAME_TAKEN)', 'nameTaken'],
   ['a run of the schedule is in flight (SCHEDULE_RENAME_RUNNING)', 'running'],
   ['the row moved and the reload failed (SCHEDULE_RENAME_RELOAD_FAILED)', 'reloadFailed'],
-  ['the rename applied and its answer was lost (SCHEDULE_RENAME_UNCERTAIN in Node, opOutcomeUnknown in K1)', 'applied'],
+  ['the row moved and the answer was lost, then the worker re-read the table (SCHEDULE_RENAME_UNCERTAIN in Node, opOutcomeUnknown in K1)', 'applied'],
 ];
 const cases = [];
 for (const [name, outcome] of OUTCOMES) cases.push({ case: `after a rename: ${name}`, observed: exact(await scenario(outcome), { path: name }) });
@@ -195,7 +206,7 @@ writeSetManifest(stage, {
     },
     replay: {
       entry: 'mixdog-services/src/scheduler/engine.rs Scheduler: start, rename_locked with the store\'s rename and the runtime\'s reload (reload_config of the stored rows), the one-shot and cron timers on tokio\'s paused clock, status; the runner records each run with the clock. Replayed by mixdog-services/src/scheduler/rename_timers_replay_tests.rs.',
-      compare: 'per case, whole: the refusal (code, message, details), whether the rename ran, the status after the refusal and at the end, each run with its instant, in order',
+      compare: 'per case, whole: the refusal (code, message, details), whether the rename ran, the status and the armed timers (names with a cron job or a one-shot timer) after the refusal, after the reload from the table (applied case) and at the end, each run with its instant, in order',
     },
     exclusions: {},
   },
