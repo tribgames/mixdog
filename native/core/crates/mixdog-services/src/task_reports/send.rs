@@ -139,6 +139,8 @@ pub struct Submission {
     pub bot_chain: Vec<String>,
     /// The sender's own transcript meta ([`sender_meta`]).
     pub meta: Map<String, Value>,
+    /// The sender follows the turn's end (Node's `onSettled`); a send that reports nothing does not.
+    pub settled: bool,
 }
 
 /// The target session's intake (`sessions.submitSession({ sessionId, prompt, options })` with an
@@ -184,6 +186,11 @@ impl TaskSends {
     /// `createAgentTaskSessions({ settleMs, pollMs, retryDelaysMs })`.
     pub fn with_timing(host: Arc<TaskReportHost>, submit: Arc<dyn TurnSubmit>, process_token: String, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>, settle: Duration, poll: Duration, retry_delays: Vec<Duration>) -> Arc<Self> {
         Arc::new(Self { host, submit, process_token, now_ms, settle, poll, retry_delays })
+    }
+
+    /// The sessions' intake every send submits through, a send that reports nothing too.
+    pub fn intake(&self) -> &Arc<dyn TurnSubmit> {
+        &self.submit
     }
 
     /// The report host the sends deliver through.
@@ -335,7 +342,7 @@ impl SendTurn {
             Some(name) => wrap_agent_message(prompt, name, &origin.agent_id),
             None => prompt.clone(),
         };
-        let submission = Submission { hop: origin.hop, bot_chain: origin.bot_chain.clone(), meta: sender_meta(origin) };
+        let submission = Submission { hop: origin.hop, bot_chain: origin.bot_chain.clone(), meta: sender_meta(origin), settled: true };
         self.sends.submit.submit(&self.session_id, sent, &self.id, submission).await
     }
 
