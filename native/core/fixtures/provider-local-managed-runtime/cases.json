@@ -245,7 +245,7 @@
     },
     {
       "id": "apple-silicon-metal-and-unsupported-hosts",
-      "source": "src/runtime/local-provider/managed-runtime.test.mjs:64",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:65",
       "input": {
         "apple": {
           "supported": true,
@@ -523,7 +523,7 @@
     },
     {
       "id": "resume-partial-publish-after-sha256",
-      "source": "src/runtime/local-provider/managed-runtime.test.mjs:101",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:106",
       "input": {
         "payload": "verified local provider asset",
         "prefixBytes": 9
@@ -841,7 +841,7 @@
     },
     {
       "id": "cancellation-closes-stream-preserves-partial-for-resume",
-      "source": "src/runtime/local-provider/managed-runtime.test.mjs:262",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:263",
       "input": {
         "payload": "cancel and resume this model",
         "prefixBytes": 8,
