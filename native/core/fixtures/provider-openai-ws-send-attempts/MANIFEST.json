@@ -10,8 +10,8 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/openai-ws-send-attempts.mjs createWsSendAttempts(opts) / openai-ws-send/send-context.mjs createWsSendContext(opts), provider-error-kind.mjs retryReasonClass / safeRetryErrorCode, retry-executor.mjs emitProviderRetryStage, stall-policy.mjs providerTimeoutError. The state-machine cases feed a scripted Error (own properties are the inputs) and read `attempts.state` and the error objects after each call; the `ws-*` cases run sendViaWebSocket over a real loopback WebSocket.",
   "exclusions": [
-    "NOT HELD (not reproducible at the wire): stream-stored-xai-anchor-carried-into-next-attempt (:464) - tried: two sends on one pool key with auth xai and store:true over the real sender; the second send dials a new socket instead of reusing the first (recorded in the attempt, no anchored entry exists when the retry starts) and its retry frame carries no previous_response_id, so the Node test state (an entry holding resp_1) is only reachable on a hand-built entry",
-    "NOT HELD (observable nowhere outside Node objects): token-refresh-timeout-classifies-as-auth (:345) - the classification of a token-refresh timeout error is read from the error object of the auth refresh (an HTTP exchange with the auth server outside this socket); exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches",
+    "auth-token-refresh-stalls-past-its-timeout-classifies-as-auth (:345): recorded through the auth exchange (scripted token endpoint that never sends the body, virtual clock past the 30000 ms refresh timeout); the error the product surfaces is the refresh wrapper (openai-oauth-tokens.mjs refreshUnderLock: \"OpenAI OAuth token refresh failed (...timed out after 30000ms)...\") without the inner timeoutPhase, so its reason class is the product's answer for that error, not the test's hand-built inner error",
+    "NOT HELD (no send reaches it): exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches",
     "NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)",
     "reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts",
     "result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)",
@@ -22,9 +22,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 205161,
+      "bytes": 345678,
       "path": "cases.json",
-      "sha256": "30a66360a420e8bec5f0d159ec0b29f58b19c347247bc6e7541e6392ccab9fc3"
+      "sha256": "08722d37bfab8033c80db8a861e00231b37e1737f0f45aaac4ac855dee28cfc0"
     }
   ],
   "inputs": [
@@ -46,11 +46,15 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "30f3bdc7bd27e058c3ce0c440f9e68fb9c8faf218106a6ef0b293055bde93acf"
+      "sha256": "9c3bac7af557e26757ee81a258b4ed3ae3c18603f4f249a376ae9785f29c6835"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "ca2aba4fd278a0a7c9bce57b40c5470d7811acb5f895cba2524dc21c960f1ddc"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "3039be1867dda8c9fb53fb5dc60b6f3d97beeab289e57d037d3b69118a6a4c42"
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
     }
   ],
   "levels": [
@@ -105,6 +109,18 @@
     {
       "id": "ws-retry-stage-carries-known-codes-never-failure-text",
       "level": "wire"
+    },
+    {
+      "id": "ws-stored-xai-anchor-carried-into-next-attempt",
+      "level": "wire"
+    },
+    {
+      "id": "ws-unstored-xai-anchor-dropped-from-next-attempt",
+      "level": "wire"
+    },
+    {
+      "id": "auth-token-refresh-stalls-past-its-timeout-classifies-as-auth",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -126,9 +142,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs",
-  "recorderSha256": "184c577fc7282e036cf84f26dd468845014bf5c0a79b88e48a1646beb8c99878",
+  "recorderSha256": "fe644f9f82bb7b0fa2d7c199a8eecdd1a3ae24fac60c0109d2eba92ab2aabba0",
   "replay": "Rust entry (pub, on o1): mixdog_ai::broker ModelBroker::send (broker/send.rs:75) with mixdog_ai::retry StandardRetryDecider (retry/decider.rs:35), retry::classify::kind_of (retry/classify.rs:142) and retry::advice::from_headers (retry/advice.rs:25). The helper createWsSendAttempts / createWsSendContext have no Rust item of that name: the behaviour is the broker's retry loop; the first-error-with-cause exhaustion is K1 G10, work for the Rust side.",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
   "set": "provider-openai-ws-send-attempts",
-  "totalBytes": 205161,
+  "totalBytes": 345678,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

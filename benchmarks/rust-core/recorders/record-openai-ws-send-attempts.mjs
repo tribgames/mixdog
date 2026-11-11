@@ -7,9 +7,8 @@
 // close on the retry) are ALSO recorded over a real loopback WebSocket (`ws-*` case ids): the real `sendViaWebSocket` connects to it, the server's scripted answers
 // are the inputs, and the case is ONE ordered list (dial, upgrade request with every header, frames each way, closes, the retry sleeps the product requests, the
 // stage/progress callbacks). The retry sleep is the product's own `_sleepFn` injection point (records the requested ms, returns at once: no real waiting).
-// Not over a socket: :74/:97/:111 (the handshake retry classifier table and budget are driven with constructed errors: the handshake retry layer sleeps with its own
-// real timers, openai-ws-send/handshake-retry), :165/:180/:214/:284/:297/:325/:354/:362 (pure formatting of an already-built error or stage: no transport call exists),
-// :392/:417/:464/:478 (they need a prior stored response id / duplicate-item server text the loopback cannot reproduce without a full session: kept on the state machine).
+// :464 (stored xAI anchor) is two sends on one pool / cache / auth identity with forceFresh off, the second interrupted; :345 (token-refresh timeout) is the OpenAI
+// OAuth token refresh against a scripted token endpoint that stalls, past its timeout on the virtual clock. Not held: :478 (see the manifest exclusions).
 //   node benchmarks/rust-core/recorders/record-openai-ws-send-attempts.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
@@ -21,8 +20,8 @@ const rec = await startRecording({
   // reconnecting-stage builders: none is public; the retry stage is produced inside the broker retry loop.
   pure: { '*': 'RUST WORK: no public Rust function takes the same input/output (see the recorder header: the retry stage and its reason class exist only inside the broker retry loop); the wire `ws-*` cases are the replayable form' },
   set: 'provider-openai-ws-send-attempts',
-  net: false,
-  exclusions: ['NOT HELD (not reproducible at the wire): stream-stored-xai-anchor-carried-into-next-attempt (:464) - tried: two sends on one pool key with auth xai and store:true over the real sender; the second send dials a new socket instead of reusing the first (recorded in the attempt, no anchored entry exists when the retry starts) and its retry frame carries no previous_response_id, so the Node test state (an entry holding resp_1) is only reachable on a hand-built entry', 'NOT HELD (observable nowhere outside Node objects): token-refresh-timeout-classifies-as-auth (:345) - the classification of a token-refresh timeout error is read from the error object of the auth refresh (an HTTP exchange with the auth server outside this socket); exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches', 'NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)', 'reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts', 'result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)'],
+  net: true,
+  exclusions: ['auth-token-refresh-stalls-past-its-timeout-classifies-as-auth (:345): recorded through the auth exchange (scripted token endpoint that never sends the body, virtual clock past the 30000 ms refresh timeout); the error the product surfaces is the refresh wrapper (openai-oauth-tokens.mjs refreshUnderLock: "OpenAI OAuth token refresh failed (...timed out after 30000ms)...") without the inner timeoutPhase, so its reason class is the product\'s answer for that error, not the test\'s hand-built inner error', 'NOT HELD (no send reaches it): exhausted-falls-back-to-first-error-or-unreachable-marker (:478) - the explicit unreachable marker is the return value of an internal accessor of a send that ended without any attempt, a state no send reaches', 'NOT HELD HERE, recorded at the wire in provider-openai-ws-stream: typed-timeouts-keep-their-own-wording (:325) - the wording of the typed first-byte / idle / first-output timeouts is the message of the error the send surfaces (cases prestream-watchdog-closes-silent-socket-first-byte-timeout, inter-chunk-stall-after-output-rejects-as-continuation, no-output-aborted-at-first-output-deadline, semantic-idle-applies-after-first-output)', 'reconnect-stage-names-failure-and-counts-down-advised-wait (:181) is the stage events of ws-rate-limited-response-failed-waits-advised-time and ws-long-advised-wait-announced-before-it-starts', 'result.error.props.transportTiming.*Ms and result.result.transportTiming.*Ms of the ws-* cases: performance.now() durations of the real clock, written as a marker (the keys stay)'],
   maskRow: (row) => {
     const walk = (value) => {
       if (!value || typeof value !== 'object') return;
@@ -71,29 +70,41 @@ const LIMIT = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT;
 
 // ---- over a real loopback WebSocket ----
 const completed = (id) => [{ type: 'response.created', response: { id, model: 'gpt-fixture' } }, { type: 'response.completed', response: { id, model: 'gpt-fixture', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }], usage: { input_tokens: 1, output_tokens: 1 } } }];
-async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
-  let connections = 0;
+// The server answers the n-th request frame (over every connection of the case) with plans[n - 1].
+const serve = (plans, refusals = []) => {
+  let frames = 0;
   world.reset({
     refuse: (_req, n) => refusals[n - 1],
     onFrame: (conn) => {
-      const plan = plans[connections++];
+      const plan = plans[frames++];
       for (const frame of plan.frames) conn.send(frame);
       if (plan.close) (plan.close[0] === 1006 ? conn.terminate() : conn.close(plan.close[0], plan.close[1]));
     },
   });
+};
+async function overSocket(plans, { refusals = [], poolKey, sendExtras = {}, body = { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }] } }) {
+  serve(plans, refusals);
   // The send's own backoff sleeps run on the virtual clock: every armed retry sleep is advanced to (a recorded step) until the send ends.
-  const settled = sendViaWebSocket({
-    auth: { type: 'xai', access_token: 'fixture-access-token' }, body, poolKey, cacheKey: 'send-attempts-ws', iteration: 0, useModel: 'gpt-fixture', traceProvider: 'xai', forceFresh: true,
-    onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail }),
-    onTextDelta: (chunk) => world.note({ event: 'text', chunk }),
-    onStreamDelta: (kind) => world.note({ event: 'progress', kind }),
-    ...sendExtras,
-  }).then((result) => ({ result }), (error) => ({ error }));
-  const outcome = await rec.clock.followRetries(settled);
-  for (const conn of world.conns) conn.close(1000, 'recorder-end');
-  await world.until((trace) => trace.every((e) => e.event !== 'open') || trace.filter((e) => e.event === 'closed').length >= trace.filter((e) => e.event === 'open').length, 'all sockets closed');
+  const outcome = await send(poolKey, body, sendExtras);
+  await closeAll();
   return { ...outcome, events: world.trace.map((e) => ({ ...e })) };
 }
+// One send through the real sender; the retry trace rows the send writes (`_agentTraceFn`, the product's trace sink) are events of the list.
+// Before each clock step the endpoint has seen every connection the client released close (its `closed` entry), so that event comes before the
+// next attempt's events in the trace whatever the machine's load.
+const releasedClosed = () => world.count((e) => e.event === 'closed') >= world.count((e) => e.event === 'open') - world.conns.filter((c) => c.ws?.readyState === 1).length;
+const send = (poolKey, body, sendExtras = {}) => rec.clock.followRetries(sendViaWebSocket({
+  auth: { type: 'xai', access_token: 'fixture-access-token' }, body, poolKey, cacheKey: 'send-attempts-ws', iteration: 0, useModel: 'gpt-fixture', traceProvider: 'xai', forceFresh: true,
+  onStageChange: (stage, detail) => world.note({ event: 'stage', stage, detail }),
+  onTextDelta: (chunk) => world.note({ event: 'text', chunk }),
+  onStreamDelta: (kind) => world.note({ event: 'progress', kind }),
+  _agentTraceFn: (row) => world.note({ event: 'agent-trace', row }),
+  ...sendExtras,
+}).then((result) => ({ result }), (error) => ({ error })), { ready: releasedClosed });
+const closeAll = async () => {
+  for (const conn of world.conns) conn.close?.(1000, 'recorder-end');
+  await world.until((trace) => trace.every((e) => e.event !== 'open') || trace.filter((e) => e.event === 'closed').length >= trace.filter((e) => e.event === 'open').length, 'all sockets closed');
+};
 await rec.run('ws-http-401-on-upgrade-surfaces-immediately', `${SRC}:86`, { refusals: [401] }, () => overSocket([], { refusals: [{ status: 401, headers: [['content-type', 'application/json']], body: '{"error":{"message":"unauthorized"}}' }], poolKey: 'sa-401' }));
 await rec.run('ws-abnormal-close-before-output-retries-on-a-new-socket', `${SRC}:124`, { connections: ['frames: none, then the server drops the connection (1006)', 'completed'] }, () => overSocket([{ frames: [], close: [1006, ''] }, { frames: completed('resp_retry') }], { poolKey: 'sa-1006' }));
 await rec.run('ws-cut-while-tool-input-streams-surfaces', `${SRC}:142`, { connections: ['created + function_call item added, then the drop (1006)'] }, () => overSocket([{ frames: [{ type: 'response.created', response: { id: 'resp_cut', model: 'gpt-fixture' } }, { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read' } }], close: [1006, ''] }], { poolKey: 'sa-cut' }));
@@ -103,8 +114,18 @@ await rec.run('ws-server-1009-on-retry-surfaces-itself', `${SRC}:431`, { connect
 // ---- more state-machine cases over the socket (the Node tests build the failures by hand; the wire produces them) ----
 await rec.run('ws-connection-reset-on-every-upgrade-spends-budget-then-surfaces-first-error', `${SRC}:111`, { refusals: 'every upgrade request: the server resets the connection', note: 'also covers :74 (a transient connect error spends the budget and retries)' }, () => overSocket([], { refusals: Array.from({ length: 12 }, () => ({ reset: true })), poolKey: 'sa-reset' }));
 await rec.run('ws-policy-veto-503-on-upgrade-tagged-for-http-fallback', `${SRC}:97`, { refusals: [503], handshakeErrorPolicy: 'retry:false, httpFallback when classifier === http_503' }, () => overSocket([], { refusals: [{ status: 503, headers: [['content-type', 'application/json']], body: '{"error":{"message":"unavailable"}}' }], poolKey: 'sa-503', sendExtras: { handshakeErrorPolicy: ({ classifier }) => ({ retry: false, httpFallback: classifier === 'http_503' }) } }));
-await rec.run('ws-long-advised-wait-announced-before-it-starts', `${SRC}:165`, { connections: ['response.failed rate_limit_exceeded "try again in 90s"', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_long', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 90s.' } } }] }, { frames: completed('resp_long_retry') }], { poolKey: 'sa-long' }));
-await rec.run('ws-server-error-text-never-reaches-retry-stage', `${SRC}:214`, { connections: ['response.failed server_error with echoed prompt, token and account in the message', 'completed'] }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_echo', error: { code: 'server_error', message: 'upstream echoed prompt "hi", token sk-LEAK-fixture and account acct-LEAK-fixture' } } }] }, { frames: completed('resp_echo_retry') }], { poolKey: 'sa-echo' }));
+// :165 - the test's failure: an `error` frame (type 'error', before any response.created) advising 210 s, on the first attempt.
+await rec.run('ws-long-advised-wait-announced-before-it-starts', `${SRC}:165`, { connections: ['error frame rate_limit_exceeded "Please try again in 210s." before response.created', 'completed'] }, () => overSocket([{ frames: [{ type: 'error', error: { code: 'rate_limit_exceeded', message: 'Rate limit reached. Please try again in 210s.' } }] }, { frames: completed('resp_long_retry') }], { poolKey: 'sa-long' }));
+// :214 - the test's three failures of one send, one per attempt (attempt indexes 0, 1, 2), each carrying the server text with the prompt, token and account markers: a typed
+// rate limit (an `error` frame, status 429, advising 3 s), a response.failed whose code is free text, and one whose code is identifier-shaped but unknown; then the send completes.
+const MARKERS = ['PROMPT_MARKER_7f3a', 'sk-TOKEN_MARKER_9b2c', 'acct_ACCOUNT_MARKER_44d1'];
+const SERVER_TEXT = `Rate limit reached for "${MARKERS[0]}" (key ${MARKERS[1]}, account ${MARKERS[2]}). Please try again in 3s.`;
+await rec.run('ws-server-error-text-never-reaches-retry-stage', `${SRC}:214`, { markers: MARKERS, connections: ['error frame status 429 rate_limit_exceeded with the server text', `response.failed code "bad ${MARKERS[0]}" with the server text`, 'response.failed code "acct_private-123" with the server text', 'completed'] }, () => overSocket([
+  { frames: [{ type: 'error', status: 429, error: { code: 'rate_limit_exceeded', message: SERVER_TEXT } }] },
+  { frames: [{ type: 'response.failed', response: { id: 'resp_echo_2', error: { code: `bad ${MARKERS[0]}`, message: SERVER_TEXT } } }] },
+  { frames: [{ type: 'response.failed', response: { id: 'resp_echo_3', error: { code: 'acct_private-123', message: SERVER_TEXT } } }] },
+  { frames: completed('resp_echo_retry') },
+], { poolKey: 'sa-echo' }));
 await rec.run('ws-duplicate-reasoning-rejection-strips-replay-once', `${SRC}:392`, { connections: ['response.failed: duplicate item rs_dup already exists', 'completed'], requestInput: 'a user message and a reasoning item rs_dup' }, () => overSocket([{ frames: [{ type: 'response.failed', response: { id: 'resp_dup', error: { code: 'invalid_request_error', message: 'Duplicate item found with id rs_dup. Reasoning item already exists.' } } }] }, { frames: completed('resp_dup_retry') }], { poolKey: 'sa-dup', body: { model: 'gpt-fixture', input: [{ type: 'message', role: 'user', content: 'hi' }, { type: 'reasoning', id: 'rs_dup', summary: [], encrypted_content: 'enc' }] } }));
 // ---- the former constructed-failure cases, observed where a caller can observe them ----
 // :74 a transient connect error spends the stream budget and retries: covered by ws-connection-reset-on-every-upgrade-spends-budget-then-surfaces-first-error (the upgrade is reset, the sender retries and surfaces the first error).
@@ -118,5 +139,34 @@ await rec.run('ws-retry-stage-carries-known-codes-never-failure-text', `${SRC}:2
     sends.push({ code, ...(await overSocket([{ frames: failedWith(code, `failure text ${code}`) }, { frames: completed(`resp_ok_${i}`) }], { poolKey: `sa-code-${i}` })) });
   }
   return { sends };
+});
+// :464 - a stored xAI anchor is carried into the next attempt: one pool / cache / auth identity, `forceFresh` off, `store: true`. The first send completes
+// (the pooled socket keeps its response id resp_1); the second send goes out on that socket and the server drops it before any output; the retry's request
+// frame is what the carried anchor produces. The same with `store: false`: the anchor is dropped and the retry cold-starts.
+for (const store of [true, false]) {
+  await rec.run(`ws-${store ? 'stored' : 'unstored'}-xai-anchor-${store ? 'carried-into' : 'dropped-from'}-next-attempt`, `${SRC}:464`, { store, sends: ['completed resp_1', 'the server drops the connection (1006) on the anchored request', 'the retry: completed'] }, async () => {
+    serve([{ frames: completed('resp_1') }, { frames: [], close: [1006, ''] }, { frames: completed('resp_after_retry') }]);
+    const user = { type: 'message', role: 'user', content: 'hi' };
+    const first = await send(`sa-anchor-${store}`, { model: 'gpt-fixture', store, input: [user] }, { forceFresh: false });
+    const assistant = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] };
+    const second = await send(`sa-anchor-${store}`, { model: 'gpt-fixture', store, input: [user, assistant, { type: 'message', role: 'user', content: 'again' }] }, { forceFresh: false });
+    await closeAll();
+    return { first, second, events: world.trace.map((e) => ({ ...e })) };
+  });
+}
+// :345 - a token-refresh timeout classifies as auth: the OpenAI OAuth refresh (openai-oauth-tokens.mjs refreshStoredTokens, forced) posts to the token endpoint,
+// which answers the status line and never the body; the virtual clock moves past the refresh timeout (30000 ms) once the request has arrived. The error the refresh
+// surfaces is then classified and staged by the product's own retryReasonClass / emitProviderRetryStage (the functions the test calls).
+const tokens = await rec.P(`${P}openai-oauth-tokens.mjs`);
+await rec.run('auth-token-refresh-stalls-past-its-timeout-classifies-as-auth', `${SRC}:345`, { stored: { access_token: 'expired-fixture-access', refresh_token: 'fixture-refresh', expires_at: 'the start of the recording - 1 h' }, tokenEndpoint: 'answers 200 and never sends the body', advanceMs: 30000 }, async ({ net, clock }) => {
+  await tokens.saveTokens({ access_token: 'expired-fixture-access', refresh_token: 'fixture-refresh', expires_at: Date.now() - 3_600_000 });
+  net.reply = () => ({ status: 200, contentType: 'application/json', chunks: [], hold: true });
+  const settled = tokens.refreshStoredTokens({ force: true, reason: 'recording' }).then((value) => ({ value }), (error) => ({ error }));
+  await clock.until(() => net.records.length >= 1, 'the token refresh request arrived');
+  await clock.advance(30_000, { what: 'token refresh timeout' });
+  const outcome = await settled;
+  const stages = [];
+  if (outcome.error) emitProviderRetryStage((_stage, detail) => stages.push(detail), { attempt: 1, maxAttempts: 5, lastErr: outcome.error, delayMs: 1_000 });
+  return { ...outcome, reasonClass: outcome.error ? retryReasonClass(outcome.error) : null, stage: stages[0] ?? null };
 });
 await rec.finish();
