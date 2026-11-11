@@ -104,16 +104,49 @@ fn count(um: &Value, camel: &str, snake: &str) -> Option<u64> {
     v.as_u64().or_else(|| v.as_f64().map(|f| f.max(0.0) as u64))
 }
 
+/// `firstFinite` of `_resolveGeminiCacheUsage`: the first of the two spellings that is a positive number, else 0.
+fn first_positive(um: &Value, camel: &str, snake: &str) -> u64 {
+    [camel, snake]
+        .iter()
+        .filter_map(|key| um.get(*key).and_then(Value::as_f64))
+        .find(|n| n.is_finite() && *n > 0.0)
+        .map_or(0, |n| n as u64)
+}
+
+/// `_resolveGeminiCacheUsage` (gemini-cache.mjs:245-285) as `normalizeGeminiUsage` reads it: the prompt is
+/// `promptTokenCount` plus the tool-use prompt when the field is present (an explicit 0 stays 0), else the total less
+/// the output; the cached count is the first of `cachedContentTokenCount` and its `totalCachedTokens` alias that is a
+/// number (a 0 is a measured miss), at most the prompt. The attached cache's size (`cachedFallbackTokens`) only feeds
+/// Node's cache trace: `normalizeGeminiUsage` (gemini-response.mjs:87-95) books the reported count.
+fn gemini_input_and_cache(um: &Value) -> (u64, u64) {
+    let explicit = ["promptTokenCount", "prompt_token_count"].iter().any(|key| um.get(*key).is_some());
+    let input = if explicit {
+        first_positive(um, "promptTokenCount", "prompt_token_count")
+            + first_positive(um, "toolUsePromptTokenCount", "tool_use_prompt_token_count")
+    } else {
+        let output = first_positive(um, "candidatesTokenCount", "candidates_token_count")
+            + first_positive(um, "thoughtsTokenCount", "thoughts_token_count");
+        first_positive(um, "totalTokenCount", "total_token_count").saturating_sub(output)
+    };
+    let reported = ["cachedContentTokenCount", "cached_content_token_count", "totalCachedTokens", "total_cached_tokens"]
+        .iter()
+        .filter_map(|key| um.get(*key).and_then(Value::as_f64))
+        .find(|n| n.is_finite() && *n >= 0.0)
+        .map_or(0, |n| n as u64);
+    (input, clamp(reported, input))
+}
+
 pub fn usage_of(um: &Value, style: UsageStyle) -> Usage {
     let prompt = count(um, "promptTokenCount", "prompt_token_count").unwrap_or(0);
     let reported_cache = count(um, "cachedContentTokenCount", "cached_content_token_count").unwrap_or(0);
     let thoughts = count(um, "thoughtsTokenCount", "thoughts_token_count");
     let candidates = count(um, "candidatesTokenCount", "candidates_token_count").unwrap_or(0);
     let (input, cached) = match style {
-        UsageStyle::Inclusive => (prompt, clamp(reported_cache, prompt)),
+        UsageStyle::Inclusive => gemini_input_and_cache(um),
+        // `toVertexExclusiveUsage` (vertex-ai-maas.mjs:33-45) over the same resolution.
         UsageStyle::CacheExclusive => {
-            let cached = clamp(reported_cache, prompt);
-            (prompt.saturating_sub(cached), cached)
+            let (input, cached) = gemini_input_and_cache(um);
+            (input.saturating_sub(cached), cached)
         }
         UsageStyle::ToolUseAdded => (
             prompt + count(um, "toolUsePromptTokenCount", "tool_use_prompt_token_count").unwrap_or(0),
@@ -185,6 +218,8 @@ pub struct GeminiDecoder {
     /// The answer text of the whole response (`rawContent`) and what of it was relayed.
     raw: String,
     shown: String,
+    /// The model the replay envelope is bound to (`requestContext.model`), when the decoder knows the request.
+    model: Option<String>,
 }
 
 /// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
@@ -226,7 +261,15 @@ impl GeminiDecoder {
             chunk_text: String::new(),
             raw: String::new(),
             shown: String::new(),
+            model: None,
         }
+    }
+
+    /// Binds the replay envelope to the model that produced it (Node's `requestContext.model`): a later turn replays its
+    /// signed parts only to the same model.
+    pub fn for_model(mut self, model: &str) -> Self {
+        self.model = Some(model.to_owned());
+        self
     }
 
     /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
@@ -489,10 +532,11 @@ impl GeminiDecoder {
             self.parts.clear();
         }
         if !self.parts.is_empty() {
-            out.push(StreamEvent::ReasoningReplay(ProviderReplay {
-                owner: self.dialect.owner.clone(),
-                items: json!({ "parts": std::mem::take(&mut self.parts) }),
-            }));
+            let mut items = json!({ "parts": std::mem::take(&mut self.parts) });
+            if let Some(model) = &self.model {
+                items["model"] = json!(model);
+            }
+            out.push(StreamEvent::ReasoningReplay(ProviderReplay { owner: self.dialect.owner.clone(), items }));
         }
         out.extend(self.citations.drain(..).map(StreamEvent::Citation));
         if let Some(um) = &self.usage {

@@ -2,11 +2,12 @@
 // Node-core CI, release and benchmark steps (K1). Nothing here reaches the user's profile, daemon or credentials:
 // every profile variable points under `root`, the parent's proxy/provider/MIXDOG_* variables are dropped, and the
 // only process ever stopped is the one this module started.
-import { spawn } from 'node:child_process';
+
 import { copyFileSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { endTree, runTree, spawnTree } from './process-tree.mjs';
 
 export const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
 const DROP = /^(MIXDOG_|HTTPS?_PROXY$|ALL_PROXY$|NO_PROXY$|OPENAI_|ANTHROPIC_|GOOGLE_|GEMINI_|AZURE_|XDG_|ELECTRON_)/i;
@@ -178,6 +179,20 @@ export async function attachCore({ runtimeRoot, clientName = 'k1-ci', timeoutMs 
   return { discovery: doc, client, call: (method, params) => client.call(method, params), close: () => client.close() };
 }
 
+/** `promise`, or a rejection saying what `what` did not finish within `ms` (a deadline, not a wait). */
+export function within(promise, ms, what) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Ends the process this module started and everything it started, by its own handle only (never a name or pattern), and waits for its exit. */
+async function endChild(child, exited, ms = 15_000) {
+  await endTree(child);
+  await within(exited, ms, `the killed core (pid ${child.pid}) exiting`);
+}
 /**
  * Starts `bin serve` on the profile under `root` and connects to it.
  * @param {object} options
@@ -190,8 +205,13 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
   const paths = isolatedPaths(root);
   const exe = stageProfile(paths, { bin, config });
   prepare?.(paths);
+  // The first launch of a freshly copied executable is slower than every later one (the system checks it); that cost is not the
+  // core's boot, so the copy is run once (--version exits at once) before the clock starts.
+  await runTree(exe, ['--version'], { label: 'first launch of the staged mixdogd', deadlineMs: 60_000 });
   const tail = [];
-  const child = spawn(exe, ['serve'], { env: isolatedEnv(paths, extraEnv), cwd: paths.root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  // The process-start instant: the boot budget runs from here, not from the staging copy above.
+  const spawnedAt = performance.now();
+  const child = spawnTree(exe, ['serve'], { env: isolatedEnv(paths, extraEnv), cwd: paths.root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   for (const stream of ['stdout', 'stderr']) {
     child[stream].setEncoding('utf8');
     child[stream].on('data', (chunk) => {
@@ -212,26 +232,41 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
       paths,
       discovery: doc,
       client,
+      // The tree helper's pid (see spawnTree); the core's own pids are those running `exe`.
       pid: child.pid,
+      alive: () => child.exitCode === null && child.signalCode === null,
+      exe,
+      spawnedAt,
       tail: () => tail.join('\n') || '(no output)',
       call: (method, params) => client.call(method, params),
-      /** `POST /mgmt/stop` (the core's own stop, as `mixdogd ctl stop --when-idle --reason quit`), then waits for the exit. */
-      async stop() {
-        await client.close();
-        client = null;
-        const response = await fetch(`http://127.0.0.1:${doc.core.control.port}/mgmt/stop`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${doc.endpoints.session.token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }),
-        });
-        if (!response.ok) throw new Error(`/mgmt/stop answered ${response.status}: ${await response.text()}`);
-        return exited;
-      },
-    };
+      /**
+       * `POST /mgmt/stop` (the core's own stop, as `mixdogd ctl stop --when-idle --reason quit`), then the exit.
+       * Every step has a deadline (`timeoutMs`); on any failure the child this call started is ended by its own
+       * handle and the failure is thrown with the core's output tail. A clean answer is the `{ code, signal }` of the exit.
+       */
+      async stop({ timeoutMs = 15_000 } = {}) {
+        try {
+          if (client) {
+            const closing = client;
+            client = null;
+            await within(closing.close(), timeoutMs, 'closing the protocol connection');
+          }
+          const response = await fetch(`http://127.0.0.1:${doc.core.control.port}/mgmt/stop`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${doc.endpoints.session.token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (!response.ok) throw new Error(`/mgmt/stop answered ${response.status}: ${await response.text()}`);
+          return await within(exited, timeoutMs, 'the core exiting after /mgmt/stop');
+        } catch (error) {
+          await endChild(child, exited);
+          throw new Error(`stopping the core failed: ${error.message}\n${tail.join('\n') || '(no output)'}`, { cause: error });
+        }
+      },    };
   } catch (error) {
-    await client?.close().catch(() => {});
-    // Only the process this call started: its own handle, never a name or pattern.
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await within(client?.close() ?? Promise.resolve(), 15_000, 'closing the protocol connection').catch(() => {});
+    await endChild(child, exited);
     throw error;
   }
 }

@@ -1,0 +1,41 @@
+{
+  "provider": "opencode-go-oauth",
+  "config": {
+    "preconnect": false
+  },
+  "credential": {
+    "file": "opencode-go-oauth.json",
+    "document": {
+      "access_token": "fixture-access-token",
+      "refresh_token": "fixture-refresh-token",
+      "expires_at": 4000000000000,
+      "account_id": "acct-fixture",
+      "email": "fixture@example.invalid"
+    }
+  },
+  "clientVersion": "1.4.5",
+  "model": "go-fixture",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a fixture assistant."
+    },
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "tools": null,
+  "opts": {
+    "sessionId": "fixture-session"
+  },
+  "callbacks": [
+    "onToolCall",
+    "onStageChange",
+    "onStreamDelta",
+    "onTextDelta",
+    "onTextReset",
+    "onReasoningDelta",
+    "onStreamItemStart"
+  ]
+}

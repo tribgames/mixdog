@@ -1,0 +1,69 @@
+{
+  "domain": "memory-project-id",
+  "source": "src/runtime/memory/lib/project-id-resolver.test.mjs",
+  "cases": [
+    {
+      "name": "a NUL-filled project.id is no marker",
+      "markerBytesHex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "cwdBelowMarkerRoot": ".",
+      "result": null
+    },
+    {
+      "name": "a real one still resolves",
+      "markerBytesHex": "6d792d70726f6a6563740a",
+      "cwdBelowMarkerRoot": ".",
+      "result": "my-project"
+    },
+    {
+      "name": "common is the common scope",
+      "markerBytesHex": "636f6d6d6f6e0a",
+      "cwdBelowMarkerRoot": ".",
+      "result": null
+    },
+    {
+      "name": "COMMON in any case",
+      "markerBytesHex": "436f4d4d6f6e",
+      "cwdBelowMarkerRoot": ".",
+      "result": null
+    },
+    {
+      "name": "blank marker",
+      "markerBytesHex": "20200a0920",
+      "cwdBelowMarkerRoot": ".",
+      "result": null
+    },
+    {
+      "name": "empty marker",
+      "markerBytesHex": "",
+      "cwdBelowMarkerRoot": ".",
+      "result": null
+    },
+    {
+      "name": "CRLF line end",
+      "markerBytesHex": "77696e2d70726f6a6563740d0a",
+      "cwdBelowMarkerRoot": ".",
+      "result": "win-project"
+    },
+    {
+      "name": "NUL bytes with text are kept as read",
+      "markerBytesHex": "616263000000",
+      "cwdBelowMarkerRoot": ".",
+      "result": "abc\u0000\u0000\u0000"
+    },
+    {
+      "name": "a sub directory resolves through the ancestor marker",
+      "markerBytesHex": "6f757465720a",
+      "cwdBelowMarkerRoot": "a/b",
+      "result": "outer"
+    },
+    {
+      "name": "an inner .mixdog without project.id does not mask the outer marker",
+      "innerHasMarker": false,
+      "result": "outer-id"
+    },
+    {
+      "name": "no marker in any ancestor of the temp base",
+      "result": null
+    }
+  ]
+}

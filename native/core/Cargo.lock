@@ -3788,6 +3788,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "futures",
+ "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
  "mixdog-core-api",
@@ -3880,6 +3881,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "bytes",
+ "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
  "mixdog-core-api",
@@ -4018,6 +4020,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
  "mixdog-app-server-client",
@@ -4116,6 +4119,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "futures",
+ "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
  "mixdog-core-api",
@@ -4892,6 +4896,7 @@ dependencies = [
  "mixdog-spawn",
  "mixdog-statefile",
  "mixdog-store",
+ "mixdog-testkit",
  "mixdog-tools",
  "mixdog-trace",
  "mixdog-workspace",
@@ -4991,7 +4996,9 @@ dependencies = [
 name = "mixdog-testkit"
 version = "1.4.5"
 dependencies = [
+ "base64 0.22.1",
  "mixdog-workspace-hack",
+ "serde_json",
 ]
 
 [[package]]

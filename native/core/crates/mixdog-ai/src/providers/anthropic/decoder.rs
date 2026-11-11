@@ -170,6 +170,13 @@ pub(crate) struct AnthropicDecoder {
     leaked_dispatched: usize,
     /// Native tool_use blocks the dedupe dropped: they stay out of the replay.
     skipped: HashSet<u64>,
+    /// The server-side fallbacks the stream reported (`turn.fallbackEvents`), as `parseAnthropicFallbackBlock` records them.
+    fallbacks: Vec<Value>,
+    /// An output block opened (`turn.firstOutputAt`).
+    output_started: bool,
+    /// The model the turn is attributed to (Node `turn.model`): the requested one until `message_start` names the model
+    /// that answers or a `fallback` block hands the turn to the fallback model.
+    model: String,
 }
 
 /// Node `message.stop_reason || null`: an absent reason stays absent.
@@ -185,8 +192,10 @@ fn stop_reason(raw: Option<&str>) -> Option<StopReason> {
 }
 
 impl AnthropicDecoder {
-    pub(crate) fn new(owner: ProviderId) -> Self {
+    /// A decoder for a request to `model`: a turn another model answers reports it ([`StreamEvent::ServedModel`]).
+    pub(crate) fn for_model(owner: ProviderId, model: &str) -> Self {
         Self {
+            model: model.to_owned(),
             owner,
             framer: SseFramer::default(),
             blocks: BTreeMap::new(),
@@ -200,6 +209,8 @@ impl AnthropicDecoder {
             dedupe: Dedupe::default(),
             leaked_dispatched: 0,
             skipped: HashSet::new(),
+            fallbacks: Vec::new(),
+            output_started: false,
         }
     }
 
@@ -325,6 +336,10 @@ impl AnthropicDecoder {
             }));
         }
         out.push(StreamEvent::Usage(self.usage.usage()));
+        // `anthropicFallbackProviderMetadata(turn.fallbackEvents)` (turn-outcome.mjs:158).
+        if !self.fallbacks.is_empty() {
+            out.push(StreamEvent::ProviderMetadata(json!({ "anthropicFallbacks": self.fallbacks })));
+        }
         out.push(StreamEvent::Completed {
             pricing_model: None,
             request_ms: None,
@@ -344,6 +359,12 @@ impl AnthropicDecoder {
                     return Ok(());
                 };
                 self.saw_message_start = true;
+                // The semantic message boundary (anthropic-sse.mjs:149-151).
+                out.push(StreamEvent::Progress(ProgressKind::Semantic));
+                // `onMessageStart`: `if (message.model) turn.model = message.model` (turn-events/message-events.mjs:17).
+                if let Some(model) = message.get("model").and_then(Value::as_str).filter(|m| !m.is_empty()) {
+                    self.serve(model, out);
+                }
                 if let Some(usage) = message.get("usage") {
                     self.usage.update(usage);
                     out.push(StreamEvent::Usage(self.usage.usage()));
@@ -366,10 +387,58 @@ impl AnthropicDecoder {
         Ok(())
     }
 
+    /// The first output block opening starts the generation (`turn.firstOutputAt ||= Date.now()`).
+    fn output_started(&mut self, out: &mut Vec<StreamEvent>) {
+        if !self.output_started {
+            self.output_started = true;
+            out.push(StreamEvent::OutputStarted);
+        }
+    }
+
+    /// The turn is now attributed to `model`; a change is reported.
+    fn serve(&mut self, model: &str, out: &mut Vec<StreamEvent>) {
+        if self.model != model {
+            self.model = model.to_owned();
+            out.push(StreamEvent::ServedModel(model.to_owned()));
+        }
+    }
+
     fn block_start(&mut self, index: u64, block: Option<&Value>, out: &mut Vec<StreamEvent>) {
         let Some(block) = block.filter(|b| b.is_object()) else {
             return;
         };
+        // A server-side fallback hands the turn to the fallback model (`parseAnthropicFallbackBlock`,
+        // anthropic-server-fallback.mjs:26-40, and content-block-start.mjs:52-58): the block carries no content.
+        if block.get("type").and_then(Value::as_str) == Some("fallback") {
+            let model_of = |side: &str| match block.get(side) {
+                Some(Value::String(id)) => mixdog_js::js_trim(id).to_owned(),
+                Some(Value::Object(map)) => map.get("model").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default().to_owned(),
+                _ => String::new(),
+            };
+            let (from, to) = (model_of("from"), model_of("to"));
+            if from.is_empty() || to.is_empty() {
+                // Not a fallback Node can read: an output block opening like any other (content-block-start.mjs:72).
+                self.output_started(out);
+            } else {
+                let trigger = block.get("trigger").filter(|t| t.is_object());
+                let text_of = |key: &str| {
+                    trigger.and_then(|t| t.get(key)).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|s| !s.is_empty())
+                };
+                let mut record = json!({ "trigger": text_of("type").unwrap_or("refusal"), "originalModel": from, "fallbackModel": to });
+                if let Some(category) = text_of("category") {
+                    record["category"] = json!(category);
+                }
+                self.fallbacks.push(record);
+                self.serve(&to, out);
+                out.push(StreamEvent::Progress(ProgressKind::Semantic));
+            }
+            return;
+        }
+        // Any output block opening starts the generation, a thinking block above all (content-block-start.mjs:69-72):
+        // a block with a type.
+        if crate::providers::js_value::truthy(block.get("type").unwrap_or(&Value::Null)) {
+            self.output_started(out);
+        }
         let text_of = |field: &str| block.get(field).and_then(Value::as_str).unwrap_or("").to_owned();
         match block.get("type").and_then(Value::as_str).unwrap_or("") {
             "text" => {
@@ -481,19 +550,24 @@ impl AnthropicDecoder {
                         json.push_str(piece);
                         out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: piece.to_owned() });
                     }
-                    Some(Block::NativeCall { json, .. }) => json.push_str(piece),
+                    Some(Block::NativeCall { json, .. }) => {
+                        json.push_str(piece);
+                        // A server tool's input is reported once more (content-block-delta.mjs:79-82).
+                        out.push(StreamEvent::Progress(ProgressKind::Tool));
+                    }
                     _ => {}
                 }
                 // Node reports every input_json_delta, whatever block it lands on.
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
+            // A citation belongs to the text block it cites, replayed with it (turn-blocks.mjs:41-51, :79-81); Node's
+            // Anthropic result has no citation list of its own.
             "citations_delta" => {
                 let Some(citation) = delta.get("citation").filter(|c| c.is_object()) else {
                     return;
                 };
                 if let Some(Block::Text { citations, .. }) = self.blocks.get_mut(&index) {
                     citations.push(citation.clone());
-                    out.push(StreamEvent::Citation(citation.clone()));
                 }
             }
             _ => {}

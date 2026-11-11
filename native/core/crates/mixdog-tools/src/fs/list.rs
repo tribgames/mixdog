@@ -176,6 +176,19 @@ impl Tool for ListTool {
             .collect();
         rows.sort_by(|a, b| compare_names(&a.name, &b.name));
         rows.truncate(ABSOLUTE_CAP);
+        // Node's `recordDirectoryWalkTelemetry` (`list-tool.mjs:61`): the walk's entries after the hidden and noise
+        // filters, up to the cap; the trace row's `payload.integrity`.
+        let integrity = serde_json::json!({
+            "kind": "directory-walk",
+            "status": if rows.is_empty() { "empty" } else { "complete" },
+            "entriesVisited": rows.len(),
+            "warnings": 0,
+        });
+        let text_output = |text: String| {
+            let mut output = text_output(text);
+            output.meta = Some(serde_json::json!({ RESULT_TELEMETRY_META: { "integrity": integrity } }));
+            output
+        };
         let total = rows.len();
         let windowed = rows.get(offset..).unwrap_or(&[]);
         let page = if limit == 0 { windowed } else { &windowed[..windowed.len().min(limit)] };
