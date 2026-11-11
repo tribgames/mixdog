@@ -156,7 +156,7 @@ impl WebService {
             Err(error) => return error_item(&error, NODE_ERROR_NAME, Vec::new(), Vec::new()),
         };
         target.set_fragment(None);
-        match self.pipeline.run(&target, self.timeout, cancel).await {
+        match self.pipeline.run(&target, self.timeout, &cancel.clone().into()).await {
             Ok(page) => {
                 self.cache
                     .put(

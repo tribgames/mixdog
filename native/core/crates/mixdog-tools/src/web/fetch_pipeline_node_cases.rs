@@ -11,6 +11,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use serde_json::Value;
 use serde_json::json;
+use mixdog_rt::CancelSource;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 use wiremock::Mock;
@@ -58,11 +59,11 @@ impl PageRenderer for Browser {
 }
 
 /// Cancels the caller's fetch while answering its request with a page (the test's stage that aborts, then returns).
-struct CancelThenPage(CancellationToken);
+struct CancelThenPage(CancelSource);
 
 impl Respond for CancelThenPage {
     fn respond(&self, _: &Request) -> ResponseTemplate {
-        self.0.cancel();
+        self.0.cancel("user stopped");
         ResponseTemplate::new(200).set_body_raw("Useful page content.", "text/markdown")
     }
 }
@@ -125,7 +126,7 @@ fn outcome(result: &Result<Page, PipelineFailure>) -> Value {
 
 async fn replay(spec: &Value, recorded_delays: &Value) -> Value {
     let server = MockServer::start().await;
-    let cancel = CancellationToken::new();
+    let cancel = CancelSource::new();
     let browser = spec["browser"].as_str().unwrap();
     let policy = if spec["http"] == "private" { AddressPolicy::PublicOnly } else { AddressPolicy::AnyForTest };
     match &spec["http"] {
@@ -147,7 +148,7 @@ async fn replay(spec: &Value, recorded_delays: &Value) -> Value {
     let url = Url::parse(&format!("{}/docs", server.uri())).unwrap();
     let budget = Duration::from_millis(spec.get("timeoutMs").and_then(Value::as_u64).unwrap_or(3000));
     let started = Instant::now();
-    let result = pipeline(policy, browser).run(&url, budget, &cancel).await;
+    let result = pipeline(policy, browser).run(&url, budget, &cancel.view()).await;
     let elapsed = started.elapsed().as_millis();
     let mut got = outcome(&result);
     // The waits are not observable one by one: the run took at least their sum, and less than one more retry floor.
@@ -171,7 +172,7 @@ async fn pacer() -> Value {
     let port = server.address().port();
     let fetch = |host: &str, name: &str, cancel: CancellationToken| {
         let (pipeline, url) = (pipeline.clone(), Url::parse(&format!("http://{host}:{port}/{name}")).unwrap());
-        tokio::spawn(async move { pipeline.run(&url, Duration::from_secs(10), &cancel).await })
+        tokio::spawn(async move { pipeline.run(&url, Duration::from_secs(10), &cancel.into()).await })
     };
     let first = fetch("127.0.0.1", "first", CancellationToken::new());
     while paths(&server).await.is_empty() {

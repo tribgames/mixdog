@@ -149,12 +149,7 @@ for (const [name, specs] of groups) {
 }
 
 // Runs the Rust pipeline answers differently, named `<case> #<run>`.
-const excluded = {
-  'total deadline and caller cancellation stop queued or hanging stages #0':
-    'DIFFERENCE: Node traces the render stage cut off by the total deadline (failure and attempt FETCH_TIMEOUT); Rust drops the stage with the deadline and its trace holds only the http attempt',
-  'total deadline and caller cancellation stop queued or hanging stages #1':
-    "DIFFERENCE: a caller cancel during the http stage: Node fails with the abort reason ('user stopped') and traces the http attempt as NETWORK_ERROR; Rust fails with 'Fetch cancelled' and traces no attempt",
-};
+const excluded = {};
 const finalDir = join(FIXTURES_ROOT, 'fetch-pipeline-cases');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { note: `Node's fetch pipeline at ${NODE_COMMIT}, per case of ${RECORDER}`, test: TEST, url, cases });
