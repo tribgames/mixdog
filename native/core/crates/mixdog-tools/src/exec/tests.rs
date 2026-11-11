@@ -1255,6 +1255,40 @@ async fn a_script_that_could_not_be_written_whole_is_ended_unrun_and_the_call_fa
     assert_eq!(*rig.processes.killed.lock().unwrap(), [handle]);
 }
 
+/// The bootstrap runs a script only when all of it arrived: an input that ends after half of the script (a pipe that broke
+/// part way) runs nothing of it, not even the statement the half carries whole, and exits 1; the whole script runs.
+#[cfg(windows)]
+#[test]
+fn the_bootstrap_runs_nothing_of_a_script_that_arrived_in_part() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("first-half-ran");
+    let script = format!("New-Item -ItemType File -Path '{}' | Out-Null\n# {}\nWrite-Output whole", marker.display(), "x".repeat(400));
+    let framed = super::invocation::frame_powershell_script(&script);
+    let run = |input: &str| {
+        let mut child = std::process::Command::new("powershell.exe")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", super::invocation::POWERSHELL_BOOTSTRAP])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let half = &framed[..framed.len() / 2];
+    assert!(half.contains("Out-Null\n# x"), "the half carries the first statement whole");
+    let cut = run(half);
+    assert!(!marker.exists(), "the first half of a script that arrived in part ran");
+    assert_eq!(cut.status.code(), Some(1));
+    assert_eq!(String::from_utf8_lossy(&cut.stderr).trim(), "the command arrived incomplete and was not run");
+    assert_eq!(String::from_utf8_lossy(&cut.stdout), "");
+    let whole = run(&framed);
+    assert!(marker.exists(), "the whole script ran");
+    assert_eq!((whole.status.code(), String::from_utf8_lossy(&whole.stdout).trim()), (Some(0), "whole"));
+}
+
 #[tokio::test]
 async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     let (rig, shell) = windows_powershell_rig();
@@ -1265,11 +1299,11 @@ async fn a_powershell_command_gets_the_utf8_preamble_and_the_skill_function() {
     assert_eq!(script, super::invocation::POWERSHELL_BOOTSTRAP);
     assert_eq!(
         rig.processes.fed.lock().unwrap()[0],
-        format!(
+        super::invocation::frame_powershell_script(&format!(
             "{}\n{}\necho hi",
             super::invocation::POWERSHELL_UTF8_PREFIX,
             super::invocation::render_powershell_skill_function(&skill_runtime())
-        )
+        ))
     );
     // The launcher files exist for this installation and their directory leads PATH.
     let launchers = rig.dir.path().join("data/skill-launchers");

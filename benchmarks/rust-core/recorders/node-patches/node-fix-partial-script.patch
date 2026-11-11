@@ -1,0 +1,114 @@
+diff --git a/src/runtime/agent/orchestrator/tools/lib/shell-run-spawn.mjs b/src/runtime/agent/orchestrator/tools/lib/shell-run-spawn.mjs
+index 42e338f..73b0682 100644
+--- a/src/runtime/agent/orchestrator/tools/lib/shell-run-spawn.mjs
++++ b/src/runtime/agent/orchestrator/tools/lib/shell-run-spawn.mjs
+@@ -16,7 +16,7 @@ import {
+ } from './native-spawn-client.mjs';
+ import { _maybeEncodePowerShellCommand } from '../shell-powershell.mjs';
+ import { spawnShellWithRetry as _spawnShellWithRetry } from './shell-spawn-retry.mjs';
+-import { STANDBY_ARGS, takeWarmShellStandby } from './shell-warm-standby.mjs';
++import { STANDBY_ARGS, frameStdinScript, takeWarmShellStandby } from './shell-warm-standby.mjs';
+ import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
+ import { admitWorkspaceActivity, tryAdmitWorkspaceActivityAsync } from '../../../../shared/worktrees/activity-gate.mjs';
+ import { worktreeError } from '../../../../shared/worktrees/contract.mjs';
+@@ -254,7 +254,7 @@ async function spawnAdmittedShellChild({
+   // as for the standby.
+   abortSignal?.throwIfAborted();
+   if (standby) standby.feed(spawnCommand, cwd);
+-  else if (stdinScript !== null) spawned.child.writeStdin(stdinScript, { close: true });
++  else if (stdinScript !== null) spawned.child.writeStdin(frameStdinScript(stdinScript), { close: true });
+   // The command has now reached a shell. This is the start moment every
+   // readout measures from, and the point from which a still-running
+   // command deserves to be visible in the shell readouts.
+diff --git a/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.mjs b/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.mjs
+index 810da72..9df7f91 100644
+--- a/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.mjs
++++ b/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.mjs
+@@ -20,9 +20,20 @@ import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
+ // matching -Command rather than leaking an earlier $LASTEXITCODE.
+ // Fresh (non-standby) pwsh spawns use the same bootstrap with the script fed
+ // through stdin, so both paths share one delivery and one set of semantics.
++// The script arrives framed (frameStdinScript): its length on a line of its
++// own first. An input that ends before that length (the write failed part
++// way and the input closed) runs nothing and exits 1: ReadToEnd alone would
++// take the end of a part of the script for the end of all of it and run it.
+ const STANDBY_BOOTSTRAP =
+-  "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); try { $__mixdogScript = [scriptblock]::Create([Console]::In.ReadToEnd() + \"`nif (-not `$?) { exit 1 }\") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; . $__mixdogScript";
++  "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $__mixdogIn = [Console]::In.ReadToEnd(); $__mixdogAt = $__mixdogIn.IndexOf(\"`n\"); if ($__mixdogAt -lt 1 -or \"$($__mixdogIn.Length - $__mixdogAt - 1)\" -cne $__mixdogIn.Substring(0, $__mixdogAt)) { [Console]::Error.WriteLine('the command arrived incomplete and was not run'); exit 1 }; try { $__mixdogScript = [scriptblock]::Create($__mixdogIn.Substring($__mixdogAt + 1) + \"`nif (-not `$?) { exit 1 }\") } catch { [Console]::Error.WriteLine('ParserError: ' + $_.Exception.GetBaseException().Message); exit 1 }; $__mixdogIn = $null; . $__mixdogScript";
+ export const STANDBY_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', STANDBY_BOOTSTRAP];
++
++// A script as the bootstrap takes it: its length in UTF-16 code units (what
++// .NET counts once it has decoded the input) on a line of its own, then it.
++export function frameStdinScript(script) {
++  const text = String(script ?? '');
++  return `${text.length}\n${text}`;
++}
+ const _configuredIdleMs = Number(process.env.MIXDOG_SHELL_WARM_STANDBY_IDLE_MS);
+ const STANDBY_TTL_MS =
+   Number.isFinite(_configuredIdleMs) && _configuredIdleMs >= 100 ? Math.floor(_configuredIdleMs) : 2 * 60_000;
+@@ -193,7 +204,7 @@ export function takeWarmShellStandby({ shell, env }) {
+     const prelude = scratchPrelude + cwdPrelude;
+     // Single atomic write+EOF: a separate close message can race ahead
+     // of the server's async write thread and feed an empty script.
+-    slot.native.child.writeStdin(prelude + String(commandText ?? ''), { close: true });
++    slot.native.child.writeStdin(frameStdinScript(prelude + String(commandText ?? '')), { close: true });
+   };
+   return { spawned: slot.native, feed };
+ }
+diff --git a/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.slow.test.mjs b/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.slow.test.mjs
+index bbee687..0c5550e 100644
+--- a/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.slow.test.mjs
++++ b/src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.slow.test.mjs
+@@ -14,7 +14,7 @@ import {
+   ensureNativeSpawnServer,
+   shutdownNativeSpawnServer,
+ } from './native-spawn-client.mjs';
+-import { STANDBY_ARGS, _parkedShellStandbyForTest, takeWarmShellStandby } from './shell-warm-standby.mjs';
++import { STANDBY_ARGS, _parkedShellStandbyForTest, frameStdinScript, takeWarmShellStandby } from './shell-warm-standby.mjs';
+ 
+ const spawnBinary = ['release', 'debug']
+   .map((profile) =>
+@@ -88,6 +88,34 @@ test(
+   }
+ );
+ 
++// An input that ends after half of the script (the helper's write failed part
++// way and the input closed) runs nothing of it, not even the statement the
++// half carries whole; the whole script runs.
++test('the bootstrap runs nothing of a script that arrived in part', {
++  skip: process.platform !== 'win32' && 'Windows only',
++}, () => {
++  const dir = mkdtempSync(join(tmpdir(), 'mixdog-partial-'));
++  try {
++    const marker = join(dir, 'first-half-ran');
++    const framed = frameStdinScript(`New-Item -ItemType File -Path '${marker}' | Out-Null\n# ${'x'.repeat(400)}\nWrite-Output whole`);
++    const half = framed.slice(0, Math.floor(framed.length / 2));
++    assert.ok(half.includes('Out-Null\n# x'), 'the half carries the first statement whole');
++    const options = { encoding: 'utf8', windowsHide: true, cwd: fixtureRoot };
++    const cut = spawnSync('powershell.exe', STANDBY_ARGS, { ...options, input: half });
++    assert.ifError(cut.error);
++    assert.equal(existsSync(marker), false, 'the first half of a script that arrived in part ran');
++    assert.equal(cut.status, 1);
++    assert.equal(cut.stderr.trim(), 'the command arrived incomplete and was not run');
++    assert.equal(cut.stdout, '');
++    const whole = spawnSync('powershell.exe', STANDBY_ARGS, { ...options, input: framed });
++    assert.ifError(whole.error);
++    assert.equal(existsSync(marker), true, 'the whole script ran');
++    assert.deepEqual([whole.status, whole.stdout.trim()], [0, 'whole']);
++  } finally {
++    rmSync(dir, { recursive: true, force: true });
++  }
++});
++
+ // The cold `-Command` run is the semantic reference, not a timing check: no
+ // spawn deadline (pwsh startup on a loaded machine is unbounded), and a hung
+ // pwsh is bounded by the runner's per-file timeout.
+@@ -106,7 +134,7 @@ test('warm PowerShell preserves cold command status and output', {
+   for (const [script, expected] of cases) {
+     const options = { encoding: 'utf8', windowsHide: true, cwd: fixtureRoot };
+     const cold = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], options);
+-    const warm = spawnSync('pwsh', STANDBY_ARGS, { ...options, input: script });
++    const warm = spawnSync('pwsh', STANDBY_ARGS, { ...options, input: frameStdinScript(script) });
+     assert.ifError(cold.error);
+     assert.ifError(warm.error);
+     assert.equal(cold.status, expected, `cold: ${script}`);
