@@ -11,7 +11,8 @@ const rec = await startRecording({
   set: 'provider-compat-responses-effort',
   net: false,
   entry: 'effort-configuration.mjs effortConfigurationMode / prepareTurnEffortConfiguration / stepEffortConfiguration, openai-compat-responses.mjs sendCompatResponses over an OpenAICompatProvider-prototype instance with a scripted `client.responses.create` and the scripted model row (getCachedModelInfo) and customConfig.protocol as inputs. Not run: the SDK transport.',
-  replay: 'mixdog-ai providers::custom::reasoning (reasoning.rs:121-200, :149 opt-out) and the compat Responses codec / openai effort_retry.rs:22: feed each row\'s `input` (turn efforts, levels, protocol, rejection) and compare `result` (modes, snapshots) and every `requests[*]` (body incl. reasoning, configuration_update items, prompt_cache_key, headers) in order.',
+  compare: 'mixdog-ai providers::custom::reasoning (reasoning.rs:121-200, :149 opt-out) and the compat Responses codec / openai effort_retry.rs:22: feed each row\'s `input` (turn efforts, levels, protocol, rejection) and compare `result` (modes, snapshots) and every `requests[*]` (body incl. reasoning, configuration_update items, prompt_cache_key, headers) in order.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::custom::normalize_request_body (custom/mod.rs:126) / CustomRequestConfig (custom/mod.rs:67) on top of CompatAdapter (compat/adapter.rs:63), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
 const { effortConfigurationMode, prepareTurnEffortConfiguration, stepEffortConfiguration } = await rec.P(`${P}effort-configuration.mjs`);
@@ -136,7 +137,7 @@ await rec.run('custom-session-identity-key-headers-hook', `${SRC}:232`, {}, asyn
     ['session wins, shared scope', { ...SESSION, promptCacheScope: 'shared' }], ['long session id', { sessionId: long }], ['long session id medium', { sessionId: long, effort: 'medium' }], ['caller session-id header', { ...SESSION, requestHeaders: { 'session-id': 'caller' } }],
   ]) {
     await send(opts);
-    sends.push({ label, opts: label === 'long session id' || label === 'long session id medium' ? { ...opts, sessionId: '<100 x "x">' } : opts, request: requests.at(-1) });
+    sends.push({ label, opts, request: requests.at(-1) });
   }
   const gateway = fixture('opencode-go', model, { config: { responsesPromptCacheKey: true } });
   await send(SESSION, gateway.provider);
