@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 453697,
+      "bytes": 453970,
       "path": "golden.json",
-      "sha256": "bd54d13ceb8100131cd29fee4b70ddcd458e280365ef5d5a7f828d0c5cc63a67"
+      "sha256": "8dd26394e959cd672efc838c2105acdeaf68378a15768c33fadbf5ae6a3bf125"
     }
   ],
   "inputs": [
@@ -45,7 +45,8 @@
   "nodeVersion": "v22.20.0",
   "normalised": "lib/sensitive-writes-files.mjs: the session id as <session>, the workspace as <ws>, the profile folder as <profile>, every other run-specific id (uuid, prefixed random id) as <id:N> by first appearance in file order, every ISO time as <iso> and every epoch time in milliseconds as <ms>, file names with the same substitutions; a binary file (SQLite, WAL) is listed by name and size only and searched for the values",
   "notCompared": {
-    "mixdog_data_dir/gateway-usage.local.jsonl": "usage telemetry, no session content: Node buffers its rows and flushes them on a timer (route-meta.mjs recordGatewayUsageEvent), so a phase's process that exits first loses them; this recording keeps only the last turn's row"
+    "mixdog_data_dir/gateway-usage.local.jsonl": "usage telemetry, no session content: Node buffers its rows and flushes them on a timer (route-meta.mjs recordGatewayUsageEvent), so a phase's process that exits first loses them; this recording keeps only the last turn's row",
+    "sends[].messages (role system/developer)": "the replay compares each model call's conversation (role, text, tool-call arguments) and not its system/developer instructions, which the scenario never puts a value in; the instruction text is outside this set's question"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -91,7 +92,7 @@
     "tree": "export of b6f10295a2f698afc85332467192de28500bd146 with node-fix-sensitive-side-writes.patch (sha256 6deacc1d2eda436dd03b71cd890140a3f467c95fe8ae9370859ba89bc77a8261), then node-fix-sensitive-header-summary.patch (sha256 0d2e3a136463b48f0e83c9bdf79f11770039e4efd78605c303b085608517acd6) applied"
   },
   "recorder": "benchmarks/rust-core/recorders/record-sensitive-writes.mjs",
-  "recorderSha256": "4f33bdee8c486f33029995c25a1bac4819e445853a9a649a988772661d2b6266",
+  "recorderSha256": "5029252d27936b07f1583ec46ed3c3f680640f24957e06c7f72bce69bb9b9277",
   "set": "sensitive-writes",
-  "totalBytes": 453697
+  "totalBytes": 453970
 }

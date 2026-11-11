@@ -34,6 +34,8 @@ const NO_CORE_COUNTERPART = {
 const NOT_COMPARED = {
   'mixdog_data_dir/gateway-usage.local.jsonl':
     "usage telemetry, no session content: Node buffers its rows and flushes them on a timer (route-meta.mjs recordGatewayUsageEvent), so a phase's process that exits first loses them; this recording keeps only the last turn's row",
+  'sends[].messages (role system/developer)':
+    "the replay compares each model call's conversation (role, text, tool-call arguments) and not its system/developer instructions, which the scenario never puts a value in; the instruction text is outside this set's question",
 };
 const deadline = (p, ms, what) => {
   let timer;
@@ -104,7 +106,7 @@ if (process.argv[2] === '--child') {
       res.end(JSON.stringify(browserAnswer(command)));
     });
   });
-  await new Promise((r) => bridge.listen(0, '127.0.0.1', r));
+  await new Promise((r, reject) => bridge.once('error', reject).listen(0, '127.0.0.1', r));
   writeFileSync(join(process.env.MIXDOG_BRIDGE_DISCOVERY_DIR, 'browser-bridge.json'), JSON.stringify({ version: 1, port: bridge.address().port, token, pid: process.pid }));
 
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : { sends: [], approvals: [], commands: [], answers: [], ingests: [], compaction: null };
