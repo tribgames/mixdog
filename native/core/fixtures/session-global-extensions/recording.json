@@ -14,17 +14,19 @@
         "steps": [
           {
             "call": "reconnectMcpAndAnnounce",
-            "args": {
-              "only": "rea",
-              "enabled": true,
-              "drop": [
-                "old"
-              ]
-            }
+            "args": [
+              {
+                "only": "rea",
+                "enabled": true,
+                "drop": [
+                  "old"
+                ]
+              }
+            ]
           },
           {
             "call": "reconnectMcpAndAnnounce",
-            "args": null
+            "args": []
           }
         ]
       },
@@ -130,10 +132,12 @@
           },
           {
             "call": "reconnectMcpAndAnnounce",
-            "args": {
-              "only": "server",
-              "enabled": true
-            }
+            "args": [
+              {
+                "only": "server",
+                "enabled": true
+              }
+            ]
           }
         ]
       },
@@ -266,12 +270,18 @@
           "peer"
         ],
         "publish": {
-          "kind": "mcp",
-          "origin": "writer"
+          "call": "publishGlobalExtensionChange",
+          "args": [
+            "mcp",
+            "writer"
+          ],
+          "originIs": "the writer subscriber id (a process counter, not recorded)"
         }
       },
       "result": {
-        "published": null,
+        "published": {
+          "$exact": "undefined"
+        },
         "events": [
           {
             "to": "peer",
@@ -289,12 +299,16 @@
           "runtime (unsubscribed)"
         ],
         "publish": {
-          "kind": "skills",
-          "origin": null
+          "call": "publishGlobalExtensionChange",
+          "args": [
+            "skills"
+          ]
         }
       },
       "result": {
-        "published": null,
+        "published": {
+          "$exact": "undefined"
+        },
         "events": []
       }
     }

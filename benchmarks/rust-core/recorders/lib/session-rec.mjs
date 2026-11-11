@@ -5,6 +5,7 @@
 import { rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
+import { exact } from './exact.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
 export async function runSessionRecorder(recorderUrl, meta, build) {
@@ -12,16 +13,16 @@ export async function runSessionRecorder(recorderUrl, meta, build) {
   const tree = resolveTree(cli);
   const outDir = cli.get('out') ?? join(FIXTURES_ROOT, meta.set);
   const stage = stageSet(outDir);
-  const provenance = recorderProvenance(recorderUrl);
+  const provenance = recorderProvenance(recorderUrl, meta.dataFiles ?? []);
   const recorder = provenance.recorder;
-  const recording = await build({ tree, imp: (rel) => importFrom(tree, rel) });
+  const recording = await build({ tree, imp: (rel) => importFrom(tree, rel), importFrom });
   writeJson(join(stage, 'recording.json'), { domain: meta.set, recorder, testFile: meta.testFile, ...recording });
   writeSetManifest(stage, {
     set: meta.set,
     recorder,
     command: `node ${recorder} --tree <tree>`,
     identityTree: cli.get('identity-tree') ?? tree,
-    extra: { ...provenance, testFile: meta.testFile, entry: meta.entry, replay: meta.replay, exclusions: meta.exclusions },
+    extra: { ...provenance, testFile: meta.testFile, entry: meta.entry, replay: meta.replay, ...(meta.values ? { values: meta.values } : {}), exclusions: meta.exclusions, ...(meta.patch ? { patch: meta.patch } : {}) },
   });
   commitStage(stage, outDir);
   console.log(`${basename(recorder)}: ${recording.cases.length} cases -> ${outDir}`);
@@ -35,6 +36,15 @@ export const errorOf = (error) => ({
   message: String(error?.message ?? error),
   ...(error?.cause ? { cause: String(error.cause?.message ?? error.cause) } : {}),
 });
+
+/** `{ ok }` / `{ error }` of one call with both encoded through `exact` at the moment the call returns or throws. */
+export async function outcomeExact(fn) {
+  try {
+    return { ok: exact(await fn()) };
+  } catch (error) {
+    return { error: exact(error) };
+  }
+}
 
 /** `{ ok }` or `{ error }` of one call, sync or async. */
 export async function outcome(fn) {
