@@ -3,6 +3,7 @@
 //! its MANIFEST.json names.
 
 mod cache_retention;
+mod chunk_audit;
 mod chunk_quality_handoff;
 mod hybrid_sql_exact;
 mod light_ko_morph;
