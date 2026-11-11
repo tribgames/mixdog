@@ -33,7 +33,7 @@ async function session(setup, steps, hub) {
   const requests = [];
   globalThis.fetch = async (url, init) => {
     const tail = String(url).replace('https://huggingface.co/', '');
-    requests.push({ url: String(url), init: init ?? null });
+    requests.push({ url: String(url), init });
     const answer = hub[tail] ?? { status: 404, body: 'not found' };
     return new Response(answer.body, { status: answer.status });
   };
@@ -107,7 +107,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'ensureModelFile and ensureModelGraph (embedding-model-files.mjs) over a real temp cache directory, with the real atomic-file/file-has-data helpers', notRun: 'the Hugging Face Hub: globalThis.fetch is a scripted endpoint (status and body per URL), recorded with every request' },
-    replay: 'mixdog-services memory: mem/embed/install.rs ensure_model_file / graph install (holds_data, usable, weights-before-graph order) with a scripted hub transport; compares the returned relative path or error text, the ordered requests (URL) and the cache files after each step (path, bytes)',
+    replay: "mixdog-services memory/embed/install.rs (pub): HUB (:16), required_files (:26), model_path (:30), missing (:65), installed (:81), install (:131; the hub download goes through Fetch::file :111). A replay serves the recorded hub requests from a scripted server and compares the requests sent (url, init) in order and the files left in the cache",
     exclusions: 'request init is recorded as passed (null: Node passes none, so no header is sent)',
     normalised: { 'temp cache dir': 'paths are relative to the cache dir', 'partial file name': 'process id in "<file>.<pid>.part" written as <pid> (no partial remains after a step)' },
   },

@@ -24,7 +24,9 @@
             "requests": [
               {
                 "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
-                "init": null
+                "init": {
+                  "$exact": "undefined"
+                }
               }
             ],
             "cacheAfter": [
@@ -50,7 +52,9 @@
             "requests": [
               {
                 "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
-                "init": null
+                "init": {
+                  "$exact": "undefined"
+                }
               }
             ],
             "cacheAfter": [
@@ -101,7 +105,9 @@
             "requests": [
               {
                 "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
-                "init": null
+                "init": {
+                  "$exact": "undefined"
+                }
               }
             ],
             "cacheAfter": [
@@ -123,7 +129,9 @@
             "requests": [
               {
                 "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
-                "init": null
+                "init": {
+                  "$exact": "undefined"
+                }
               }
             ],
             "cacheAfter": [
@@ -145,7 +153,9 @@
             "requests": [
               {
                 "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
-                "init": null
+                "init": {
+                  "$exact": "undefined"
+                }
               }
             ],
             "cacheAfter": [
@@ -172,7 +182,7 @@
       }
     },
     {
-      "name": "further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, plain-text file, healthy cache",
+      "name": "further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, exact-text file, healthy cache",
       "sessions": [
         {
           "setup": [],
@@ -185,11 +195,15 @@
               "requests": [
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 },
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 }
               ],
               "cacheAfter": [
@@ -216,11 +230,15 @@
               "requests": [
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 },
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 }
               ],
               "cacheAfter": [
@@ -240,18 +258,23 @@
               "model": "org/model",
               "file": "onnx/model.onnx",
               "error": {
+                "$exact": "error",
                 "name": "Error",
                 "message": "embedding model download failed: org/model/onnx/model.onnx HTTP 404",
-                "code": null
+                "props": {}
               },
               "requests": [
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 },
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 }
               ],
               "cacheAfter": []
@@ -266,14 +289,17 @@
               "model": "org/model",
               "file": "config.json",
               "error": {
+                "$exact": "error",
                 "name": "Error",
                 "message": "embedding model download failed: org/model/config.json HTTP 503",
-                "code": null
+                "props": {}
               },
               "requests": [
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/config.json",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 }
               ],
               "cacheAfter": []
@@ -288,7 +314,7 @@
             },
             {
               "path": "org/model/vocab.txt",
-              "bytesHex": "706c61696e2074657874"
+              "bytesHex": "65786163742074657874"
             }
           ],
           "steps": [
@@ -300,7 +326,9 @@
               "requests": [
                 {
                   "url": "https://huggingface.co/org/model/resolve/main/config.json",
-                  "init": null
+                  "init": {
+                    "$exact": "undefined"
+                  }
                 }
               ],
               "cacheAfter": [
@@ -310,7 +338,7 @@
                 },
                 {
                   "path": "org/model/vocab.txt",
-                  "bytesHex": "706c61696e2074657874"
+                  "bytesHex": "65786163742074657874"
                 }
               ]
             },
@@ -327,7 +355,7 @@
                 },
                 {
                   "path": "org/model/vocab.txt",
-                  "bytesHex": "706c61696e2074657874"
+                  "bytesHex": "65786163742074657874"
                 }
               ]
             }
