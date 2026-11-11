@@ -824,43 +824,6 @@
         "core": [
           {
             "frame": "thread/summary/updated <room log 0>",
-            "publication": null,
-            "row": {
-              "activityAt": "<activityAt 0>",
-              "agentRoom": {
-                "id": "<room 0>",
-                "maxMessages": 8,
-                "maxRounds": 3,
-                "memberNames": {
-                  "alpha": "Alpha",
-                  "beta": "Beta",
-                  "gamma": "Gamma"
-                },
-                "members": [
-                  "alpha",
-                  "beta",
-                  "gamma"
-                ],
-                "name": "Room One",
-                "shareTools": false
-              },
-              "classification": "task",
-              "compactCount": 0,
-              "createdAt": "<createdAt 0>",
-              "cwd": "<task workspace>",
-              "id": "<room log 0>",
-              "incomingTail": [],
-              "messageCount": 1,
-              "model": "harness-model",
-              "preview": "",
-              "projectPath": null,
-              "provider": "custom-harness",
-              "title": "Room One",
-              "updatedAt": "<updatedAt 0>"
-            }
-          },
-          {
-            "frame": "thread/summary/updated <room log 0>",
             "publication": 0
           },
           {
@@ -876,12 +839,12 @@
           "catalog [<room log 0>]",
           "catalog [<room log 0>]"
         ],
-        "owner": "room-catalog-race (pool w29, this branch): a core defect, the interrupted row's index write published before its updatedAt",
+        "owner": "phone-chat-live (pool w5): the roster publication count (how many frames a Node catalog publication becomes)",
         "part": "before the answer",
-        "reason": "Node's recovery posts the interrupted row (agent-rooms.ts:474) as one save of the log, its rows and updatedAt together, and the store refresh publishes it with both. The core's post commits the row and then the log's updatedAt as two records of one plan (actor.rs room_rows_commit), and the index write of the row alone is published (thread_edges.rs:268): the client is handed the log with the new message and the old updatedAt, a state Node never shows, before the room pass and the update's frames carry Node's rows. The first frame is named by its row; the others are paired with Node's publications.",
+        "reason": "Node hands the client one catalog for the recovery's post of the interrupted row (agent-rooms.ts:474, the store refresh) and one for the update (agent-rooms.ts:312); the core sends the room log row once per index write of the log (the post's rows and updatedAt, one commit) and once per room pass.",
         "rust": [
-          "native/core/crates/mixdog-core-session/src/session/actor.rs:4687 (room_rows_commit: the rows, then updatedAt)",
-          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)"
+          "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:268 (thread/summary/updated, each index write that changes the row)",
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
         ],
         "scenario": "startup-interrupted",
         "step": "restart-and-update"
@@ -889,43 +852,6 @@
       {
         "compareWith": "startup-interrupted",
         "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": null,
-            "row": {
-              "activityAt": "<activityAt 0>",
-              "agentRoom": {
-                "id": "<room 0>",
-                "maxMessages": 8,
-                "maxRounds": 3,
-                "memberNames": {
-                  "alpha": "Alpha",
-                  "beta": "Beta",
-                  "gamma": "Gamma"
-                },
-                "members": [
-                  "alpha",
-                  "beta",
-                  "gamma"
-                ],
-                "name": "Room One",
-                "shareTools": false
-              },
-              "classification": "task",
-              "compactCount": 0,
-              "createdAt": "<createdAt 0>",
-              "cwd": "<task workspace>",
-              "id": "<room log 0>",
-              "incomingTail": [],
-              "messageCount": 1,
-              "model": "harness-model",
-              "preview": "",
-              "projectPath": null,
-              "provider": "custom-harness",
-              "title": "Room One",
-              "updatedAt": "<updatedAt 0>"
-            }
-          },
           {
             "frame": "thread/summary/updated <room log 0>",
             "publication": 0
@@ -942,7 +868,7 @@
         "node": [],
         "owner": "room-catalog-race (pool w29, this branch): an order Node can produce and the core cannot",
         "part": "before the answer",
-        "reason": "Start-up order (MANIFEST startupRace.cases.startup-interrupted-update-first): the start-up recovery's post of the interrupted row (agent-rooms.ts:474) is still in flight when the update answers, so nothing is published before the answer; the update's own listing (agent-rooms.ts:312, not loaded) and then the store refresh of the posted row publish after it. The core's recovery (the room marked interrupted, its row posted, the catalog republished) runs before any caller of the first load goes on (ready.rs RoomsReady::ready). The core's part is paired with Node's startup-interrupted part (the same step and part), the order it produces, its first frame the interrupted row's index write named as in that scenario's entry.",
+        "reason": "Start-up order (MANIFEST startupRace.cases.startup-interrupted-update-first): the start-up recovery's post of the interrupted row (agent-rooms.ts:474) is still in flight when the update answers, so nothing is published before the answer; the update's own listing (agent-rooms.ts:312, not loaded) and then the store refresh of the posted row publish after it. The core's recovery (the room marked interrupted, its row posted, the catalog republished) runs before any caller of the first load goes on (ready.rs RoomsReady::ready). The core's part is paired with Node's startup-interrupted part (the same step and part), the order it produces, its frames paired with that part's publications as in that scenario's entry (one frame per index write and room pass).",
         "rust": [
           "native/core/crates/mixdog-core-rooms/src/rooms/ready.rs (RoomsReady::ready: the start-up's recovery before the first load's callers)"
         ],
@@ -1327,7 +1253,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/room-catalog-core-differences.json",
-      "sha256": "d96637eaaa619e661e721074a5be682420bfdf1ec9d5fc2ea5d011801fdd263a"
+      "sha256": "b479ba4369b3324b30ad172d48d2f4ad6f358fd7dcda9b34fc2b4de1c83a04e2"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -1354,7 +1280,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
-  "recorderSha256": "bbe705a0723a0bb6a1cd90ae48935494254c43e5aa31e5a6bb372c67050f104e",
+  "recorderSha256": "5a53db50f74086cab6c71dd7e655f2cc228bfd56bd26f86859f30284638fe55d",
   "resetReadRace": {
     "cases": {
       "loaded": {
