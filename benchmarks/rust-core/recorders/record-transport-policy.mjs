@@ -93,7 +93,7 @@ await run('turn-state-captured-once-never-synthesized', 272, {}, () => {
   const steps = [];
   for (const event of [{ type: 'response.created', headers: {} }, { type: 'response.created', headers: { 'x-codex-turn-state': 'tok-1' } }, { headers: { 'x-codex-turn-state': 'tok-2' } }]) {
     _captureTurnStateFromEvent(entry, event);
-    steps.push({ event, turnState: entry.turnState ?? null });
+    steps.push({ event, turnState: entry.turnState });
   }
   return { steps };
 });
