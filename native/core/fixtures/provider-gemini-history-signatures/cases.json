@@ -1,6 +1,7 @@
 {
   "set": "provider-gemini-history-signatures",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "first-foreign-call-repaired",
@@ -196,7 +197,96 @@
             "content": "b"
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "gemini-3.1-pro"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs.buildAntigravityRequest",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "gemini-3.1-pro-high",
+            [],
+            {},
+            "fixture"
+          ]
+        }
+      ]
     },
     {
       "id": "native-signatures-unchanged",
@@ -316,7 +406,189 @@
             }
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/provider-replay.mjs.createProviderReplay",
+          "args": [
+            "gemini",
+            [
+              {
+                "functionCall": {
+                  "name": "read",
+                  "args": {
+                    "path": "a"
+                  }
+                },
+                "thoughtSignature": "native-signature"
+              },
+              {
+                "functionCall": {
+                  "name": "read",
+                  "args": {
+                    "path": "b"
+                  }
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ],
+                "providerReplay": {
+                  "version": 1,
+                  "provider": "gemini",
+                  "items": [
+                    {
+                      "functionCall": {
+                        "name": "read",
+                        "args": {
+                          "path": "a"
+                        }
+                      },
+                      "thoughtSignature": "native-signature"
+                    },
+                    {
+                      "functionCall": {
+                        "name": "read",
+                        "args": {
+                          "path": "b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "gemini-3.1-pro"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/provider-replay.mjs.createProviderReplay",
+          "args": [
+            "gemini",
+            [
+              {
+                "functionCall": {
+                  "name": "read",
+                  "args": {
+                    "path": "a"
+                  }
+                },
+                "thought_signature": "native-signature"
+              },
+              {
+                "functionCall": {
+                  "name": "read",
+                  "args": {
+                    "path": "b"
+                  }
+                }
+              }
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ],
+                "providerReplay": {
+                  "version": 1,
+                  "provider": "gemini",
+                  "items": [
+                    {
+                      "functionCall": {
+                        "name": "read",
+                        "args": {
+                          "path": "a"
+                        }
+                      },
+                      "thought_signature": "native-signature"
+                    },
+                    {
+                      "functionCall": {
+                        "name": "read",
+                        "args": {
+                          "path": "b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "gemini-3.1-pro"
+          ]
+        }
+      ]
     },
     {
       "id": "earlier-turns-and-non-gemini-untouched",
@@ -548,7 +820,146 @@
             ]
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "claude-opus-4-6-thinking"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              },
+              {
+                "role": "user",
+                "content": "New turn."
+              }
+            ],
+            "gemini-3.1-pro"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/antigravity-request.mjs.buildAntigravityRequest",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              },
+              {
+                "role": "user",
+                "content": "New turn."
+              }
+            ],
+            "gemini-3.1-pro-high",
+            [],
+            {},
+            "fixture"
+          ]
+        }
+      ]
     },
     {
       "id": "any-gemini-id",
@@ -732,7 +1143,135 @@
             ]
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "gemini-2.5-pro"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "gemini-4-argon"
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              }
+            ],
+            "models/gemini-12-future"
+          ]
+        }
+      ]
     },
     {
       "id": "sequential-steps-signed",
@@ -879,7 +1418,69 @@
             ]
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-schema.mjs.toGeminiContents",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "Read both files."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_a",
+                    "name": "read",
+                    "arguments": {
+                      "path": "a"
+                    }
+                  },
+                  {
+                    "id": "call_b",
+                    "name": "read",
+                    "arguments": {
+                      "path": "b"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_a",
+                "content": "a"
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_b",
+                "content": "b"
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_c",
+                    "name": "read",
+                    "arguments": {
+                      "path": "c"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_c",
+                "content": "c"
+              }
+            ],
+            "gemini-3.1-pro"
+          ]
+        }
+      ]
     }
   ]
 }
