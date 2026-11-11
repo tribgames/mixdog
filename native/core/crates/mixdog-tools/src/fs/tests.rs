@@ -229,13 +229,15 @@ async fn replay_fs_search(scenario: &str) {
     for rel in files.keys().chain(binary.keys()) {
         set_mtime(&ws.join(rel), at(mtimes.get(rel).and_then(|v| v.as_str()).unwrap_or("2026-01-02T03:04:05Z")));
     }
+    // The bulk files are listed from memory: the cap and its wording are applied by the tool after the file service's
+    // walk, so the walk and the stats of the empty files are served as the disk would serve them, without writing tens
+    // of thousands of files (minutes on a busy disk). Their directory exists on disk, so a walk from it starts.
+    let mut listed = Vec::new();
     if let Some(bulk) = fixture.get("bulk") {
         let dir = ws.join(bulk["dir"].as_str().unwrap());
         std::fs::create_dir_all(&dir).unwrap();
         for i in 0..bulk["count"].as_u64().unwrap() {
-            let file = dir.join(format!("{i:05}{}", bulk["ext"].as_str().unwrap()));
-            std::fs::write(&file, "").unwrap();
-            set_mtime(&file, at("2026-01-02T03:04:05Z"));
+            listed.push(dir.join(format!("{i:05}{}", bulk["ext"].as_str().unwrap())));
         }
     }
     if let Some(bulk) = fixture.get("bulkDirs") {
@@ -265,12 +267,9 @@ async fn replay_fs_search(scenario: &str) {
         });
         Arc::new(RecordedResizer(replies.collect())) as Arc<dyn mixdog_core_api::domain::ext::ImageResizer>
     });
-    let mut ctx = context_seeded(
-        &AbsPath::new(&ws).unwrap(),
-        Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
-        Vec::new(),
-    )
-    .await;
+    let local: Arc<dyn FileService> = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
+    let files = if listed.is_empty() { local } else { Arc::new(Listed::new(local, listed, at("2026-01-02T03:04:05Z"))) };
+    let mut ctx = context_seeded(&AbsPath::new(&ws).unwrap(), files, Vec::new()).await;
     if let Some(cwd) = fixture["cwd"].as_str() {
         ctx.cwd = AbsPath::new(ws.join(cwd)).unwrap();
     }
@@ -341,6 +340,120 @@ fn recorded_form(outcome: mixdog_core_api::domain::tool::ToolOutcome) -> (bool, 
         })
         .collect();
     (false, format!(r#"{{"content":[{}]}}"#, blocks.join(",")))
+}
+
+use mixdog_core_api::domain::fs::EntryKind;
+
+/// The local file service plus empty files that exist only in memory, all dated `modified`: a walk lists them where the
+/// disk walk would (siblings in byte order, depth first), and stating one answers an empty file.
+struct Listed {
+    inner: Arc<dyn FileService>,
+    files: Arc<Vec<std::path::PathBuf>>,
+    known: std::collections::HashSet<std::path::PathBuf>,
+    modified: std::time::SystemTime,
+}
+
+impl Listed {
+    fn new(inner: Arc<dyn FileService>, mut files: Vec<std::path::PathBuf>, modified: std::time::SystemTime) -> Self {
+        files.sort();
+        let known = files.iter().cloned().collect();
+        Self { inner, files: Arc::new(files), known, modified }
+    }
+}
+
+/// A walk's entries merged with the listed files under its root, in the walk's order.
+struct MergedWalk {
+    inner: Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>>,
+    request: mixdog_core_api::domain::fs::WalkRequest,
+    files: Arc<Vec<std::path::PathBuf>>,
+    merged: Option<std::collections::VecDeque<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>>,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>> for MergedWalk {
+    async fn next(&mut self) -> Option<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>> {
+        if self.merged.is_none() {
+            let mut all = Vec::new();
+            while let Some(item) = self.inner.next().await {
+                all.push(item);
+            }
+            let root = self.request.root.as_path();
+            all.extend(
+                self.files
+                    .iter()
+                    .filter(|f| if self.request.recursive { f.starts_with(root) } else { f.parent() == Some(root) })
+                    .filter(|f| !self.request.prune.iter().any(|p| f.starts_with(p.as_path())))
+                    .map(|f| Ok(mixdog_core_api::domain::fs::DirEntry { path: AbsPath::new(f).unwrap(), kind: EntryKind::File })),
+            );
+            // Path order is component-wise: a directory's entries follow it, before its next sibling.
+            all.sort_by(|a, b| match (a, b) {
+                (Ok(a), Ok(b)) => a.path.as_path().cmp(b.path.as_path()),
+                _ => std::cmp::Ordering::Equal,
+            });
+            self.merged = Some(all.into());
+        }
+        self.merged.as_mut().unwrap().pop_front()
+    }
+
+    async fn close(&mut self) {
+        self.inner.close().await;
+    }
+}
+
+#[async_trait::async_trait]
+impl FileService for Listed {
+    async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        if self.known.contains(path.as_path()) {
+            return Ok(mixdog_core_api::domain::fs::FileStat {
+                kind: EntryKind::File,
+                len: 0,
+                modified: Some(self.modified),
+                ctime: None,
+                inode: 0,
+                device: 0,
+                readonly: false,
+            });
+        }
+        self.inner.stat(lane, path).await
+    }
+    async fn read(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath, range: mixdog_core_api::domain::fs::ReadRange) -> Result<mixdog_core_api::domain::fs::FileBytes, mixdog_core_api::domain::fs::FsError> {
+        self.inner.read(lane, path, range).await
+    }
+    async fn list_dir(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<Vec<mixdog_core_api::domain::fs::DirEntry>, mixdog_core_api::domain::fs::FsError> {
+        let mut entries = self.inner.list_dir(lane, path.clone()).await?;
+        entries.extend(
+            self.files
+                .iter()
+                .filter(|f| f.parent() == Some(path.as_path()))
+                .map(|f| mixdog_core_api::domain::fs::DirEntry { path: AbsPath::new(f).unwrap(), kind: EntryKind::File }),
+        );
+        Ok(entries)
+    }
+    async fn write(&self, lane: mixdog_rt::DurabilityIo, request: WriteRequest) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write(lane, request).await
+    }
+    async fn write_batch(&self, lane: mixdog_rt::DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<mixdog_core_api::domain::fs::FileStat>, mixdog_core_api::domain::fs::FsError> {
+        self.inner.write_batch(lane, requests).await
+    }
+    async fn create_dir(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.create_dir(lane, path, recursive).await
+    }
+    async fn rename(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.rename(lane, from, to, overwrite).await
+    }
+    async fn copy(&self, lane: mixdog_rt::DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.copy(lane, from, to, overwrite).await
+    }
+    async fn remove(&self, lane: mixdog_rt::DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), mixdog_core_api::domain::fs::FsError> {
+        self.inner.remove(lane, path, recursive).await
+    }
+    fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::WalkRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::DirEntry, mixdog_core_api::domain::fs::FsError>>> {
+        let inner = self.inner.walk(lane, request.clone());
+        Box::new(MergedWalk { inner, request, files: self.files.clone(), merged: None })
+    }
+    fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: mixdog_core_api::domain::fs::SearchRequest) -> Box<dyn mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain::fs::SearchMatch, mixdog_core_api::domain::fs::FsError>>> {
+        self.inner.search_text(lane, request)
+    }
 }
 
 /// A scenario recorded under its own environment (`env` in the fixture) replays in a child test process that carries
