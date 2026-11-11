@@ -119,6 +119,11 @@
       "id": "streamed-tool-call-single-system",
       "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:30",
       "input": {
+        "nvidiaSmi": {
+          "stdout": "0, GPU-0f1e2d3c-4b5a-6978-8897-a6b5c4d3e2f1, NVIDIA Fixture GPU, 24576, 24000\n",
+          "stderr": "",
+          "exitCode": 0
+        },
         "messages": [
           {
             "role": "system",
@@ -162,7 +167,7 @@
       "result": {
         "first": {
           "content": "",
-          "model": "test-local",
+          "model": "hf-a1b2c3d4e5f60718293a4b5c",
           "toolCalls": [
             {
               "id": "call_local",
@@ -197,7 +202,7 @@
         ],
         "second": {
           "content": "The result is 42.",
-          "model": "test-local",
+          "model": "hf-a1b2c3d4e5f60718293a4b5c",
           "toolCalls": {
             "$exact": "undefined"
           },
@@ -215,32 +220,53 @@
           },
           "generationMs": 0
         },
-        "signalsBeforeAbort": [
+        "systemMessagesLeftInHistory": 4,
+        "launches": [
           {
-            "isAbortSignal": true,
-            "aborted": false
-          },
-          {
-            "isAbortSignal": true,
-            "aborted": false
+            "executable": "<data>/local-provider/runtime/b10621/llama-server.exe",
+            "argv": [
+              "--host",
+              "127.0.0.1",
+              "--port",
+              "<port>",
+              "--api-key",
+              "<api-key>",
+              "--model",
+              "<data>/local-provider/models/hf-a1b2c3d4e5f60718293a4b5c.gguf",
+              "--alias",
+              "hf-a1b2c3d4e5f60718293a4b5c",
+              "--ctx-size",
+              "16384",
+              "--parallel",
+              "1",
+              "--split-mode",
+              "none",
+              "--main-gpu",
+              "0",
+              "--n-gpu-layers",
+              "99",
+              "--flash-attn",
+              "on",
+              "--cache-type-k",
+              "q8_0",
+              "--cache-type-v",
+              "q8_0",
+              "--jinja",
+              "--no-webui"
+            ],
+            "cwd": "<data>/local-provider/runtime/b10621",
+            "cudaVisibleDevices": {
+              "set": true,
+              "value": "GPU-0f1e2d3c-4b5a-6978-8897-a6b5c4d3e2f1"
+            }
           }
-        ],
-        "signalsAfterAbort": [
-          true,
-          true
-        ],
-        "systemMessagesLeftInHistory": 4
+        ]
       },
       "calls": [
         {
           "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
           "args": [
-            {},
-            {
-              "ensureServer": {
-                "callback": "ensureServer"
-              }
-            }
+            {}
           ]
         },
         {
@@ -268,7 +294,7 @@
                 "content": "Look up the answer."
               }
             ],
-            "test-local",
+            "hf-a1b2c3d4e5f60718293a4b5c",
             [
               {
                 "name": "lookup",
@@ -342,7 +368,7 @@
                 "content": "42"
               }
             ],
-            "test-local",
+            "hf-a1b2c3d4e5f60718293a4b5c",
             [
               {
                 "name": "lookup",
@@ -373,61 +399,41 @@
       ],
       "requests": [
         {
-          "method": "POST",
-          "origin": "http://127.0.0.1:8080",
-          "path": "/v1/chat/completions",
+          "method": "EXEC",
+          "origin": "process",
+          "path": "nvidia-smi",
+          "argv": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "headers": [],
+          "body": "",
+          "reply": {
+            "stdout": "0, GPU-0f1e2d3c-4b5a-6978-8897-a6b5c4d3e2f1, NVIDIA Fixture GPU, 24576, 24000\n",
+            "stderr": "",
+            "exitCode": 0
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "http://127.0.0.1:<port>",
+          "path": "/health",
           "headers": [
             [
               "host",
-              "127.0.0.1:8080"
+              "127.0.0.1:<port>"
             ],
             [
               "connection",
               "keep-alive"
             ],
             [
+              "Authorization",
+              "Bearer <api-key>"
+            ],
+            [
               "accept",
-              "application/json"
-            ],
-            [
-              "user-agent",
-              "OpenAI/JS 6.49.0"
-            ],
-            [
-              "x-stainless-retry-count",
-              "0"
-            ],
-            [
-              "x-stainless-lang",
-              "js"
-            ],
-            [
-              "x-stainless-package-version",
-              "6.49.0"
-            ],
-            [
-              "x-stainless-os",
-              "<recording host x-stainless-os>"
-            ],
-            [
-              "x-stainless-arch",
-              "<recording host x-stainless-arch>"
-            ],
-            [
-              "x-stainless-runtime",
-              "node"
-            ],
-            [
-              "x-stainless-runtime-version",
-              "<recording host x-stainless-runtime-version>"
-            ],
-            [
-              "authorization",
-              "Bearer test-key"
-            ],
-            [
-              "content-type",
-              "application/json"
+              "*/*"
             ],
             [
               "accept-language",
@@ -438,29 +444,76 @@
               "cors"
             ],
             [
-              "accept-encoding",
-              "gzip, deflate"
+              "user-agent",
+              "node"
             ],
             [
-              "content-length",
-              "387"
+              "accept-encoding",
+              "gzip, deflate"
             ]
           ],
-          "body": "{\"model\":\"test-local\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "body": "",
+          "authorized": true,
           "reply": {
             "status": 200,
-            "contentType": "text/event-stream",
-            "body": "data: {\"id\":\"local-response\",\"model\":\"test-local\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+            "contentType": "application/json",
+            "body": "{\"status\":\"ok\"}"
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "http://127.0.0.1:<port>",
+          "path": "/props",
+          "headers": [
+            [
+              "host",
+              "127.0.0.1:<port>"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer <api-key>"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "authorized": true,
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"chat_template_caps\":{\"supports_tools\":true,\"supports_tool_calls\":true}}"
           }
         },
         {
           "method": "POST",
-          "origin": "http://127.0.0.1:8080",
+          "origin": "http://127.0.0.1:<port>",
           "path": "/v1/chat/completions",
           "headers": [
             [
               "host",
-              "127.0.0.1:8080"
+              "127.0.0.1:<port>"
             ],
             [
               "connection",
@@ -504,7 +557,7 @@
             ],
             [
               "authorization",
-              "Bearer test-key"
+              "Bearer <api-key>"
             ],
             [
               "content-type",
@@ -524,14 +577,854 @@
             ],
             [
               "content-length",
-              "599"
+              "404"
             ]
           ],
-          "body": "{\"model\":\"test-local\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_local\",\"content\":\"42\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "body": "{\"model\":\"hf-a1b2c3d4e5f60718293a4b5c\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "authorized": true,
           "reply": {
             "status": 200,
             "contentType": "text/event-stream",
-            "body": "data: {\"id\":\"local-response\",\"model\":\"test-local\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+            "body": "data: {\"id\":\"local-response\",\"model\":\"hf-a1b2c3d4e5f60718293a4b5c\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "http://127.0.0.1:<port>",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "127.0.0.1:<port>"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer <api-key>"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "616"
+            ]
+          ],
+          "body": "{\"model\":\"hf-a1b2c3d4e5f60718293a4b5c\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_local\",\"content\":\"42\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "authorized": true,
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"id\":\"local-response\",\"model\":\"hf-a1b2c3d4e5f60718293a4b5c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "two-gpus-most-free-memory-selected",
+      "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:30",
+      "input": {
+        "nvidiaSmi": {
+          "stdout": "0, GPU-0f1e2d3c-4b5a-6978-8897-a6b5c4d3e2f1, NVIDIA Fixture GPU, 24576, 1\n1, GPU-1a2b3c4d-5e6f-7081-9293-a4b5c6d7e8f9, NVIDIA Fixture GPU, 24576, 24000\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "base"
+          },
+          {
+            "role": "system",
+            "content": "profile"
+          },
+          {
+            "role": "system",
+            "content": "workflow"
+          },
+          {
+            "role": "system",
+            "content": "environment"
+          },
+          {
+            "role": "user",
+            "content": "Look up the answer."
+          }
+        ],
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "first": {
+          "content": "",
+          "model": "hf-a1b2c3d4e5f60718293a4b5c",
+          "toolCalls": [
+            {
+              "id": "call_local",
+              "name": "lookup",
+              "arguments": {
+                "key": "answer"
+              }
+            }
+          ],
+          "stopReason": "tool_calls",
+          "usage": {
+            "inputTokens": 20,
+            "outputTokens": 8,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 20,
+            "raw": {
+              "prompt_tokens": 20,
+              "completion_tokens": 8
+            }
+          },
+          "generationMs": 0
+        },
+        "launches": [
+          {
+            "executable": "<data>/local-provider/runtime/b10621/llama-server.exe",
+            "argv": [
+              "--host",
+              "127.0.0.1",
+              "--port",
+              "<port>",
+              "--api-key",
+              "<api-key>",
+              "--model",
+              "<data>/local-provider/models/hf-a1b2c3d4e5f60718293a4b5c.gguf",
+              "--alias",
+              "hf-a1b2c3d4e5f60718293a4b5c",
+              "--ctx-size",
+              "16384",
+              "--parallel",
+              "1",
+              "--split-mode",
+              "none",
+              "--main-gpu",
+              "0",
+              "--n-gpu-layers",
+              "99",
+              "--flash-attn",
+              "on",
+              "--cache-type-k",
+              "q8_0",
+              "--cache-type-v",
+              "q8_0",
+              "--jinja",
+              "--no-webui"
+            ],
+            "cwd": "<data>/local-provider/runtime/b10621",
+            "cudaVisibleDevices": {
+              "set": true,
+              "value": "GPU-1a2b3c4d-5e6f-7081-9293-a4b5c6d7e8f9"
+            }
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "base"
+              },
+              {
+                "role": "system",
+                "content": "profile"
+              },
+              {
+                "role": "system",
+                "content": "workflow"
+              },
+              {
+                "role": "system",
+                "content": "environment"
+              },
+              {
+                "role": "user",
+                "content": "Look up the answer."
+              }
+            ],
+            "hf-a1b2c3d4e5f60718293a4b5c",
+            [
+              {
+                "name": "lookup",
+                "description": "Read a value",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "EXEC",
+          "origin": "process",
+          "path": "nvidia-smi",
+          "argv": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "headers": [],
+          "body": "",
+          "reply": {
+            "stdout": "0, GPU-0f1e2d3c-4b5a-6978-8897-a6b5c4d3e2f1, NVIDIA Fixture GPU, 24576, 1\n1, GPU-1a2b3c4d-5e6f-7081-9293-a4b5c6d7e8f9, NVIDIA Fixture GPU, 24576, 24000\n",
+            "stderr": "",
+            "exitCode": 0
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "http://127.0.0.1:<port>",
+          "path": "/health",
+          "headers": [
+            [
+              "host",
+              "127.0.0.1:<port>"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer <api-key>"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "authorized": true,
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"status\":\"ok\"}"
+          }
+        },
+        {
+          "method": "GET",
+          "origin": "http://127.0.0.1:<port>",
+          "path": "/props",
+          "headers": [
+            [
+              "host",
+              "127.0.0.1:<port>"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer <api-key>"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "authorized": true,
+          "reply": {
+            "status": 200,
+            "contentType": "application/json",
+            "body": "{\"chat_template_caps\":{\"supports_tools\":true,\"supports_tool_calls\":true}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "http://127.0.0.1:<port>",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "127.0.0.1:<port>"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer <api-key>"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "404"
+            ]
+          ],
+          "body": "{\"model\":\"hf-a1b2c3d4e5f60718293a4b5c\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "authorized": true,
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"id\":\"local-response\",\"model\":\"hf-a1b2c3d4e5f60718293a4b5c\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "no-gpu-query-fails",
+      "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:30",
+      "input": {
+        "nvidiaSmi": {
+          "stdout": "",
+          "stderr": "NVIDIA-SMI has failed because it could not communicate with the NVIDIA driver.\n",
+          "exitCode": 9
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "base"
+          },
+          {
+            "role": "system",
+            "content": "profile"
+          },
+          {
+            "role": "system",
+            "content": "workflow"
+          },
+          {
+            "role": "system",
+            "content": "environment"
+          },
+          {
+            "role": "user",
+            "content": "Look up the answer."
+          }
+        ],
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "sendError": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "[local-provider] GPU detection failed: Command failed: nvidia-smi --query-gpu=index,uuid,name,memory.total,memory.free --format=csv,noheader,nounits\nNVIDIA-SMI has failed because it could not communicate with the NVIDIA driver.\n",
+          "props": {}
+        },
+        "launches": []
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "base"
+              },
+              {
+                "role": "system",
+                "content": "profile"
+              },
+              {
+                "role": "system",
+                "content": "workflow"
+              },
+              {
+                "role": "system",
+                "content": "environment"
+              },
+              {
+                "role": "user",
+                "content": "Look up the answer."
+              }
+            ],
+            "hf-a1b2c3d4e5f60718293a4b5c",
+            [
+              {
+                "name": "lookup",
+                "description": "Read a value",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "EXEC",
+          "origin": "process",
+          "path": "nvidia-smi",
+          "argv": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "headers": [],
+          "body": "",
+          "reply": {
+            "stdout": "",
+            "stderr": "NVIDIA-SMI has failed because it could not communicate with the NVIDIA driver.\n",
+            "exitCode": 9
+          }
+        }
+      ]
+    },
+    {
+      "id": "no-gpu-empty-listing",
+      "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:30",
+      "input": {
+        "nvidiaSmi": {
+          "stdout": "",
+          "stderr": "",
+          "exitCode": 0
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "base"
+          },
+          {
+            "role": "system",
+            "content": "profile"
+          },
+          {
+            "role": "system",
+            "content": "workflow"
+          },
+          {
+            "role": "system",
+            "content": "environment"
+          },
+          {
+            "role": "user",
+            "content": "Look up the answer."
+          }
+        ],
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "sendError": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "[local-provider] GPU detection failed: No compatible NVIDIA GPU detected.",
+          "props": {}
+        },
+        "launches": []
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "base"
+              },
+              {
+                "role": "system",
+                "content": "profile"
+              },
+              {
+                "role": "system",
+                "content": "workflow"
+              },
+              {
+                "role": "system",
+                "content": "environment"
+              },
+              {
+                "role": "user",
+                "content": "Look up the answer."
+              }
+            ],
+            "hf-a1b2c3d4e5f60718293a4b5c",
+            [
+              {
+                "name": "lookup",
+                "description": "Read a value",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "EXEC",
+          "origin": "process",
+          "path": "nvidia-smi",
+          "argv": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "headers": [],
+          "body": "",
+          "reply": {
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "gpu-without-free-memory",
+      "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:30",
+      "input": {
+        "nvidiaSmi": {
+          "stdout": "0, GPU-0f1e2d3c-4b5a-6978-8897-a6b5c4d3e2f1, NVIDIA Fixture GPU, 24576, 0\n",
+          "stderr": "",
+          "exitCode": 0
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "base"
+          },
+          {
+            "role": "system",
+            "content": "profile"
+          },
+          {
+            "role": "system",
+            "content": "workflow"
+          },
+          {
+            "role": "system",
+            "content": "environment"
+          },
+          {
+            "role": "user",
+            "content": "Look up the answer."
+          }
+        ],
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "sendError": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "[local-provider] insufficient available GPU memory: estimated requirement 4096 bytes; best compatible GPU has 0 bytes free. Free GPU memory or choose a smaller compatible model.",
+          "props": {}
+        },
+        "launches": []
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "base"
+              },
+              {
+                "role": "system",
+                "content": "profile"
+              },
+              {
+                "role": "system",
+                "content": "workflow"
+              },
+              {
+                "role": "system",
+                "content": "environment"
+              },
+              {
+                "role": "user",
+                "content": "Look up the answer."
+              }
+            ],
+            "hf-a1b2c3d4e5f60718293a4b5c",
+            [
+              {
+                "name": "lookup",
+                "description": "Read a value",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            ],
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "EXEC",
+          "origin": "process",
+          "path": "nvidia-smi",
+          "argv": [
+            "--query-gpu=index,uuid,name,memory.total,memory.free",
+            "--format=csv,noheader,nounits"
+          ],
+          "headers": [],
+          "body": "",
+          "reply": {
+            "stdout": "0, GPU-0f1e2d3c-4b5a-6978-8897-a6b5c4d3e2f1, NVIDIA Fixture GPU, 24576, 0\n",
+            "stderr": "",
+            "exitCode": 0
           }
         }
       ]
@@ -539,33 +1432,69 @@
     {
       "id": "cancelled-send-starts-no-server",
       "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:120",
-      "input": {},
+      "input": {
+        "nvidiaSmi": null,
+        "messages": [
+          {
+            "role": "system",
+            "content": "base"
+          },
+          {
+            "role": "system",
+            "content": "profile"
+          },
+          {
+            "role": "system",
+            "content": "workflow"
+          },
+          {
+            "role": "system",
+            "content": "environment"
+          },
+          {
+            "role": "user",
+            "content": "Look up the answer."
+          }
+        ],
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ]
+      },
       "result": {
-        "error": {
+        "sendError": {
           "$exact": "error",
           "name": "Error",
           "message": "cancelled",
           "props": {}
         },
-        "serverStarts": 0
+        "launches": []
       },
       "calls": [
         {
           "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
           "args": [
-            {},
-            {
-              "ensureServer": {
-                "callback": "ensureServer"
-              }
-            }
+            {}
           ]
         },
         {
           "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
           "args": [
             [],
-            "test",
+            "hf-a1b2c3d4e5f60718293a4b5c",
             [],
             {
               "signal": {
