@@ -20,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 12804,
+      "bytes": 377,
       "path": "golden.json",
-      "sha256": "cead0df59d9b705da08f5e8bb0a42337d80a425f2eca1d7dad219f1861498450"
+      "sha256": "cb83c85a9884055626c35a8bd27b03852ff80889c185e454904384c93a8c93c6"
     }
   ],
   "inputs": [
@@ -61,30 +61,7 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
-    "paths": [
-      "$.cases[0].observed.jobId",
-      "$.cases[0].observed.steps[3].started.stdoutPath",
-      "$.cases[0].observed.steps[3].started.stderrPath",
-      "$.cases[0].observed.steps[3].started.jobId",
-      "$.cases[0].observed.steps[3].running.jobs[0].taskId",
-      "$.cases[0].observed.steps[3].running.jobs[0].cwd",
-      "$.cases[0].observed.steps[3].running.jobs[0].startedAt",
-      "$.cases[0].observed.steps[5].settled.finished[0].taskId",
-      "$.cases[0].observed.steps[5].settled.finished[0].cwd",
-      "$.cases[0].observed.steps[5].settled.finished[0].startedAt",
-      "$.cases[0].observed.steps[5].settled.finished[0].finishedAt",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].taskId",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].cwd",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].startedAt",
-      "$.cases[0].observed.steps[5].lastPane.finished[0].finishedAt",
-      "$.cases[0].observed.paneRows[2].jobs[0].taskId",
-      "$.cases[0].observed.paneRows[2].jobs[0].cwd",
-      "$.cases[0].observed.paneRows[2].jobs[0].startedAt",
-      "$.cases[0].observed.paneRows[5].finished[0].taskId",
-      "$.cases[0].observed.paneRows[5].finished[0].cwd",
-      "$.cases[0].observed.paneRows[5].finished[0].startedAt",
-      "$.cases[0].observed.paneRows[5].finished[0].finishedAt"
-    ],
+    "paths": [],
     "reason": "the isolated test environment root is written <fixtureRoot>; the wall clock is real (the job records are files with real mtimes) plus the virtual elapsed time: job ids job_<ms of the wall clock>_N are written job_<ms>_N and ISO times <iso>, the virtual offsets are in steps[].atMs"
   },
   "product": {
@@ -105,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs",
-  "recorderSha256": "ca7c7da5d33917e56550932e89d7f2ec5b531df55b72c6789b99b0183c571d3e",
+  "recorderSha256": "7cee34eada151ccd356d43e06d8008d6d8307eee604b55c4b48fb386d4bd1502",
   "replay": {
     "compare": "mixdog-spawn native server + mixdog-tools shell jobs (stop of a background job) + mixdog-core-session idle eviction: replay the steps (reclaim, reload, start, hide, stop) against the Rust job and session stack with the recorded timers; compare the pane rows whole",
     "entry": "Drive these public items on o1: mixdog-core-session/src/session/shell_jobs.rs:63 ShellJobsService; thread/backgroundTerminals/terminate (stopShellJob, mixdog-core-session/src/session/shell_jobs.rs:TERMINATE); thread/listShellJobs.",
@@ -127,6 +104,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "shell-job-stop-lifecycle-cases",
-  "totalBytes": 12804,
+  "totalBytes": 377,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

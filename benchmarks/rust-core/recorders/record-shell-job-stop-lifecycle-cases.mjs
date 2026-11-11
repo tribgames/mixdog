@@ -89,17 +89,12 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
   };
   /** The pane row arrives through the job watcher's own timers: advance the virtual clock by its 5 s step until the row is published (each step
    *  waits for the publication event, with a short deadline on the real clock, before the next advance). */
-  const paneAdvancing = async (label, test, stepMs = 5_000, maxSteps = 8) => {
-    for (let attempt = 1; attempt <= maxSteps; attempt += 1) {
-      const found = paneRows.find(test);
-      if (found) return found;
-      const arrived = new Promise((resolve) => { paneWaiter = { test, resolve }; });
-      virtual.advance(stepMs);
-      const row = await Promise.race([arrived, new Promise((resolve) => realTimers.setTimeout(() => resolve(null), 3_000))]);
-      paneWaiter = null;
-      if (row) return row;
-    }
-    throw new Error(`${label}: not published after ${maxSteps} virtual steps of ${stepMs} ms | allPane=${JSON.stringify(paneRows)} | armedTail=${JSON.stringify(virtual.armed.slice(-12))} | rows=${paneRows.length}`);
+  const paneAdvancing = async (label, test, stepMs = 5_000) => {
+    const found = paneRows.find(test);
+    if (found) return found;
+    const arrived = new Promise((resolve) => { paneWaiter = { test, resolve }; });
+    virtual.advance(stepMs);
+    return within(label, arrived);
   };
   host.subscribeSessionStates((update) => {
     if (update.sessionId === SESSION && update.snapshot?.shellJobs) {
