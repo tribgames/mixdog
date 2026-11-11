@@ -82,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
-  "recorderSha256": "d076eca8bd01c1236290e62d11df2cf1b1414560c7c7ee5887b9a55de9920a4a",
+  "recorderSha256": "aa7f9f031fa9e052620732e6934284c60a11d4c1522855b4521b4637b620fe42",
   "replay": {
     "compare": "mixdog-scm gh/client.rs and mixdog-tools github: drive the same request/tool calls with the recorded scripted runner responses and compare the commands built (args, stdin, mutation), the results/errors and the tool text whole (and raw files)",
     "entry": "Drive these public items on o1: mixdog-scm/src/gh/client.rs:61 GhRunner; mixdog-scm/src/gh/client.rs:259 new; mixdog-scm/src/gh/client.rs:281 run_args; mixdog-scm/src/gh/client.rs:294 execute; mixdog-tools/src/github/mod.rs:45 github_call_mutates; github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`).",

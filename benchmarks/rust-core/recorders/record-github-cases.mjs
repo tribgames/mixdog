@@ -11,7 +11,6 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openSet } from './lib/case-set.mjs';
-import { existsSync } from 'node:fs';
 import { realDeadline } from './lib/virtual-timers.mjs';
 
 const set = openSet('github-cases', import.meta.url);
@@ -220,11 +219,17 @@ await set.run('two clones cannot claim the same new destination, even for differ
   const directory = await tmpdirFor('github-clone-race-');
   let executions = 0;
   const destination = join(directory, 'clone');
-  // Which of two simultaneous claims wins is the file system's: the recording starts the first, waits (with a deadline) until its claim is visible, then starts the second, so the order is fixed and both outcomes are recorded.
-  const clone = (source) => executeGithubRequest({ action: 'repo.clone', repo: source, destination }, CWD, { run: async () => { executions++; return 'cloned'; } });
-  const first = clone('owner/one');
-  await realDeadline('the first clone to claim its destination', (async () => { while (!existsSync(destination)) await new Promise((resolve) => setImmediate(resolve)); })(), 10_000);
-  const results = await Promise.allSettled([first, clone('owner/two')]);
+  // Which of two simultaneous claims wins is the file system's: the first clone starts alone, and its scripted runner (called only after the destination is claimed) reports that event and holds until the second clone has settled, so the claim order is fixed and both outcomes are recorded.
+  let claimed;
+  let proceed;
+  const claimedFirst = new Promise((resolve) => { claimed = resolve; });
+  const held = new Promise((resolve) => { proceed = resolve; });
+  const clone = (source, hold) => executeGithubRequest({ action: 'repo.clone', repo: source, destination }, CWD, { run: async () => { executions++; if (hold) { claimed(); await held; } return 'cloned'; } });
+  const first = clone('owner/one', true);
+  await realDeadline('the first clone to claim its destination', claimedFirst, 10_000);
+  const second = await Promise.allSettled([clone('owner/two', false)]);
+  proceed();
+  const results = [(await Promise.allSettled([first]))[0], second[0]];
   return { destination, executions, outcomes: results.map((r) => (r.status === 'fulfilled' ? { fulfilled: r.value } : { rejected: r.reason })) };
 });
 
