@@ -862,6 +862,8 @@ struct LoopbackServer {
     hold_relisten: std::sync::atomic::AtomicBool,
     at_relisten: tokio::sync::Notify,
     relisten_go: tokio::sync::Semaphore,
+    /// Set by the test: the receiver binds the settings' port (walking up as Node does) instead of an ephemeral one.
+    settings_port: std::sync::atomic::AtomicBool,
 }
 
 impl LoopbackServer {
@@ -876,6 +878,7 @@ impl LoopbackServer {
             hold_relisten: Default::default(),
             at_relisten: Default::default(),
             relisten_go: tokio::sync::Semaphore::new(0),
+            settings_port: Default::default(),
         }
     }
 
@@ -890,12 +893,13 @@ impl LoopbackServer {
 
 #[async_trait]
 impl WebhookListener for LoopbackServer {
-    async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
+    async fn start(&self, settings: &WebhookSettings) -> Result<(), String> {
         if self.hold_relisten.swap(false, Ordering::SeqCst) {
             self.at_relisten.notify_one();
             self.relisten_go.acquire().await.expect("the gate stays open").forget();
         }
-        let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
+        let port = if self.settings_port.load(Ordering::SeqCst) { settings.port.as_u64().expect("a numeric port") as u16 } else { 0 };
+        let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), port);
         server.start().await?;
         let replaced = self.server.lock().await.replace(server);
         if let Some(mut old) = replaced {
@@ -1510,6 +1514,9 @@ async fn deliver(port: u16, rec: &Value) -> Value {
 async fn a_delivery_during_a_late_reload_is_answered_as_node_answers_it() {
     let rec: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-late-reload/golden.json")).unwrap();
     let rig = rig_holding_the_reload().await;
+    // The recording's port, bound for real: the later steps move it.
+    rig.e.settings.webhook.lock().unwrap().port = rec["port"].clone();
+    rig.listener.settings_port.store(true, Ordering::SeqCst);
     assert_eq!(rig.admin.save_webhook(&rec["entry"]).await.unwrap(), rec["saveReply"]);
     rig.wait_for_init_entered().await;
     rig.wait_for_reload().await;
@@ -1538,6 +1545,41 @@ async fn a_delivery_during_a_late_reload_is_answered_as_node_answers_it() {
     reloads.wait_for(|count| *count > before).await.unwrap();
     assert_eq!(rig.listener.listening().await, rec["listeningAfter"]);
     rig.runtime.scheduled_start_settled().await;
+
+    // The settings route keeps the port: a delivery sent as its reload syncs the receiver is answered.
+    let step = &rec["settingsUpdate"];
+    let before = *reloads.borrow_and_update();
+    rig.listener.hold_relisten.store(true, Ordering::SeqCst);
+    assert_eq!(rig.admin.set_webhook_config(&step["patch"]).await.unwrap(), step["reply"]);
+    tokio::select! {
+        () = rig.listener.at_relisten.notified() => {}
+        changed = reloads.wait_for(|count| *count > before) => { changed.unwrap(); }
+    }
+    let delivery = deliver(port, &rec).await;
+    rig.listener.hold_relisten.store(false, Ordering::SeqCst);
+    rig.listener.relisten_go.add_permits(1);
+    assert_eq!(delivery, step["delivery"]);
+    reloads.wait_for(|count| *count > before).await.unwrap();
+    assert_eq!(*reloads.borrow() - before, step["reloads"].as_u64().unwrap() as usize);
+    assert_eq!(rig.listener.listening().await, step["listeningAfter"]);
+
+    // A move to a port whose whole range is taken fails; the move back listens again on the first port.
+    let bounce = &rec["portBounce"];
+    let other = bounce["otherPort"].as_u64().unwrap() as u16;
+    let mut blockers = Vec::new();
+    for i in 0..bounce["blocked"].as_u64().unwrap() as u16 {
+        blockers.push(tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, other + i)).await.unwrap());
+    }
+    for step in bounce["steps"].as_array().unwrap() {
+        let before = *reloads.borrow_and_update();
+        assert_eq!(rig.admin.set_webhook_config(&step["patch"]).await.unwrap(), step["reply"]);
+        reloads.wait_for(|count| *count > before).await.unwrap();
+        assert_eq!(*reloads.borrow() - before, step["reloads"].as_u64().unwrap() as usize, "{}", step["patch"]);
+        assert_eq!(deliver(port, &rec).await, step["afterReload"], "{}", step["patch"]);
+        let listening = tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)).await.is_ok();
+        assert_eq!(json!(listening), step["listeningOnFirst"], "{}", step["patch"]);
+    }
+    drop(blockers);
     rig.runtime.stop_owned_runtime("test").await.unwrap();
 }
 

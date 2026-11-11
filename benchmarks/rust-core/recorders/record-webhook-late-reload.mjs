@@ -17,7 +17,7 @@
 import { createHmac } from 'node:crypto';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
-import { createConnection } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { register } from 'node:module';
@@ -55,6 +55,7 @@ process.stderr.write = (chunk, ...rest) => {
   return realWrite(chunk, ...rest);
 };
 const logLine = (pattern) => (log.some((line) => pattern.test(line)) ? Promise.resolve() : new Promise((resolve) => waiters.push({ pattern, resolve })));
+const logLineAfter = (from, pattern) => (log.slice(from).some((line) => pattern.test(line)) ? Promise.resolve() : new Promise((resolve) => waiters.push({ pattern, resolve })));
 const defer = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 
 // channel-start's timers: a virtual queue.
@@ -178,7 +179,64 @@ await lastReload;
 if (!delivery) throw new Error('the reload never reached WebhookServer.reloadConfig');
 result.delivery = await delivery;
 result.listeningAfter = await listening();
-result.log = log.filter((line) => /^mixdog webhook: /.test(line)).map((line) => line.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<id>'));
+
+// Every reload of the receiver, as it is entered and as it ends.
+const reloadsEntered = [];
+let reloadsEnded = 0;
+const reloadEnded = [];
+WebhookServer.prototype.reloadConfig = function (config, ...rest) {
+  reloadsEntered.push(config.port ?? null);
+  const reloaded = reloadConfig.call(this, config, ...rest);
+  delivery ??= deliver();
+  return Promise.resolve(reloaded).finally(() => { reloadsEnded += 1; for (const w of reloadEnded.splice(0)) w(); });
+};
+const reloadsSettled = async () => {
+  await lastReload;
+  while (reloadsEnded < reloadsEntered.length) await new Promise((resolve) => reloadEnded.push(resolve));
+};
+
+// The settings route (`setWebhookConfig`, the app's webhook settings): the port is kept.
+delivery = null;
+reloadsEntered.length = 0; reloadsEnded = 0;
+result.settingsUpdate = { patch: { port: PORT } };
+result.settingsUpdate.reply = await api.setWebhookConfig(result.settingsUpdate.patch);
+await reloadsSettled();
+if (!delivery) throw new Error('the settings reload never reached WebhookServer.reloadConfig');
+result.settingsUpdate.delivery = await delivery;
+result.settingsUpdate.reloads = reloadsEntered.length;
+result.settingsUpdate.listeningAfter = await listening();
+
+// A move to a port whose whole range (Node walks 8 ports) is taken, then back.
+const OTHER = PORT + 100;
+const blockers = await Promise.all(Array.from({ length: 8 }, (_, i) => new Promise((resolve) => {
+  const server = createServer();
+  server.listen(OTHER + i, '127.0.0.1', () => resolve(server));
+})));
+const listensOn = (port) => new Promise((resolve) => {
+  const socket = createConnection({ host: '127.0.0.1', port }, () => { socket.destroy(); resolve(true); });
+  socket.on('error', () => resolve(false));
+});
+const steps = [];
+for (const port of [OTHER, PORT]) {
+  delivery = null;
+  reloadsEntered.length = 0; reloadsEnded = 0;
+  const from = log.length;
+  const reply = await api.setWebhookConfig({ port });
+  await reloadsSettled();
+  await (port === OTHER ? logLineAfter(from, /all ports .* in use/) : logLineAfter(from, /webhook: listening on/));
+  steps.push({
+    patch: { port },
+    reply,
+    reloads: reloadsEntered.length,
+    // The delivery the reload's entry sent to the old port (its listener closing), and one sent once it ended.
+    afterReload: await deliver(),
+    listeningOnFirst: await listensOn(PORT),
+    log: log.slice(from).filter((line) => /^mixdog webhook: /.test(line)),
+  });
+}
+for (const server of blockers) server.close();
+result.portBounce = { otherPort: OTHER, blocked: 8, steps };
+result.log =log.filter((line) => /^mixdog webhook: /.test(line)).map((line) => line.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<id>'));
 
 const out = args.get('out');
 if (out) {

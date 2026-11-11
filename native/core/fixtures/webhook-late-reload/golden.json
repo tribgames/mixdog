@@ -45,8 +45,102 @@
     }
   },
   "listeningAfter": true,
+  "settingsUpdate": {
+    "patch": {
+      "port": 47312
+    },
+    "reply": {
+      "webhook": {
+        "enabled": true,
+        "port": 47312
+      }
+    },
+    "delivery": {
+      "status": 200,
+      "body": {
+        "status": "dedup",
+        "id": "body-sha256-d592421cfe150deec6c49b8989cc99478e39c7f8cdd4c36f5b1c4cfeff394e24"
+      }
+    },
+    "reloads": 1,
+    "listeningAfter": true
+  },
+  "portBounce": {
+    "otherPort": 47412,
+    "blocked": 8,
+    "steps": [
+      {
+        "patch": {
+          "port": 47412
+        },
+        "reply": {
+          "webhook": {
+            "enabled": true,
+            "port": 47412
+          }
+        },
+        "reloads": 1,
+        "afterReload": {
+          "error": "ECONNREFUSED"
+        },
+        "listeningOnFirst": false,
+        "log": [
+          "mixdog webhook: stopped",
+          "mixdog webhook: port 47412 already in use, trying 47413",
+          "mixdog webhook: port 47413 already in use, trying 47414",
+          "mixdog webhook: port 47414 already in use, trying 47415",
+          "mixdog webhook: port 47415 already in use, trying 47416",
+          "mixdog webhook: port 47416 already in use, trying 47417",
+          "mixdog webhook: port 47417 already in use, trying 47418",
+          "mixdog webhook: port 47418 already in use, trying 47419",
+          "mixdog webhook: all ports 47412-47419 in use — webhook server disabled"
+        ]
+      },
+      {
+        "patch": {
+          "port": 47312
+        },
+        "reply": {
+          "webhook": {
+            "enabled": true,
+            "port": 47312
+          }
+        },
+        "reloads": 1,
+        "afterReload": {
+          "status": 200,
+          "body": {
+            "status": "dedup",
+            "id": "body-sha256-d592421cfe150deec6c49b8989cc99478e39c7f8cdd4c36f5b1c4cfeff394e24"
+          }
+        },
+        "listeningOnFirst": true,
+        "log": [
+          "mixdog webhook: stopped",
+          "mixdog webhook: listening on 127.0.0.1:47312",
+          "mixdog webhook: public hook base: http://127.0.0.1:9/hook/a32aad8a-88bf-48ae-b8f7-c2437de2aba8",
+          "mixdog webhook: gh: dedup body-sha256-d592421cfe150deec6c49b8989cc99478e39c7f8cdd4c36f5b1c4cfeff394e24"
+        ]
+      }
+    ]
+  },
   "log": [
     "mixdog webhook: listening on 127.0.0.1:47312",
-    "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>"
+    "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>",
+    "mixdog webhook: gh: webhook session run failed: routine run: the session service is not running",
+    "mixdog webhook: gh: dedup body-sha256-d592421cfe150deec6c49b8989cc99478e39c7f8cdd4c36f5b1c4cfeff394e24",
+    "mixdog webhook: stopped",
+    "mixdog webhook: port 47412 already in use, trying 47413",
+    "mixdog webhook: port 47413 already in use, trying 47414",
+    "mixdog webhook: port 47414 already in use, trying 47415",
+    "mixdog webhook: port 47415 already in use, trying 47416",
+    "mixdog webhook: port 47416 already in use, trying 47417",
+    "mixdog webhook: port 47417 already in use, trying 47418",
+    "mixdog webhook: port 47418 already in use, trying 47419",
+    "mixdog webhook: all ports 47412-47419 in use — webhook server disabled",
+    "mixdog webhook: stopped",
+    "mixdog webhook: listening on 127.0.0.1:47312",
+    "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>",
+    "mixdog webhook: gh: dedup body-sha256-d592421cfe150deec6c49b8989cc99478e39c7f8cdd4c36f5b1c4cfeff394e24"
   ]
 }
