@@ -7,10 +7,22 @@ import { sseBody, startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
+  pure: {
+    'snapping-table': 'mixdog-ai/src/providers/custom/reasoning.rs:121 snap_effort(Option<&[String]>, &str) (pub; `pub mod reasoning` at custom/mod.rs:39)',
+    'levels-and-unknown': 'mixdog-ai/src/providers/custom/reasoning.rs:100 ReasoningRow::effort_levels and :261 canonical_level (pub)',
+    'wire-values-after-snapping': 'mixdog-ai/src/providers/custom/reasoning.rs:174 resolve(&Protocol, &ReasoningRow, Option<&str>, &str) -> Resolved (pub)',
+    'protocol-and-wire-format': 'mixdog-ai/src/providers/custom/reasoning.rs:149 wire_format(&ReasoningRow, &str) and :174 resolve (pub)',
+    'together-and-vllm-flags': 'mixdog-ai/src/providers/custom/reasoning.rs:174 resolve (pub; Resolved carries the thinking / wire flags)',
+    'replay-eligibility': 'mixdog-ai/src/providers/custom/reasoning.rs:174 resolve (pub) / ReasoningRow (:87)',
+    'effort-mjs-custom-rows-authoritative': 'mixdog-ai/src/providers/custom/reasoning.rs:174 resolve and :121 snap_effort (pub)',
+    'toOpenAIMessages-custom-replay': 'RUST WORK: toOpenAIMessages is the compat chat message lowering; no public Rust function lowers messages without the codec (compat/chat/encode.rs build_body is reached through CompatChatCodec::encode, a framed WireRequest)',
+    'chat-options': 'RUST WORK: applyCompatProviderChatOptions has no public Rust counterpart (compat/chat/options.rs is private to the crate)',
+    'anthropic-custom-vs-first-party-isolated': 'RUST WORK: buildAnthropicApiRequest has no public Rust counterpart (anthropic/body.rs is private; AnthropicCodec::encode returns a framed WireRequest)',
+  },
   set: 'provider-custom-reasoning',
   entry: 'custom-reasoning.mjs (snapCustomEffort, customEffortLevels, customWireFormat, resolveCustomReasoning), openai-compat-wire.mjs toOpenAIMessages, openai-compat-options.mjs applyCompatProviderChatOptions, openai-compat-chat-send.mjs sendCompatChat and openai-compat-responses.mjs sendCompatResponses on a real OpenAICompatProvider("custom-x", { baseURL: https://custom.invalid/v1 }) whose catalog lookup (getCachedModelInfo) returns the scripted model row, anthropic-api-request.mjs buildAnthropicApiRequest, runtime-core/effort.mjs. The scripted model row is the input; no catalog file is read.',
   compare: 'mixdog-ai providers::custom::reasoning (reasoning.rs:121-200, :392-444), compat chat/options.rs and compat Responses codec, anthropic body.rs: feed `input` (model row, protocol, effort, base URL, history) and compare `result` whole; for the send cases the request body is `requests[0].body`.',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::custom::normalize_request_body (custom/mod.rs:126) / CustomRequestConfig (custom/mod.rs:67) on top of CompatAdapter (compat/adapter.rs:63), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  replay: "PURE: the public mixdog-ai/src/providers/custom/reasoning.rs functions named per case in `levels` (snap_effort :121, wire_format :149, resolve :174, canonical_level :261, ReasoningRow::effort_levels :100). The send cases (sendCompatChat-custom-row-and-padding, sendCompatResponses-snaps-without-promotion) are WIRE: the request that arrived is `requests`; the model row is the product's catalog seam getCachedModelInfo set to the scripted row, as the Node test sets it. Cases marked RUST WORK have no public Rust function of the same input and output.",
 });
 const P = 'agent/orchestrator/providers/';
 const { CUSTOM_EFFORT_LEVELS, customEffortLevels, customWireFormat, resolveCustomReasoning, snapCustomEffort } = await rec.P(`${P}custom-reasoning.mjs`);

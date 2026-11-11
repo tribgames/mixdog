@@ -11,15 +11,15 @@
   "entry": "custom-reasoning.mjs (snapCustomEffort, customEffortLevels, customWireFormat, resolveCustomReasoning), openai-compat-wire.mjs toOpenAIMessages, openai-compat-options.mjs applyCompatProviderChatOptions, openai-compat-chat-send.mjs sendCompatChat and openai-compat-responses.mjs sendCompatResponses on a real OpenAICompatProvider(\"custom-x\", { baseURL: https://custom.invalid/v1 }) whose catalog lookup (getCachedModelInfo) returns the scripted model row, anthropic-api-request.mjs buildAnthropicApiRequest, runtime-core/effort.mjs. The scripted model row is the input; no catalog file is read.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 429700,
+      "bytes": 429880,
       "path": "cases.json",
-      "sha256": "7b320ba969d2ad18e8f881fca0dc5461308b0baa68da5c85a19fc7fafba45c03"
+      "sha256": "a29ad3e051f64546a899bfca59955c21721ad4fc2c0c3e7f10502e65879121bd"
     }
   ],
   "inputs": [
@@ -41,11 +41,71 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "snapping-table",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/custom/reasoning.rs:121 snap_effort(Option<&[String]>, &str) (pub; `pub mod reasoning` at custom/mod.rs:39)"
+    },
+    {
+      "id": "levels-and-unknown",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/custom/reasoning.rs:100 ReasoningRow::effort_levels and :261 canonical_level (pub)"
+    },
+    {
+      "id": "wire-values-after-snapping",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/custom/reasoning.rs:174 resolve(&Protocol, &ReasoningRow, Option<&str>, &str) -> Resolved (pub)"
+    },
+    {
+      "id": "protocol-and-wire-format",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/custom/reasoning.rs:149 wire_format(&ReasoningRow, &str) and :174 resolve (pub)"
+    },
+    {
+      "id": "together-and-vllm-flags",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/custom/reasoning.rs:174 resolve (pub; Resolved carries the thinking / wire flags)"
+    },
+    {
+      "id": "replay-eligibility",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/custom/reasoning.rs:174 resolve (pub) / ReasoningRow (:87)"
+    },
+    {
+      "id": "toOpenAIMessages-custom-replay",
+      "level": "pure",
+      "rust": "RUST WORK: toOpenAIMessages is the compat chat message lowering; no public Rust function lowers messages without the codec (compat/chat/encode.rs build_body is reached through CompatChatCodec::encode, a framed WireRequest)"
+    },
+    {
+      "id": "chat-options",
+      "level": "pure",
+      "rust": "RUST WORK: applyCompatProviderChatOptions has no public Rust counterpart (compat/chat/options.rs is private to the crate)"
+    },
+    {
+      "id": "sendCompatChat-custom-row-and-padding",
+      "level": "wire"
+    },
+    {
+      "id": "sendCompatResponses-snaps-without-promotion",
+      "level": "wire"
+    },
+    {
+      "id": "anthropic-custom-vs-first-party-isolated",
+      "level": "pure",
+      "rust": "RUST WORK: buildAnthropicApiRequest has no public Rust counterpart (anthropic/body.rs is private; AnthropicCodec::encode returns a framed WireRequest)"
+    },
+    {
+      "id": "effort-mjs-custom-rows-authoritative",
+      "level": "pure",
+      "rust": "mixdog-ai/src/providers/custom/reasoning.rs:174 resolve and :121 snap_effort (pub)"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,12 +127,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-custom-reasoning.mjs",
-  "recorderSha256": "b43cde1e2a640a4b638ff14f10d32f3274707189a565044b090ff5593dadbd3d",
-  "replay": "Rust entry (pub, on o1): mixdog_ai::providers::custom::normalize_request_body (custom/mod.rs:126) / CustomRequestConfig (custom/mod.rs:67) on top of CompatAdapter (compat/adapter.rs:63), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  "recorderSha256": "d02342b5bc5ce85b1422ed3b451b59a492ce946e88cd4c4128c0f67de3ed7aeb",
+  "replay": "PURE: the public mixdog-ai/src/providers/custom/reasoning.rs functions named per case in `levels` (snap_effort :121, wire_format :149, resolve :174, canonical_level :261, ReasoningRow::effort_levels :100). The send cases (sendCompatChat-custom-row-and-padding, sendCompatResponses-snaps-without-promotion) are WIRE: the request that arrived is `requests`; the model row is the product's catalog seam getCachedModelInfo set to the scripted row, as the Node test sets it. Cases marked RUST WORK have no public Rust function of the same input and output.",
   "replayExclusions": {
-    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-custom-reasoning",
-  "totalBytes": 429700,
+  "totalBytes": 429880,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
