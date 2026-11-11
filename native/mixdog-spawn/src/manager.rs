@@ -651,7 +651,11 @@ fn start_piped(
             Some(err_write)
         }
     };
-    let process = crate::winspawn::spawn(
+    #[cfg(feature = "core-test")]
+    let created = crate::testing::created_window;
+    #[cfg(not(feature = "core-test"))]
+    let created = || {};
+    let process = crate::winspawn::spawn_observed(
         containment.job(),
         &crate::winspawn::Spawn {
             program: launch.program(),
@@ -664,9 +668,8 @@ fn start_piped(
                 stderr: Some(err_write.as_ref().unwrap_or(&out_write).as_handle()),
             },
         },
+        created,
     )?;
-    #[cfg(feature = "core-test")]
-    crate::testing::created_window();
     // The ends the child owns close here; the readers see the end of the stream when the tree is
     // gone.
     drop(out_write);

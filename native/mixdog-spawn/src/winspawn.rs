@@ -11,11 +11,13 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io;
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::ffi::OsStringExt;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::io::BorrowedHandle;
 use std::os::windows::io::RawHandle;
 use std::os::windows::process::ExitStatusExt;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::ExitStatus;
 
 use windows_sys::Win32::Foundation::CloseHandle;
@@ -173,26 +175,83 @@ pub(crate) fn quote_windows_arg(arg: &str) -> String {
     out
 }
 
-/// The executable a bare program name means, looked up in the child's own `PATH` (its environment
-/// is replaced, so the lookup is by that one and not this process's). `None` leaves the lookup to
-/// `CreateProcessW`.
-fn find_application(program: &str, env: Option<&[(OsString, OsString)]>) -> Option<Vec<u16>> {
-    if program.contains(['\\', '/', ':']) {
-        return None;
+/// What std's `Command` refuses before it creates anything: a NUL in the program, an argument, the
+/// directory or the environment would truncate it or inject another variable.
+fn ensure_no_nuls(text: &std::ffi::OsStr) -> io::Result<()> {
+    if text.encode_wide().any(|unit| unit == 0) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "nul byte found in provided data"));
     }
-    let path = match env {
-        Some(env) => env.iter().find(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v.clone()),
-        None => std::env::var_os("PATH"),
-    }?;
-    let file = match Path::new(program).extension() {
-        None => format!("{program}.exe"),
-        Some(extension) if extension.eq_ignore_ascii_case("exe") => program.to_owned(),
-        Some(_) => return None,
-    };
-    std::env::split_paths(&path)
+    Ok(())
+}
+
+fn ensure_spec_has_no_nuls(spec: &Spawn<'_>) -> io::Result<()> {
+    ensure_no_nuls(spec.program.as_ref())?;
+    ensure_no_nuls(spec.command_line.as_ref())?;
+    if let Some(cwd) = spec.cwd {
+        ensure_no_nuls(cwd.as_os_str())?;
+    }
+    for (key, value) in spec.env.unwrap_or_default() {
+        ensure_no_nuls(key)?;
+        ensure_no_nuls(value)?;
+    }
+    Ok(())
+}
+
+unsafe extern "system" {
+    fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
+}
+
+fn system_directory(get: unsafe extern "system" fn(*mut u16, u32) -> u32) -> Option<PathBuf> {
+    let mut buffer = vec![0u16; 260];
+    loop {
+        let length = unsafe { get(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+        match length {
+            0 => return None,
+            n if n < buffer.len() => return Some(PathBuf::from(OsString::from_wide(&buffer[..n]))),
+            n => buffer.resize(n, 0),
+        }
+    }
+}
+
+/// The executable `CreateProcessW` is given, resolved as std's `Command` does (a null application
+/// name would search this process's current directory, which std never does). A program with a
+/// separator is a path; a bare name is looked for in the child's `PATH` when its environment is
+/// replaced, then the directory of this executable, the system and Windows directories, and last
+/// this process's `PATH`.
+fn resolve_program(program: &str, env: Option<&[(OsString, OsString)]>) -> io::Result<Vec<u16>> {
+    if program.is_empty() || program.ends_with(['/', '\\']) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "program path has no file name"));
+    }
+    let exists = |path: &Path| std::fs::symlink_metadata(path).is_ok();
+    if program.contains(['/', '\\']) {
+        if program.len() >= 4 && program.as_bytes()[program.len() - 4..].eq_ignore_ascii_case(b".exe") {
+            return Ok(wide(program));
+        }
+        let with_exe = format!("{program}.exe");
+        return Ok(wide(if exists(Path::new(&with_exe)) { with_exe.as_str() } else { program }));
+    }
+    // "If the file name does not contain an extension, .exe is appended", for searched names only.
+    let file = if program.contains('.') { program.to_owned() } else { format!("{program}.exe") };
+    let child_path = env.and_then(|env| env.iter().find(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v));
+    let directories = child_path
+        .into_iter()
+        .flat_map(|paths| std::env::split_paths(paths).collect::<Vec<_>>())
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .chain(std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)))
+        .chain(system_directory(GetSystemDirectoryW))
+        .chain(system_directory(GetWindowsDirectoryW))
+        .chain(
+            std::env::var_os("PATH")
+                .into_iter()
+                .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+                .filter(|dir| !dir.as_os_str().is_empty()),
+        );
+    directories
         .map(|dir| dir.join(&file))
-        .find(|candidate| candidate.is_file())
+        .find(|candidate| exists(candidate))
         .map(wide)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "program not found"))
 }
 
 /// A handle the child may inherit, closed on drop.
@@ -266,6 +325,17 @@ impl Drop for AttributeList {
 
 /// Starts `spec` inside `job`.
 pub(crate) fn spawn(job: HANDLE, spec: &Spawn<'_>) -> io::Result<WinProcess> {
+    spawn_with(job, spec, || {})
+}
+
+/// [`spawn`], running `created` at the first instant the OS has the child, before this returns.
+pub(crate) fn spawn_observed(job: HANDLE, spec: &Spawn<'_>, observe: impl FnOnce()) -> io::Result<WinProcess> {
+    spawn_with(job, spec, observe)
+}
+
+fn spawn_with(job: HANDLE, spec: &Spawn<'_>, observe: impl FnOnce()) -> io::Result<WinProcess> {
+    ensure_spec_has_no_nuls(spec)?;
+    let application = resolve_program(spec.program, spec.env)?;
     let null_device;
     let (flags, inherit, duplicates) = match &spec.stdio {
         Stdio::Handles { stdin, stdout, stderr } => {
@@ -316,14 +386,13 @@ pub(crate) fn spawn(job: HANDLE, spec: &Spawn<'_>) -> io::Result<WinProcess> {
         startup.StartupInfo.hStdError = d[2].0;
     }
 
-    let application = find_application(spec.program, spec.env);
     let mut command_line = wide(spec.command_line);
     let environment = spec.env.map(environment_block);
     let directory = spec.cwd.map(wide);
     let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
     let created = unsafe {
         CreateProcessW(
-            application.as_ref().map_or(std::ptr::null(), |a| a.as_ptr()),
+            application.as_ptr(),
             command_line.as_mut_ptr(),
             std::ptr::null(),
             std::ptr::null(),
@@ -339,13 +408,83 @@ pub(crate) fn spawn(job: HANDLE, spec: &Spawn<'_>) -> io::Result<WinProcess> {
         return Err(io::Error::last_os_error());
     }
     unsafe { CloseHandle(info.hThread) };
-    Ok(WinProcess {
+    let process = WinProcess {
         pid: info.dwProcessId,
         handle: info.hProcess,
-    })
+    };
+    observe();
+    Ok(process)
 }
 
 fn borrow(file: &File) -> BorrowedHandle<'_> {
     use std::os::windows::io::AsHandle;
     file.as_handle()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+
+    fn ping() -> String {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+        format!("{root}\\System32\\PING.EXE")
+    }
+
+    /// The error kind `spawn` refuses `program`/`command_line`/`env` with. A child that does start
+    /// is killed, and the test fails.
+    fn refusal(program: &str, command_line: &str, env: Option<&[(OsString, OsString)]>) -> io::ErrorKind {
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        assert!(!job.is_null());
+        let started = spawn(
+            job,
+            &Spawn {
+                program,
+                command_line,
+                cwd: None,
+                env,
+                stdio: Stdio::Handles { stdin: None, stdout: None, stderr: None },
+            },
+        );
+        let kind = match started {
+            Ok(process) => {
+                let _ = process.terminate(1);
+                unsafe { CloseHandle(job) };
+                panic!("the spawn was accepted");
+            }
+            Err(error) => error.kind(),
+        };
+        unsafe { CloseHandle(job) };
+        kind
+    }
+
+    #[test]
+    fn a_nul_in_an_environment_value_is_refused() {
+        let env = [(OsString::from("A"), OsString::from("x\0B=injected"))];
+        let line = format!("{} -n 1 127.0.0.1", ping());
+        assert_eq!(refusal(&ping(), &line, Some(&env)), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_nul_in_an_argument_is_refused() {
+        let line = format!("{} -n 1\0 127.0.0.1", ping());
+        assert_eq!(refusal(&ping(), &line, None), io::ErrorKind::InvalidInput);
+    }
+
+    /// An executable that is only in this process's current directory is not found: std's `Command`
+    /// never searched it, and a null application name makes `CreateProcessW` do so.
+    #[test]
+    fn a_program_only_in_the_current_directory_is_not_found() {
+        let name = format!("mixdog-cwd-only-{}", std::process::id());
+        let dir = std::env::temp_dir().join(&name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(ping(), dir.join(format!("{name}.exe"))).unwrap();
+        let before = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+        let env = [(OsString::from("PATH"), OsString::new())];
+        let kind = std::panic::catch_unwind(|| refusal(&name, &name, Some(&env)));
+        std::env::set_current_dir(before).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(kind.unwrap(), io::ErrorKind::NotFound);
+    }
 }
