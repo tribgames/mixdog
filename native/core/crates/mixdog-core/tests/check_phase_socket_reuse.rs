@@ -285,9 +285,24 @@ fn replay(name: &str) -> Value {
     }
     control.wait("event r0-head 0");
     control.wait("event armed 0");
-    assert_eq!(control.ask("advance 100"), format!("now {}", WALL + 100));
+    // A message that fits what the link may read ahead is read off the socket before the timers, as in Node: real I/O.
+    if body <= 70_000 {
+        control.wait("h1 message read off the socket");
+    }
+    // Node's loop turns again at once while immediates are queued: `advance 0` is that turn, until none is left; first for
+    // those the check phase after real I/O left (no answer counts them), then for those the advance leaves.
+    let turns_at_v = |control: &mut Control| while control.ask("advance 0").contains(" immediates ") {};
+    let advance = |control: &mut Control, ms: u64| {
+        turns_at_v(control);
+        let mut answer = control.ask(&format!("advance {ms}"));
+        while answer.contains(" immediates ") {
+            answer = control.ask("advance 0");
+        }
+        answer
+    };
+    assert_eq!(advance(&mut control, 100), format!("now {}", WALL + 100));
     control.wait("event answered 100");
-    assert_eq!(control.ask("advance 20"), format!("now {}", WALL + 120));
+    assert_eq!(advance(&mut control, 20), format!("now {}", WALL + 120));
     control.wait("event done 120");
     let order: Vec<String> = events(&lines, "done 120")
         .into_iter()
@@ -317,6 +332,7 @@ fn replay(name: &str) -> Value {
 fn a_socket_is_free_one_check_phase_after_its_message_ended_on_the_network_as_in_node() {
     for case in recording()["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("a name");
+        eprintln!("case {name}");
         assert_eq!(&replay(name), case, "case {name}");
     }
 }

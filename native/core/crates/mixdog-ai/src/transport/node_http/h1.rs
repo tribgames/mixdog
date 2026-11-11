@@ -401,10 +401,10 @@ async fn read_message(mut incoming: Incoming, conn: Conn, reuse: Option<Reuse>, 
             }
         };
         match frame {
-            Err(_) => break Err(TransportFault::Io { os_code: None }),
-            Ok(None) => socket_end = true,
+            Err(_) => break network_end(Err(TransportFault::Io { os_code: None })),
+            Ok(None) => socket_end = network_end(true),
             // A socket error destroys the request at once, whatever the parser holds (`client-h1.js` `onHttpSocketError`).
-            Ok(Some(Err(e))) => break Err(fault_from_chain(&e, false)),
+            Ok(Some(Err(e))) => break network_end(Err(fault_from_chain(&e, false))),
             Ok(Some(Ok(frame))) => {
                 let Ok(raw) = frame.into_data() else { continue };
                 if raw.is_empty() {
@@ -413,7 +413,9 @@ async fn read_message(mut incoming: Incoming, conn: Conn, reuse: Option<Reuse>, 
                 socket_bytes += raw.len();
                 socket.push_back(raw);
                 // The frame that ends the message is parsed with its last bytes (hyper's chunked or length decoder).
-                socket_end = incoming.is_end_stream();
+                if incoming.is_end_stream() {
+                    socket_end = network_end(true);
+                }
             }
         }
     };
@@ -442,6 +444,14 @@ async fn read_message(mut incoming: Incoming, conn: Conn, reuse: Option<Reuse>, 
         }
         _ => drop(conn),
     }
+}
+
+/// The network's end of a message (its last byte read off the socket, or the fault that ended it), whether or not the
+/// caller has read it: real I/O a replay's clock does not wait for, so a replay waits for this line before advancing past
+/// it. Nothing without `mixdog-rt`'s `virtual-clock` feature.
+fn network_end<T>(end: T) -> T {
+    mixdog_rt::replay_event("h1 message read off the socket");
+    end
 }
 
 /// After the caller let the body go: whether the message ends from what the socket has already read. undici parses

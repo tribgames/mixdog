@@ -34,6 +34,16 @@ pub mod tokens;
 #[cfg(feature = "virtual-clock")]
 pub mod virtual_clock;
 
+/// A named core event a replay `wait`s for before it advances past real I/O (the replay clock's log; nothing on stderr).
+/// Nothing without the `virtual-clock` feature.
+#[inline]
+pub fn replay_event(name: &str) {
+    #[cfg(feature = "virtual-clock")]
+    virtual_clock::logged(name);
+    #[cfg(not(feature = "virtual-clock"))]
+    let _ = name;
+}
+
 pub use cancel::CancelSource;
 pub use cancel::CancelView;
 pub use gate::Gate;

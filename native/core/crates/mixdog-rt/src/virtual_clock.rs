@@ -15,7 +15,12 @@
 //! lanes, has run until it waits on a later timer, on real I/O, on the next turn's check phase, or on a task that does.
 //!
 //! Real I/O (sockets, children, PTY, dedicated threads) completes in real time: before advancing past it, wait for its observable,
-//! a message on your own connection or `wait <deadline-ms> <line>`.
+//! a message on your own connection or `wait <deadline-ms> <line>`. Bytes arriving from a real socket are the one thing this clock
+//! does not own, so the core logs, through [`crate::replay_event`] (nothing without this feature), the line
+//! `h1 message read off the socket` each time an HTTP/1 response ends on the network, whatever its caller has read: its last byte
+//! read off the socket (complete, or ended by the peer's close) or the fault that ended it. A response the caller let go before
+//! that logs nothing. A replay that resumes after a response's I/O waits for that line, then sends `advance 0` until no
+//! `immediates` are reported, then advances time.
 //!
 //! `wait`: the core numbers its `node_log` lines from 0 in log order and keeps every one from the cursor (0 at start) on. `wait`
 //! finds the first kept line equal to `<line>`, the whole line, byte for byte (a longer line that starts the same is another
