@@ -3,7 +3,8 @@
 //! here waits, so a connection's socket reader never blocks on request work (P §7.3):
 //!
 //! 1. the initialize latch (`notInitialized`), method lookup, origin rule, lifecycle gate;
-//! 2. admission by request class (`-32001 inflightLimit`), answered at once when over cap;
+//! 2. admission by request class: past its class's cap a request waits its turn in arrival order, and only one past
+//!    [`WAIT_BOUND`] waiting requests is refused (`-32001 inflightLimit`);
 //! 3. typed decode against the generated method table;
 //! 4. dispatch: C0 controls run inline on the caller, everything else becomes a task, queued
 //!    under the key the method table declares (see [`crate::serialization`]) or free-running
@@ -92,10 +93,11 @@ use crate::outgoing::Outgoing;
 use crate::serialization::KeyedQueues;
 use crate::serialization::QueueKey;
 
-/// The reads one connection may have waiting for an in-flight place of their class before a further one is refused
-/// (`inflightLimit`). Far above any shipped client: the desktop and phone send at most a thread list's previews at once,
-/// and `protocol-client` resends a refused read after another answer (`client.ts:840`).
-const READ_WAIT_BOUND: usize = 4096;
+/// The requests one connection may have waiting for an in-flight place of their class before a further one is refused
+/// (`inflightLimit`). Node runs every session call with no active cap and queues it in its lane; it refuses only past the
+/// lane's queue (`MIXDOG_SESSION_CALL_QUEUE`, 1024: `src/standalone/session-transport/call-lanes.mjs:58`,
+/// refusal `src/runtime/shared/fair-call-scheduler.mjs:105`). Enforced in `Connection::admit_or_queue`.
+pub(crate) const WAIT_BOUND: usize = 1024;
 
 const INITIALIZE: &str = "initialize";
 
@@ -353,36 +355,26 @@ impl Shared {
             let no_params = serde_json::Value::Null;
             self.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params))
         };
-        if spec.mutation == Mutation::None && spec.class == RequestClass::C1 {
-            // A C1 read (`thread/read`, `thread/list`, ...) past its class's cap waits its turn, in arrival order, as Node answers every read it is sent; only a
-            // backlog past `READ_WAIT_BOUND` is refused.
-            let shared = Arc::clone(self);
-            let later = move |request: JsonRpcRequest| -> crate::connection::Queued {
-                Box::new(move |conn: Arc<Connection>| {
-                    let no_params = serde_json::Value::Null;
-                    let guard = shared.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params));
-                    let slot = conn.granted(spec.class, guard);
-                    let _ = shared.admitted(&conn, request, spec, origin, slot);
-                })
-            };
-            return match conn.admit_or_queue(spec.class, cap, READ_WAIT_BOUND, request, started, later) {
-                Ok((slot, request)) => self.admitted(conn, request, spec, origin, slot),
-                Err(None) => Inbound::Continue,
-                Err(Some(_)) => {
-                    self.reject(conn, &id, &ErrorData::InflightLimit { class: spec.class, limit: cap });
-                    Inbound::Continue
-                }
-            };
-        }
-        let Ok(slot) = conn.admit(spec.class, cap, || started(&request)) else {
-            let limit = ErrorData::InflightLimit {
-                class: spec.class,
-                limit: cap,
-            };
-            self.reject(conn, &id, &limit);
-            return Inbound::Continue;
+        // Every request past its class's cap waits its turn in arrival order, as Node queues every session call in its lane
+        // (`call-lanes.mjs:11`, no active cap); only a backlog past `WAIT_BOUND` is refused.
+        let shared = Arc::clone(self);
+        let later = move |request: JsonRpcRequest| -> crate::connection::Queued {
+            Box::new(move |conn: Arc<Connection>| {
+                let no_params = serde_json::Value::Null;
+                let guard = shared.core.request_started(&request.method, request.params.as_ref().unwrap_or(&no_params));
+                let slot = conn.granted(spec.class, guard);
+                // A queued request's own refusals and answers go to its connection; what the reader would do next is already done.
+                let _ = shared.admitted(&conn, request, spec, origin, slot);
+            })
         };
-        self.admitted(conn, request, spec, origin, slot)
+        match conn.admit_or_queue(spec.class, cap, WAIT_BOUND, request, started, later) {
+            Ok((slot, request)) => self.admitted(conn, request, spec, origin, slot),
+            Err(None) => Inbound::Continue,
+            Err(Some(_)) => {
+                self.reject(conn, &id, &ErrorData::InflightLimit { class: spec.class, limit: cap });
+                Inbound::Continue
+            }
+        }
     }
 
     /// A request that holds its in-flight slot: checked, decoded and dispatched.
