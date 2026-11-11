@@ -1,0 +1,1245 @@
+{
+  "cases": [
+    {
+      "case": "an idle session with a running Goal and agent job sends no state frames until content changes",
+      "observed": {
+        "t0": 1772359200000,
+        "tickMs": 2000,
+        "ticks": 30,
+        "goal": {
+          "id": "idle-churn-goal",
+          "revision": 3,
+          "objectiveRevision": 1,
+          "tasksObjectiveRevision": 1,
+          "sessionId": "idle-churn-session",
+          "objective": "Ship the remote diet",
+          "title": "Ship the remote diet",
+          "status": "active",
+          "timeLimitMs": 3600000,
+          "timeUsedMs": 300000,
+          "createdAt": 1772358600000,
+          "updatedAt": 1772359140000,
+          "lastStartedAt": 1772359110000
+        },
+        "rawReads": {
+          "a": {
+            "sessionId": "idle-churn-session",
+            "items": [
+              {
+                "id": "u1",
+                "kind": "user",
+                "text": "keep going"
+              }
+            ],
+            "streamingTail": null,
+            "busy": false,
+            "goal": {
+              "id": "idle-churn-goal",
+              "warningRevision": 0,
+              "sessionId": "idle-churn-session",
+              "objective": "Ship the remote diet",
+              "title": "Ship the remote diet",
+              "status": "active",
+              "turnCount": 0,
+              "blocker": "",
+              "pauseReason": "user",
+              "timeLimitMs": 3600000,
+              "timeUsedMs": 390000,
+              "remainingMs": 3210000,
+              "deadlineAt": 1772362410000,
+              "snapshotAt": 1772359200000,
+              "createdAt": 1772358600000,
+              "updatedAt": 1772359140000,
+              "lastStartedAt": 1772359110000
+            },
+            "agentWorkers": [
+              {
+                "tag": "idle-churn",
+                "sessionId": "idle-churn-worker",
+                "agent": "worker",
+                "provider": "openai",
+                "model": "gpt-5",
+                "preset": null,
+                "effort": null,
+                "fast": false,
+                "status": "streaming",
+                "stage": "streaming",
+                "worker_stage": "streaming",
+                "last_progress": "streaming (no stream delta for 30s)",
+                "diagnostic": "streaming, no visible output yet (30s)",
+                "silent_for": 30,
+                "watchdog": "not armed (no registered progress watchdog)",
+                "createdAt": "2026-03-01T09:59:00.000Z",
+                "updatedAt": null,
+                "lastUsedAt": null,
+                "clientHostPid": 4242,
+                "lastStreamDeltaAt": "2026-03-01T09:59:30.000Z",
+                "staleSeconds": 30,
+                "usage": null,
+                "toolCalls": null,
+                "windowTokens": 0,
+                "windowCap": null,
+                "permission": null,
+                "toolPermission": null,
+                "messages": 1,
+                "tools": 0
+              }
+            ],
+            "agentJobs": [
+              {
+                "task_id": "task_agent_mm7kvctc_1",
+                "type": "spawn",
+                "status": "running",
+                "tag": "idle-churn",
+                "sessionId": "idle-churn-worker",
+                "agent": "worker",
+                "preset": null,
+                "provider": "openai",
+                "model": "gpt-5",
+                "effort": null,
+                "fast": null,
+                "startedAt": "2026-03-01T09:59:00.000Z",
+                "finishedAt": null,
+                "error": null,
+                "workerStatus": "streaming",
+                "stage": "streaming",
+                "clientHostPid": 4242,
+                "lastStreamDeltaAt": "2026-03-01T09:59:30.000Z",
+                "worker_stage": "streaming",
+                "last_progress": "streaming (no stream delta for 30s)",
+                "diagnostic": "streaming, no visible output yet (30s)",
+                "silent_for": 30,
+                "watchdog": "not armed (no registered progress watchdog)"
+              }
+            ]
+          },
+          "b": {
+            "sessionId": "idle-churn-session",
+            "items": [
+              {
+                "id": "u1",
+                "kind": "user",
+                "text": "keep going"
+              }
+            ],
+            "streamingTail": null,
+            "busy": false,
+            "goal": {
+              "id": "idle-churn-goal",
+              "warningRevision": 0,
+              "sessionId": "idle-churn-session",
+              "objective": "Ship the remote diet",
+              "title": "Ship the remote diet",
+              "status": "active",
+              "turnCount": 0,
+              "blocker": "",
+              "pauseReason": "user",
+              "timeLimitMs": 3600000,
+              "timeUsedMs": 392000,
+              "remainingMs": 3208000,
+              "deadlineAt": 1772362410000,
+              "snapshotAt": 1772359202000,
+              "createdAt": 1772358600000,
+              "updatedAt": 1772359140000,
+              "lastStartedAt": 1772359110000
+            },
+            "agentWorkers": [
+              {
+                "tag": "idle-churn",
+                "sessionId": "idle-churn-worker",
+                "agent": "worker",
+                "provider": "openai",
+                "model": "gpt-5",
+                "preset": null,
+                "effort": null,
+                "fast": false,
+                "status": "streaming",
+                "stage": "streaming",
+                "worker_stage": "streaming",
+                "last_progress": "streaming (no stream delta for 32s)",
+                "diagnostic": "streaming, no visible output yet (32s)",
+                "silent_for": 32,
+                "watchdog": "not armed (no registered progress watchdog)",
+                "createdAt": "2026-03-01T09:59:00.000Z",
+                "updatedAt": null,
+                "lastUsedAt": null,
+                "clientHostPid": 4242,
+                "lastStreamDeltaAt": "2026-03-01T09:59:30.000Z",
+                "staleSeconds": 32,
+                "usage": null,
+                "toolCalls": null,
+                "windowTokens": 0,
+                "windowCap": null,
+                "permission": null,
+                "toolPermission": null,
+                "messages": 1,
+                "tools": 0
+              }
+            ],
+            "agentJobs": [
+              {
+                "task_id": "task_agent_mm7kvctc_1",
+                "type": "spawn",
+                "status": "running",
+                "tag": "idle-churn",
+                "sessionId": "idle-churn-worker",
+                "agent": "worker",
+                "preset": null,
+                "provider": "openai",
+                "model": "gpt-5",
+                "effort": null,
+                "fast": null,
+                "startedAt": "2026-03-01T09:59:00.000Z",
+                "finishedAt": null,
+                "error": null,
+                "workerStatus": "streaming",
+                "stage": "streaming",
+                "clientHostPid": 4242,
+                "lastStreamDeltaAt": "2026-03-01T09:59:30.000Z",
+                "worker_stage": "streaming",
+                "last_progress": "streaming (no stream delta for 32s)",
+                "diagnostic": "streaming, no visible output yet (32s)",
+                "silent_for": 32,
+                "watchdog": "not armed (no registered progress watchdog)"
+              }
+            ]
+          },
+          "goalsDiffer": true,
+          "jobsDiffer": true
+        },
+        "wires": [
+          {
+            "compact": true,
+            "baseline": {
+              "wire": {
+                "sessionId": "idle-churn-session",
+                "items": [
+                  {
+                    "id": "u1",
+                    "kind": "user",
+                    "text": "keep going"
+                  }
+                ],
+                "streamingTail": null,
+                "busy": false,
+                "goal": {
+                  "id": "idle-churn-goal",
+                  "warningRevision": 0,
+                  "sessionId": "idle-churn-session",
+                  "objective": "Ship the remote diet",
+                  "title": "Ship the remote diet",
+                  "status": "active",
+                  "turnCount": 0,
+                  "blocker": "",
+                  "pauseReason": "user",
+                  "timeLimitMs": 3600000,
+                  "timeUsedMs": 300000,
+                  "remainingMs": 3300000,
+                  "deadlineAt": 1772362410000,
+                  "snapshotAt": 1772359110000,
+                  "createdAt": 1772358600000,
+                  "updatedAt": 1772359140000,
+                  "lastStartedAt": 1772359110000
+                },
+                "agentWorkers": [
+                  {
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "preset": null,
+                    "effort": null,
+                    "fast": false,
+                    "status": "streaming",
+                    "stage": "streaming",
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)",
+                    "createdAt": "2026-03-01T09:59:00.000Z",
+                    "updatedAt": null,
+                    "lastUsedAt": null,
+                    "clientHostPid": 4242,
+                    "usage": null,
+                    "toolCalls": null,
+                    "windowTokens": 0,
+                    "windowCap": null,
+                    "permission": null,
+                    "toolPermission": null,
+                    "messages": 1,
+                    "tools": 0
+                  }
+                ],
+                "agentJobs": [
+                  {
+                    "task_id": "task_agent_mm7kvctc_1",
+                    "type": "spawn",
+                    "status": "running",
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "preset": null,
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "effort": null,
+                    "fast": null,
+                    "startedAt": "2026-03-01T09:59:00.000Z",
+                    "finishedAt": null,
+                    "error": null,
+                    "workerStatus": "streaming",
+                    "stage": "streaming",
+                    "clientHostPid": 4242,
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)"
+                  }
+                ],
+                "__itemsRevision": 1
+              },
+              "ok": true,
+              "snapshot": {
+                "sessionId": "idle-churn-session",
+                "items": [
+                  {
+                    "id": "u1",
+                    "kind": "user",
+                    "text": "keep going"
+                  }
+                ],
+                "streamingTail": null,
+                "busy": false,
+                "goal": {
+                  "id": "idle-churn-goal",
+                  "warningRevision": 0,
+                  "sessionId": "idle-churn-session",
+                  "objective": "Ship the remote diet",
+                  "title": "Ship the remote diet",
+                  "status": "active",
+                  "turnCount": 0,
+                  "blocker": "",
+                  "pauseReason": "user",
+                  "timeLimitMs": 3600000,
+                  "timeUsedMs": 300000,
+                  "remainingMs": 3300000,
+                  "deadlineAt": 1772362410000,
+                  "snapshotAt": 1772359110000,
+                  "createdAt": 1772358600000,
+                  "updatedAt": 1772359140000,
+                  "lastStartedAt": 1772359110000
+                },
+                "agentWorkers": [
+                  {
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "preset": null,
+                    "effort": null,
+                    "fast": false,
+                    "status": "streaming",
+                    "stage": "streaming",
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)",
+                    "createdAt": "2026-03-01T09:59:00.000Z",
+                    "updatedAt": null,
+                    "lastUsedAt": null,
+                    "clientHostPid": 4242,
+                    "usage": null,
+                    "toolCalls": null,
+                    "windowTokens": 0,
+                    "windowCap": null,
+                    "permission": null,
+                    "toolPermission": null,
+                    "messages": 1,
+                    "tools": 0
+                  }
+                ],
+                "agentJobs": [
+                  {
+                    "task_id": "task_agent_mm7kvctc_1",
+                    "type": "spawn",
+                    "status": "running",
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "preset": null,
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "effort": null,
+                    "fast": null,
+                    "startedAt": "2026-03-01T09:59:00.000Z",
+                    "finishedAt": null,
+                    "error": null,
+                    "workerStatus": "streaming",
+                    "stage": "streaming",
+                    "clientHostPid": 4242,
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)"
+                  }
+                ]
+              }
+            },
+            "framesAfterBaseline": [
+              {
+                "offsetMs": 2000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 4000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 6000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 8000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 10000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 12000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 14000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 16000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 18000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 20000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 22000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 24000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 26000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 28000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 30000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 32000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 34000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 36000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 38000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 40000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 42000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 44000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 46000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 48000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 50000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 52000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 54000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 56000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 58000,
+                "delivered": false
+              }
+            ],
+            "labels": [
+              {
+                "clock": 1772359200000,
+                "elapsed": "6:30",
+                "expectedElapsed": "6:30",
+                "time": "6:30 / 1:00:00 · 53:30 remaining",
+                "timeOfPublicGoal": "6:30 / 1:00:00 · 53:30 remaining"
+              },
+              {
+                "clock": 1772359217000,
+                "elapsed": "6:47",
+                "expectedElapsed": "6:47",
+                "time": "6:47 / 1:00:00 · 53:13 remaining",
+                "timeOfPublicGoal": "6:47 / 1:00:00 · 53:13 remaining"
+              },
+              {
+                "clock": 1772359259000,
+                "elapsed": "7:29",
+                "expectedElapsed": "7:29",
+                "time": "7:29 / 1:00:00 · 52:31 remaining",
+                "timeOfPublicGoal": "7:29 / 1:00:00 · 52:31 remaining"
+              },
+              {
+                "clock": 1772361000000,
+                "elapsed": "36:30",
+                "expectedElapsed": "36:30",
+                "time": "36:30 / 1:00:00 · 23:30 remaining",
+                "timeOfPublicGoal": "36:30 / 1:00:00 · 23:30 remaining"
+              }
+            ],
+            "deadline": {
+              "held": 1772362410000,
+              "publicGoal": 1772362410000
+            },
+            "heldJob": {
+              "status": "running",
+              "stage": "streaming",
+              "startedAtMs": 1772359140000,
+              "workerStage": "streaming"
+            },
+            "stageChange": {
+              "delivered": true,
+              "wire": {
+                "r": 2,
+                "sc": {
+                  "agentWorkers": [
+                    {
+                      "tag": "idle-churn",
+                      "sessionId": "idle-churn-worker",
+                      "agent": "worker",
+                      "provider": "openai",
+                      "model": "gpt-5",
+                      "preset": null,
+                      "effort": null,
+                      "fast": false,
+                      "status": "streaming",
+                      "stage": "tool_running",
+                      "worker_stage": "tool_running",
+                      "watchdog": "not armed (no registered progress watchdog)",
+                      "createdAt": "2026-03-01T09:59:00.000Z",
+                      "updatedAt": null,
+                      "lastUsedAt": null,
+                      "clientHostPid": 4242,
+                      "usage": null,
+                      "toolCalls": null,
+                      "windowTokens": 0,
+                      "windowCap": null,
+                      "permission": null,
+                      "toolPermission": null,
+                      "messages": 1,
+                      "tools": 0
+                    }
+                  ],
+                  "agentJobs": [
+                    {
+                      "task_id": "task_agent_mm7kvctc_1",
+                      "type": "spawn",
+                      "status": "running",
+                      "tag": "idle-churn",
+                      "sessionId": "idle-churn-worker",
+                      "agent": "worker",
+                      "preset": null,
+                      "provider": "openai",
+                      "model": "gpt-5",
+                      "effort": null,
+                      "fast": null,
+                      "startedAt": "2026-03-01T09:59:00.000Z",
+                      "finishedAt": null,
+                      "error": null,
+                      "workerStatus": "streaming",
+                      "stage": "tool_running",
+                      "clientHostPid": 4242,
+                      "worker_stage": "tool_running",
+                      "watchdog": "not armed (no registered progress watchdog)"
+                    }
+                  ]
+                },
+                "__v": 2
+              },
+              "stateFieldKeys": [
+                "agentJobs",
+                "agentWorkers"
+              ]
+            },
+            "paused": {
+              "delivered": true,
+              "wire": {
+                "r": 3,
+                "sc": {
+                  "goal": {
+                    "id": "idle-churn-goal",
+                    "warningRevision": 0,
+                    "sessionId": "idle-churn-session",
+                    "objective": "Ship the remote diet",
+                    "title": "Ship the remote diet",
+                    "status": "paused",
+                    "turnCount": 0,
+                    "blocker": "",
+                    "pauseReason": "user",
+                    "timeLimitMs": 3600000,
+                    "timeUsedMs": 420000,
+                    "remainingMs": 3180000,
+                    "deadlineAt": null,
+                    "createdAt": 1772358600000,
+                    "updatedAt": 1772359140000,
+                    "lastStartedAt": null
+                  },
+                  "agentWorkers": [
+                    {
+                      "tag": "idle-churn",
+                      "sessionId": "idle-churn-worker",
+                      "agent": "worker",
+                      "provider": "openai",
+                      "model": "gpt-5",
+                      "preset": null,
+                      "effort": null,
+                      "fast": false,
+                      "status": "streaming",
+                      "stage": "streaming",
+                      "worker_stage": "streaming",
+                      "watchdog": "not armed (no registered progress watchdog)",
+                      "createdAt": "2026-03-01T09:59:00.000Z",
+                      "updatedAt": null,
+                      "lastUsedAt": null,
+                      "clientHostPid": 4242,
+                      "usage": null,
+                      "toolCalls": null,
+                      "windowTokens": 0,
+                      "windowCap": null,
+                      "permission": null,
+                      "toolPermission": null,
+                      "messages": 1,
+                      "tools": 0
+                    }
+                  ],
+                  "agentJobs": [
+                    {
+                      "task_id": "task_agent_mm7kvctc_1",
+                      "type": "spawn",
+                      "status": "running",
+                      "tag": "idle-churn",
+                      "sessionId": "idle-churn-worker",
+                      "agent": "worker",
+                      "preset": null,
+                      "provider": "openai",
+                      "model": "gpt-5",
+                      "effort": null,
+                      "fast": null,
+                      "startedAt": "2026-03-01T09:59:00.000Z",
+                      "finishedAt": null,
+                      "error": null,
+                      "workerStatus": "streaming",
+                      "stage": "streaming",
+                      "clientHostPid": 4242,
+                      "worker_stage": "streaming",
+                      "watchdog": "not armed (no registered progress watchdog)"
+                    }
+                  ]
+                },
+                "__v": 2
+              },
+              "status": "paused",
+              "elapsedLabelLater": "7:00",
+              "expectedLabel": "7:00"
+            },
+            "pausedReadLater": {
+              "delivered": false
+            }
+          },
+          {
+            "compact": false,
+            "baseline": {
+              "wire": {
+                "sessionId": "idle-churn-session",
+                "items": [
+                  {
+                    "id": "u1",
+                    "kind": "user",
+                    "text": "keep going"
+                  }
+                ],
+                "streamingTail": null,
+                "busy": false,
+                "goal": {
+                  "id": "idle-churn-goal",
+                  "warningRevision": 0,
+                  "sessionId": "idle-churn-session",
+                  "objective": "Ship the remote diet",
+                  "title": "Ship the remote diet",
+                  "status": "active",
+                  "turnCount": 0,
+                  "blocker": "",
+                  "pauseReason": "user",
+                  "timeLimitMs": 3600000,
+                  "timeUsedMs": 300000,
+                  "remainingMs": 3300000,
+                  "deadlineAt": 1772362410000,
+                  "snapshotAt": 1772359110000,
+                  "createdAt": 1772358600000,
+                  "updatedAt": 1772359140000,
+                  "lastStartedAt": 1772359110000
+                },
+                "agentWorkers": [
+                  {
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "preset": null,
+                    "effort": null,
+                    "fast": false,
+                    "status": "streaming",
+                    "stage": "streaming",
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)",
+                    "createdAt": "2026-03-01T09:59:00.000Z",
+                    "updatedAt": null,
+                    "lastUsedAt": null,
+                    "clientHostPid": 4242,
+                    "usage": null,
+                    "toolCalls": null,
+                    "windowTokens": 0,
+                    "windowCap": null,
+                    "permission": null,
+                    "toolPermission": null,
+                    "messages": 1,
+                    "tools": 0
+                  }
+                ],
+                "agentJobs": [
+                  {
+                    "task_id": "task_agent_mm7kvctc_1",
+                    "type": "spawn",
+                    "status": "running",
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "preset": null,
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "effort": null,
+                    "fast": null,
+                    "startedAt": "2026-03-01T09:59:00.000Z",
+                    "finishedAt": null,
+                    "error": null,
+                    "workerStatus": "streaming",
+                    "stage": "streaming",
+                    "clientHostPid": 4242,
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)"
+                  }
+                ],
+                "__itemsRevision": 1
+              },
+              "ok": true,
+              "snapshot": {
+                "sessionId": "idle-churn-session",
+                "items": [
+                  {
+                    "id": "u1",
+                    "kind": "user",
+                    "text": "keep going"
+                  }
+                ],
+                "streamingTail": null,
+                "busy": false,
+                "goal": {
+                  "id": "idle-churn-goal",
+                  "warningRevision": 0,
+                  "sessionId": "idle-churn-session",
+                  "objective": "Ship the remote diet",
+                  "title": "Ship the remote diet",
+                  "status": "active",
+                  "turnCount": 0,
+                  "blocker": "",
+                  "pauseReason": "user",
+                  "timeLimitMs": 3600000,
+                  "timeUsedMs": 300000,
+                  "remainingMs": 3300000,
+                  "deadlineAt": 1772362410000,
+                  "snapshotAt": 1772359110000,
+                  "createdAt": 1772358600000,
+                  "updatedAt": 1772359140000,
+                  "lastStartedAt": 1772359110000
+                },
+                "agentWorkers": [
+                  {
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "preset": null,
+                    "effort": null,
+                    "fast": false,
+                    "status": "streaming",
+                    "stage": "streaming",
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)",
+                    "createdAt": "2026-03-01T09:59:00.000Z",
+                    "updatedAt": null,
+                    "lastUsedAt": null,
+                    "clientHostPid": 4242,
+                    "usage": null,
+                    "toolCalls": null,
+                    "windowTokens": 0,
+                    "windowCap": null,
+                    "permission": null,
+                    "toolPermission": null,
+                    "messages": 1,
+                    "tools": 0
+                  }
+                ],
+                "agentJobs": [
+                  {
+                    "task_id": "task_agent_mm7kvctc_1",
+                    "type": "spawn",
+                    "status": "running",
+                    "tag": "idle-churn",
+                    "sessionId": "idle-churn-worker",
+                    "agent": "worker",
+                    "preset": null,
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "effort": null,
+                    "fast": null,
+                    "startedAt": "2026-03-01T09:59:00.000Z",
+                    "finishedAt": null,
+                    "error": null,
+                    "workerStatus": "streaming",
+                    "stage": "streaming",
+                    "clientHostPid": 4242,
+                    "worker_stage": "streaming",
+                    "watchdog": "not armed (no registered progress watchdog)"
+                  }
+                ]
+              }
+            },
+            "framesAfterBaseline": [
+              {
+                "offsetMs": 2000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 4000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 6000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 8000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 10000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 12000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 14000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 16000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 18000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 20000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 22000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 24000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 26000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 28000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 30000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 32000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 34000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 36000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 38000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 40000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 42000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 44000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 46000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 48000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 50000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 52000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 54000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 56000,
+                "delivered": false
+              },
+              {
+                "offsetMs": 58000,
+                "delivered": false
+              }
+            ],
+            "labels": [
+              {
+                "clock": 1772359200000,
+                "elapsed": "6:30",
+                "expectedElapsed": "6:30",
+                "time": "6:30 / 1:00:00 · 53:30 remaining",
+                "timeOfPublicGoal": "6:30 / 1:00:00 · 53:30 remaining"
+              },
+              {
+                "clock": 1772359217000,
+                "elapsed": "6:47",
+                "expectedElapsed": "6:47",
+                "time": "6:47 / 1:00:00 · 53:13 remaining",
+                "timeOfPublicGoal": "6:47 / 1:00:00 · 53:13 remaining"
+              },
+              {
+                "clock": 1772359259000,
+                "elapsed": "7:29",
+                "expectedElapsed": "7:29",
+                "time": "7:29 / 1:00:00 · 52:31 remaining",
+                "timeOfPublicGoal": "7:29 / 1:00:00 · 52:31 remaining"
+              },
+              {
+                "clock": 1772361000000,
+                "elapsed": "36:30",
+                "expectedElapsed": "36:30",
+                "time": "36:30 / 1:00:00 · 23:30 remaining",
+                "timeOfPublicGoal": "36:30 / 1:00:00 · 23:30 remaining"
+              }
+            ],
+            "deadline": {
+              "held": 1772362410000,
+              "publicGoal": 1772362410000
+            },
+            "heldJob": {
+              "status": "running",
+              "stage": "streaming",
+              "startedAtMs": 1772359140000,
+              "workerStage": "streaming"
+            },
+            "stageChange": {
+              "delivered": true,
+              "wire": {
+                "__itemsPatch": {
+                  "base": 1,
+                  "revision": 2,
+                  "prefix": 1,
+                  "append": []
+                },
+                "__statePatch": {
+                  "base": 1,
+                  "revision": 2,
+                  "changed": {
+                    "agentWorkers": [
+                      {
+                        "tag": "idle-churn",
+                        "sessionId": "idle-churn-worker",
+                        "agent": "worker",
+                        "provider": "openai",
+                        "model": "gpt-5",
+                        "preset": null,
+                        "effort": null,
+                        "fast": false,
+                        "status": "streaming",
+                        "stage": "tool_running",
+                        "worker_stage": "tool_running",
+                        "watchdog": "not armed (no registered progress watchdog)",
+                        "createdAt": "2026-03-01T09:59:00.000Z",
+                        "updatedAt": null,
+                        "lastUsedAt": null,
+                        "clientHostPid": 4242,
+                        "usage": null,
+                        "toolCalls": null,
+                        "windowTokens": 0,
+                        "windowCap": null,
+                        "permission": null,
+                        "toolPermission": null,
+                        "messages": 1,
+                        "tools": 0
+                      }
+                    ],
+                    "agentJobs": [
+                      {
+                        "task_id": "task_agent_mm7kvctc_1",
+                        "type": "spawn",
+                        "status": "running",
+                        "tag": "idle-churn",
+                        "sessionId": "idle-churn-worker",
+                        "agent": "worker",
+                        "preset": null,
+                        "provider": "openai",
+                        "model": "gpt-5",
+                        "effort": null,
+                        "fast": null,
+                        "startedAt": "2026-03-01T09:59:00.000Z",
+                        "finishedAt": null,
+                        "error": null,
+                        "workerStatus": "streaming",
+                        "stage": "tool_running",
+                        "clientHostPid": 4242,
+                        "worker_stage": "tool_running",
+                        "watchdog": "not armed (no registered progress watchdog)"
+                      }
+                    ]
+                  },
+                  "removed": []
+                }
+              },
+              "stateFieldKeys": [
+                "agentJobs",
+                "agentWorkers"
+              ]
+            },
+            "paused": {
+              "delivered": true,
+              "wire": {
+                "__itemsPatch": {
+                  "base": 2,
+                  "revision": 3,
+                  "prefix": 1,
+                  "append": []
+                },
+                "__statePatch": {
+                  "base": 2,
+                  "revision": 3,
+                  "changed": {
+                    "goal": {
+                      "id": "idle-churn-goal",
+                      "warningRevision": 0,
+                      "sessionId": "idle-churn-session",
+                      "objective": "Ship the remote diet",
+                      "title": "Ship the remote diet",
+                      "status": "paused",
+                      "turnCount": 0,
+                      "blocker": "",
+                      "pauseReason": "user",
+                      "timeLimitMs": 3600000,
+                      "timeUsedMs": 420000,
+                      "remainingMs": 3180000,
+                      "deadlineAt": null,
+                      "createdAt": 1772358600000,
+                      "updatedAt": 1772359140000,
+                      "lastStartedAt": null
+                    },
+                    "agentWorkers": [
+                      {
+                        "tag": "idle-churn",
+                        "sessionId": "idle-churn-worker",
+                        "agent": "worker",
+                        "provider": "openai",
+                        "model": "gpt-5",
+                        "preset": null,
+                        "effort": null,
+                        "fast": false,
+                        "status": "streaming",
+                        "stage": "streaming",
+                        "worker_stage": "streaming",
+                        "watchdog": "not armed (no registered progress watchdog)",
+                        "createdAt": "2026-03-01T09:59:00.000Z",
+                        "updatedAt": null,
+                        "lastUsedAt": null,
+                        "clientHostPid": 4242,
+                        "usage": null,
+                        "toolCalls": null,
+                        "windowTokens": 0,
+                        "windowCap": null,
+                        "permission": null,
+                        "toolPermission": null,
+                        "messages": 1,
+                        "tools": 0
+                      }
+                    ],
+                    "agentJobs": [
+                      {
+                        "task_id": "task_agent_mm7kvctc_1",
+                        "type": "spawn",
+                        "status": "running",
+                        "tag": "idle-churn",
+                        "sessionId": "idle-churn-worker",
+                        "agent": "worker",
+                        "preset": null,
+                        "provider": "openai",
+                        "model": "gpt-5",
+                        "effort": null,
+                        "fast": null,
+                        "startedAt": "2026-03-01T09:59:00.000Z",
+                        "finishedAt": null,
+                        "error": null,
+                        "workerStatus": "streaming",
+                        "stage": "streaming",
+                        "clientHostPid": 4242,
+                        "worker_stage": "streaming",
+                        "watchdog": "not armed (no registered progress watchdog)"
+                      }
+                    ]
+                  },
+                  "removed": []
+                }
+              },
+              "status": "paused",
+              "elapsedLabelLater": "7:00",
+              "expectedLabel": "7:00"
+            },
+            "pausedReadLater": {
+              "delivered": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "goal state snapshots are idempotent and leave clock-less Goals untouched",
+      "observed": {
+        "plain": {
+          "id": "g",
+          "status": "active"
+        },
+        "plainSameObject": true,
+        "nullIn": null,
+        "goalInput": {
+          "id": "g",
+          "status": "active",
+          "objective": "x",
+          "timeUsedMs": 1000,
+          "timeLimitMs": 0,
+          "lastStartedAt": 1772359200000,
+          "tasks": []
+        },
+        "now": 1772359205000,
+        "running": {
+          "id": "g",
+          "warningRevision": 0,
+          "objective": "x",
+          "title": "x",
+          "status": "active",
+          "turnCount": 0,
+          "blocker": "",
+          "pauseReason": "user",
+          "timeLimitMs": 0,
+          "timeUsedMs": 6000,
+          "remainingMs": null,
+          "deadlineAt": null,
+          "snapshotAt": 1772359205000,
+          "lastStartedAt": 1772359200000
+        },
+        "anchored": {
+          "id": "g",
+          "warningRevision": 0,
+          "objective": "x",
+          "title": "x",
+          "status": "active",
+          "turnCount": 0,
+          "blocker": "",
+          "pauseReason": "user",
+          "timeLimitMs": 0,
+          "timeUsedMs": 1000,
+          "remainingMs": null,
+          "deadlineAt": null,
+          "snapshotAt": 1772359200000,
+          "lastStartedAt": 1772359200000
+        },
+        "anchoredSnapshotAt": 1772359200000,
+        "anchoredTimeUsedMs": 1000,
+        "remainingMs": null,
+        "deadlineAt": null,
+        "idempotent": true
+      }
+    }
+  ]
+}
