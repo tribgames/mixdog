@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 325283,
+      "bytes": 328073,
       "path": "cases.json",
-      "sha256": "8e37efb259b3dabec2dbb35a189ed143dc5ded957ab00b578f68ff29dc875a71"
+      "sha256": "7d29e8dadec14a8758f23f84610ab73691d106e2c8ef0b51820b59e99478007a"
     }
   ],
   "inputs": [
@@ -107,12 +107,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-compat-responses-effort.mjs",
-  "recorderSha256": "6bc2a716e78fc4dc0ad6bc548cc039eefdd4855c36bb45d1cdc7d7dbbc68b05e",
+  "recorderSha256": "8c4ea6f3c7b99faf99d5f14aba8a1dd533ade1d39a6566701a50a3094ad94f91",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::custom::normalize_request_body (custom/mod.rs:126) / CustomRequestConfig (custom/mod.rs:67) on top of CompatAdapter (compat/adapter.rs:63), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-compat-responses-effort",
-  "totalBytes": 325283,
+  "totalBytes": 328073,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
