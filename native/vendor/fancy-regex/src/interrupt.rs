@@ -10,15 +10,27 @@
 //!
 //! A step is one instruction of the VM or one backtrack, weighted by the bytes it examines where that is more than one.
 //! A search handed to regex-automata runs its lazy DFA here, one byte at a time, and counts [`CHUNK`] steps per
-//! `CHUNK` bytes; so do a long back-reference, a look-behind's step back and `\Z`. No step weighs more than `CHUNK`,
-//! except a literal of the pattern, which compares its own bytes. Between two reads of the stop a match therefore takes
-//! fewer than `INTERVAL + CHUNK` steps (`INTERVAL + max(CHUNK, the pattern's longest literal)`).
+//! `CHUNK` bytes; so do a long back-reference (and the UTF-8 check of its case-insensitive comparison), a literal of the
+//! pattern (case-sensitive: `CHUNK` bytes, case-insensitive: `CHUNK` characters), a look-behind's step back and `\Z`.
+//! No step weighs more than `CHUNK`.
 //!
-//! Exceptions, each one call into regex-automata over bytes the stepped DFA has just read: the groups of a delegated
-//! match (or of a variable-length look-behind) holding capturing groups are read by the meta engine over that match
-//! only; and a sub-pattern holding a Unicode word boundary, which the lazy DFA cannot search past a non-ASCII byte, or
-//! one regex-automata builds no lazy DFA for (one whose automaton outgrows the DFA's cache), is searched by the meta
-//! engine whole. The UTF-8 check of a case-insensitive back-reference is one step of its length.
+//! The bound: between two reads of the stop a match takes fewer than `INTERVAL + CHUNK` of these steps, plus, for each
+//! call below, one linear pass of regex-automata's meta engine over at most the haystack's length (`L` bytes, taken as
+//! `L` steps right after it, so the next read follows it). That is the whole of it: the stop is read before and after
+//! every such call, and there is no other code that runs for longer between two reads.
+//!
+//! The calls, and what limits each one's `L` (the product's caps are none, which is why `L` is the haystack):
+//! - the groups of a delegated match, or of a variable-length look-behind's match, are read by the meta engine over that
+//!   match only, which the stepped DFA has just walked: `L` is the match's length, at most the haystack's;
+//! - a sub-pattern the stepped DFA cannot search (a quit byte, or no lazy DFA could be built for it; a Unicode word
+//!   boundary is never inside a delegate, it is always a VM assertion) is searched by the meta engine from its position
+//!   to the end of the haystack: `L` is that rest;
+//! - `is_match` of a wrapped pattern the stepped DFA cannot search: `L` is the searched range.
+//!
+//! The one user of a stop, the output-schema check of `mixdog-mcp`, passes a string of a tool's structured result as
+//! the haystack and a `pattern` of the tool's schema; the stdio and HTTP transports read a message to its end with no
+//! size cap (`stdio.rs` `read_loop`), so `L` is the size of one result string. The meta engine's pass is linear in `L`
+//! (its cost per byte is measured in `MIXDOG.md`); nothing in the core bounds `L` further.
 
 #[cfg(feature = "std")]
 pub use self::thread::checking;

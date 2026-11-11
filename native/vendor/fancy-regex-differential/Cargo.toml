@@ -1,0 +1,21 @@
+# Proof that the vendored, hand-edited fancy-regex (native/vendor/fancy-regex, MIXDOG.md) matches exactly what the
+# crates.io 0.19.2 matches: the same patterns and texts run through both, spans and every capture compared.
+#
+# Its own package, outside the core's workspace and without its [patch]: `upstream` resolves to crates.io's unmodified
+# 0.19.2, `modified` to the vendored copy. Nothing in the core's workspace depends on this package, so no unmodified
+# fancy-regex is linked into the product (`cargo tree -i fancy-regex` there shows the vendored copy only).
+#
+#   cargo test --release --manifest-path native/vendor/fancy-regex-differential/Cargo.toml
+#   cargo run --release --example cost --manifest-path native/vendor/fancy-regex-differential/Cargo.toml
+[package]
+name = "fancy-regex-differential"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+modified = { package = "fancy-regex", path = "../fancy-regex" }
+upstream = { package = "fancy-regex", version = "=0.19.2" }
+serde_json = "1"
+
+[workspace]
