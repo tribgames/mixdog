@@ -610,6 +610,11 @@ impl SessionDirectory {
         handles
     }
 
+    /// Whether the thread is loaded and not closing: a thread closed, deleted or shut down is refused work.
+    pub fn is_open(&self, id: &ThreadId) -> bool {
+        self.inner.loaded(id).is_some_and(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
     /// Whether a thread is being created now (`getSessionCreatePromise()`).
     pub fn creating(&self) -> bool {
         self.inner.creating.load(std::sync::atomic::Ordering::SeqCst) > 0

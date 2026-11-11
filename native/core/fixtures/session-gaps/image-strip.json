@@ -776,6 +776,175 @@
       }
     },
     {
+      "name": "error-after-partial-output",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "message": "Invalid request: the field temperature is out of range."
+          },
+          "partial": {
+            "text": "Let me check that file.",
+            "calls": 3
+          }
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": null,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Invalid request: the field temperature is out of range.",
+          "props": {
+            "httpStatus": 400,
+            "partialContent": "Let me check that file.",
+            "partialToolCalls": [
+              {
+                "id": "call_1",
+                "name": "read"
+              },
+              {
+                "id": "call_2",
+                "name": "read"
+              },
+              {
+                "id": "call_3",
+                "name": "read"
+              }
+            ],
+            "toolCallsDispatched": 3,
+            "liveTextEmitted": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": null,
+              "transport": "unknown",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 23,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 3,
+              "toolCallsDispatched": 3,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": true,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true,
+            "partialToolCall": true,
+            "emittedToolCall": true,
+            "toolCallEmitted": true,
+            "unsafeToRetry": true
+          }
+        },
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
       "name": "image-in-tool-result",
       "messages": [
         {
