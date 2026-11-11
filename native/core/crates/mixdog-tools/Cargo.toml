@@ -8,7 +8,7 @@ publish.workspace = true
 workspace = true
 
 [features]
-# Development only: `ToolPolicy::with_observer`, told the gate's verdict of every call the pipeline judges.
+# Development only: `ToolPolicy::with_observer`, told the gate's verdict of every call the pipeline judges, which it may replace.
 policy-observer = []
 
 [dependencies]
