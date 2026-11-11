@@ -1,0 +1,224 @@
+{
+  "set": "provider-admin-dev-providers",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "dev-oauth-providers-follow-developer-flags",
+      "source": "src/standalone/provider-admin-dev-providers.test.mjs:33",
+      "input": {},
+      "result": {
+        "steps": [
+          {
+            "developer": null,
+            "oauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth"
+            ],
+            "known": {
+              "mimo-oauth": false,
+              "cursor-oauth": false,
+              "devin-oauth": false,
+              "antigravity-oauth": false,
+              "openai-oauth": true,
+              "muse-code-oauth": true,
+              "command-code-oauth": true,
+              "openai": true,
+              "mixdog-local": true
+            },
+            "statusDevIds": [],
+            "listAccountsError": {
+              "mimo-oauth": "Unknown OAuth provider.",
+              "cursor-oauth": "Unknown OAuth provider.",
+              "devin-oauth": "Unknown OAuth provider.",
+              "antigravity-oauth": "Unknown OAuth provider."
+            }
+          },
+          {
+            "developer": {
+              "cursorOAuth": true
+            },
+            "oauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "cursor-oauth"
+            ],
+            "known": {
+              "mimo-oauth": false,
+              "cursor-oauth": true,
+              "devin-oauth": false,
+              "antigravity-oauth": false,
+              "openai-oauth": true,
+              "muse-code-oauth": true,
+              "command-code-oauth": true,
+              "openai": true,
+              "mixdog-local": true
+            },
+            "statusDevIds": [
+              "cursor-oauth"
+            ],
+            "listAccountsError": {
+              "mimo-oauth": "Unknown OAuth provider.",
+              "cursor-oauth": null,
+              "devin-oauth": "Unknown OAuth provider.",
+              "antigravity-oauth": "Unknown OAuth provider."
+            }
+          },
+          {
+            "developer": {
+              "mimoOAuth": true
+            },
+            "oauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "mimo-oauth"
+            ],
+            "known": {
+              "mimo-oauth": true,
+              "cursor-oauth": false,
+              "devin-oauth": false,
+              "antigravity-oauth": false,
+              "openai-oauth": true,
+              "muse-code-oauth": true,
+              "command-code-oauth": true,
+              "openai": true,
+              "mixdog-local": true
+            },
+            "statusDevIds": [
+              "mimo-oauth"
+            ],
+            "listAccountsError": {
+              "mimo-oauth": null,
+              "cursor-oauth": "Unknown OAuth provider.",
+              "devin-oauth": "Unknown OAuth provider.",
+              "antigravity-oauth": "Unknown OAuth provider."
+            }
+          },
+          {
+            "developer": {
+              "mimoOAuth": true,
+              "cursorOAuth": true,
+              "devinOAuth": true,
+              "antigravityOAuth": true
+            },
+            "oauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "mimo-oauth",
+              "cursor-oauth",
+              "devin-oauth",
+              "antigravity-oauth"
+            ],
+            "known": {
+              "mimo-oauth": true,
+              "cursor-oauth": true,
+              "devin-oauth": true,
+              "antigravity-oauth": true,
+              "openai-oauth": true,
+              "muse-code-oauth": true,
+              "command-code-oauth": true,
+              "openai": true,
+              "mixdog-local": true
+            },
+            "statusDevIds": [
+              "mimo-oauth",
+              "cursor-oauth",
+              "devin-oauth",
+              "antigravity-oauth"
+            ],
+            "listAccountsError": {
+              "mimo-oauth": null,
+              "cursor-oauth": null,
+              "devin-oauth": null,
+              "antigravity-oauth": null
+            }
+          },
+          {
+            "developer": {
+              "mimoOAuth": false,
+              "cursorOAuth": false,
+              "antigravityOAuth": true
+            },
+            "oauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth",
+              "antigravity-oauth"
+            ],
+            "known": {
+              "mimo-oauth": false,
+              "cursor-oauth": false,
+              "devin-oauth": false,
+              "antigravity-oauth": true,
+              "openai-oauth": true,
+              "muse-code-oauth": true,
+              "command-code-oauth": true,
+              "openai": true,
+              "mixdog-local": true
+            },
+            "statusDevIds": [
+              "antigravity-oauth"
+            ],
+            "listAccountsError": {
+              "mimo-oauth": "Unknown OAuth provider.",
+              "cursor-oauth": "Unknown OAuth provider.",
+              "devin-oauth": "Unknown OAuth provider.",
+              "antigravity-oauth": null
+            }
+          },
+          {
+            "developer": {
+              "mimoOAuth": false,
+              "cursorOAuth": false,
+              "antigravityOAuth": false
+            },
+            "oauthIds": [
+              "openai-oauth",
+              "anthropic-oauth",
+              "grok-oauth",
+              "muse-code-oauth",
+              "command-code-oauth",
+              "opencode-go-oauth"
+            ],
+            "known": {
+              "mimo-oauth": false,
+              "cursor-oauth": false,
+              "devin-oauth": false,
+              "antigravity-oauth": false,
+              "openai-oauth": true,
+              "muse-code-oauth": true,
+              "command-code-oauth": true,
+              "openai": true,
+              "mixdog-local": true
+            },
+            "statusDevIds": [],
+            "listAccountsError": {
+              "mimo-oauth": "Unknown OAuth provider.",
+              "cursor-oauth": "Unknown OAuth provider.",
+              "devin-oauth": "Unknown OAuth provider.",
+              "antigravity-oauth": "Unknown OAuth provider."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
