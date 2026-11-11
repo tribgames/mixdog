@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11083,
+      "bytes": 11898,
       "path": "golden.json",
-      "sha256": "a3d9ea06dba9f18b6d17d8c558ea814ddec1706571157bcb1a69213f5bdeb5c1"
+      "sha256": "0a8420813d77679fcb8f15c238266ba859dfea199d23ca8a0150766f89e7cdad"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -50,10 +54,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-embedding-model-files.mjs",
-  "recorderSha256": "a1102e554e4e17cf0c6526da9aa690fb571ea94b30a97a5cab452711a20eb08e",
-  "replay": "mixdog-services memory: mem/embed/install.rs ensure_model_file / graph install (holds_data, usable, weights-before-graph order) with a scripted hub transport; compares the returned relative path or error text, the ordered requests (URL) and the cache files after each step (path, bytes)",
+  "recorderSha256": "3919a748e9c050932660324b2ceb9aa88460ca79f731c53922f45eca65016512",
+  "replay": "mixdog-services memory/embed/install.rs (pub): HUB (:16), required_files (:26), model_path (:30), missing (:65), installed (:81), install (:131; the hub download goes through Fetch::file :111). A replay serves the recorded hub requests from a scripted server and compares the requests sent (url, init) in order and the files left in the cache",
   "set": "memory-embedding-model-files",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 11083,
-  "uuidsNormalised": "none"
+  "totalBytes": 11898,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
