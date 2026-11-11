@@ -6,10 +6,10 @@ export const realTimers = { setTimeout: globalThis.setTimeout, clearTimeout: glo
 export const realDeadline = (label, promise, ms = 60_000) => new Promise((resolve, reject) => { const timer = realTimers.setTimeout(() => reject(new Error(`${label}: no answer within ${ms} ms`)), ms); promise.then((v) => { realTimers.clearTimeout(timer); resolve(v); }, (e) => { realTimers.clearTimeout(timer); reject(e); }); });
 /** A virtual clock for setTimeout / setInterval (armed and fired are recorded; nothing fires until `advance`); setImmediate is counted and passed through,
  *  `idle()` resolves once every setImmediate armed so far (and those they arm) has run, `whenArmed(test)` once a timer matching `test` has been armed, `nextArmed()` once the next timer of any kind is armed. */
-export function virtualTimers() {
+export function virtualTimers({ ordered } = {}) {
   let now = 0; let next = 0; let immediates = 0;
   const pendingTimers = new Map();
-  const armed = []; const fired = []; const idleWaiters = []; const armedWaiters = [];
+  const armed = []; const fired = []; const advances = []; const idleWaiters = []; const armedWaiters = [];
   const note = (entry) => { armed.push(entry); for (const w of armedWaiters.splice(0)) { if (w.test(entry)) w.resolve(entry); else armedWaiters.push(w); } };
   const anyArmed = () => true;
   const arm = (api, repeat) => (fn, ms = 1, ...args) => {
@@ -31,7 +31,7 @@ export function virtualTimers() {
   };
   globalThis.clearImmediate = (handle) => { if (live.delete(handle)) settleImmediate(); realTimers.clearImmediate(handle); };
   return {
-    armed, fired,
+    armed, fired, advances,
     elapsed: () => now,
     pending: () => [...pendingTimers.values()].map(({ api, ms, due }) => ({ api, ms, dueMs: due })),
     idle: () => (immediates === 0 ? Promise.resolve() : new Promise((resolve) => idleWaiters.push(resolve))),
@@ -40,6 +40,11 @@ export function virtualTimers() {
     whenArmed: (test) => { const found = armed.find(test); return found ? Promise.resolve(found) : new Promise((resolve) => armedWaiters.push({ test, resolve })); },
     advance(ms) {
       const target = now + ms;
+      // every advance is an input of the recording: its size and the virtual time after it, with the armed / fired counts before it (the position in
+      // the armed and fired lists), and into the recorder's own ordered log when one is given
+      const entry = { advanceMs: ms, fromMs: now, toMs: target, armedBefore: armed.length, firedBefore: fired.length };
+      advances.push(entry);
+      if (ordered) ordered().push({ virtualAdvance: ms, fromMs: now, toMs: target });
       for (;;) {
         const due = [...pendingTimers].filter(([, t]) => t.due <= target).sort((a, b) => a[1].due - b[1].due)[0];
         if (!due) break;

@@ -87,21 +87,19 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     if (found) return Promise.resolve(found);
     return within(label, new Promise((resolve) => { paneWaiter = { test, resolve }; }));
   };
-  /** The pane row arrives through the job watcher's own timers: advance the virtual clock by its 5 s step until the row is published (each step
-   *  waits for the publication event, with a short deadline on the real clock, before the next advance). */
-  const paneAdvancing = async (label, test, stepMs = 5_000, maxSteps = 8) => {
-    for (let step = 1; step <= maxSteps; step += 1) {
-      const found = paneRows.find(test);
-      if (found) return found;
-      const arrived = new Promise((resolve) => { paneWaiter = { test, resolve }; });
-      virtual.advance(stepMs);
-      const row = await Promise.race([arrived, new Promise((resolve) => realTimers.setTimeout(() => resolve(null), 3_000))]);
-      paneWaiter = null;
-      if (row) return row;
-    }
-    throw new Error(`${label}: not published after ${maxSteps} virtual steps of ${stepMs} ms`);
-  };
-  host.subscribeSessionStates((update) => {
+  /** The pane row arrives through the job watcher's own 5 s timer, which re-arms itself once after its first run: two explicit 5000 ms advances, the
+   *  first when the watcher's timer (armed after `from`) exists, the second when that run has armed the next one; then the publication itself is awaited.
+   *  Every wait is the event the previous step causes, with a deadline; the advances are recorded by the clock (timers.advances). */
+  const WATCH_MS = 5_000;
+  const paneAfterWatcher = async (label, test, from) => {
+    await within(`${label}: the watcher's ${WATCH_MS} ms timer to be armed`, virtual.whenArmedAfter(from, (t) => t.api === 'setTimeout' && t.ms === WATCH_MS));
+    virtual.advance(WATCH_MS);
+    const afterFirst = virtual.armed.length;
+    await within(`${label}: the watcher to arm its next ${WATCH_MS} ms timer`, virtual.whenArmedAfter(afterFirst, (t) => t.api === 'setTimeout' && t.ms === WATCH_MS));
+    const arrived = new Promise((resolve) => { paneWaiter = { test, resolve }; });
+    virtual.advance(WATCH_MS);
+    try { return await within(`${label}: the pane row to be published`, arrived); } finally { paneWaiter = null; }
+  };  host.subscribeSessionStates((update) => {
     if (update.sessionId === SESSION && update.snapshot?.shellJobs) {
       paneRows.push(structuredClone(update.snapshot.shellJobs));
       if (paneWaiter && paneWaiter.test(paneRows.at(-1))) { const { resolve } = paneWaiter; paneWaiter = null; resolve(paneRows.at(-1)); }
@@ -133,8 +131,9 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     const jobId = result.jobId;
     const context = { callerSessionId: SESSION, routingSessionId: SESSION, clientHostPid: hostPid };
     registerBackgroundTask({ taskId: jobId, surface: 'shell', operation: 'shell', label: 'serve', context, cancel: () => killShellJob(jobId) });
+    const watcherFrom = virtual.armed.length;
     watchBackgroundShellJob(jobId, context);
-    const running = await paneAdvancing('the running job to reach the pane', (rows) => rows.jobs.some((row) => row.taskId === jobId));
+    const running = await paneAfterWatcher('the running job to reach the pane', (rows) => rows.jobs.some((row) => row.taskId === jobId), watcherFrom);
     mark('the job runs and is on the pane', { started: result, running });
 
     // The pane leaves again: with the job running the session stays loaded well past the idle delay.
@@ -143,10 +142,11 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     await within('the idle sweeps to finish', virtual.idle());
     mark('hidden with the job running; the idle delay advanced 4x', { disposedSessions: [...disposed] });
 
+    const stopFrom = virtual.armed.length;
     const stopped = await within('the stop to answer', host.stopShellJob(SESSION, jobId));
-    const settled = await paneAdvancing('the terminal row to reach the pane after the stop', (rows) => rows.finished.some((row) => row.taskId === jobId));
+    const settled = await paneAfterWatcher('the terminal row to reach the pane after the stop', (rows) => rows.finished.some((row) => row.taskId === jobId), stopFrom);
     mark('stopped', { stopped, settled, lastPane: paneRows.at(-1) });
-    return { sessionId: SESSION, idleEvictMs: IDLE_EVICT_MS, jobId, steps, paneRows, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } };
+    return { sessionId: SESSION, idleEvictMs: IDLE_EVICT_MS, jobId, steps, paneRows, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } };
   } finally {
     virtual.restore();
     Date.now = realNow;
