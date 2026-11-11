@@ -15,6 +15,20 @@
 //! A decision is the core's verdict written as Node's `{ decision, request, gate, remembered }`: the decision as the
 //! hooks left it (an answered `ask` runs as `allow`, or `modify` when the hook rewrote the call), the request the card
 //! presents and the audit identity its answer is recorded under.
+//!
+//! A recorded `answer` carries the gate Node's `recordHumanDecision(gate, approval)` was called with. Node's gate is the
+//! server's, never a client's, and so is the core's ([`GateAudit`] of the pipeline's ask). Where the recorded gate is not the
+//! one the decided call showed (forged by the recorder), the replay hands it to the pipeline in place of its own ask's
+//! (development-only `policy-observer`: the audit identity and the scopes the card offers), re-asks the call and sends the
+//! recorded approval through the client's book: the pipeline's own `record_decision` then answers under the forged gate.
+//! The forged answers:
+//!
+//! | case (steps) | forged in the answer | Node's outcome | the replay's assertion |
+//! |---|---|---|---|
+//! | H6 (1, 2, 5, 6) | `gate.action` `"tool:mcp__stripe__create_payment"` / `"tool:mcp__drive__delete_permanently"` (the shown gate has none) and `gate.remember` `["once","session","always"]` (shown: none); answered `remember` `session`, then `always` | nothing honoured: the decides of steps 3, 7, 9 (after a stored `always` grant) and 11, 12 (Allow all actions) still ask with `["once"]`; no grants or audit step recorded | the forged gate reaches `record_decision` (the card offers its scopes); steps 3, 7, 9, 11, 12 compared whole in `hook_ask_6_…` |
+//! | H8 (4) | `gate.remember` `["once","session","always"]` (shown: `["once"]`); answered `remember` `session` while the Lead session is a schedule run | no session grant: step 7 (after the run ends and the life resets) asks with `["once","session","always"]` | not exercisable: a granted run never shows a card (`ToolPolicy::ask`, run branch), so no client answer exists to carry the gate, in the core as in Node's product. `answer` asserts the response reaches no card (`Ok(None)`); step 7 compared whole in `hook_ask_8_…` |
+//! | S5 (7) | `gate.remember` `["once","session"]` (shown: `["once","agent"]`); answered `remember` `session` while the home session is a schedule run | no session grant: step 9 (after the run ends) asks with `["once","session","agent"]` | not exercisable, for H8's reason; `answer` asserts no card was answered; step 9 compared whole in `session_5_…` |
+//! | S6 (1, 2, 5, 6) | `gate.remember` `["once","session","agent"]` (shown: `["once"]`), then `undefined` (Node offers every scope, `gate.mjs:383`); answered `remember` `session`, then `agent`, for a payment and a permanent delete | no grant: `grants` at step 8 is `[]`; steps 3, 7, 10, 11 ask with `["once"]` | the forged gate reaches `record_decision`; step 8's grants and the decides compared whole in `session_6_…` |
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -435,6 +449,10 @@ struct World {
     cards: tokio::sync::Mutex<mpsc::UnboundedReceiver<(ApprovalId, ApprovalAsk)>>,
     /// The gate's verdict of the call the pipeline judged last (`policy-observer`).
     verdict: Arc<Mutex<Option<GateVerdict>>>,
+    /// A recorded gate the next ask is made under in place of the pipeline's own (`policy-observer`).
+    forged: Arc<Mutex<Option<GateAudit>>>,
+    /// The gate the last decided call showed, as rendered; none for a call the gate never judges.
+    shown_gate: Mutex<Option<Value>>,
     pending: Mutex<Option<Pending>>,
     /// The card the client was shown last, while its call waits on it.
     waiting: Mutex<Option<Waiting>>,
@@ -460,9 +478,17 @@ impl World {
         let hook = Arc::new(Hook::default());
         let verdict = Arc::new(Mutex::new(None));
         let seen = verdict.clone();
-        let policy = ToolPolicy::new(store.clone(), Arc::new(Connectors))
-            .with_hook(hook.clone())
-            .with_observer(move |judged: &GateVerdict| *seen.lock().unwrap() = Some(judged.clone()));
+        let forged = Arc::new(Mutex::new(None::<GateAudit>));
+        let forging = forged.clone();
+        let policy = ToolPolicy::new(store.clone(), Arc::new(Connectors)).with_hook(hook.clone()).with_observer(move |judged: &mut GateVerdict| {
+            if let (Some(gate), GateVerdict::Ask(plan)) = (forging.lock().unwrap().clone(), &mut *judged) {
+                match &mut plan.request {
+                    AskRequest::Approval { remember, .. } | AskRequest::Outbound { remember, .. } => *remember = gate.remember.clone(),
+                }
+                plan.audit = gate;
+            }
+            *seen.lock().unwrap() = Some(judged.clone());
+        });
         let (cards_tx, cards_rx) = mpsc::unbounded_channel();
         let client = Arc::new(Client { book: Mutex::default(), ids: AtomicU64::new(0), thread: Mutex::new(ThreadId::from(LEAD)), cards: cards_tx, now_ms });
         Arc::new(Self {
@@ -478,6 +504,8 @@ impl World {
             client,
             cards: tokio::sync::Mutex::new(cards_rx),
             verdict,
+            forged,
+            shown_gate: Mutex::new(None),
             pending: Mutex::default(),
             waiting: Mutex::default(),
             asks: Mutex::default(),
@@ -564,7 +592,7 @@ impl World {
         *self.pending.lock().unwrap() = Some(pending.clone());
         let started = self.start(&pending).await;
         let verdict = self.verdict.lock().unwrap().take();
-        match started {
+        let rendered = match started {
             Started::Card(aid, ask, run) => {
                 self.asks.lock().unwrap().push(Some(ask));
                 *self.waiting.lock().unwrap() = Some(Waiting { aid, run });
@@ -582,7 +610,39 @@ impl World {
                     render(&verdict, hook, session, call, outcome.as_ref().ok())
                 }
             },
+        };
+        *self.shown_gate.lock().unwrap() = rendered.get("gate").cloned();
+        rendered
+    }
+
+    /// A recorded answer under `gate`: when it is not the gate the decided call showed, the call is asked again with `gate` in
+    /// place of the pipeline's own (its audit identity and the scopes the card offers) and the approval answers that card. A call
+    /// the gate never judges (`ask_user`, `handoff_user`) has no gate of the pipeline's to replace.
+    async fn answer_under(self: &Arc<Self>, gate: Value, approval: Value, device: String, timed_out: bool) {
+        let shown = self.shown_gate.lock().unwrap().clone();
+        if shown.is_none_or(|shown| shown == gate) {
+            self.answer(approval, device, timed_out).await;
+            return;
         }
+        let session = self.pending.lock().unwrap().clone().expect("a decided call").session;
+        assert_eq!(gate["sessionId"].as_str(), Some(session.as_str()), "{}: a forged gate of another session", case_id());
+        let remember = match &gate["remember"] {
+            // `!Array.isArray(gate.remember)`: every scope is offered (gate.mjs:383).
+            Value::Array(scopes) => scopes.iter().map(|scope| remember_of(scope.as_str().expect("a scope"))).collect(),
+            _ => vec![ApprovalRemember::Once, ApprovalRemember::Session, ApprovalRemember::Agent, ApprovalRemember::Always],
+        };
+        let forged = GateAudit {
+            agent_id: gate["agentId"].as_str().expect("an agent").to_owned(),
+            kind: if gate["kind"] == "outbound" { "outbound" } else { "approval" },
+            action: gate["action"].as_str().and_then(GrantKey::parse),
+            tool: gate["tool"].as_str().unwrap_or_default().to_owned(),
+            target: gate["target"].as_str().unwrap_or_default().to_owned(),
+            remember,
+        };
+        self.abandon().await;
+        *self.forged.lock().unwrap() = Some(forged);
+        self.answer(approval, device, timed_out).await;
+        *self.forged.lock().unwrap() = None;
     }
 
     /// A client's response to the card of the decided call, through the client's approval book: the card it was shown while its
@@ -702,8 +762,9 @@ impl World {
                 let fields = approval.as_object_mut().expect("an approval");
                 let timed_out = fields.remove("timedOut") == Some(Value::Bool(true));
                 let device = fields.remove("device").and_then(|d| d.as_str().map(str::to_owned)).unwrap_or_default();
-                fields.insert("gate".into(), input("gate"));
-                self.answer(approval, device, timed_out).await;
+                let gate = input("gate");
+                fields.insert("gate".into(), gate.clone());
+                self.answer_under(gate, approval, device, timed_out).await;
                 Vec::new()
             }
             "grants" => vec![("grants", self.grants(&input("filter")).await)],

@@ -138,9 +138,10 @@ pub struct ToolPolicy {
     store: Arc<dyn GrantStore>,
     connectors: Arc<dyn ConnectorPermissions>,
     enricher: Option<Arc<dyn CardEnricher>>,
-    /// Development only (`policy-observer`): told the gate's verdict of every call the pipeline judges, as it acts on it.
+    /// Development only (`policy-observer`): told the gate's verdict of every call the pipeline judges, before it acts on it,
+    /// and may replace it (a replay presenting a recorded gate the product's own sessions cannot produce).
     #[cfg(feature = "policy-observer")]
-    observer: Option<Arc<dyn Fn(&GateVerdict) + Send + Sync>>,
+    observer: Option<Arc<dyn Fn(&mut GateVerdict) + Send + Sync>>,
 }
 
 fn denied(name: &str, code: ToolErrorCode, detail: &str) -> ToolError {
@@ -229,9 +230,10 @@ impl ToolPolicy {
         }
     }
 
-    /// Development only (`policy-observer`): `observer` is told the gate's verdict of every call, before the pipeline acts on it.
+    /// Development only (`policy-observer`): `observer` is told the gate's verdict of every call before the pipeline acts on
+    /// it, and the pipeline acts on the verdict as `observer` leaves it.
     #[cfg(feature = "policy-observer")]
-    pub fn with_observer(mut self, observer: impl Fn(&GateVerdict) + Send + Sync + 'static) -> Self {
+    pub fn with_observer(mut self, observer: impl Fn(&mut GateVerdict) + Send + Sync + 'static) -> Self {
         self.observer = Some(Arc::new(observer));
         self
     }
@@ -310,9 +312,13 @@ impl ToolPolicy {
         .await
         .map_err(|error| check_failed(name, &error.0))?;
         #[cfg(feature = "policy-observer")]
-        if let Some(observer) = &self.observer {
-            observer(&verdict);
-        }
+        let verdict = {
+            let mut verdict = verdict;
+            if let Some(observer) = &self.observer {
+                observer(&mut verdict);
+            }
+            verdict
+        };
 
         let mut outbound_approved = false;
         match verdict {
