@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1002950,
+      "bytes": 3125131,
       "path": "golden.json",
-      "sha256": "a478893ca2bb8bb752a043f6212ef7b9101cd5811c41151ea8ad8a40c6c51269"
+      "sha256": "818fba2e4636d25eff1bb7510034cced041191104694b1520fe8bd1811980be4"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "db4c434c9e5db314d766b0efecf3bc81d4a267abdb4eaf23e524bfa5b829a0d2"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,13 +63,28 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs",
-  "recorderSha256": "04f4d9542a574455861cde2b3ea80bb990a88f0ae4c563c8e5947ef790030a2f",
+  "recorderSha256": "1901bd280120cd9f2afc574e532e8152dc4d49deb77c1f20691ad8849a7428f5",
   "replay": {
-    "entry": "mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count",
+    "compare": "mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count",
+    "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (new (pool_list.rs:619), list (pool_list.rs:624)).",
+    "missingOnO1": [
+      "the persisted header cache, the link list and the stat / read counters: no counterpart found"
+    ],
     "normalised": {
       "dataDir": "temp, not in the recording"
-    }
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 139,
+        "methods": "new (pool_list.rs:619), list (pool_list.rs:624)",
+        "name": "AgentPool",
+        "path": "native/core/crates/mixdog-core-agents/src/agents/pool_list.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "store-agent-worker-pool-cases",
-  "totalBytes": 1002950
+  "totalBytes": 3125131,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
