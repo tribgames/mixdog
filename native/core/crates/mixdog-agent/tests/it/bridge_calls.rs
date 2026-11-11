@@ -1310,8 +1310,10 @@ fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
 ///   stream; Node's scripted `send` returned the text whole and raised no stage (Node's adapters raise `onStageChange`, `onTextDelta`
 ///   themselves). The text itself is compared as the answer and the stored transcript.
 /// - `Stage(ApprovalWait)`: the approval card's wait; Node's card is `onToolApproval`, compared whole as `cards` and on the timeline.
+/// - `TurnEffort(None)`: the turn's effort the run publishes when it starts; Node's `runtime.turnEffort` is a getter a client reads,
+///   not a callback, and these routes carry no effort snapshot (any other value fails the replay).
 fn uncompared(event: &RunEvent) -> bool {
-    matches!(event, RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. }) | RunEvent::TextDelta(_))
+    matches!(event, RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. }) | RunEvent::TextDelta(_) | RunEvent::TurnEffort(None))
 }
 
 /// The early notification a settled call tells the host: its role, call id, text, error flag and the marks it carries (the first three
