@@ -879,6 +879,9 @@ async function record(name) {
       presenceHold = presence;
       await restart(false);
       await deadline.race(read.arrived, "the start-up's read of the room records");
+      // The daemon's summary writes of the earlier host's sessions (its disposal's) landed before any call of the new host reads
+      // the catalog: the update's listing reads them whichever order it runs in.
+      await summaryIndexSettled();
       const update = () => {
         const call = CALLS['update-rounds']();
         call.catch(() => {});
@@ -926,6 +929,9 @@ async function record(name) {
         const ordered = afterAnswer;
         afterAnswer = async () => {
           await deadline.race(Promise.all(background.splice(0)), "the update's own listing");
+          // The post's write is the store change the watcher reports (its refresh timer is set only once the report arrives, after the
+          // post answered): the step owes that refresh, so it ends only once it has fired and run to its end.
+          owedRefresh = nextRefresh();
           post.release();
           const { listing } = await deadline.race(recovered.promise, "the recovery's republish");
           if (listing) await deadline.race(listing, "the recovery's listing to its end");
