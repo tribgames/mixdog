@@ -182,14 +182,21 @@ export function exactProductIdentity(tree, commit) {
  * recording is made from the commit plus the fix): the patch (`git diff` format against the commit, a file of this repository) is applied
  * to the commit's own blobs of the files it touches, each of those files in the tree must equal the result, and every other file must
  * equal the commit's (exactly the patched files differ from it). The identity is the commit's, with the patch by path and sha256.
+ * Several fixes (`patchFile` an array) are applied in order; the identity then lists each under `patches`.
  */
 export function patchedProductIdentity(tree, commit, patchFile) {
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`commit must be a full id, got ${commit}`);
-  const file = relative(REPO_ROOT, patchFile).split(sep).join('/');
-  if (file.startsWith('..')) throw new Error(`${patchFile} is not a file of this repository: the manifest names a patch by its repository path`);
+  const patchFiles = Array.isArray(patchFile) ? patchFile : [patchFile];
   const git = (args, cwd) => execFileSync('git', args, { cwd, maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-  const paths = git(['apply', '--numstat', patchFile], REPO_ROOT).toString('utf8').split('\n').filter(Boolean).map((line) => line.split('\t')[2]);
-  if (paths.length === 0) throw new Error(`${patchFile} changes no file`);
+  const patches = patchFiles.map((patch) => {
+    const file = relative(REPO_ROOT, patch).split(sep).join('/');
+    if (file.startsWith('..')) throw new Error(`${patch} is not a file of this repository: the manifest names a patch by its repository path`);
+    const touched = git(['apply', '--numstat', patch], REPO_ROOT).toString('utf8').split('\n').filter(Boolean).map((line) => line.split('\t')[2]);
+    if (touched.length === 0) throw new Error(`${patch} changes no file`);
+    return { file, sha256: sha256(readFileSync(patch)), paths: touched };
+  });
+  const paths = [...new Set(patches.flatMap((p) => p.paths))];
+  const named = patches.map((p) => p.file).join(' + ');
   const lf = (data) => data.toString('utf8').replace(/\r\n/g, '\n');
   const work = mkdtempSync(join(tmpdir(), 'node-patch-'));
   try {
@@ -201,9 +208,9 @@ export function patchedProductIdentity(tree, commit, patchFile) {
         // A file the patch creates is not in the commit.
       }
     }
-    git(['apply', patchFile], work);
+    for (const patch of patchFiles) git(['apply', patch], work);
     for (const path of paths) {
-      if (lf(readFileSync(join(tree, path))) !== lf(readFileSync(join(work, path)))) throw new Error(`tree ${tree}: ${path} is not ${commit}'s with ${file} applied`);
+      if (lf(readFileSync(join(tree, path))) !== lf(readFileSync(join(work, path)))) throw new Error(`tree ${tree}: ${path} is not ${commit}'s with ${named} applied`);
     }
   } finally {
     rmSync(work, { recursive: true, force: true });
@@ -211,15 +218,15 @@ export function patchedProductIdentity(tree, commit, patchFile) {
   const identity = productIdentity(tree, commit);
   const { filesDifferingFromCommit, commitFilesMissingFromTree } = identity.refComparison;
   if (filesDifferingFromCommit !== paths.length || commitFilesMissingFromTree !== 0) {
-    throw new Error(`tree ${tree} differs from ${commit} in ${filesDifferingFromCommit} file(s) (${commitFilesMissingFromTree} missing), the patch touches ${paths.length}`);
+    throw new Error(`tree ${tree} differs from ${commit} in ${filesDifferingFromCommit} file(s) (${commitFilesMissingFromTree} missing), the patches touch ${paths.length}`);
   }
-  return { ...identity, commit, baseCommit: commit, patch: { file, sha256: sha256(readFileSync(patchFile)), paths }, exact: true };
+  return { ...identity, commit, baseCommit: commit, ...(patches.length === 1 ? { patch: patches[0] } : { patches }), exact: true };
 }
 
-/** The recorders' `--tree` export of `commit`: exactly the commit, or with `--patch <file>` the commit with that fix applied. */
+/** The recorders' `--tree` export of `commit`: exactly the commit, or with `--patch <file>[,<file>…]` the commit with those fixes applied. */
 export function nodeTreeIdentity(args, tree, commit) {
   const patch = args.get('patch');
-  return patch ? patchedProductIdentity(tree, commit, resolve(patch)) : exactProductIdentity(tree, commit);
+  return patch ? patchedProductIdentity(tree, commit, patch.split(',').map((p) => resolve(p))) : exactProductIdentity(tree, commit);
 }
 
 /** Nearest-rank percentile of an ascending numeric array. */

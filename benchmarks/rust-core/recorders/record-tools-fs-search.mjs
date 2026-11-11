@@ -9,8 +9,10 @@
 //
 //   node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <exact export of b6f10295a with node_modules> \
 //        --graph-bin <mixdog-graph built from b6f10295a:native/mixdog-graph> --scratch <scratch parent> [--only <scenario>]
-//        [--patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch: the tree is the export
-//        with that fix applied (a sentinel-free cwd took its own lowercased graph-cache root for a child and federated into itself)]
+//        [--patch <PATCHES>: the tree is the export with these fixes applied, in order: node-fix-code-graph-self-federation.patch (a
+//        sentinel-free cwd took its own lowercased graph-cache root for a child and federated into itself) and
+//        node-fix-glob-verbatim-path.patch (a `\\?\` glob path was split at its `?`: a missing one walked the drive root, the UNC
+//        form slipped past the UNC refusal)]
 //
 // Output: native/core/fixtures/tools-fs-search/<scenario>.json (+ MANIFEST.json); with --only the one scenario is recorded and printed.
 import { createHash } from 'node:crypto';
@@ -20,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-tools-fs-search.mjs';
+const PATCHES = ['node-fix-code-graph-self-federation.patch', 'node-fix-glob-verbatim-path.patch'].map((p) => `benchmarks/rust-core/recorders/node-patches/${p}`).join(',');
 const SELF = fileURLToPath(import.meta.url);
 const DEADLINE_MS = 240_000;
 // Every file of a workspace is dated here unless its scenario dates it otherwise (glob lists newest first).
@@ -27,7 +30,7 @@ const FIXED = '2026-01-02T03:04:05Z';
 
 // A scenario: the workspace (`files`: path -> text; `junctions`: path -> the workspace directory it points at; `mtimes`: path -> ISO
 // time), the folder the calls run in (`cwd`, under the workspace), unrecorded `warmup` calls and the calls, in order. `<ROOT>` in an input is the workspace
-// path, written with forward slashes.
+// path, written with forward slashes; `<ROOTW>` is the same path as Windows spells it (backslashes).
 const notebook = (cells) => JSON.stringify({ cells, metadata: {}, nbformat: 4, nbformat_minor: 5 }, null, 1);
 // A 1x1 PNG, and its base64 cut into `width`-character lines.
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -510,6 +513,101 @@ const SCENARIOS = [
       { tool: 'list', input: { path: 'src/*.ts', limit: 0 } },
     ],
   },
+  // A `path` (or `root`) that is not a non-empty string, an array included, is refused before the tool runs (arg-guard.mjs, the
+  // glob guard): `glob arg "path" must be string (got <type>)` / `must be a non-empty string`.
+  {
+    name: 'glob-path-array',
+    files: { 'a/x.ts': 'x\n', 'b/y.ts': 'y\n', 'top.ts': 't\n' },
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
+    calls: [
+      { tool: 'glob', input: { pattern: '*.ts', path: ['a', 'b'] } },
+      { tool: 'glob', input: { pattern: '*.ts', path: ['a'] } },
+      { tool: 'glob', input: { pattern: '*.ts', path: [] } },
+      { tool: 'glob', input: { pattern: '*.ts', path: ['a', '//server/share'] } },
+      { tool: 'glob', input: { pattern: '*.ts', path: ['/\\server/share', 'b'] } },
+      { tool: 'glob', input: { pattern: ['*.ts', '//server/share/*.ts'], path: ['a', 'b'] } },
+      { tool: 'glob', input: { pattern: '*.ts', path: 3 } },
+      { tool: 'glob', input: { pattern: '*.ts', path: null } },
+      { tool: 'glob', input: { pattern: '*.ts', path: { p: 'a' } } },
+      { tool: 'glob', input: { pattern: '*.ts', path: true } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: ' \t ' } },
+      { tool: 'glob', input: { pattern: '*.ts', root: ['a'] } },
+      { tool: 'glob', input: { pattern: '*.ts', root: '' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: 'a', root: ['b'] } },
+      { tool: 'glob', input: { pattern: '*.ts', path: 'a' } },
+    ],
+  },
+  // A Win32 verbatim path (`\\?\C:\x`, `\\?\UNC\…`), as a glob path or pattern, is a UNC/device spelling and refused
+  // (search-glob-tool.mjs globUncRefusal); with node-fix-glob-verbatim-path.patch globBaseEntry no longer splits a missing one at
+  // its `?` into a walk of the drive root.
+  {
+    name: 'glob-verbatim',
+    files: { 'a/x.ts': 'x\n', 'a/sub/y.ts': 'y\n', 'top.ts': 't\n' },
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
+    calls: [
+      { tool: 'glob', input: { pattern: '*.ts', path: '\\\\?\\<ROOTW>\\a' } },
+      { tool: 'glob', input: { pattern: '**/*.ts', path: '\\\\?\\<ROOTW>\\a' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '//?/<ROOT>/a' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '\\\\?\\<ROOTW>\\nope' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '\\\\?\\UNC\\server\\share' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: '//?/UNC/server/share' } },
+      { tool: 'glob', input: { pattern: '\\\\?\\<ROOTW>\\a\\*.ts' } },
+      { tool: 'glob', input: { pattern: '//?/<ROOT>/a/*.ts' } },
+      { tool: 'glob', input: { pattern: '\\\\?\\UNC\\server\\share\\*.ts' } },
+      { tool: 'glob', input: { path: '\\\\?\\<ROOTW>\\a\\*.ts' } },
+      { tool: 'glob', input: { pattern: '*.ts', path: ['\\\\?\\<ROOTW>\\a', '.'] } },
+    ],
+  },
+  // Non-alphabet characters in a notebook image's base64 (read-special-files.mjs notebookImageBlocks, Buffer.from(b64, 'base64')):
+  // each UTF-16 code unit is looked up by its low byte, so a character whose low byte is an alphabet letter adds a sextet (and
+  // spoils the PNG), one whose low byte is `=` ends the decoding. `resizerImages` records the resize service on Node's bytes.
+  ...(() => {
+    const at = 20;
+    const spliced = (junk, b64 = PNG_B64) => `${b64.slice(0, at)}${junk}${b64.slice(at)}`;
+    const urlSafe = PNG_B64.replace(/\+/g, '-').replace(/\//g, '_');
+    const cases = {
+      'latin1.ipynb': spliced('é\u00ff\u00c1'),
+      'two-byte-skipped.ipynb': spliced('\u0100\u020a'),
+      'two-byte-letter.ipynb': spliced('Ł'),
+      'three-byte-skipped.ipynb': spliced('€'),
+      'three-byte-letter.ipynb': spliced('\u4e41'),
+      'three-byte-pad.ipynb': spliced('\u4e3d'),
+      'astral.ipynb': spliced('😀'),
+      'url-safe-letters.ipynb': spliced('\u012d\u015f\u0100\u0141', urlSafe),
+      'url-safe-skipped.ipynb': spliced('é\u0100', urlSafe),
+      'after-padding.ipynb': `${PNG_B64}Ł😀`,
+      'short.ipynb': 'ZŁg==',
+    };
+    const imageNotebook = (b64) =>
+      notebook([{ cell_type: 'code', execution_count: 1, metadata: {}, source: ['plot()'], outputs: [{ output_type: 'display_data', metadata: {}, data: { 'image/png': b64 } }] }]);
+    return [{
+      name: 'read-ipynb-base64-junk',
+      resizerImages: [...new Set([PNG_B64, ...Object.values(cases)])],
+      files: Object.fromEntries(Object.entries(cases).map(([name, b64]) => [name, imageNotebook(b64)])),
+      calls: Object.keys(cases).map((name) => ({ tool: 'read', input: { path: name, full: true } })),
+    }];
+  })(),
+  // A sentinel-free cwd spelled in another case than the graph built for it (code-graph/dispatch/federation.mjs notSelf, with
+  // node-fix-code-graph-self-federation.patch): Windows paths compare without case, so the cwd is never a child of itself.
+  {
+    name: 'code-graph-self-case',
+    files: {
+      'mono/src/a.ts': 'export const alpha = 1;\n',
+      'mono/src/b.ts': "import { alpha } from './a';\n\nexport function beta() {\n  return alpha;\n}\n",
+    },
+    warmup: [{ tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['warmupNone'], cwd: '<ROOT>/mono' } }],
+    // The warmup's graph is written to the disk cache (drainCodeGraphCache) before the calls, so its root is a cached
+    // root (listCachedCodeGraphRoots) when they plan their federation.
+    drainAfterWarmup: true,
+    calls: [
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['alpha'], cwd: '<ROOT>/mono' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['alpha'], cwd: '<ROOT>/MONO' } },
+      { tool: 'code_graph', input: { mode: 'references', symbols: ['alpha'], cwd: '<ROOT>/Mono' } },
+      { tool: 'code_graph', input: { mode: 'symbols', file: 'src/b.ts', cwd: '<ROOT>/MONO' } },
+      { tool: 'code_graph', input: { mode: 'find_symbol', symbols: ['beta'], cwd: '<ROOT>/mono' } },
+    ],
+  },
 ];
 
 const deadline = (promise, ms, what) => {
@@ -565,9 +663,13 @@ if (process.argv[2] === '--child') {
     const run = call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', call.input, cwd) : executeBuiltinTool(call.tool, call.input, cwd);
     await run.catch(() => {});
   }
+  if (scenario.drainAfterWarmup) {
+    const { drainCodeGraphCache } = await imp('src/runtime/agent/orchestrator/tools/code-graph/disk-cache.mjs');
+    drainCodeGraphCache();
+  }
   const calls = [];
   for (const call of scenario.calls) {
-    const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd));
+    const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
     let outcome;
     try {
       const raw = call.tool === 'code_graph' ? await executeCodeGraphTool('code_graph', input, cwd) : await executeBuiltinTool(call.tool, input, cwd);
@@ -589,7 +691,15 @@ if (process.argv[2] === '--child') {
     resizer = [];
     for (const b64 of scenario.resizerImages) {
       const bytes = Buffer.from(b64, 'base64');
-      resizer.push({ inputSha256: createHash('sha256').update(bytes).digest('hex'), ext: 'png', reply: await resizeImageBuffer(bytes, 'png') });
+      const inputSha256 = createHash('sha256').update(bytes).digest('hex');
+      if (resizer.some((r) => r.inputSha256 === inputSha256)) continue;
+      // Bytes the decoder rejects (InvalidImageDataError) are recorded as such: the read shows no image for them.
+      try {
+        resizer.push({ inputSha256, ext: 'png', reply: await resizeImageBuffer(bytes, 'png') });
+      } catch (error) {
+        if (error?.code !== 'INVALID_IMAGE_DATA') throw error;
+        resizer.push({ inputSha256, ext: 'png', invalid: true });
+      }
     }
   }
   writeFileSync(process.env.RECORDER_RESULT, JSON.stringify({ calls, resizer }));
@@ -659,7 +769,7 @@ try {
     writeSetManifest(stage, {
       set: 'tools-fs-search',
       recorder: RECORDER,
-      command: `node ${RECORDER} --tree <export of ${NODE_COMMIT} with the --patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch --graph-bin <mixdog-graph built from ${NODE_COMMIT}:native/mixdog-graph> --scratch <scratch parent>`,
+      command: `node ${RECORDER} --tree <export of ${NODE_COMMIT} with the --patch fixes applied> --patch ${PATCHES} --graph-bin <mixdog-graph built from ${NODE_COMMIT}:native/mixdog-graph> --scratch <scratch parent>`,
       identity,
       extra: {
         ...recorderProvenance(import.meta.url),

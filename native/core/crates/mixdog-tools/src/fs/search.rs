@@ -474,12 +474,20 @@ impl Tool for GlobTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        // arg-guard.mjs (glob): a `path` or `root` that is not a string, an array included, is refused; a null or
+        // blank one never reaches the guard (it is dropped as an absent argument) and the search runs from the cwd.
+        for key in ["path", "root"] {
+            if let Some(value) = args.get(key).filter(|v| !v.is_null() && !v.is_string()) {
+                let got = super::read_legacy::describe_type(value);
+                return Err(invalid(key, "type", format!("Error: glob arg \"{key}\" must be string (got {got})")));
+            }
+        }
         // rg reads `/` only; Node turns a Windows `\` into one (`canonicalizeGlobSlashes`).
         let patterns: Vec<String> = arg_strings(&args, "pattern")
             .into_iter()
             .map(|p| if cfg!(windows) { p.replace('\\', "/") } else { p })
             .collect();
-        let raw = arg_str(&args, "path").unwrap_or(".");
+        let raw = arg_str(&args, "path").filter(|p| !mixdog_js::js_trim(p).is_empty()).unwrap_or(".");
         let natural = arg_str(&args, "sort") == Some("natural");
         let limit = match arg_u64(&args, "limit") {
             Some(0) => usize::MAX,
