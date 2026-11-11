@@ -1744,6 +1744,7 @@ impl Rig {
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
+            prompt_intake: Arc::new(super::AdmitAll),
             feeds: self.feeds.clone(),
             turn_admission: self.admissions.clone(),
             server_requests: self.sink.clone(),

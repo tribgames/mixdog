@@ -265,6 +265,24 @@ pub use self::surface::RouteExclusions;
 use mixdog_core_base::approvals::ApprovalIds;
 use mixdog_core_base::approvals::Devices;
 
+/// What a turn submission's attachments meet before the message is accepted (`session-turns.mjs` `submitAdmitted`:
+/// `preparePromptSubmissionForProvider`): `Err` is the text the submit is refused with (a PDF over 20 MiB, one the
+/// parser rejects, one over 100 pages for a route that sends PDFs natively). `provider` is the thread's route.
+#[async_trait::async_trait]
+pub trait PromptIntake: Send + Sync {
+    async fn admit(&self, thread: &mixdog_core_api::ids::ThreadId, provider: &str, params: &serde_json::Value) -> Result<(), String>;
+}
+
+/// An intake that takes every message (a composition without a document inspector).
+pub struct AdmitAll;
+
+#[async_trait::async_trait]
+impl PromptIntake for AdmitAll {
+    async fn admit(&self, _: &mixdog_core_api::ids::ThreadId, _: &str, _: &serde_json::Value) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// Everything a session needs from the rest of the core. Built once by the composition root;
 /// every thread shares the same `Arc`.
 pub struct SessionDeps {
@@ -314,6 +332,8 @@ pub struct SessionDeps {
     /// The originals a composer staged ahead of a message: a turn submission claims the ones it
     /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
     pub staged_originals: Arc<staged_originals::StagedOriginals>,
+    /// The turn intake of a message's attachments (`preparePromptSubmissionForProvider`), before anything is claimed.
+    pub prompt_intake: Arc<dyn PromptIntake>,
     pub feeds: Arc<dyn FeedFactory>,
     /// Every turn's workspace admission (`admitTurnWorkspace`), held until the turn settles.
     pub turn_admission: Arc<dyn worktree::TurnAdmission>,

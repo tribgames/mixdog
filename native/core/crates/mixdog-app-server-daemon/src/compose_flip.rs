@@ -2028,6 +2028,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();
             let mixdog_home = mixdog_home.clone();
+            // A turn's PDFs meet Node's intake limits before the message is accepted (`preparePromptSubmissionForProvider`).
+            let prompt_intake: Arc<dyn mixdog_core_session::session::PromptIntake> = Arc::new(mixdog_core::run_host::prompt_intake::PdfPromptIntake {
+                reader: attachments.clone(),
+                docs: documents.clone(),
+                native_pdf: {
+                    let routes = route_traits.clone();
+                    Arc::new(move |provider: &str| routes.native_pdf(provider))
+                },
+            });
             let (data_dir, tokens, clock, features, route_change, quota, session_search) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone());
             move |runs| mixdog_core_session::session::SessionDeps {
                 store: store_threads,
@@ -2052,6 +2061,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs.root().to_path_buf()),
                 staged_originals: Arc::new(mixdog_core_session::session::staged_originals::StagedOriginals::new(&data_dir)),
+                prompt_intake,
                 feeds: Arc::new(mixdog_core_session::session::CoreThreadFeeds::new(&Default::default(), tokens.cpu_interactive)),
                 server_requests: features.0,
                 approval_ids,
