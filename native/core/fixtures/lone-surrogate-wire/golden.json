@@ -800,6 +800,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "textDocument/rename",
             "params": {
               "position": {
@@ -898,6 +899,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "workspace/symbol",
             "params": {
               "query": "m\ud83d"
@@ -991,6 +993,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "workspace/executeCommand",
             "params": {
               "command": "stub.run\ud83d",
@@ -1146,6 +1149,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "textDocument/codeAction",
             "params": {
               "range": {
@@ -1365,6 +1369,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "textDocument/codeAction",
             "params": {
               "range": {
@@ -1573,6 +1578,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "codeAction/resolve",
             "params": {
               "title": "fix",
@@ -1715,6 +1721,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "textDocument/completion",
             "params": {
               "position": {
@@ -1826,6 +1833,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "completionItem/resolve",
             "params": {
               "label": "a\ud83d",
@@ -1963,6 +1971,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "textDocument/signatureHelp",
             "params": {
               "position": {
@@ -2095,6 +2104,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "textDocument/onTypeFormatting",
             "params": {
               "position": {
@@ -2213,6 +2223,7 @@
           "url": "/lsp",
           "xToken": null,
           "received": {
+            "kind": "request",
             "method": "inlayHint/resolve",
             "params": {
               "position": {
