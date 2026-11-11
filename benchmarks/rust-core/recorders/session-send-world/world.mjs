@@ -58,6 +58,7 @@ Object.assign(process.env, {
   TMP: paths.tmp,
   TMPDIR: paths.tmp,
   NO_PROXY: '127.0.0.1,localhost',
+  ...c.env,
 });
 prepareData(paths.dataDir, baseURL, c);
 
@@ -139,6 +140,9 @@ function nodeApp() {
     archive: (sessionId, archived) => client.setSessionArchived(sessionId, archived),
     approve: (sessionId, id, decision) => client.resolveToolApprovalForSession(sessionId, id, decision),
     room: (action, args) => client.agentRoomAction(action, args),
+    capability: async (name, args, sessionId) => (await client.invokeCapability(name, args, sessionId)).value ?? null,
+    // The room host's store (agent-rooms.ts `createAgentRoomFileStore`, `<userData>/agent-rooms.json`).
+    roomRecords: async () => (existsSync(join(userData, 'agent-rooms.json')) ? JSON.parse(readFileSync(join(userData, 'agent-rooms.json'), 'utf8')).rooms : {}),
     shown,
     files: () => paths.dataDir,
   };

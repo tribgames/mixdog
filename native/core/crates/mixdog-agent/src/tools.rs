@@ -734,6 +734,8 @@ async fn authorize(
                     guards.note_user_wait();
                     let given = match &other {
                         ApprovalResolution::Decided { decision, .. } => decision.reason.clone(),
+                        // `finishToolApproval(entry.id, false, 'approval timed out')` (tool-approval.mjs:77).
+                        ApprovalResolution::TimedOut { .. } => Some("approval timed out".to_owned()),
                         _ => None,
                     };
                     let detail = given

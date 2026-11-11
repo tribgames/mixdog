@@ -7,12 +7,12 @@
     "Placed by the recorder: the app's user-data folder is <case>/core/data/userdata, where the replay's core keeps its own (<data>/userdata).",
     "Normal form (cases.mjs normalized): session ids by alias, the user-data folder named <userData> and the case folder <case>, other minted ids (atask, msg, sess_desktop, call, it, uuids) numbered by first appearance, padding runs named."
   ],
-  "cases": 18,
+  "cases": 21,
   "files": [
     {
       "path": "golden.json",
-      "bytes": 141109,
-      "sha256": "b129daa16c847a682985b6d15d331405b480613c9b49007c528a8a6e6f01bf6d"
+      "bytes": 164522,
+      "sha256": "bfdbfe2f2f55f5196d6b9ee0d43add3e2aa2cfd52221771c2a962513f0e4073d"
     }
   ],
   "product": {
@@ -67,7 +67,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/cases.mjs",
-        "sha256": "3686b1f61bf1144c0d5e6f18c17c3699d74041d3a8f33596f9e9b103ec829bce"
+        "sha256": "25572c7c8f5279a81e0a5dc2220a299b919e2f8b825152ced8c73d5d856dbf84"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/daemon-clock.mjs",
@@ -75,11 +75,11 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/replay.mjs",
-        "sha256": "3cb9203ca4bf85ef1cbf695dfaf664873a66485d7de33db77cbe0604e053db57"
+        "sha256": "d16e0e5f997972ca7d1d4921df9e480798177b682039304ee0c566f308740dc5"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/world.mjs",
-        "sha256": "b444767abb92976230d6f4b5869e1028c10358a7d69a090522a9625016960a9f"
+        "sha256": "35540e9ef2a413e2af6b94ada32bd7eaefcb7271ab1ff50b2cc80d18b667cae0"
       }
     ]
   }

@@ -60,7 +60,7 @@ async function startGate() {
 }
 
 /** The core's side of a case's driver: the desktop's service lane over a protocol client, the thread folds kept as the window keeps them. */
-function coreApp(exe, coreRoot, model) {
+function coreApp(exe, coreRoot, model, env) {
   let core = null;
   let client = null;
   let lane = null;
@@ -73,7 +73,8 @@ function coreApp(exe, coreRoot, model) {
   let reducer = null;
   const connectApp = async () => {
     const { connect, sessionReducer, desktopSessionState } = await here('packages/protocol-client/src/index.ts');
-    desktopState = (fold) => desktopSessionState(fold, [], undefined);
+    // A pending approval is a server request on the connection: the window's state shows it (`sessionState`, session-state.ts).
+    desktopState = (fold) => desktopSessionState(fold, client?.pendingServerRequests() ?? [], undefined);
     reducer = sessionReducer;
     const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
     const { createCapabilityLane } = await here('apps/desktop/src/main/protocol/capability-route.ts');
@@ -95,6 +96,9 @@ function coreApp(exe, coreRoot, model) {
       clock: { sleep: () => Promise.reject(new Error('the replay dropped its connection')) },
       random: Math.random,
     }));
+    client.on((event) => {
+      if (event.type === 'serverRequest' || event.type === 'serverRequestResolved') model.stir();
+    });
     lane = createServiceLane({ protocol: { call: (method, params) => client.call(method, params), notify() {} }, snapshot: () => null });
     // DesktopServiceClient on a core connection sends `deleteSession`, `setSessionArchived` and the approval answers to its capability lane.
     capabilities = createCapabilityLane({
@@ -114,7 +118,7 @@ function coreApp(exe, coreRoot, model) {
     userData: join(coreRoot, 'data', 'userdata'),
     async open() {
       releasePort();
-      core = await oneStartAtATime(() => startCore(exe, coreRoot, null, false, {}));
+      core = await oneStartAtATime(() => startCore(exe, coreRoot, null, false, env));
       cores.push(core);
       folds.clear();
       await connectApp();
@@ -152,6 +156,18 @@ function coreApp(exe, coreRoot, model) {
     archive: (sessionId, archived) => capabilities.setSessionArchived(sessionId, archived),
     approve: (sessionId, id, decision) => capabilities.resolveToolApproval(sessionId, id, decision),
     room: (action, args) => call('agentRoomAction', [action, args]),
+    capability: async (name, args, sessionId) => (await capabilities.invoke(name, args, sessionId)).value ?? null,
+    // The core's room store: the `rooms` table of its state database, each row the stored room document (state_v1.sql).
+    async roomRecords() {
+      const { DatabaseSync } = await import('node:sqlite');
+      const db = new DatabaseSync(join(coreRoot, 'data', 'state', 'core.sqlite'), { readOnly: true });
+      try {
+        const rows = db.prepare('SELECT room_id, doc FROM rooms ORDER BY room_id').all();
+        return Object.fromEntries(rows.map((row) => [row.room_id, JSON.parse(row.doc)]));
+      } finally {
+        db.close();
+      }
+    },
     shown,
     async close() {
       client?.close?.();
@@ -168,7 +184,7 @@ export async function replayCase(exe, c) {
   const coreRoot = join(caseRoot(c), 'core');
   rmSync(coreRoot, { recursive: true, force: true });
   prepareData(join(coreRoot, 'data'), `http://127.0.0.1:${server.address().port}/v1`, c);
-  const app = coreApp(exe, coreRoot, model);
+  const app = coreApp(exe, coreRoot, model, c.env ?? {});
   try {
     return { recorded: await runSteps(c, app, model), trace: model.trace };
   } catch (error) {

@@ -134,15 +134,26 @@ pub struct Accepted {
     pub resolution: ApprovalResolution,
 }
 
+/// The wait limit of a request that names none (`resolveToolApprovalTimeoutMs`, tool-approval.mjs:30): none unless
+/// `MIXDOG_TOOL_APPROVAL_TIMEOUT_MS` sets one (tests and ops), one second at least.
+fn default_limit() -> Option<Duration> {
+    static LIMIT: std::sync::OnceLock<Option<Duration>> = std::sync::OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        let value = mixdog_js::string_to_number(&std::env::var("MIXDOG_TOOL_APPROVAL_TIMEOUT_MS").unwrap_or_default());
+        (value.is_finite() && value > 0.0).then(|| Duration::from_millis(value.round().max(1000.0) as u64))
+    })
+}
+
 impl ApprovalBook {
     /// Builds the request record for `ask`. The caller persists it and calls [`Self::insert`].
     pub fn request(
         aid: ApprovalId,
         thread: &ThreadId,
         lineage: &Lineage,
-        ask: ApprovalAsk,
+        mut ask: ApprovalAsk,
         requested_at_ms: i64,
     ) -> ApprovalRequest {
+        ask.expires_after = ask.expires_after.or_else(default_limit);
         let expires_at = ask
             .expires_after
             .map(|after| std::time::UNIX_EPOCH + ms(requested_at_ms) + after);

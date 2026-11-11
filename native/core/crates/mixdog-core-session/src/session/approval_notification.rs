@@ -186,6 +186,15 @@ impl SessionDirectory {
         let Caller::Connection(connection) = req.ctx.caller else {
             return Err(CoreError::InvalidParams { path: "caller".into(), expected: "a client connection".into() });
         };
+        // A decision with no reason is the user's own (`decision?.reason || (approved ? 'approved by user' : 'denied by user')`,
+        // session-api/lifecycle.mjs:74): the model is told so.
+        let mut result = params.result;
+        if let Value::Object(fields) = &mut result
+            && !fields.get("reason").and_then(Value::as_str).is_some_and(|reason| !reason.is_empty())
+        {
+            let approved = fields.get("approved") == Some(&Value::Bool(true));
+            fields.insert("reason".into(), Value::String(if approved { "approved by user" } else { "denied by user" }.into()));
+        }
         let accepted = match self.handle(&params.thread_id) {
             None => false,
             Some(handle) => {
@@ -197,7 +206,7 @@ impl SessionDirectory {
                         device: device.device,
                         connection_kind: device.kind,
                         origin: req.ctx.origin,
-                        result: params.result,
+                        result,
                     })
                     .await?
             }
