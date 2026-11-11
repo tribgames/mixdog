@@ -60,10 +60,13 @@ windows-sys = { workspace = true, features = ["Wdk_System_SystemServices", "Win3
 # Test-only: the work counters the hot-path tests read, here and in the crates below. A test build of this crate (the
 # self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
 count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-core-domains/count-work"]
+# Test-only: what the replays in `crates/mixdog-core-replays` reach inside this library (`run_host::fixture_fs`,
+# `replay_access`). Refused in a release build (build.rs).
+test-support = ["mixdog-rt/test-support"]
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
-mixdog-core = { path = ".", features = ["count-work"] }
+mixdog-core = { path = ".", features = ["count-work", "test-support"] }
 bytes = { workspace = true }
 flate2 = { workspace = true }
 tokio-tungstenite = { workspace = true }
@@ -79,9 +82,9 @@ mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
-mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
 mixdog-core-run = { workspace = true, features = ["replay-controls", "test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-trace = { workspace = true }
@@ -102,4 +105,8 @@ mixdog-protocol = { workspace = true }
 mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }

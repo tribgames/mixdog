@@ -27,6 +27,8 @@ const GIT_PREVIEW: usize = 8_000;
 pub struct Artifact {
     /// The path as shown to the model.
     pub display_path: String,
+    /// The path as the OS writes it (Node `artifact.path`): what a compaction's recovery notes name.
+    pub path: String,
     /// Line count of the stored text.
     pub lines: usize,
     /// Lowercase hex SHA-256 of the stored text; the file is named by it.
@@ -329,10 +331,10 @@ mod tests {
     impl ArtifactStore for Store {
         async fn persist(&self, content: &str) -> Option<Artifact> {
             self.0.lock().unwrap().push(content.to_owned());
-            Some(Artifact { display_path: "/art/x.txt".into(), lines: content.lines().count(), sha256: "ab".repeat(32) })
+            Some(Artifact { display_path: "/art/x.txt".into(), path: "/art/x.txt".into(), lines: content.lines().count(), sha256: "ab".repeat(32) })
         }
         async fn preview(&self, content: &str) -> Option<Artifact> {
-            Some(Artifact { display_path: "/art/x.txt".into(), lines: content.lines().count(), sha256: "ab".repeat(32) })
+            Some(Artifact { display_path: "/art/x.txt".into(), path: "/art/x.txt".into(), lines: content.lines().count(), sha256: "ab".repeat(32) })
         }
     }
 

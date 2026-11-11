@@ -87,7 +87,17 @@ fn execution_tokens(ctx: &TailContext<'_>, messages: &[AgentMessage]) -> u64 {
     if messages.is_empty() {
         return 0;
     }
-    let rows: Vec<JsonValue> = messages.iter().map(|m| ctx.rows.row(m)).collect();
+    // UI diffs never reach the model and must not displace execution evidence.
+    let rows: Vec<JsonValue> = messages
+        .iter()
+        .map(|m| {
+            let mut row = ctx.rows.row(m);
+            if let Some(fields) = row.as_object_mut() {
+                fields.shift_remove("uiDiff");
+            }
+            without_message_ids(row)
+        })
+        .collect();
     ctx.meter
         .messages(messages)
         .max(estimate_tokens(&mixdog_js::json_stringify(&JsonValue::Array(rows))))
@@ -121,8 +131,18 @@ fn execution_groups(messages: &[AgentMessage]) -> Vec<Group> {
 }
 
 /// The assistant message without its provider replay (opaque reasoning and a
-/// duplicate of its calls); every provider lowers content/calls without it.
+/// duplicate of its calls) or its stored row's legacy encrypted `reasoningItems`;
+/// every provider lowers content/calls without them.
 fn without_replay(m: &AgentMessage) -> AgentMessage {
+    let stored = m.stored.as_ref().map(|row| {
+        if !row.contains_key("providerReplay") && !row.contains_key("reasoningItems") {
+            return row.clone();
+        }
+        let mut row = (**row).clone();
+        row.shift_remove("providerReplay");
+        row.shift_remove("reasoningItems");
+        std::sync::Arc::new(row)
+    });
     let source = &m.message;
     let mut message = Message::new(source.role, source.content.clone());
     message.cache_tier = source.cache_tier;
@@ -134,7 +154,7 @@ fn without_replay(m: &AgentMessage) -> AgentMessage {
     message.assistant_blocks = source.assistant_blocks.clone();
     message.native_tool_search = source.native_tool_search.clone();
     message.source = source.source;
-    AgentMessage { message, ..m.clone() }
+    AgentMessage { message, stored, ..m.clone() }
 }
 
 /// Only the newest assistant message can still need its replay: an
@@ -154,13 +174,34 @@ fn without_stale_replay(messages: &[AgentMessage]) -> Vec<AgentMessage> {
         .collect()
 }
 
+/// `row` without its display bookkeeping (`withoutMessageIdsReplacer`): a meta whose transcript
+/// holds a stable id loses the id and the reactions, and a meta left empty goes.
+fn without_message_ids(mut row: JsonValue) -> JsonValue {
+    let Some(fields) = row.as_object_mut() else { return row };
+    let Some(meta) = fields.get_mut("meta").and_then(JsonValue::as_object_mut) else { return row };
+    if !meta.get("transcript").and_then(|t| t.get("messageId")).is_some_and(JsonValue::is_string) {
+        return row;
+    }
+    if let Some(transcript) = meta.get_mut("transcript").and_then(JsonValue::as_object_mut) {
+        transcript.shift_remove("messageId");
+        transcript.shift_remove("reactions");
+        if transcript.is_empty() {
+            meta.shift_remove("transcript");
+        }
+    }
+    if meta.is_empty() {
+        fields.shift_remove("meta");
+    }
+    row
+}
+
 /// One message per line (JSONL): line N + 1 holds message index N. A line that
 /// reaches `ARCHIVE_BLOB_MIN_BYTES` is stored once per session as its own
 /// content-addressed file and the dump repeats only a reference to it.
 async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -> Result<String, String> {
     let mut out = String::new();
     for message in transcript {
-        let line = format!("{}\n", mixdog_js::json_stringify(&ctx.rows.row(message)));
+        let line = format!("{}\n", mixdog_js::json_stringify(&without_message_ids(ctx.rows.row(message))));
         if line.len() < ARCHIVE_BLOB_MIN_BYTES {
             out.push_str(&line);
             continue;
@@ -170,7 +211,7 @@ async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -
             .await
             .ok_or("compact: execution history could not be archived; original context preserved")?;
         let mut reference = serde_json::Map::new();
-        reference.insert("path".to_owned(), JsonValue::String(blob.display_path));
+        reference.insert("path".to_owned(), JsonValue::String(blob.path));
         if let Some(id) = message.tool_call_id() {
             reference.insert("toolCallId".to_owned(), JsonValue::String(id.to_owned()));
         }
@@ -201,7 +242,7 @@ fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage]) -> AgentMess
         .iter()
         .flat_map(recovery_archive_paths)
         .filter(|p| seen.insert(p.clone()))
-        .filter(|p| *p != archive.display_path)
+        .filter(|p| *p != archive.path)
         .collect();
     let earlier = &earlier_all[earlier_all.len().saturating_sub(MAX_EARLIER_DUMPS)..];
     let earlier_line = if earlier.is_empty() {
@@ -209,13 +250,15 @@ fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage]) -> AgentMess
     } else {
         format!("\nEarlier dumps (older first): {}", earlier.join(EARLIER_DUMPS_SEPARATOR))
     };
-    AgentMessage::sourced(
-        Source::CompactExecutionRecovery,
-        format!(
-            "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{}\n</system-reminder>",
-            archive.display_path, archive.sha256, earlier_line
-        ),
-    )
+    let text = format!(
+        "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{}\n</system-reminder>",
+        archive.path, archive.sha256, earlier_line
+    );
+    let mut message = AgentMessage::sourced(Source::CompactExecutionRecovery, text.clone());
+    // Node writes this row as `{ role, meta, content }`; the key order is part of what the budget measures.
+    let row = serde_json::json!({ "role": "user", "meta": { "source": "compact-execution-recovery", "synthetic": true }, "content": text });
+    message.stored = row.as_object().cloned().map(std::sync::Arc::new);
+    message
 }
 
 /// Shrink levels, least evidence lost first. 1: large result bodies. 2: also
@@ -224,7 +267,7 @@ fn shrink_group(ctx: &TailContext<'_>, group: &Group, archive: &Artifact, level:
     let reference = |offset: usize, what: &str, id: &str| {
         format!(
             "[{what} archived without interpretation: {}; message index {} (line {}); toolCallId={id}.",
-            archive.display_path,
+            archive.path,
             group.start + offset,
             group.start + offset + 1
         )
@@ -482,7 +525,7 @@ async fn keep_group(
                 Some(found) => {
                     let origin = format!(
                         "The original is archived at {} (message index {}).",
-                        dump.display_path,
+                        dump.path,
                         group.start + offset
                     );
                     supersede_observation(message, found, &origin)

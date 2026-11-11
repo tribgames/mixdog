@@ -1163,7 +1163,7 @@ async fn drive(
         sink: sink.clone(),
         gate,
         guards,
-        compactor,
+        compactor: compactor.map(|inner| Arc::new(super::goal_reminder_compactor::GoalReminderCompactor::new(inner, port.clone())) as Arc<dyn Compactor>),
         route,
         skills,
         hooks,
@@ -1575,7 +1575,7 @@ mod tests {
         let handle = directory.handle(&id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         // Woken by each step of the thread's actor; the frame is searched for before waiting.
-        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+        let shown = mixdog_rt::time::timeout(std::time::Duration::from_secs(30), async { loop {
             let stepped = handle.stepped().notified();
             tokio::pin!(stepped);
             stepped.as_mut().enable();
@@ -2398,8 +2398,8 @@ mod tests {
         let data = workspace.path().join("data");
         let judge = mixdog_services::effort_judge::judge::EffortJudgeModel::with_options(
             mixdog_services::effort_judge::model::ModelConfig::in_data_dir(&data, mixdog_services::effort_judge::model::OrtRuntime::Library(workspace.path().join("no-ort.dll"))),
-            tokens.cpu_bulk,
-            mixdog_services::effort_judge::judge::JudgeOptions { tick: Default::default(), manifest: None, progress: None },
+            mixdog_services::effort_judge::JudgeLanes::of(&tokens),
+            mixdog_services::effort_judge::judge::JudgeOptions::default(),
         )
         .unwrap();
         let compaction = super::super::compaction_world::tests::services(workspace.path(), json!({}), Arc::default()).await;
@@ -2701,7 +2701,7 @@ mod tests {
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": "go" } }), op)).await.expect("turn/start");
         let Reply::Value(started) = started else { panic!("turn/start answers a value") };
         assert_eq!(started["kind"], "started", "{op}");
-        let sent = tokio::time::timeout(Duration::from_secs(30), heard.recv())
+        let sent = mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv())
             .await
             .unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the request turn {op} hands the provider"))
             .expect("the provider is alive");
@@ -2734,7 +2734,7 @@ mod tests {
         let covered_before = handle.header_snapshot().get("turnCoverage").cloned();
         let started = handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the first turn's request")).expect("the provider is alive");
         settled_turns(&world, &id, &handle, 1, covered_before).await;
         let before = stored_state(&world, &id, &handle);
         let first = snapshot_call(&tools_status(&world), &id, "go").await;
@@ -2768,6 +2768,9 @@ mod tests {
     #[path = "../../../../../mixdog-ai/src/providers/grok/fixture_manifest.rs"]
     mod tests_manifest;
 
+    #[path = "../../offload_prune_turn_tests.rs"]
+    mod offload_prune_turn_tests;
+
     /// Node's `nextMainRequest` over the cases `snapshot_effects/record.mjs` recorded (no user conversation, a transcript,
     /// each again after a new ignored directory and after the skill catalog was invalidated): it is null without a user
     /// conversation, otherwise the stored transcript as it is (its iteration 1), and it writes, lists and probes nothing.
@@ -2788,7 +2791,7 @@ mod tests {
         let covered_before = talked_handle.header_snapshot().get("turnCoverage").cloned();
         let started = talked_handle.request(request("turn/start", json!({ "threadId": talked, "opId": "op-1", "input": { "prompt": "hi" } }), "op-1")).await.expect("turn/start");
         assert!(matches!(started, Reply::Value(_)), "turn/start answers a value");
-        tokio::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
+        mixdog_rt::time::timeout(Duration::from_secs(30), heard.recv()).await.unwrap_or_else(|_| panic!("timed out after 30000 ms awaiting the turn's request")).expect("the provider is alive");
         settled_turns(&world, &talked, &talked_handle, 1, covered_before).await;
         let (directory, parts) = world.next.bound().expect("bound");
         let directory = directory.upgrade().expect("directory");

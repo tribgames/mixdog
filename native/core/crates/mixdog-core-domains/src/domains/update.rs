@@ -532,7 +532,7 @@ impl UpdateService {
                 (self.config.ready_notice)(version);
                 return;
             }
-            tokio::time::sleep(STAGE_POLL).await;
+            mixdog_rt::time::sleep(STAGE_POLL).await;
             waited += STAGE_POLL;
         }
     }

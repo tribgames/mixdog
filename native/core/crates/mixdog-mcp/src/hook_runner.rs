@@ -58,7 +58,7 @@ pub async fn run_mcp_tool_handler(
             call_cancel.cancel();
             return HandlerRun::failed("aborted".to_owned(), false);
         }
-        outcome = tokio::time::timeout(timeout, call) => outcome,
+        outcome = mixdog_rt::time::timeout(timeout, call) => outcome,
     };
     match outcome {
         Err(_) => {

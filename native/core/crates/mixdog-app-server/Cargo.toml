@@ -7,6 +7,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Replay-only: `replay/storesSettled` (server.rs `REPLAY_STORES_SETTLED`), answered by the service the core registers for it.
+# For development builds only (build.rs fails a release-profile build with it).
+replay-controls = []
+
 [dependencies]
 mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
@@ -23,9 +28,9 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
@@ -51,4 +56,12 @@ mixdog-core-run = { workspace = true, features = ["replay-controls", "test-suppo
 mixdog-agent = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-server = { path = ".", features = ["replay-controls"] }
+mixdog-migrate = { workspace = true, features = ["crash-hook"] }

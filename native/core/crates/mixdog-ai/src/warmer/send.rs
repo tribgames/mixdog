@@ -82,7 +82,8 @@ impl BodyStream for Guarded {
         let end = tokio::select! {
             biased;
             chunk = self.inner.next() => return chunk,
-            () = tokio::time::sleep_until(deadline) => self.watchdog.expired_text(),
+            // Node's watchdog timer is `unref()`ed (`anthropic-cache-warm.mjs:34`).
+            () = mixdog_rt::time::sleep_until_unrefed(deadline) => self.watchdog.expired_text(),
             () = self.cancel.cancelled() => ABORTED.to_owned(),
         };
         *self.ended.lock().unwrap_or_else(PoisonError::into_inner) = Some(end);
@@ -143,7 +144,7 @@ async fn run(
     let response = tokio::select! {
         biased;
         response = post() => response.map_err(|e| (failure_of(&e), e))?,
-        () = tokio::time::sleep_until(watchdog.deadline()) => {
+        () = mixdog_rt::time::sleep_until_unrefed(watchdog.deadline()) => {
             let text = watchdog.expired_text();
             return Err((WarmFailure::new(text.clone()), error_of(&text)));
         }

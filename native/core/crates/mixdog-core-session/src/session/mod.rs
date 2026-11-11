@@ -34,13 +34,11 @@ mod stop;
 mod resumed_tools_tests;
 #[cfg(test)]
 mod room_questions_tests;
-#[cfg(test)]
-pub(crate) mod fixture_fs;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
 pub mod delete;
 pub mod purge;
 pub mod sub_agent_retention;
-#[cfg(test)]
-mod sub_agent_retention_tests;
 #[cfg(test)]
 mod thread_list_overlay_tests;
 pub mod heartbeat_catalog;
@@ -83,6 +81,8 @@ mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
 #[cfg(test)]
+mod durability_settled_tests;
+#[cfg(test)]
 mod mcp_failure_tests;
 #[cfg(test)]
 mod route_config_tests;
@@ -119,8 +119,6 @@ pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
-#[cfg(test)]
-mod quota_lane_tests;
 mod usage_books;
 mod usage_metadata;
 pub mod goal_recovery_host;
@@ -172,8 +170,8 @@ mod agent_control_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
-#[cfg(test)]
-mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;
 #[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
@@ -186,6 +184,8 @@ mod idle_state_replay_tests;
 mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
+#[cfg(test)]
+mod offload_prune_order_tests;
 #[cfg(test)]
 mod steer_tests;
 #[cfg(test)]
@@ -208,6 +208,8 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
+#[cfg(any(test, feature = "test-support"))]
+pub use self::directory::DurabilitySettling;
 pub use self::model_switch::record_model_switch;
 pub use self::handle::SessionHandle;
 pub use self::prompt_history::FilePromptHistory;
@@ -312,6 +314,8 @@ pub struct SessionDeps {
     pub user_cwd: UserCwd,
     /// The prompt-attachment store user text reads offloaded parts from.
     pub attachments: user_facts::AttachmentStore,
+    /// The process's "Allow for this session" grants (`processSessionGrants`): one bound over every session.
+    pub session_grants: Arc<mixdog_tools::policy::SessionGrantRegistry>,
     /// The originals a composer staged ahead of a message: a turn submission claims the ones it
     /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
     pub staged_originals: Arc<staged_originals::StagedOriginals>,
@@ -419,7 +423,8 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
-        let since = std::time::SystemTime::now()
+        // On a replay's clock, the replay's wall clock (mixdog_rt::virtual_clock).
+        let since = mixdog_rt::wall_clock!()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
@@ -488,7 +493,7 @@ fn new_session_id(now_ms: i64) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: std::sync::OnceLock<AtomicU64> = std::sync::OnceLock::new();
     let counter = NEXT
-        .get_or_init(|| AtomicU64::new(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
+        .get_or_init(|| AtomicU64::new(mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as u64)))
         .fetch_add(1, Ordering::Relaxed);
     format!("sess_{}_{counter}_{now_ms}_{}", std::process::id(), uuid::Uuid::new_v4().simple())
 }

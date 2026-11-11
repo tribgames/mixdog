@@ -427,9 +427,10 @@ impl SessionHandle {
         })?;
         let rows = read.await.map_err(|_| CoreError::Internal { incident_id: "session-room-facts-dropped".into() })?;
         let set = req.params.get("set").cloned().unwrap_or(Value::Null);
+        let unset = req.params.get("unset").cloned().unwrap_or(Value::Null);
         let append = CoreRequest {
             method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
-            params: json!({ "rows": rows, "set": set }),
+            params: json!({ "rows": rows, "set": set, "unset": unset }),
             op: None,
             ctx: req.ctx,
         };
@@ -581,7 +582,9 @@ impl SessionHandle {
 /// provenance, transcript identity and the source's own name and title are not carried (the carry gives the heir the source's title), and its compaction is the configuration alone, without the source's checks.
 fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
     const COMPACTION_CONFIG: [&str; 9] = ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
-    const NOT_CARRIED: [&str; 42] = [
+    // A copy still being made into the source is the source's; the heir's own reference set is given by the carry.
+    const NOT_CARRIED: [&str; 44] = [
+        "offloadInheriting", "offloadInheritingBoot",
         "bp3Cursor", "closeProvenance", "lastCacheWriteTokens", "lastCachedReadTokens", "lastContextTokens", "lastContextTokensStaleAfterCompact",
         "lastContextTokensUpdatedAt", "lastInputTokens", "lastIterationIndex", "lastOutputTokens", "lastProviderSendAt", "lastTurnCompletedAt",
         "lastUncachedInputTokens", "reasoningUsage", "titleUpdatedAt", "todo", "todoCheck", "totalCacheWriteTokens", "totalCachedReadTokens",

@@ -92,7 +92,7 @@ impl BlobGc {
     /// now unless one is armed or ran within the spacing. `cancel` (the shutdown token) ends the
     /// wait and a census under way, which leaves no stamp so the next start runs it again.
     pub fn schedule(self: &Arc<Self>, clock: Clock, on_error: ErrorSink, cancel: CancellationToken) {
-        drop(self.schedule_after(clock, on_error, cancel, || tokio::time::sleep(START_DELAY)));
+        drop(self.schedule_after(clock, on_error, cancel, || mixdog_rt::time::sleep(START_DELAY)));
     }
 
     /// [`Self::schedule`] over the wait that stands for the start delay, made when the trigger

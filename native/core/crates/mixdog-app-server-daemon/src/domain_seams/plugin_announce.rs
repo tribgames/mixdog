@@ -36,7 +36,7 @@ fn token_of(pid: u32, now_ms: u128, uuid: &str) -> String {
 }
 
 fn token() -> String {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let now = mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
     token_of(std::process::id(), now, &uuid_v4())
 }
 

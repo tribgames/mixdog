@@ -112,7 +112,7 @@ pub fn spawn_provider_changes(
                 Some(delay) => {
                     tokio::select! {
                         heard = changes.changed() => if heard.is_err() { return },
-                        () = tokio::time::sleep(delay) => attempt += 1,
+                        () = mixdog_rt::time::sleep(delay) => attempt += 1,
                     }
                 }
                 None => {
@@ -220,7 +220,7 @@ mod tests {
     }
 
     async fn quiet() {
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
     }
 
     /// Which changes re-initialize the providers, against the recorded Node run: its real
@@ -288,7 +288,7 @@ mod tests {
             })
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
         assert_eq!(provider_calls(w.effects.calls.lock().unwrap().clone()), provider_calls(strings(&golden["retried"]["firstAttempt"])));
         let warnings = |calls: &[String]| calls.iter().filter(|c| c.starts_with("warn: ")).cloned().collect::<Vec<_>>();
         assert_eq!(warnings(&w.effects.calls.lock().unwrap()), ["warn: [config] applying the providers change failed: registry refused"]);

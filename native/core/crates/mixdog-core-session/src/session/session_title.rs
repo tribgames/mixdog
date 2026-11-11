@@ -353,7 +353,7 @@ impl SessionTitles {
             }
             self.deps.model.generate(source, id, &locale, cancel).await
         };
-        let raw = match tokio::time::timeout(Duration::from_millis(self.deps.timeout_ms), call).await {
+        let raw = match mixdog_rt::time::timeout(Duration::from_millis(self.deps.timeout_ms), call).await {
             Ok(result) => result?,
             Err(_) => {
                 cancel.cancel();
@@ -751,7 +751,7 @@ mod tests {
                         None
                     }
                 };
-                tokio::time::sleep(Duration::from_millis(if timeout { 60 } else { 40 })).await;
+                mixdog_rt::time::sleep(Duration::from_millis(if timeout { 60 } else { 40 })).await;
                 assert_eq!(returned.map(Value::Bool).unwrap_or(Value::Null), step["returned"], "{name}: {}", step["op"]);
             }
             assert_eq!(Value::Array(model.calls.lock().unwrap().clone()), scenario["calls"], "{name}: model calls");
