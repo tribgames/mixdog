@@ -11,6 +11,7 @@
 // strings normalised in `view` (data/tree paths).
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
+import netModule from 'node:net';
 import { createRequire, register } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,7 +19,10 @@ import { exact } from './exact.mjs';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
 import { installDeterministicWorld } from './deterministic-world.mjs';
 import { recorderProvenance } from './provenance.mjs';
+import { RecorderError } from './recorder-error.mjs';
 import { startWsWorld } from './ws-world.mjs';
+
+export { RecorderError };
 
 /** Plain descriptions of live objects a replay must rebuild: a stream as its chunks, a Response as status, headers and body bytes, a constructed instance as its constructor arguments. */
 const described = new WeakMap();
@@ -75,23 +79,57 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
     clock.timers.set(id, { id, due: world.now() + Math.max(0, Number(ms) || 0), fn, rest, site: new Error().stack });
     for (const listener of [...clock.armListeners]) listener();
     clock.notify();
+    // undici's parser records the timer's type right after arming it, so the waiters look again once this synchronous arming has returned.
+    if (fn?.name === 'onParserTimeout') queueMicrotask(clock.notify);
     return { id, unref() { return this; }, ref() { return this; }, hasRef: () => true, refresh() { return this; }, [Symbol.toPrimitive]: () => id };
   };
   globalThis.clearTimeout = (timer) => void clock.timers.delete(timer?.id ?? timer);
   /**
-   * Moves the virtual clock by `ms`, running every timer that comes due in due-time order. A step is finished when what it caused has settled,
-   * not after a fixed number of turns: the callback's returned promise is awaited, then one real event-loop turn (which drains every microtask
-   * the callback queued), then, when the case names one, the observable event `until` (polled once per real turn) - each wait has a deadline
-   * and names its step. Every step is appended to `clock.trace` (the ordered record of the case): the advance, the clock before and after, the
+   * Moves the virtual clock by `ms`, running every timer that comes due in due-time order. No event-loop turn is counted: a callback that returns
+   * a promise is awaited (with a deadline naming the step); any other firing is not waited on here - what it causes is waited for as an event by
+   * whoever observes it: the case's `until` (an observable event of the world: a request arriving at the endpoint, a ws-world entry, a timer
+   * armed - see `clock.notify`), the next retry timer or the settling of the send (`followRetries`), or the promise the case awaits.
+   * Every step is appended to `clock.trace` (the ordered record of the case): the advance, the clock before and after, the
    * timers that fired (due time relative to the start of the recording, in firing order; timer ids and the set of still-armed timers are not recorded: they include the product's incidental background timers, whose number varies between runs).
    */
   clock.trace = [];
-  const realSetImmediate = globalThis.setImmediate;
-  const turn = () => new Promise((resolve) => realSetImmediate(resolve));
+  /**
+   * A response the scripted endpoint has finished is taken up by the product's HTTP client (undici) as an event of its own: the client reads
+   * it to the end and then gives the connection its next timer (the keep-alive timer when idle, the headers timer when it sends the next
+   * request), or the connection is destroyed. The clock does not move past a fired timer while such a take-up is outstanding: after each
+   * firing it waits (woken by the arming of the client's parser timers and the endpoint's events, with the step deadline) until every
+   * finished response's connection has its next client timer, carries a later request, or is destroyed. A connection whose client never
+   * armed a parser timer (not undici) is not waited on. Nothing else a firing causes is waited on here: whoever observes it waits for it
+   * (`until`, `followRetries`, the case's own awaits).
+   */
+  const clientSockets = new Map();
+  const realNetConnect = netModule.connect;
+  netModule.connect = (...args) => {
+    const socket = realNetConnect(...args);
+    socket.once('connect', () => clientSockets.set(socket.localPort, new WeakRef(socket)));
+    return socket;
+  };
+  const finishedResponses = new Map();
+  const TIMEOUT_KEEP_ALIVE_BIT = 8;
+  const parserOf = (socket) => {
+    const key = socket && Object.getOwnPropertySymbols(socket).find((s) => s.description === 'parser');
+    return key ? socket[key] : null;
+  };
+  const clientTookUp = (port, finishedAt) => {
+    const parser = parserOf(clientSockets.get(port)?.deref());
+    if (!parser) return true;
+    if (parser.socket?.destroyed) return true;
+    if (parser.timeoutType & TIMEOUT_KEEP_ALIVE_BIT) return true;
+    return hub.records.slice(finishedAt).some((record) => record.connectionPort === port);
+  };
+  const clientsSettled = () => {
+    for (const [port, finishedAt] of finishedResponses) if (clientTookUp(port, finishedAt)) finishedResponses.delete(port);
+    return finishedResponses.size === 0;
+  };
   const within = async (promise, what) => {
     let timer;
     const limit = new Promise((_, reject) => {
-      timer = realSetTimeout(() => reject(new Error(`recorder: clock step did not settle within ${CASE_DEADLINE_MS} ms: ${what}`)), CASE_DEADLINE_MS);
+      timer = realSetTimeout(() => reject(new RecorderError(`recorder: clock step did not settle within ${CASE_DEADLINE_MS} ms: ${what}`)), CASE_DEADLINE_MS);
     });
     try {
       return await Promise.race([promise, limit]);
@@ -111,33 +149,36 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       step.fired.push({ dueMs: next.due - T0 });
       const returned = next.fn(...next.rest);
       if (returned && typeof returned.then === 'function') await within(returned, `${what}: timer ${next.id} callback`);
-      await within(turn(), `${what}: timer ${next.id} settle`);
       clock.notify();
+      await clock.until(clientsSettled, `${what}: timer ${next.id}: the HTTP client taking up the finished responses`);
     }
     world.advance(Math.max(0, end - world.now()));
-    if (until) {
-      // Woken by the events of the world (see `clock.notify`), not by turns of the event loop; the deadline names the step.
-      const waitFor = () => new Promise((resolve) => {
-        const check = () => {
-          if (!until()) return;
-          clock.eventListeners.delete(check);
-          resolve();
-        };
-        clock.eventListeners.add(check);
-        check();
-      });
-      await within(waitFor(), `${what}: observable event`);
-    }
+    if (until) await clock.until(until, what);
     step.toMs = world.now() - T0;
     clock.trace.push(step);
   };
+  /** Waits, without moving the clock or recording a step, until `predicate()` holds: woken by the events of the world (see `clock.notify`),
+   *  not by turns of the event loop; the deadline names the step. */
+  clock.until = (predicate, what) => within(new Promise((resolve) => {
+    const check = () => {
+      if (!predicate()) return;
+      clock.eventListeners.delete(check);
+      resolve();
+    };
+    clock.eventListeners.add(check);
+    check();
+  }), `${what}: observable event`);
   /**
    * Follows the retries of `promise` (a send that retries): whenever a timer created from `sites` (a pattern over the creating stack: the product's retry sleep function, not its first-byte or idle watchdogs) is armed, the clock
-   * moves to it (one recorded step) - the wait for the next arm is woken by the arming itself, with the case deadline. Returns when `promise` settles.
+   * moves to it (one recorded step) - the wait for the next arm is woken by the arming itself, with the case deadline. `causes(site)` names the
+   * event the firing of a timer created at `site` causes (a predicate over the world, e.g. the retried request arriving at the endpoint) or
+   * null when its firing has no consequence to wait for; after such a step the clock does not move again until that event (or the settling of
+   * `promise`) - woken by `clock.notify`, with the case deadline. `ready()`, when given, is an event of the world the clock waits for before
+   * each step (e.g. the endpoint having seen a connection it ended close). Returns when `promise` settles.
    */
-  clock.followRetries = async (promise, { sites = /at (async )?\S*[sS]leep\S* /, what = 'retry backoff' } = {}) => {
+  clock.followRetries = async (promise, { sites = /at (async )?\S*[sS]leep\S* /, what = 'retry backoff', causes = () => null, ready = null } = {}) => {
     let settled = false;
-    const done = promise.then(() => { settled = true; }, () => { settled = true; });
+    const done = promise.then(() => { settled = true; clock.notify(); }, () => { settled = true; clock.notify(); });
     while (!settled) {
       const armed = [...clock.timers.values()].filter((t) => sites.test(t.site));
       if (!armed.length) {
@@ -148,7 +189,10 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
         continue;
       }
       const next = armed.sort((a, b) => a.due - b.due || a.id - b.id)[0];
-      await clock.advance(Math.max(0, next.due - world.now()), { what });
+      if (ready) await clock.until(() => settled || ready(), `${what}: ready for the next step`);
+      if (settled) break;
+      const caused = causes(next.site);
+      await clock.advance(Math.max(0, next.due - world.now()), { what, until: caused && (() => settled || caused()) });
     }
     return promise;
   };
@@ -194,6 +238,13 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       Object.defineProperty(record, 'h', { value: Object.fromEntries(headers.map(([n, v]) => [n.toLowerCase(), v])), enumerable: false });
       // For the recorder's own waits (not recorded): resolves when the client side of this connection closes.
       Object.defineProperty(record, 'whenClientClosed', { value: new Promise((resolve) => res.on('close', resolve)) });
+      // For the clock (not recorded): the client's end of this connection, and the moment the endpoint finished its response.
+      Object.defineProperty(record, 'connectionPort', { value: req.socket.remotePort });
+      res.on('finish', () => {
+        finishedResponses.set(record.connectionPort, hub.records.length);
+        clock.notify();
+      });
+      req.socket.once('close', clock.notify);
       hub.records.push(record);
       clock.notify();
       const reply = hub.reply?.(record, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
@@ -345,13 +396,14 @@ export async function startRecording({ recorderUrl, set, entry, replay, compare,
       current = calls;
       let timer;
       const deadline = new Promise((_, reject) => {
-        timer = realSetTimeout(() => reject(new Error(`recorder: case ${id} did not settle within ${CASE_DEADLINE_MS} ms`)), CASE_DEADLINE_MS);
+        timer = realSetTimeout(() => reject(new RecorderError(`recorder: case ${id} did not settle within ${CASE_DEADLINE_MS} ms`)), CASE_DEADLINE_MS);
       });
       try {
         const result = await Promise.race([fn({ net: hub, clock }), deadline]);
         row.result = view(result);
       } catch (error) {
-        if (/^recorder: case/.test(error?.message ?? '')) throw error;
+        // Every recorder-side failure (the case deadline, a clock step's deadline, a ws-world wait, a recorder's own deadline) stops the recording.
+        if (error instanceof RecorderError) throw error;
         row.error = view(error);
       } finally {
         realClearTimeout(timer);

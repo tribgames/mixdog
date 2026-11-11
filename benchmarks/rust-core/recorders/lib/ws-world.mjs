@@ -11,6 +11,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { RecorderError } from './recorder-error.mjs';
 
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
@@ -26,7 +27,7 @@ const payload = (data, isBinary) => (isBinary ? { binary: true, bytesHex: Buffer
 // The deadline of a socket write (real timer, above).
 const WRITE_DEADLINE_MS = 10_000;
 const written = (socket, chunk) => new Promise((resolve, reject) => {
-  const timer = realSetTimeout(() => reject(new Error(`recorder: ws world: a refusal body write was not flushed within ${WRITE_DEADLINE_MS} ms`)), WRITE_DEADLINE_MS);
+  const timer = realSetTimeout(() => reject(new RecorderError(`recorder: ws world: a refusal body write was not flushed within ${WRITE_DEADLINE_MS} ms`)), WRITE_DEADLINE_MS);
   socket.write(chunk, (error) => {
     realClearTimeout(timer);
     if (error) reject(error);
@@ -63,7 +64,7 @@ export async function startWsWorld({ tree }) {
       };
       const timer = realSetTimeout(() => {
         waiters.delete(check);
-        reject(new Error(`recorder: ws world did not reach "${what}" within ${DEADLINE_MS} ms`));
+        reject(new RecorderError(`recorder: ws world did not reach "${what}" within ${DEADLINE_MS} ms`));
       }, DEADLINE_MS);
       waiters.add(check);
       check();

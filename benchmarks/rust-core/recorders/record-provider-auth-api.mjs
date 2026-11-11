@@ -16,11 +16,11 @@ const until = (predicate, what) => new Promise((resolve, reject) => {
     realClearTimeout(timer);
     resolve();
   };
-  const timer = realTimeout(() => { waiters.delete(check); reject(new Error(`recorder: ${what} did not happen within 5 s`)); }, 5000);
+  const timer = realTimeout(() => { waiters.delete(check); reject(new RecorderError(`recorder: ${what} did not happen within 5 s`)); }, 5000);
   waiters.add(check);
   check();
 });
-import { startRecording } from './lib/provider-case-recorder.mjs';
+import { RecorderError, startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
