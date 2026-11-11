@@ -61,46 +61,96 @@ fn ms(ms: u64) -> Duration {
     Duration::from_millis(ms)
 }
 
-/// Arms every timer from this thread at V = 0, in this order; timers armed by a timer's task are armed at its due.
-fn order() {
-    after("a300", TaskClass::Work, time::sleep(ms(300)), || {});
-    after("b100", TaskClass::Work, time::sleep(ms(100)), || {
-        // Armed at 100 for 150: due at 250 with g250, after it.
-        after("h150", TaskClass::Control, time::sleep(ms(150)), || {});
-        drop(mixdog_rt::spawn("b100-zero", TaskClass::Work, async {
-            // A zero delay is not queued: it runs inside b100's settle, before d100 fires.
-            time::sleep(Duration::ZERO).await;
-            event("b100-zero");
-        }));
-    });
-    after("c200", TaskClass::Control, time::sleep(ms(200)), || after("k50", TaskClass::Work, time::sleep(ms(50)), || {}));
-    after("d100", TaskClass::Control, time::sleep_until(time::Instant::now() + ms(100)), || after("j150", TaskClass::Work, time::sleep(ms(150)), || {}));
-    let _ticker = mixdog_rt::ticker().register(std::time::Instant::now() + ms(100), || event("e100"));
-    drop(mixdog_rt::spawn("f100", TaskClass::Work, {
-        let timeout = time::timeout(ms(100), std::future::pending::<()>());
-        async move {
-            assert!(timeout.await.is_err(), "a pending future times out");
-            event("f100");
-        }
-    }));
-    after("g250", TaskClass::Work, time::sleep(ms(250)), || {});
-    // Dropped before its due: never fires.
-    drop(time::sleep(ms(100)));
-    let cancelled = mixdog_rt::ticker().register(std::time::Instant::now() + ms(100), || event("cancelled"));
-    assert!(cancelled.cancel(), "the deadline had not fired");
-    // Node's own loop fires s90 first (its 90 ms list is queued before the re-queued 100 ms list); the recorders' queue and this
-    // clock fire q100 first, armed 10 ms earlier.
-    after("p10", TaskClass::Work, time::sleep(ms(10)), || after("q100", TaskClass::Work, time::sleep(ms(100)), || {}));
-    after("r20", TaskClass::Control, time::sleep(ms(20)), || after("s90", TaskClass::Control, time::sleep(ms(90)), || {}));
-    let mut interval = time::interval_at(time::Instant::now() + ms(50), ms(50));
-    drop(mixdog_rt::spawn("interval", TaskClass::Work, async move {
-        for _ in 0..3 {
-            interval.tick().await;
-            event("i");
-        }
-    }));
+/// The Node timer recording the replay's clock is checked against.
+const RECORDING: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/node-timer-order/golden.json");
+/// The recorded case a `node-case` core runs.
+const CASE: &str = "MIXDOG_VIRTUAL_CLOCK_TEST_CASE";
+
+fn recording() -> serde_json::Value {
+    let text = std::fs::read_to_string(RECORDING).unwrap_or_else(|error| panic!("{RECORDING}: {error}"));
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("{RECORDING}: {error}"))
 }
 
+/// The ticker deadlines of the case's timers that its script clears (`clearTimeout` is a ticker `cancel`, which takes the
+/// timer out at once).
+static CLEARABLE: std::sync::Mutex<Vec<(String, mixdog_rt::TimerHandle)>> = std::sync::Mutex::new(Vec::new());
+/// Callbacks alternate between RT-C and RT-W.
+static CLASS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn next_class() -> TaskClass {
+    if CLASS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % 2 == 0 { TaskClass::Control } else { TaskClass::Work }
+}
+
+fn millis(action: &serde_json::Value) -> Duration {
+    Duration::from_secs_f64(action["ms"].as_f64().expect("ms") / 1000.0)
+}
+
+/// Runs a recorded script's actions in order, on the calling thread or task (a timer's callback).
+fn run_script(actions: &[serde_json::Value], cleared: &[String], class: TaskClass) {
+    for action in actions {
+        let then = action["then"].as_array().cloned().unwrap_or_default();
+        let cleared_too = cleared.to_vec();
+        if let Some(name) = action["timeout"].as_str().map(str::to_owned) {
+            if cleared.contains(&name) {
+                let fire = name.clone();
+                let handle = mixdog_rt::ticker().register(std::time::Instant::now() + millis(action), move || {
+                    event(&fire);
+                    run_script(&then, &cleared_too, TaskClass::Control);
+                });
+                CLEARABLE.lock().expect("the clearable timers").push((name, handle));
+            } else {
+                let sleep = time::sleep(millis(action));
+                let class = next_class();
+                drop(mixdog_rt::spawn("timeout", class, async move {
+                    sleep.await;
+                    event(&name);
+                    run_script(&then, &cleared_too, class);
+                }));
+            }
+        } else if let Some(name) = action["interval"].as_str().map(str::to_owned) {
+            let period = millis(action);
+            let times = action["times"].as_u64().expect("times");
+            let mut interval = time::interval_at(time::Instant::now() + period, period);
+            let class = next_class();
+            drop(mixdog_rt::spawn("interval", class, async move {
+                for _ in 0..times {
+                    interval.tick().await;
+                    event(&name);
+                    run_script(&then, &cleared_too, class);
+                }
+            }));
+        } else if let Some(name) = action["clear"].as_str() {
+            let mut clearable = CLEARABLE.lock().expect("the clearable timers");
+            let at = clearable.iter().position(|(armed, _)| armed == name).unwrap_or_else(|| panic!("{name} is not armed"));
+            let _ = clearable.remove(at).1.cancel();
+        } else if let Some(name) = action["tick"].as_str().or_else(|| action["promise"].as_str()).map(str::to_owned) {
+            drop(mixdog_rt::spawn("job", class, async move { event(&name) }));
+        } else {
+            panic!("the core has no counterpart for {action}");
+        }
+    }
+}
+
+/// The timers a script (and its callbacks) clears.
+fn cleared_in(actions: &[serde_json::Value], into: &mut Vec<String>) {
+    for action in actions {
+        if let Some(name) = action["clear"].as_str() {
+            into.push(name.to_owned());
+        }
+        cleared_in(action["then"].as_array().map_or(&[][..], Vec::as_slice), into);
+    }
+}
+
+/// Arms the recorded case's script at V = 0.
+fn node_case() {
+    let name = std::env::var(CASE).expect("the case");
+    let recording = recording();
+    let case = recording["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name.as_str()).expect("the case");
+    let script = case["script"].as_array().expect("script");
+    let mut cleared = Vec::new();
+    cleared_in(script, &mut cleared);
+    run_script(script, &cleared, TaskClass::Work);
+}
 /// A timer on RT-C wakes a task on RT-W, which spawns back onto RT-C; a later timer starts a lane job whose result a task awaits.
 /// The job waits for a line on the test's I/O connection. A tokio timer armed directly fires at the first stop after its due.
 fn hops(tokens: LaneTokens) {
@@ -309,7 +359,7 @@ fn core() {
     let (_executors, tokens) = mixdog_rt::exec::boot(RtConfig::for_cores(4)).expect("the executors");
     gates();
     match role.as_str() {
-        "order" => order(),
+        "node-case" => node_case(),
         "hops" => hops(tokens),
         "io" => io(),
         "stuck" => stuck(tokens),
@@ -650,34 +700,36 @@ fn ended_by_the_clock(core: Core, cause: &str) {
     assert!(stderr.contains(&format!("mixdog virtual clock: {cause}")), "the core's stderr names {cause:?}: {stderr}");
 }
 
+/// Every case of the Node timer recording the core can express, case for case: the events in Node's firing order, each at the
+/// millisecond Node fired it, over one `advance` to the last.
 #[test]
-fn timers_fire_in_due_then_arming_order_across_runtimes_with_v_at_each_due() {
-    let (core, mut control) = started("order", &[], 30_000);
-    let mut steps: Vec<(u64, Vec<&str>)> = vec![
-        (9, vec![]),
-        (10, vec!["p10 10"]),
-        (20, vec!["r20 20"]),
-        (50, vec!["i 50"]),
-        (100, vec!["b100 100", "b100-zero 100", "d100 100", "e100 100", "f100 100", "i 100"]),
-        (110, vec!["q100 110", "s90 110"]),
-        (150, vec!["i 150"]),
-        (199, vec![]),
-        // One advance over two instants: V is each timer's due as it fires.
-        (300, vec!["c200 200", "g250 250", "h150 250", "j150 250", "k50 250", "a300 300"]),
-        (10_000, vec![]),
-    ];
-    let mut at = 0;
-    for (to, expected) in steps.drain(..) {
-        assert_eq!(control.advance(to - at), to);
-        at = to;
-        assert_eq!(core.events(expected.len()), expected, "the events up to V = {to}");
+fn node_timer_order() {
+    let recording = recording();
+    let mut replayed = 0;
+    for case in recording["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        if case["core"] != true {
+            assert!(case["core"].is_string(), "{name}: a case the core does not replay says why");
+            continue;
+        }
+        let recorded: Vec<String> = case["events"]
+            .as_array()
+            .expect("events")
+            .iter()
+            .map(|event| format!("{} {}", event[0].as_str().expect("event name"), event[1].as_u64().expect("event millisecond")))
+            .collect();
+        let end = case["events"].as_array().and_then(|events| events.last()).and_then(|event| event[1].as_u64()).expect("an event");
+        let (core, mut control) = started("node-case", &[(CASE, name.to_owned())], 30_000);
+        assert_eq!(control.advance(end), end, "{name}");
+        assert_eq!(core.events(recorded.len()), recorded, "case {name}");
+        drop(control);
+        let (code, rest) = core.ended();
+        assert_eq!(code, Some(virtual_clock::EXIT_CODE), "{name}");
+        assert!(!rest.contains("event "), "case {name}: an event after the recorded ones: {rest}");
+        replayed += 1;
     }
-    drop(control);
-    let (code, rest) = core.ended();
-    assert_eq!(code, Some(virtual_clock::EXIT_CODE));
-    assert!(!rest.contains("event "), "no event after the last expected one: {rest}");
+    assert!(replayed > 0, "the recording has cases the core replays");
 }
-
 #[test]
 fn advance_answers_after_the_cross_runtime_hops_and_lane_jobs_its_timers_started() {
     let io = TcpListener::bind("127.0.0.1:0").expect("a loopback port");

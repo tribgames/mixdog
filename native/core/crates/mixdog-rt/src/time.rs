@@ -1,6 +1,6 @@
 //! The core's timers. Without feature `virtual-clock` these are tokio's own items, re-exported. With it, and a replay's clock
-//! running the process (`virtual_clock.rs`), each sleep is a timer in that clock's queue, fired in (due, arming) order; without a
-//! replay's clock they are tokio's again.
+//! running the process (`virtual_clock.rs`), each sleep is a timer in that clock's copy of Node's timer lists, fired in Node's
+//! order; without a replay's clock they are tokio's again.
 
 #[cfg(not(feature = "virtual-clock"))]
 pub use tokio::time::Instant;
@@ -42,15 +42,16 @@ mod on_virtual_clock {
     use crate::virtual_clock::Key;
     use crate::virtual_clock::Slot;
 
-    /// `tokio::time::sleep`.
+    /// `tokio::time::sleep`; on the replay's clock, Node's `setTimeout(f, duration)`.
     pub fn sleep(duration: Duration) -> Sleep {
         let now = Instant::now();
         // As tokio: a deadline past the clock's range is about 30 years away.
         let deadline = now.checked_add(duration).unwrap_or_else(|| now + Duration::from_secs(86_400 * 365 * 30));
-        sleep_until(deadline)
+        let inner = if virtual_clock::active() { Inner::from(virtual_clock::wake_after(duration)) } else { Inner::new(deadline) };
+        Sleep { deadline, inner }
     }
 
-    /// `tokio::time::sleep_until`.
+    /// `tokio::time::sleep_until`; on the replay's clock, a timer for the deadline's distance, ready at once when that is none.
     pub fn sleep_until(deadline: Instant) -> Sleep {
         Sleep { deadline, inner: Inner::new(deadline) }
     }
@@ -65,10 +66,12 @@ mod on_virtual_clock {
         Timeout { value: Box::pin(future.into_future()), delay: sleep_until(deadline) }
     }
 
-    /// `tokio::time::interval_at`, whose missed ticks burst as tokio's default does.
+    /// `tokio::time::interval_at`. On the replay's clock, Node's `setInterval`: each tick after the first is armed when the next
+    /// [`Interval::tick`] is called (after the code the last tick ran, as Node re-inserts after the callback), for `period` from
+    /// the V the last tick fired at.
     pub fn interval_at(start: Instant, period: Duration) -> Interval {
         assert!(period > Duration::ZERO, "`period` must be non-zero.");
-        Interval { period, sleep: sleep_until(start) }
+        Interval { period, sleep: sleep_until(start), fired_at: None }
     }
 
     enum Inner {
@@ -203,24 +206,25 @@ mod on_virtual_clock {
         }
     }
 
-    /// `tokio::time::Interval` with its default (burst) missed-tick behaviour. A tick re-arms the next one as it completes, so the
-    /// next tick takes its place in the queue before the code the tick runs; on the replay's clock the next due is the last due
-    /// plus the period, whichever thread's clock the interval was made on.
+    /// `tokio::time::Interval` with its default (burst) missed-tick behaviour; on the replay's clock, Node's `setInterval`
+    /// ([`interval_at`]).
     pub struct Interval {
         period: Duration,
         sleep: Sleep,
+        /// The V the last tick fired at, on the replay's clock, until the next tick is armed.
+        fired_at: Option<u64>,
     }
 
     impl Interval {
         pub async fn tick(&mut self) -> Instant {
+            if let Some(start) = self.fired_at.take() {
+                self.sleep.inner = Inner::from(virtual_clock::wake_from(start, self.period));
+                self.sleep.deadline += self.period;
+            }
             (&mut self.sleep).await;
             let at = self.sleep.deadline();
             match &mut self.sleep.inner {
-                Inner::Virtual { due, .. } => {
-                    let next = virtual_clock::wake_on(due.saturating_add(virtual_clock::whole_ms(self.period)));
-                    self.sleep.inner = Inner::from(next);
-                    self.sleep.deadline = at + self.period;
-                }
+                Inner::Virtual { due, .. } => self.fired_at = Some(*due),
                 Inner::Tokio(sleep) => sleep.as_mut().reset(at + self.period),
             }
             at
