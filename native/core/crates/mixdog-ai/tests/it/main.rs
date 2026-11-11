@@ -22,6 +22,7 @@ mod process_state;
 mod provider_case;
 mod provider_cases;
 mod replay_compat_stream_lifecycle;
+mod replay_errors;
 mod replay_openai_ws_delta;
 mod replay_session_provider_replay;
 mod replay_transport_policy;
