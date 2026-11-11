@@ -281,7 +281,7 @@ fn stack(dir: &Path) -> Stack {
     let admin = Arc::new(PluginAdmin::new(data.clone(), Arc::new(NoGit), Arc::new(|| {})));
     let declarations = Arc::new(DeclarationCache::new());
     let hub = McpHub::new(
-        mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+        mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
         data.join("tool-results"),
         mixdog_mcp::result::OutputPolicy::default(),
     );

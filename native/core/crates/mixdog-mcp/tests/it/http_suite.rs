@@ -104,7 +104,7 @@ async fn handshake_session_json_and_sse_responses_work_over_http() {
     let server_task = tokio::spawn(serve(listener, Arc::clone(&seen)));
 
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp"), "headers": {"X-Key": "secret-value"}});
     let config = McpServerConfig::from_entry("web", &entry, &Default::default()).unwrap();
     let dir = tempfile::tempdir().unwrap();

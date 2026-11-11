@@ -207,7 +207,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
     tokio::spawn(serve(listener, Arc::clone(&shared)));
 
     let tokens = mixdog_rt::testing::tokens();
-    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());

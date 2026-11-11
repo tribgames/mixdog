@@ -227,7 +227,7 @@ async fn the_mcp_callback_answers_as_nodes() {
         let timeout = case["timeoutMs"].as_u64().unwrap();
         LOGIN_DEADLINE_MS.store(if timeout == 0 { 0 } else if case["afterHeld"] == true { 1500 } else { 400 }, Ordering::SeqCst);
         let tokens = mixdog_rt::testing::tokens();
-        let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
+        let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
         let dir = tempfile::tempdir().unwrap();
         let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
         hub.set_oauth_env(OAuthEnv { store: Arc::clone(&spy) as Arc<dyn SecretStore>, plugin_data: dir.path().to_path_buf(), io: io.durability });
