@@ -123,17 +123,6 @@ cases.push(run('resumed catalogs drop legacy staging tools but retain GitHub on 
   t.render(['git_stage'], 'lead');
 }));
 
-// Steps not replayed, by op, with the reason.
-const excluded = {
-  render:
-    "OPEN (port decision): `renderToolSearch` on a native-provider session (openai-oauth, anthropic-oauth: no toolExposureMode) selects " +
-    'the tools and answers `{selected, nativeToolSearch, loaded, alreadyActive, missing, blocked}`; the core\'s `load_tool` ' +
-    '(orch/bridge.rs over SessionCatalog) only describes, as Node\'s bridge mode does, and has no native branch',
-  select:
-    "OPEN (port decision): `selectDeferredTools` without `exact` is what Node's native `load_tool` runs; the core selects only for a " +
-    "skill's dependencies (HeaderSkillArm, `exact: true`), so no core entry point runs this selection",
-};
-
 const finalDir = join(FIXTURES_ROOT, 'tool-catalog-rebuild-cases');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { note: `Node's deferred tool surface at ${NODE_COMMIT}, per case of ${RECORDER}`, test: TEST, cases });
@@ -144,8 +133,11 @@ writeSetManifest(stage, {
   identity,
   extra: {
     ...recorderProvenance(import.meta.url),
-    compared: 'per open/set/apply step: the whole session afterwards; per union step: the whole catalog union',
-    excluded,
+    compared:
+      'per open/set/apply step: the whole session afterwards; per union step: the whole catalog union; per render step ' +
+      '(renderToolSearch, the native load_tool): the whole answer text and the whole session afterwards; per select step: ' +
+      'the whole selection and the session afterwards',
+    excluded: {},
   },
 });
 commitStage(stage, finalDir);
