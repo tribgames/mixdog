@@ -33,7 +33,7 @@ function phone() {
       const heldSnapshot = structuredClone(decoded.snapshot);
       if (!decoded.ok) throw new Error('the phone decoder refused a frame');
       held = heldSnapshot;
-      wires.push({ bytes: Buffer.byteLength(text), wire: structuredClone(wire) });
+      wires.push({ bytes: Buffer.byteLength(text), wireText: text });
       return { snapshot: held, bytes: Buffer.byteLength(text) };
     },
     get held() { return held; },
@@ -161,7 +161,7 @@ await set.run('an oversized message row is sent whole, so a first page with it i
 });
 
 await set.finish({
-  entry: { runs: 'encodePhoneSessionState / requestPhoneTranscriptPage over the snapshot delta encoder (prepend) and decoder; remoteToolOutput; viewIsStale; the host live window (requestLiveTranscriptWindow, windowTranscriptSnapshot, loadLiveTranscriptHead) over a transcript spill buffer with a stubbed worker, archiveItemsForCompaction', notRun: 'the relay transport; the spill worker thread is a stub, the spill buffer is the runtime\'s' },
+  entry: { hops: "The relay hop is JSON: each frame is recorded as the text that crossed (`wireText`), the decoder reads JSON.parse of it, as in the Node test.", runs: 'encodePhoneSessionState / requestPhoneTranscriptPage over the snapshot delta encoder (prepend) and decoder; remoteToolOutput; viewIsStale; the host live window (requestLiveTranscriptWindow, windowTranscriptSnapshot, loadLiveTranscriptHead) over a transcript spill buffer with a stubbed worker, archiveItemsForCompaction', notRun: 'the relay transport; the spill worker thread is a stub, the spill buffer is the runtime\'s' },
   replay: { entry: 'mixdog-app-server thread/items/list paging and the phone transcript window: feed each case\'s rows and page requests; compare ids, byte counts, truncation fields, notes and wires (whole)', normalised: {} },
 });
 process.exit(0);

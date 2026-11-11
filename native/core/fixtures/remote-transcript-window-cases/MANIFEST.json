@@ -2,6 +2,7 @@
   "cases": 7,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-remote-transcript-window-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "hops": "The relay hop is JSON: each frame is recorded as the text that crossed (`wireText`), the decoder reads JSON.parse of it, as in the Node test.",
     "notRun": "the relay transport; the spill worker thread is a stub, the spill buffer is the runtime's",
     "runs": "encodePhoneSessionState / requestPhoneTranscriptPage over the snapshot delta encoder (prepend) and decoder; remoteToolOutput; viewIsStale; the host live window (requestLiveTranscriptWindow, windowTranscriptSnapshot, loadLiveTranscriptHead) over a transcript spill buffer with a stubbed worker, archiveItemsForCompaction"
   },
@@ -9,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2970746,
+      "bytes": 2950690,
       "path": "golden.json",
-      "sha256": "2d22516f5557147c81fe39f3fa73b174cfd218242d4b502620eeca48eafdf934"
+      "sha256": "2f2e42fa6a461c56ef36f68c0b63673e74c11648f82a07f02f02adc19d36107e"
     }
   ],
   "inputs": [
@@ -63,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-remote-transcript-window-cases.mjs",
-  "recorderSha256": "1f4395daa052d7fac12f41543766a1dfc8563800139795b9b1757ad83ccda18c",
+  "recorderSha256": "908665681614e869fafa8ff7df81cfa2414e44b2d77c0a4a7800a5559e427220",
   "replay": {
     "compare": "mixdog-app-server thread/items/list paging and the phone transcript window: feed each case's rows and page requests; compare ids, byte counts, truncation fields, notes and wires (whole)",
     "entry": "Drive these public items on o1: thread/items/list (mixdog-app-protocol/src/methods.rs:185).",
@@ -78,6 +79,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "remote-transcript-window-cases",
-  "totalBytes": 2970746,
+  "totalBytes": 2950690,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
