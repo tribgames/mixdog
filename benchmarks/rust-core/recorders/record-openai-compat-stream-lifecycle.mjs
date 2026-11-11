@@ -99,7 +99,7 @@ await rec.run('responses-failure-constructors-carry-the-provider-label', `${SRC}
   const salvage = { events: salvageEvents, ...(await rejection(consumeCompatResponsesStream(arrayStream(salvageEvents), { label, responseOutputText: () => '', parseResponsesToolCalls: () => [] }))) };
   return { rows, salvage };
 });
-await rec.run('responses-unresolved-call-then-completed-carries-partial-usage', `${SRC}:268`, {}, async () => {
+await rec.run('responses-unresolved-call-then-completed-carries-partial-usage', `${SRC}:284`, {}, async () => {
   const usage = { input_tokens: 11, output_tokens: 7, total_tokens: 18 };
   const events = [{ type: 'response.function_call_arguments.done', item_id: 'item_1', arguments: '{}' }, { type: 'response.completed', response: { id: 'r1', status: 'completed', output: [], usage } }];
   return { events, ...(await rejection(consumeCompatResponsesStream(arrayStream(events), { label: 'fixture', responseOutputText: () => '', parseResponsesToolCalls: () => [] }))) };
@@ -129,7 +129,7 @@ const waitingStream = (firstEvent) => {
 for (const { name, consume, event } of protocols) {
   const slug = name.split(' ')[0].toLowerCase();
   for (const interruption of ['cancel', 'idle']) {
-    await rec.run(`${slug}-${interruption}-releases-pending-read-and-signal-listener`, `${SRC}:297`, { firstEvent: event, interruption, ...(interruption === 'idle' ? { semanticIdleTimeoutMs: 20, advanceMs: [20] } : { abortReason: { name: 'AbortError', message: 'caller cancellation' } }) }, async () => {
+    await rec.run(`${slug}-${interruption}-releases-pending-read-and-signal-listener`, `${SRC}:312`, { firstEvent: event, interruption, ...(interruption === 'idle' ? { semanticIdleTimeoutMs: 20, advanceMs: [20] } : { abortReason: { name: 'AbortError', message: 'caller cancellation' } }) }, async () => {
       const controller = new AbortController();
       const stream = waitingStream(event);
       const reason = new Error('caller cancellation');
