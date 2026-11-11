@@ -13,7 +13,9 @@ import { scriptUuids } from './lib/scripted-uuid.mjs';
 import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
 
 const scriptedUuids = scriptUuids();
-const set = openSet('model-proxy-host-cases', import.meta.url);
+// An AbortSignal has no whole form: it is stored as { aborted, reason } (reason through exact), the one stand-in, declared in the manifest.
+const abortSignalForm = (signal) => ({ aborted: signal.aborted, reason: signal.reason });
+const set = openSet('model-proxy-host-cases', import.meta.url, { classes: { AbortSignal: abortSignalForm } });
 const { tree } = set;
 const A = 'apps/desktop/src/main/';
 const R = 'src/runtime/';
@@ -28,6 +30,7 @@ const DEADLINE_MS = 10_000;
 const disposers = [];
 /** Every message that crosses the JSON hop between the PC host and the daemon channel, as the text that crossed (the hop stands for the session connection: JSON over HTTP). */
 let wireLog = [];
+const deliveries = [];
 const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
 /** The event that ends a step, with a deadline on the real clock (the clock the code under test sees is virtual). */
 const settled = (label, promise, limitMs = DEADLINE_MS) => realDeadline(label, promise, limitMs);
@@ -53,11 +56,14 @@ function connect(runtime, { intercept = null, channel = new ModelProxyChannel(),
     const text = JSON.stringify(snapshot);
     wireLog.push({ direction: 'daemon->pc event', operation: MODEL_PROXY_REQUEST_EVENT, text });
     const value = JSON.parse(text);
-    setImmediate(() => host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, value));
+    // The delivery is the connection's: a later turn, as in the Node test; the handler having been called is recorded and awaited (see run).
+    deliveries.push(new Promise((resolve) => setImmediate(() => { host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, value); wireLog.push({ direction: 'host handled event', operation: MODEL_PROXY_REQUEST_EVENT }); resolve(); })));
   });
   disposers.push(() => { detach(); host.dispose(); });
   return { channel, host, operations, settledCalls, callSettled };
 }
+// Functions have no exact form: an options object is stored whole with each function written { function: <name> }.
+const functionsNamed = (options) => Object.fromEntries(Object.entries(options).map(([key, value]) => [key, typeof value === 'function' ? { function: value.name } : value]));
 const fakeRuntime = (providers, extra = {}) => ({ provider: async (name) => providers[name], providerConfig: async () => ({ providers: {}, ready: true }), finalizeTools: (tools) => tools, ...extra });
 function hangingProvider() {
   const started = Promise.withResolvers();
@@ -98,7 +104,7 @@ async function driven(virtual, label, promise, timersMs) {
     const virtual = virtualTimers();
     wireLog = [];
     Date.now = () => FIXED_NOW + virtual.elapsed(); // the daemon side reads Date.now for its deadlines: it follows the virtual clock
-    try { const observed = await fn(virtual); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); virtual.restore(); Date.now = () => FIXED_NOW; }
+    try { const observed = await fn(virtual); while (deliveries.length) await settled('the daemon->PC event to reach the host handler', Promise.all(deliveries.splice(0))); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); virtual.restore(); Date.now = () => FIXED_NOW; }
   }, extra);
 }
 
@@ -160,7 +166,7 @@ await run('the PC runs the call with its own provider and streams every callback
   const calls = [];
   const provider = {
     async send(messages, model, tools, options) {
-      calls.push({ messages, model, tools, options: Object.keys(options) });
+      calls.push({ messages, model, tools, options: functionsNamed(options) });
       options.onStageChange('streaming'); options.onTextDelta('Hel'); options.onTextDelta('lo');
       const acked = await options.onTextReset({ chars: 5 });
       options.onTextDelta(acked === true ? 'again' : 'unacked');
@@ -288,7 +294,7 @@ await run('server send options are reduced to the allowlist', async () => {
   const { channel } = connect(fakeRuntime({ openai: provider }));
   const options = { sessionId: 's1', temperature: 0.2, baseURL: 'http://attacker.example', requestHeaders: { authorization: 'Bearer x' }, extraBody: { stolen: true }, codexInstallationId: 'pc-identity', toolExecutionSessionId: 'daemon-session', _providerSeam: true };
   await send(channel, 'openai', { options });
-  return { options, seenKeys: Object.keys(seen), signal: { class: seen.signal?.constructor?.name, aborted: seen.signal?.aborted }, toolExecutionSessionId: seen.toolExecutionSessionId, sessionId: seen.sessionId, temperature: seen.temperature };
+  return { options, seen };
 });
 await run('a proxied side request gets its own transport scope on the PC, disposed when the request ends', async () => {
   const closed = []; const previousHook = globalThis.__mixdogCloseProviderConnectionsForSession;
@@ -542,7 +548,8 @@ await run('proxy credential presence follows the registry OAuth set and resolveP
 });
 
 await set.finish({
-  entry: { hops: "The PC host and the daemon channel are joined, as in the Node test, by a JSON hop standing for the desktop session connection (JSON over HTTP). Every message that crosses it is recorded as the text that crossed, in order, under each case's `wire` (host->daemon operation + args text, daemon->host reply text, daemon->host request-event text); the host and the channel receive what JSON.parse of that text gives, so nothing passes that JSON changed unrecorded.",
+  entry: { standIns: { AbortSignal: 'an AbortSignal is stored as { aborted, reason } (reason through exact); a function inside provider options is stored as { function: <name> }' },
+    hops: "The PC host and the daemon channel are joined, as in the Node test, by a JSON hop standing for the desktop session connection (JSON over HTTP). Every message that crosses it is recorded as the text that crossed, in order, under each case's `wire` (host->daemon operation + args text, daemon->host reply text, daemon->host request-event text); the host and the channel receive what JSON.parse of that text gives, so nothing passes that JSON changed unrecorded.",
     runs: 'apps/desktop/src/main/model-proxy-host.ts (createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe) over the real ModelProxyChannel, ModelProxyProvider and loadModelProxyProviderConfig of the daemon side, joined through a JSON hop as the session connection does; resolveWireRoute / pinSessionWireRoute; the real provider-api-key helpers',
     notRun: 'no real provider: the PC providers and registry modules are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock', scripted: scriptedUuids,
   },
