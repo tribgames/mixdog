@@ -172,7 +172,7 @@ async fn watch_owner(
             _ = facts.changed() => {}
             () = async {
                 match lapses_at {
-                    Some(at) => tokio::time::sleep_until(at).await,
+                    Some(at) => mixdog_rt::time::sleep_until(at).await,
                     None => std::future::pending().await,
                 }
             } => {}
@@ -370,7 +370,7 @@ impl Lane {
             loop {
                 let until = locked(&lane.state).cooldown_until;
                 match until {
-                    Some(until) if until > Instant::now() => tokio::time::sleep_until(until).await,
+                    Some(until) if until > Instant::now() => mixdog_rt::time::sleep_until(until).await,
                     _ => break,
                 }
             }

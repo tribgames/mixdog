@@ -19,6 +19,8 @@ use mixdog_agent::agent_tool::scope::TagRecord;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::agent::AgentReply;
 use mixdog_tools::orch::agent::JobRow;
+use mixdog_tools::orch::agent::TaskResult;
+use mixdog_tools::orch::agent::TaskView;
 use mixdog_tools::orch::agent::WorkerRow;
 use serde_json::Value;
 use serde_json::json;
@@ -32,6 +34,10 @@ struct World {
     /// `(tag, session id)`, in the order the workers were opened.
     workers: Mutex<Vec<(String, String)>>,
     trace: Mutex<Vec<Value>>,
+    /// What the views hand back for a read (`sensitive-gaps` golden: `taskId`, `sessionId`, `view`, `result`).
+    job: Option<Value>,
+    handoff: Option<String>,
+    marks: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
 }
 
 impl World {
@@ -155,7 +161,10 @@ impl Sessions for Fakes {
         true
     }
     async fn read_session_handoff(&self, _: &str) -> Option<String> {
-        None
+        self.0.handoff.clone()
+    }
+    fn redact_text(&self, session_id: &str, text: String) -> String {
+        self.0.marks.redact_text(session_id, &text)
     }
     async fn close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> bool {
         let mut opts = json!({ "tombstone": options.tombstone });
@@ -187,7 +196,22 @@ impl Tasks for Fakes {
 #[async_trait]
 impl Views for Fakes {
     async fn get_job_or_worker(&self, _: &Value, _: &Scope, _: bool) -> Result<Job, String> {
-        Err("no job in the world".into())
+        let job = self.0.job.as_ref().ok_or("no job in the world")?;
+        let text = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).map(str::to_owned);
+        let view = &job["view"];
+        Ok(Job {
+            task_id: text(job, "taskId"),
+            session_id: text(job, "sessionId"),
+            view: TaskView {
+                task_id: text(view, "task_id").unwrap_or_default(),
+                status: text(view, "status"),
+                kind: text(view, "type"),
+                tag: text(view, "tag"),
+                session_id: text(view, "sessionId"),
+                result: text(job, "result").map(TaskResult::Content),
+                ..TaskView::default()
+            },
+        })
     }
     async fn list(&self, _: &Scope, _: ListOptions) -> Vec<WorkerRow> {
         self.0
@@ -226,6 +250,58 @@ impl CallerScopes for NoScopes {
     }
 }
 
+fn runtime(world: &Arc<World>) -> AgentRuntime {
+    let fakes = Arc::new(Fakes(world.clone()));
+    AgentRuntime::new(AgentDeps {
+        registry: fakes.clone(),
+        send_flow: fakes.clone(),
+        spawn_flow: fakes.clone(),
+        terminal_trace: fakes.clone(),
+        sessions: fakes.clone(),
+        tasks: fakes.clone(),
+        views: fakes.clone(),
+        env: fakes.clone(),
+        catalog: None,
+        default_cwd: world.cwd.clone(),
+        scopes: Arc::new(NoScopes),
+        errors: Arc::new(PlainErrorText),
+    })
+}
+
+/// A browser fill with sensitive:true whose fields are `values`, as the recorder marks a session.
+fn fill_of(values: &Value) -> Value {
+    let fields: Vec<Value> = values.as_array().unwrap().iter().map(|text| json!({ "text": text })).collect();
+    json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": fields } } })
+}
+
+/// The agent tool's `read` of a worker against `fixtures/sensitive-gaps/golden.json` (`read`), recorded from Node with the
+/// sensitive-value patches (`record-sensitive-gaps.mjs`): the same marks, job and handoff, the same rendered answer.
+#[tokio::test]
+async fn a_read_of_a_worker_answers_what_patched_node_answered() {
+    let golden: Value = serde_json::from_str(&mixdog_testkit::read_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sensitive-gaps/golden.json"))).unwrap();
+    let cases = golden["read"].as_array().unwrap();
+    assert_eq!(cases.len(), 7);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let marks = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+        for mark in case["marks"].as_array().unwrap() {
+            assert!(marks.remember(mark["session"].as_str().unwrap(), &[fill_of(&mark["values"])]), "{name}");
+        }
+        let world = Arc::new(World {
+            session: "lead1".into(),
+            cwd: "/work".into(),
+            workers: Mutex::default(),
+            trace: Mutex::default(),
+            job: Some(case["job"].clone()),
+            handoff: case["handoff"].as_str().map(str::to_owned),
+            marks,
+        });
+        let caller = mixdog_agent::agent_tool::scope::Caller { scope: Scope { caller_session_id: Some("lead1".into()), host_pid: Some(4242) }, cwd: "/work".into() };
+        let reply = runtime(&world).handle(&case["args"], &caller).await;
+        assert_eq!(mixdog_tools::orch::agent::render(&reply, case["args"]["tag"].as_str().unwrap_or_default()), case["result"].as_str().unwrap(), "{name}");
+    }
+}
+
 #[tokio::test]
 async fn agent_control_equals_the_real_executor_over_a_world_that_keeps_state() {
     let text = include_str!("../../../../fixtures/turn-ops/agent-control.json");
@@ -238,22 +314,11 @@ async fn agent_control_equals_the_real_executor_over_a_world_that_keeps_state() 
             cwd: case["cwd"].as_str().unwrap().to_owned(),
             workers: Mutex::new(case["workers"].as_array().unwrap().iter().map(|t| (t.as_str().unwrap().to_owned(), format!("sess_{}", t.as_str().unwrap()))).collect()),
             trace: Mutex::new(Vec::new()),
+            job: None,
+            handoff: None,
+            marks: Arc::default(),
         });
-        let fakes = Arc::new(Fakes(world.clone()));
-        let agents = AgentRuntime::new(AgentDeps {
-            registry: fakes.clone(),
-            send_flow: fakes.clone(),
-            spawn_flow: fakes.clone(),
-            terminal_trace: fakes.clone(),
-            sessions: fakes.clone(),
-            tasks: fakes.clone(),
-            views: fakes.clone(),
-            env: fakes.clone(),
-            catalog: None,
-            default_cwd: world.cwd.clone(),
-            scopes: Arc::new(NoScopes),
-            errors: Arc::new(PlainErrorText),
-        });
+        let agents = runtime(&world);
         let mut header = serde_json::Map::new();
         header.insert("cwd".into(), case["cwd"].clone());
         if let Some(pid) = case["session"].get("clientHostPid") {

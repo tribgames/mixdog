@@ -25,7 +25,7 @@ pub struct TimerWait;
 #[async_trait]
 impl RetryWait for TimerWait {
     async fn wait(&self, delay: Duration) {
-        tokio::time::sleep(delay).await;
+        mixdog_rt::time::sleep(delay).await;
     }
 }
 

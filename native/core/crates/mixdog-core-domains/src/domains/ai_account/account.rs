@@ -266,7 +266,7 @@ impl AccountService {
         history
     }
 
-    async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
+    async fn dispatch(&self, method: &str, params: &Value, body_lone_units: usize) -> Result<Value, CoreError> {
         let admin = &self.admin;
         let provider = str_param(params, "providerId");
         let ok = Value::Bool(true);
@@ -315,7 +315,7 @@ impl AccountService {
                     .map_err(into)?;
                 ok
             }
-            "account/saveCustomProvider" => self.custom.save(params["input"].clone()).await.map_err(into)?,
+            "account/saveCustomProvider" => self.custom.save(params["input"].clone(), body_lone_units).await.map_err(into)?,
             "account/saveCustomProviderKey" => {
                 self.custom.save_key(provider, &params["secret"]).await.map_err(into)?
             }
@@ -325,12 +325,12 @@ impl AccountService {
                 .update_model(provider, str_param(params, "modelId"), params.get("patch").cloned())
                 .await
                 .map_err(into)?,
-            "account/testCustomProvider" => self.custom.test(params["input"].clone()).await.map_err(into)?,
+            "account/testCustomProvider" => self.custom.test(params["input"].clone(), body_lone_units).await.map_err(into)?,
             "account/checkCustomProviderKeyEnv" => {
                 ProviderAdmin::check_custom_provider_key_env(str_param(params, "name")).map_err(into)?
             }
             "account/discoverCustomProviderModels" => {
-                self.custom.discover_models(params["input"].clone()).await.map_err(into)?
+                self.custom.discover_models(params["input"].clone(), body_lone_units).await.map_err(into)?
             }
             "account/saveOpenAIUsageSessionKey" => {
                 admin.save_openai_usage_session_key(str_param(params, "secret")).await.map_err(into)?;
@@ -375,9 +375,17 @@ fn external_effect(method: &str, params: &Value) -> Option<(&'static str, String
 impl DomainService for AccountService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let method = req.method.as_str();
+        // The lone surrogates a custom provider's `requestBody` held (only its top-level values are free text): its size limit
+        // counts each as Node's `JSON.stringify` writes it.
+        let body_lone_units = req
+            .ctx
+            .lone_surrogates
+            .iter()
+            .filter(|at| matches!(at, mixdog_js::LoneAt::Unit { pointer, .. } if pointer.starts_with("/input/requestBody/")))
+            .count();
         match method {
             "account/getOAuthProviderLoginStatus" | "account/listWebSearchModels" | "account/getQuotaHistory" => {
-                Ok(Reply::Value(self.dispatch(method, &req.params).await?))
+                Ok(Reply::Value(self.dispatch(method, &req.params, body_lone_units).await?))
             }
             m if m.starts_with("account/") => {
                 let external = external_effect(method, &req.params);
@@ -386,7 +394,7 @@ impl DomainService for AccountService {
                     .run(
                         &req,
                         external,
-                        || async { self.dispatch(method, &req.params).await },
+                        || async { self.dispatch(method, &req.params, body_lone_units).await },
                         || async { Ok(Value::Null) },
                     )
                     .await?;

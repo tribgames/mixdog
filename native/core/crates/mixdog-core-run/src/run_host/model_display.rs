@@ -182,12 +182,12 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/hop-host/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/hop-host/golden.json");
 
     /// Every model id and hint the recorder tried reads as Node's `displayModelName` reads it.
     #[test]
     fn every_name_is_the_one_node_shows() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let cases = golden["display"].as_array().unwrap();
         assert!(cases.len() > 200);
         for case in cases {

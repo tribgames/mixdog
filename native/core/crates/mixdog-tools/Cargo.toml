@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Development only: `ToolPolicy::with_observer`, told the gate's verdict of every call the pipeline judges, which it may replace.
+policy-observer = []
+
 [dependencies]
 mixdog-ai = { workspace = true }
 mixdog-sandboxing = { workspace = true }
@@ -39,14 +43,14 @@ futures = { workspace = true, features = ["std", "alloc"] }
 chrono = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 
-# code_graph / git / github (WP-GRAPH-GIT). mixdog-graph is linked as a library by path; it is
-# not a workspace member (its own lockfile and release profile stay untouched).
+# code_graph / git / github (WP-GRAPH-GIT). mixdog-graph is linked as a library: crates/mixdog-graph builds
+# native/mixdog-graph's sources (its own lockfile and release profile stay untouched).
 mixdog-rt = { workspace = true }
-mixdog-graph = { path = "../../../mixdog-graph" }
+mixdog-graph = { workspace = true }
 # exec (WP-TOOLS-EXEC): the shell and task tools register their tasks in WP-PROC's TaskRegistry.
 # `core-test` (the test seams: scripted terminals, mixdog-rt's test-support, mixdog-core-api's mock) is asked for
 # under [dev-dependencies] only: named here it reached the shipped binary.
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-spawn = { workspace = true, features = ["core"] }
 rayon = { workspace = true }
 shlex = { workspace = true }
 # fs tools (WP-TOOLS-FS)
@@ -56,13 +60,15 @@ sha2 = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
+mixdog-testkit = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 tokio = { workspace = true, features = ["test-util"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
@@ -73,11 +79,15 @@ mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", 
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-protocol = { workspace = true }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-tools = { path = ".", features = ["policy-observer"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Globalization", "Win32_Networking_WinSock"] }
 # computer: in-process input injection, input-desktop identity and screen frames (WP-COMPUTER).
-mixdog-secure-desktop = { path = "../../../mixdog-secure-desktop" }
+mixdog-secure-desktop = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

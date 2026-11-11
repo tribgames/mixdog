@@ -349,7 +349,13 @@ mod tests {
         let tasks = Arc::new(TaskRegistry::new(Arc::new(NoPublisher), || 1_767_323_045_678));
         let runtime = ExecRuntime::new(ExecConfig {
             tasks: tasks.clone(),
-            lanes: IoLanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            lanes: IoLanes {
+                interactive: tokens.interactive_io,
+                durability: tokens.durability_io,
+                maintenance: tokens.maintenance_io,
+                spawn: tokens.spawn_io,
+                pty: tokens.pty_io,
+            },
             spill_dir: dir.join("jobs"),
             data_dir: None,
             skill_launcher_dir: None,

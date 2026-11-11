@@ -377,11 +377,13 @@ fn normalize_headers(raw: Option<&Value>, label: &str, refused: &[&str]) -> Chec
 }
 
 /// Extra JSON request fields: a shallow object, size-capped; the keys the app builds the
-/// request from can never be set.
-fn normalize_request_body(raw: Option<&Value>, label: &str) -> Checked<Obj> {
+/// request from can never be set. The size is Node's `JSON.stringify(raw).length`: each of the
+/// `lone_units` lone surrogates the client's body held (read as U+FFFD, one unit here) is the
+/// six units of its `\udXXX` escape there.
+fn normalize_request_body(raw: Option<&Value>, label: &str, lone_units: usize) -> Checked<Obj> {
     let Some(raw) = raw else { return Ok(Obj::new()) };
     let Some(object) = raw.as_object() else { return fail(format!("{label} must be a JSON object")) };
-    let size = utf16_len(&mixdog_js::json_stringify(raw));
+    let size = utf16_len(&mixdog_js::json_stringify(raw)) + 5 * lone_units;
     if size > REQUEST_BODY_MAX_CHARS {
         return fail(format!("{label} must be at most {REQUEST_BODY_MAX_CHARS} characters"));
     }
@@ -437,7 +439,7 @@ fn normalize_override(id: &str, raw: &Value, protocol: &str, legacy: bool) -> Ch
             out.insert("reasoning".into(), Value::Object(reasoning));
         }
     }
-    let body = normalize_request_body(object.get("requestBody"), &format!("{label}.requestBody"))?;
+    let body = normalize_request_body(object.get("requestBody"), &format!("{label}.requestBody"), 0)?;
     if !body.is_empty() {
         out.insert("requestBody".into(), Value::Object(body));
     }
@@ -562,6 +564,12 @@ fn migrate_legacy(input: &Obj) -> Checked<Obj> {
 /// Normalized, secret-free v2 config. Legacy (no `schemaVersion`) input is migrated
 /// deterministically; unknown future versions are rejected. `Err` is the message Node throws.
 pub fn normalize(input: &Value) -> Checked<Value> {
+    normalize_input(input, 0)
+}
+
+/// [`normalize`] of a client's input whose top-level `requestBody` held `body_lone_units` lone
+/// surrogates (`CallContext::lone_surrogates`), each measured as Node measures it.
+pub fn normalize_input(input: &Value, body_lone_units: usize) -> Checked<Value> {
     let Some(input) = input.as_object() else { return fail("config must be an object") };
     let version = input.get("schemaVersion").filter(|version| !version.is_null());
     let legacy = version.is_none();
@@ -648,7 +656,7 @@ pub fn normalize(input: &Value) -> Checked<Value> {
     let wires = normalize_wires(source.get("wires"), &protocol)?;
     let model_wires = normalize_model_wires(source.get("modelWires"), &protocol, wires.as_deref())?;
     let headers = normalize_headers(source.get("headers"), "headers", &[])?;
-    let request_body = normalize_request_body(source.get("requestBody"), "requestBody")?;
+    let request_body = normalize_request_body(source.get("requestBody"), "requestBody", body_lone_units)?;
     let base_url = normalize_base_url(source.get("baseURL"))?;
     let overrides = normalize_overrides(source.get("modelOverrides"), &protocol, legacy)?;
     let mut out = Obj::new();

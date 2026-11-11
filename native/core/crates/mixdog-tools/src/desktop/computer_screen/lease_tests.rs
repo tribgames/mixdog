@@ -40,7 +40,7 @@ use super::testing::log_take;
 use super::testing::manifest_names;
 use super::testing::next_turn;
 
-const RECORDING: &str = include_str!("../../../../../fixtures/screen-control/lease/scenarios.json");
+const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/screen-control/lease/scenarios.json");
 const MANIFEST: &str = include_str!("../../../../../fixtures/screen-control/lease/MANIFEST.json");
 
 /// The recorder's fake frame, carried whole.
@@ -439,7 +439,7 @@ async fn play(replay: Replay, scenario: Value) -> (Vec<Value>, Value) {
 
 #[test]
 fn every_recorded_lease_scenario_replays_to_nodes_whole_trace() {
-    let recording: Value = serde_json::from_str(RECORDING).expect("the recording parses");
+    let recording: Value = serde_json::from_str(&RECORDING).expect("the recording parses");
     assert_eq!(recording["declinedOnPc"], DECLINED_ON_PC, "the latched decline's text");
     let scenarios = recording["scenarios"].as_array().expect("scenarios");
     manifest_names(MANIFEST, scenarios);

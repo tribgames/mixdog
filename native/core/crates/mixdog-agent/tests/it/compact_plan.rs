@@ -62,7 +62,7 @@ fn definitions(tools: &[Value]) -> Vec<ToolDefinition> {
 
 #[test]
 fn the_plan_numbers_equal_nodes() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/compaction-plan/golden.json")).expect("golden json");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/compaction-plan/golden.json")).expect("golden json");
     let owner = replay_owner();
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let mut differ = Vec::new();

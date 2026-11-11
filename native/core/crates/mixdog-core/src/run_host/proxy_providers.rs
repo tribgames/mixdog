@@ -131,13 +131,13 @@ impl Inner {
         let outcome = loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             // The request is bounded by what is left of the budget ("the desktop provider request timed out").
-            match tokio::time::timeout(remaining, self.ask()).await {
+            match mixdog_rt::time::timeout(remaining, self.ask()).await {
                 Ok(Ok((providers, true))) => break Ok(Some(providers)),
                 Ok(Err(Ask::Failed(message))) => break Err(Failure::error(message)),
                 Ok(Err(Ask::NoClient)) => {
                     // `whenConnected(remaining)`: until a client connects, or the budget is spent.
                     let remaining = deadline.saturating_duration_since(Instant::now());
-                    match tokio::time::timeout(remaining, changes.changed()).await {
+                    match mixdog_rt::time::timeout(remaining, changes.changed()).await {
                         Ok(Ok(())) => continue,
                         _ => break Ok(None),
                     }
@@ -147,7 +147,7 @@ impl Inner {
             if Instant::now() + delay > deadline {
                 break Ok(None);
             }
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             delay = (delay * 2).min(RETRY_MAX);
         };
         // An older read may finish after a forced one: only the newest read, under the generation it started in, publishes.
@@ -351,7 +351,7 @@ mod tests {
             if let Some(after) = connect_after {
                 let (pc, epoch) = (pc.clone(), epoch.clone());
                 tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(after)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(after)).await;
                     pc.connected.store(true, Ordering::SeqCst);
                     epoch.changed();
                 });

@@ -92,8 +92,11 @@ pub trait OutputFilter: Send {
     /// Output still held back when the stream ends.
     fn finish(&mut self) -> Vec<u8>;
     /// The chunk the last `filter` or `finish` returned is entering the feed (its flow gate let it in): called under the feed's lock,
-    /// never for a chunk the feed drops.
-    fn admitted(&mut self) {}
+    /// never for a chunk the feed drops. True when something now waits for the pump to take exactly this chunk (a terminal tab's
+    /// activity change): the feed keeps the chunk an event of its own (see [`crate::feed::Feed::admit`]).
+    fn admitted(&mut self) -> bool {
+        false
+    }
 }
 
 /// Runs on the process's waiter thread once the root has ended and its output pipes are finished
@@ -112,6 +115,9 @@ pub struct SpawnOptions {
     /// A terminal tab's exit, raised when node-pty raised it (see [`NodePtyExit`]) instead of after [`ProcessConfig::output_drain`].
     /// Only a Windows pseudo-console process uses it.
     pub node_pty_exit: Option<NodePtyExit>,
+    /// The process is the framed scripted shell (`crate::scripted::in_place_of`): its output reaches the feed one whole scripted frame per output ([`frame_loop`]).
+    #[cfg(feature = "scripted-shell")]
+    pub scripted_frames: bool,
 }
 
 /// When node-pty (the copy Node's desktop loaded) raised a Windows terminal's `exit`, which Node's terminal manager answered with the
@@ -625,6 +631,59 @@ struct Started {
     writer: Option<Box<dyn Write + Send>>,
 }
 
+#[cfg(windows)]
+fn start_piped(
+    launch: &Launch,
+    request: &SpawnRequest,
+    env: &[(std::ffi::OsString, std::ffi::OsString)],
+    containment: &Containment,
+) -> std::io::Result<Started> {
+    use std::os::windows::io::AsHandle;
+    let stdin = if request.stdin_piped { Some(std::io::pipe()?) } else { None };
+    let (out_read, out_write) = std::io::pipe()?;
+    let mut readers: Vec<(OutputStream, Box<dyn Read + Send>)> = Vec::new();
+    readers.push((OutputStream::Stdout, Box::new(out_read)));
+    let err_write = match request.output {
+        OutputMode::Merged => None,
+        OutputMode::Separate => {
+            let (err_read, err_write) = std::io::pipe()?;
+            readers.push((OutputStream::Stderr, Box::new(err_read)));
+            Some(err_write)
+        }
+    };
+    #[cfg(feature = "core-test")]
+    let created = crate::testing::created_window;
+    #[cfg(not(feature = "core-test"))]
+    let created = || {};
+    let process = crate::winspawn::spawn_observed(
+        containment.job(),
+        &crate::winspawn::Spawn {
+            program: launch.program(),
+            command_line: &launch.command_line(),
+            cwd: Some(request.cwd.as_path()),
+            env: Some(env),
+            stdio: crate::winspawn::Stdio::Handles {
+                stdin: stdin.as_ref().map(|(read, _)| read.as_handle()),
+                stdout: Some(out_write.as_handle()),
+                stderr: Some(err_write.as_ref().unwrap_or(&out_write).as_handle()),
+            },
+        },
+        created,
+    )?;
+    // The ends the child owns close here; the readers see the end of the stream when the tree is
+    // gone.
+    drop(out_write);
+    drop(err_write);
+    let writer = stdin.map(|(_, write)| Box::new(write) as Box<dyn Write + Send>);
+    Ok(Started {
+        root: Root::Win(process),
+        pty: None,
+        readers,
+        writer,
+    })
+}
+
+#[cfg(unix)]
 fn start_piped(
     launch: &Launch,
     request: &SpawnRequest,
@@ -654,14 +713,6 @@ fn start_piped(
             readers.push((OutputStream::Stderr, Box::new(err_read)));
         }
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_SUSPENDED: u32 = 0x0000_0004;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
-    }
-    #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
@@ -670,15 +721,6 @@ fn start_piped(
     // The pipe ends `cmd` holds close here; the readers see the end of the stream when the tree
     // is gone.
     drop(cmd);
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::AsRawHandle;
-        if let Err(error) = containment.adopt_and_resume(child.as_raw_handle().cast()) {
-            let _ = child.kill();
-            return Err(error);
-        }
-    }
-    #[cfg(unix)]
     containment.adopt(child.id());
     let writer = child
         .stdin
@@ -767,6 +809,38 @@ fn read_loop(
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             // A closed pseudo-terminal reports an error where a pipe reports the end.
             Err(_) => break,
+        }
+    }
+    if let Some(filter) = filter.as_mut() {
+        let bytes = filter.finish();
+        feed.admit(stream, &bytes, || filter.admitted());
+    }
+}
+
+/// [`read_loop`] for the framed scripted shell: one whole frame per output, of any length (a real PTY's output never comes here). A
+/// broken frame is the stand-in's error, written to stderr; the output ends there.
+#[cfg(feature = "scripted-shell")]
+fn frame_loop(
+    mut frames: crate::scripted::Frames,
+    stream: OutputStream,
+    feed: Arc<Feed>,
+    mut filter: Option<Box<dyn OutputFilter>>,
+    _reading: Reading,
+) {
+    loop {
+        match frames.next_frame() {
+            Ok(Some(frame)) => match filter.as_mut() {
+                Some(filter) => {
+                    let bytes = filter.filter(&frame);
+                    feed.admit(stream, &bytes, || filter.admitted());
+                }
+                None => feed.push_output(stream, &frame),
+            },
+            Ok(None) => break,
+            Err(error) => {
+                eprintln!("mixdog scripted shell: {error}");
+                break;
+            }
         }
     }
     if let Some(filter) = filter.as_mut() {
@@ -889,7 +963,8 @@ fn launch_process(
     admission: Admission,
     request: SpawnRequest,
     options: SpawnOptions,
-) -> Result<SpawnedProcess, ProcessError> {
+    subscribe: bool,
+) -> Result<(SpawnedProcess, Option<crate::feed::Subscription>), ProcessError> {
     let launch = Launch::of(&request.command, &inner.config.default_shell);
     let env = environment(&request.env);
     if !request.cwd.as_path().is_dir() {
@@ -921,6 +996,8 @@ fn launch_process(
     } = started;
     let pid = root.pid();
     let feed = Feed::new(options.ring_bytes.unwrap_or(inner.config.ring_bytes));
+    // Before the reader threads start, so it holds the first byte (see `spawn_subscribed`).
+    let first = subscribe.then(|| feed.subscribe_oldest());
     let input = writer.is_some().then(|| InputQueue::new(inner.config.input_queue_bytes));
     let proc = Arc::new(Proc {
         handle: request.handle.clone(),
@@ -952,9 +1029,15 @@ fn launch_process(
         let feed = Arc::clone(&feed);
         let filter = filter.take();
         let reading = Reading(Arc::clone(&drain));
-        let started = thread::Builder::new()
-            .name("io-pty-read".to_owned())
-            .spawn(move || read_loop(reader, stream, feed, filter, reading));
+        #[cfg(feature = "scripted-shell")]
+        let scripted = options.scripted_frames;
+        let started = thread::Builder::new().name("io-pty-read".to_owned()).spawn(move || {
+            #[cfg(feature = "scripted-shell")]
+            if scripted {
+                return frame_loop(crate::scripted::Frames::new(reader), stream, feed, filter, reading);
+            }
+            read_loop(reader, stream, feed, filter, reading)
+        });
         if let Err(error) = started {
             let _ = proc.kill(KillReason::Requested);
             return Err(io_error(&error));
@@ -985,7 +1068,7 @@ fn launch_process(
     }
     let handle = request.handle;
     admission.commit(&proc);
-    Ok(SpawnedProcess { handle, pid })
+    Ok((SpawnedProcess { handle, pid }, first))
 }
 
 #[derive(Clone)]
@@ -1019,6 +1102,27 @@ impl LocalProcessManager {
         request: SpawnRequest,
         options: SpawnOptions,
     ) -> Result<SpawnedProcess, ProcessError> {
+        Ok(self.launch(request, options, false).await?.0)
+    }
+
+    /// [`ProcessManager::spawn_subscribed`] with [`Self::spawn_with`]'s options.
+    pub async fn spawn_subscribed_with(
+        &self,
+        request: SpawnRequest,
+        options: SpawnOptions,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        match self.launch(request, options, true).await? {
+            (spawned, Some(first)) => Ok((spawned, Box::new(first))),
+            (_, None) => unreachable!("a subscribed launch returns its subscription"),
+        }
+    }
+
+    async fn launch(
+        &self,
+        request: SpawnRequest,
+        options: SpawnOptions,
+        subscribe: bool,
+    ) -> Result<(SpawnedProcess, Option<crate::feed::Subscription>), ProcessError> {
         let admission = self.inner.admit(&request.handle)?;
         // Dropping this future abandons the wait: a job still queued is dropped unrun, and a child
         // the job commits meanwhile is killed (see `Abandon`), so a cancelled spawn leaves no child
@@ -1036,11 +1140,11 @@ impl LocalProcessManager {
             .submit(&abandon.gone, move |_lane| {
                 #[cfg(feature = "core-test")]
                 crate::testing::launch_window();
-                let spawned = launch_process(&inner, admission, request, options)?;
+                let spawned = launch_process(&inner, admission, request, options, subscribe)?;
                 // Checked after the commit: a requester that left before it is found here, one that
                 // leaves after it finds the child in the table (`Abandon::drop`).
                 if gone.is_cancelled() {
-                    let _ = inner.lookup(&spawned.handle).and_then(|proc| proc.kill(KillReason::Requested));
+                    let _ = inner.lookup(&spawned.0.handle).and_then(|proc| proc.kill(KillReason::Requested));
                 }
                 #[cfg(feature = "core-test")]
                 crate::testing::answer_window();
@@ -1220,6 +1324,13 @@ impl LocalProcessManager {
 impl ProcessManager for LocalProcessManager {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
         self.spawn_with(request, SpawnOptions::default()).await
+    }
+
+    async fn spawn_subscribed(
+        &self,
+        request: SpawnRequest,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        self.spawn_subscribed_with(request, SpawnOptions::default()).await
     }
 
     fn subscribe(

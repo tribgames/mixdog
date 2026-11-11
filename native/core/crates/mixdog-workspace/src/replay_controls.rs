@@ -83,7 +83,7 @@ impl IdleTimer for FileClock {
     fn sleep_until(&self, deadline: Instant) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
             while self.now() < deadline {
-                tokio::time::sleep(POLL).await;
+                mixdog_rt::time::sleep(POLL).await;
             }
         })
     }

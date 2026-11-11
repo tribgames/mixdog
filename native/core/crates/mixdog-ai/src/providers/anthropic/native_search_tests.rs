@@ -14,7 +14,7 @@ use super::lowering::lower_messages;
 
 #[test]
 fn a_native_search_result_is_lowered_as_node_lowers_it() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/native-tool-search/golden.json")).expect("the golden is JSON");
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/native-tool-search/golden.json")).expect("the golden is JSON");
     let owner = ProviderId::from("anthropic");
     let mut compared = 0;
     for case in golden["requests"].as_array().expect("requests").iter().filter(|case| case["wire"] == "anthropic") {
