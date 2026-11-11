@@ -630,7 +630,11 @@ mod tests {
             input["command"] = serde_json::Value::String(sized(size));
             let call = format!("u{i}");
             let started = std::time::Instant::now();
-            let ran = text(rig.shell.call(&ctx(rig.dir.path(), &call, rig.processes.clone()), input).await);
+            // An answer after the stand-in's life is wrong already, so the wait ends there.
+            let ran = tokio::time::timeout(life, rig.shell.call(&ctx(rig.dir.path(), &call, rig.processes.clone()), input))
+                .await
+                .unwrap_or_else(|_| panic!("{}: no answer within the stand-in's {life:?}", case["name"]));
+            let ran = text(ran);
             let answered = started.elapsed();
             let view: String = ran
                 .replace(&format!("task-{call}"), "<TASK>")
