@@ -1,0 +1,1177 @@
+{
+  "set": "provider-gemini-error-contract",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "reads-retryinfo-quotafailure-errorinfo",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:18",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "fields": {
+          "code": "rate_limit_exceeded",
+          "retryAfterMs": 34070,
+          "resetAt": 1794225634070,
+          "quotaScope": "minute",
+          "resetAtMinusClock": 34070
+        }
+      }
+    },
+    {
+      "id": "errorDetails-status-fallback-uncapped",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:33",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "fields": {
+          "code": "resource_exhausted",
+          "retryAfterMs": 90000000,
+          "resetAt": 1794315600000,
+          "quotaScope": "day",
+          "resetAtMinusClock": 90000000
+        }
+      }
+    },
+    {
+      "id": "no-scope-without-evidence",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:44",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "fields": {
+          "code": "unavailable"
+        }
+      }
+    },
+    {
+      "id": "geminiRestError-details-mapping",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:49",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Gemini 429: {\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"quota\",\"errorDetails\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"QUOTA_EXHAUSTED\",\"domain\":\"googleapis.com\",\"metadata\":{}},{\"@type\":\"type.googleapis.com/google.rpc.QuotaFailure\",\"violations\":[{\"quotaId\":\"GenerateReques",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "quota",
+            "errorDetails": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "QUOTA_EXHAUSTED",
+                "domain": "googleapis.com",
+                "metadata": {}
+              },
+              {
+                "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                "violations": [
+                  {
+                    "quotaId": "GenerateRequestsPerDayPerProjectPerModel"
+                  }
+                ]
+              },
+              {
+                "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                "retryDelay": "3600s"
+              }
+            ]
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "status": "RESOURCE_EXHAUSTED",
+              "message": "quota",
+              "errorDetails": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "QUOTA_EXHAUSTED",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                },
+                {
+                  "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                  "violations": [
+                    {
+                      "quotaId": "GenerateRequestsPerDayPerProjectPerModel"
+                    }
+                  ]
+                },
+                {
+                  "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                  "retryDelay": "3600s"
+                }
+              ]
+            }
+          },
+          "geminiStatus": "RESOURCE_EXHAUSTED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "QUOTA_EXHAUSTED",
+              "domain": "googleapis.com",
+              "metadata": {}
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+              "violations": [
+                {
+                  "quotaId": "GenerateRequestsPerDayPerProjectPerModel"
+                }
+              ]
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.RetryInfo",
+              "retryDelay": "3600s"
+            }
+          ],
+          "retryAfterMs": 3600000,
+          "resetAt": 1794229200000,
+          "quotaScope": "day",
+          "code": "quota_exhausted"
+        },
+        "headersIsTheResponsesOwn": true
+      }
+    },
+    {
+      "id": "geminiRestError-lowercases-status",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:70",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Gemini 503: {\"error\":{\"code\":503,\"status\":\"UNAVAILABLE\",\"message\":\"busy\"}}",
+          "status": 503,
+          "httpStatus": 503,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 503,
+            "status": "UNAVAILABLE",
+            "message": "busy"
+          },
+          "data": {
+            "error": {
+              "code": 503,
+              "status": "UNAVAILABLE",
+              "message": "busy"
+            }
+          },
+          "geminiStatus": "UNAVAILABLE",
+          "code": "unavailable"
+        }
+      }
+    },
+    {
+      "id": "antigravityError-errorinfo-reset",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:80",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 429 (endpoint): exhausted",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "exhausted",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "QUOTA_EXHAUSTED",
+                "domain": "googleapis.com",
+                "metadata": {
+                  "quotaResetDelay": "373.803813ms",
+                  "quotaResetTimeStamp": "2099-01-01T00:00:00Z",
+                  "quotaId": "RequestsPerDay"
+                }
+              }
+            ]
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "status": "RESOURCE_EXHAUSTED",
+              "message": "exhausted",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "QUOTA_EXHAUSTED",
+                  "domain": "googleapis.com",
+                  "metadata": {
+                    "quotaResetDelay": "373.803813ms",
+                    "quotaResetTimeStamp": "2099-01-01T00:00:00Z",
+                    "quotaId": "RequestsPerDay"
+                  }
+                }
+              ]
+            }
+          },
+          "geminiStatus": "RESOURCE_EXHAUSTED",
+          "retryAfterMs": 374,
+          "resetAt": 4070908800000,
+          "quotaScope": "day",
+          "code": "quota_exhausted"
+        },
+        "stampMs": 4070908800000
+      }
+    },
+    {
+      "id": "antigravity-capacity:errorinfo-reason",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:118",
+      "input": {
+        "code": 429,
+        "status": "RESOURCE_EXHAUSTED",
+        "message": "x",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            "reason": "MODEL_CAPACITY_EXHAUSTED",
+            "domain": "googleapis.com",
+            "metadata": {}
+          }
+        ]
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 429 (endpoint): x",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "x",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "MODEL_CAPACITY_EXHAUSTED",
+                "domain": "googleapis.com",
+                "metadata": {}
+              }
+            ]
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "status": "RESOURCE_EXHAUSTED",
+              "message": "x",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "MODEL_CAPACITY_EXHAUSTED",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                }
+              ]
+            }
+          },
+          "geminiStatus": "RESOURCE_EXHAUSTED",
+          "code": "model_capacity_exhausted"
+        }
+      }
+    },
+    {
+      "id": "antigravity-capacity:server-busy-message",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:118",
+      "input": {
+        "code": 503,
+        "status": "UNAVAILABLE",
+        "message": "The server is busy, try later"
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 503 (endpoint): The server is busy, try later",
+          "status": 503,
+          "httpStatus": 503,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 503,
+            "status": "UNAVAILABLE",
+            "message": "The server is busy, try later"
+          },
+          "data": {
+            "error": {
+              "code": 503,
+              "status": "UNAVAILABLE",
+              "message": "The server is busy, try later"
+            }
+          },
+          "geminiStatus": "UNAVAILABLE",
+          "code": "model_capacity_exhausted"
+        }
+      }
+    },
+    {
+      "id": "antigravity-capacity:no-capacity-message",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:118",
+      "input": {
+        "code": 429,
+        "status": "RESOURCE_EXHAUSTED",
+        "message": "No capacity available for model x"
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 429 (endpoint): No capacity available for model x",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "message": "No capacity available for model x"
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "status": "RESOURCE_EXHAUSTED",
+              "message": "No capacity available for model x"
+            }
+          },
+          "geminiStatus": "RESOURCE_EXHAUSTED",
+          "code": "model_capacity_exhausted"
+        }
+      }
+    },
+    {
+      "id": "safety-recitation-finish-codes",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:129",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "policy": {
+          "SAFETY": "safety",
+          "FINISH_REASON_SAFETY": "safety",
+          "PROMPT_BLOCKLIST": "safety",
+          "RECITATION": "recitation",
+          "MAX_TOKENS": null
+        },
+        "incomplete": {
+          "SAFETY": {
+            "name": "ProviderIncompleteError",
+            "message": "Gemini response incomplete: finishReason=SAFETY",
+            "code": "safety",
+            "providerIncomplete": true,
+            "finishReason": "SAFETY",
+            "partialContent": "",
+            "model": "m",
+            "rawUsage": null
+          },
+          "RECITATION": {
+            "name": "ProviderIncompleteError",
+            "message": "Gemini response incomplete: finishReason=RECITATION",
+            "code": "recitation",
+            "providerIncomplete": true,
+            "finishReason": "RECITATION",
+            "partialContent": "",
+            "model": "m",
+            "rawUsage": null
+          },
+          "MAX_TOKENS": {
+            "name": "ProviderIncompleteError",
+            "message": "Gemini response incomplete: finishReason=MAX_TOKENS",
+            "code": "PROVIDER_INCOMPLETE",
+            "providerIncomplete": true,
+            "finishReason": "MAX_TOKENS",
+            "partialContent": "",
+            "model": "m",
+            "rawUsage": null
+          }
+        },
+        "blockReason": {
+          "name": "ProviderIncompleteError",
+          "message": "Gemini response incomplete: finishReason=PROMPT_SAFETY",
+          "code": "safety",
+          "providerIncomplete": true,
+          "finishReason": "PROMPT_SAFETY",
+          "model": "m",
+          "rawUsage": null
+        }
+      }
+    },
+    {
+      "id": "per-minute-without-retryinfo-60s",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:148",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "byQuotaFailure": {
+          "code": "resource_exhausted",
+          "retryAfterMs": 60000,
+          "resetAt": 1794225660000,
+          "quotaScope": "minute",
+          "resetAtMinusClock": 60000
+        },
+        "byMetadata": {
+          "code": "rate_limit_exceeded",
+          "retryAfterMs": 60000,
+          "resetAt": 1794225660000,
+          "quotaScope": "minute",
+          "resetAtMinusClock": 60000
+        },
+        "withRetryInfo": {
+          "retryAfterMs": 5000,
+          "resetAt": 1794225605000,
+          "resetAtMinusClock": 5000
+        }
+      }
+    },
+    {
+      "id": "long-advice-never-quota",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:167",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "long": {
+          "retryAfterMs": 601000,
+          "resetAt": 1794226201000,
+          "resetAtMinusClock": 601000
+        },
+        "threeHundred": {
+          "retryAfterMs": 300000,
+          "resetAt": 1794225900000,
+          "resetAtMinusClock": 300000
+        },
+        "byMessage": {
+          "retryAfterMs": 400000,
+          "resetAt": 1794226000000,
+          "resetAtMinusClock": 400000
+        }
+      }
+    },
+    {
+      "id": "zero-retryinfo-no-advice",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:177",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "zero": {
+          "code": "unavailable"
+        },
+        "zeroObject": {},
+        "zeroMessage": {},
+        "perMinuteZero": {
+          "retryAfterMs": 60000,
+          "resetAt": 1794225660000,
+          "quotaScope": "minute",
+          "resetAtMinusClock": 60000
+        },
+        "zeroThenFive": {
+          "retryAfterMs": 5000,
+          "resetAt": 1794225605000,
+          "resetAtMinusClock": 5000
+        },
+        "error": {
+          "name": "Error",
+          "message": "Gemini 503: {\"error\":{\"code\":503,\"status\":\"UNAVAILABLE\",\"message\":\"busy\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"0s\"}]}}",
+          "status": 503,
+          "httpStatus": 503,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 503,
+            "status": "UNAVAILABLE",
+            "message": "busy",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                "retryDelay": "0s"
+              }
+            ]
+          },
+          "data": {
+            "error": {
+              "code": 503,
+              "status": "UNAVAILABLE",
+              "message": "busy",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                  "retryDelay": "0s"
+                }
+              ]
+            }
+          },
+          "geminiStatus": "UNAVAILABLE",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.RetryInfo",
+              "retryDelay": "0s"
+            }
+          ],
+          "code": "unavailable"
+        },
+        "kind": {
+          "kind": "transient",
+          "code": "unavailable",
+          "status": 503,
+          "retryAfterMs": null,
+          "resetAt": null
+        }
+      }
+    },
+    {
+      "id": "spent-quotas-no-window",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:199",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "quotaExhausted": {
+          "code": "quota_exhausted",
+          "quotaScope": "plan"
+        },
+        "credits": {
+          "code": "insufficient_g1_credits_balance",
+          "quotaScope": "plan"
+        },
+        "limitZero": {
+          "quotaScope": "plan"
+        },
+        "quotaValueZero": {
+          "quotaScope": "plan"
+        },
+        "limitHalf": {}
+      }
+    },
+    {
+      "id": "limit-zero-in-message-not-evidence",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:233",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "zero": {},
+        "half": {}
+      }
+    },
+    {
+      "id": "typed-reason-on-503-529-not-capacity",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:238",
+      "input": {},
+      "result": {
+        "503": {
+          "error": {
+            "name": "Error",
+            "message": "Antigravity 503 (endpoint): bad request",
+            "status": 503,
+            "httpStatus": 503,
+            "headers": {},
+            "initialResponseError": true,
+            "error": {
+              "code": 503,
+              "status": "INVALID_ARGUMENT",
+              "message": "bad request",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "INVALID_ARGUMENT",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                }
+              ]
+            },
+            "data": {
+              "error": {
+                "code": 503,
+                "status": "INVALID_ARGUMENT",
+                "message": "bad request",
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "INVALID_ARGUMENT",
+                    "domain": "googleapis.com",
+                    "metadata": {}
+                  }
+                ]
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT",
+            "code": "invalid_argument"
+          },
+          "isCapacity": false
+        },
+        "529": {
+          "error": {
+            "name": "Error",
+            "message": "Antigravity 529 (endpoint): bad request",
+            "status": 529,
+            "httpStatus": 529,
+            "headers": {},
+            "initialResponseError": true,
+            "error": {
+              "code": 529,
+              "status": "INVALID_ARGUMENT",
+              "message": "bad request",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "INVALID_ARGUMENT",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                }
+              ]
+            },
+            "data": {
+              "error": {
+                "code": 529,
+                "status": "INVALID_ARGUMENT",
+                "message": "bad request",
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "INVALID_ARGUMENT",
+                    "domain": "googleapis.com",
+                    "metadata": {}
+                  }
+                ]
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT",
+            "code": "invalid_argument"
+          },
+          "isCapacity": false
+        },
+        "clockStartMs": 1794225600000,
+        "plain503": {
+          "name": "Error",
+          "message": "Antigravity 503 (endpoint): busy",
+          "status": 503,
+          "httpStatus": 503,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 503,
+            "status": "UNAVAILABLE",
+            "message": "busy"
+          },
+          "data": {
+            "error": {
+              "code": 503,
+              "status": "UNAVAILABLE",
+              "message": "busy"
+            }
+          },
+          "geminiStatus": "UNAVAILABLE",
+          "code": "model_capacity_exhausted"
+        }
+      }
+    },
+    {
+      "id": "delay-read-from-message",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:262",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "decimal": {
+          "retryAfterMs": 2500,
+          "resetAt": 1794225602500,
+          "resetAtMinusClock": 2500
+        },
+        "millis": {
+          "retryAfterMs": 900,
+          "resetAt": 1794225600900,
+          "resetAtMinusClock": 900
+        },
+        "resetAfter": {
+          "retryAfterMs": 7261000,
+          "resetAt": 1794232861000,
+          "resetAtMinusClock": 7261000
+        },
+        "retryInfoWins": {
+          "retryAfterMs": 4000,
+          "resetAt": 1794225604000,
+          "resetAtMinusClock": 4000
+        }
+      }
+    },
+    {
+      "id": "compound-go-durations",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:269",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "compound": {
+          "code": "rate_limit_exceeded",
+          "retryAfterMs": 4560667,
+          "resetAt": 1794230160667,
+          "resetAtMinusClock": 4560667
+        },
+        "bare": {
+          "code": "rate_limit_exceeded",
+          "retryAfterMs": 30000,
+          "resetAt": 1794225630000,
+          "resetAtMinusClock": 30000
+        },
+        "millis": {
+          "code": "rate_limit_exceeded",
+          "retryAfterMs": 200,
+          "resetAt": 1794225600200,
+          "resetAtMinusClock": 200
+        }
+      }
+    },
+    {
+      "id": "capacity-overload-not-quota",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:277",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "byReason": {
+          "code": "model_capacity_exhausted",
+          "retryAfterMs": 900000,
+          "resetAt": 1794226500000,
+          "resetAtMinusClock": 900000
+        },
+        "byMessage": {
+          "code": "model_capacity_exhausted"
+        },
+        "quota": {
+          "code": "quota_exhausted",
+          "retryAfterMs": 13440000,
+          "resetAt": 1794239040000,
+          "quotaScope": "plan",
+          "resetAtMinusClock": 13440000
+        },
+        "perMinuteCapacityWording": {
+          "retryAfterMs": 60000,
+          "resetAt": 1794225660000,
+          "quotaScope": "minute",
+          "resetAtMinusClock": 60000
+        }
+      }
+    },
+    {
+      "id": "antigravityError:503-capacity-by-status",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "input": {
+        "status": 503,
+        "body": {
+          "code": 503,
+          "status": "UNAVAILABLE",
+          "message": "try later"
+        }
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 503 (endpoint): try later",
+          "status": 503,
+          "httpStatus": 503,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 503,
+            "status": "UNAVAILABLE",
+            "message": "try later"
+          },
+          "data": {
+            "error": {
+              "code": 503,
+              "status": "UNAVAILABLE",
+              "message": "try later"
+            }
+          },
+          "geminiStatus": "UNAVAILABLE",
+          "code": "model_capacity_exhausted"
+        }
+      }
+    },
+    {
+      "id": "antigravityError:529-capacity-by-status",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "input": {
+        "status": 529,
+        "body": {
+          "code": 529,
+          "message": "Overloaded"
+        }
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 529 (endpoint): Overloaded",
+          "status": 529,
+          "httpStatus": 529,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 529,
+            "message": "Overloaded"
+          },
+          "data": {
+            "error": {
+              "code": 529,
+              "message": "Overloaded"
+            }
+          },
+          "code": "model_capacity_exhausted"
+        }
+      }
+    },
+    {
+      "id": "antigravityError:429-overloaded-wording",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "input": {
+        "status": 429,
+        "body": {
+          "code": 429,
+          "message": "The model is overloaded"
+        }
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 429 (endpoint): The model is overloaded",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "message": "The model is overloaded"
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "message": "The model is overloaded"
+            }
+          },
+          "code": "model_capacity_exhausted"
+        }
+      }
+    },
+    {
+      "id": "antigravityError:429-per-minute-wording",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "input": {
+        "status": 429,
+        "body": {
+          "code": 429,
+          "message": "Too many requests per minute"
+        }
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 429 (endpoint): Too many requests per minute",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "message": "Too many requests per minute"
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "message": "Too many requests per minute"
+            }
+          },
+          "code": "rate_limit_exceeded"
+        }
+      }
+    },
+    {
+      "id": "antigravityError:429-quota-wording-alone",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:297",
+      "input": {
+        "status": 429,
+        "body": {
+          "code": 429,
+          "message": "You exceeded your current quota"
+        }
+      },
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 429 (endpoint): You exceeded your current quota",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "message": "You exceeded your current quota"
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "message": "You exceeded your current quota"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "antigravity-typed-reason-outranks-wording",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:330",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "error": {
+          "name": "Error",
+          "message": "Antigravity 429 (endpoint): capacity exhausted",
+          "status": 429,
+          "httpStatus": 429,
+          "headers": {},
+          "initialResponseError": true,
+          "error": {
+            "code": 429,
+            "message": "capacity exhausted",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "RATE_LIMIT_EXCEEDED",
+                "domain": "googleapis.com",
+                "metadata": {}
+              }
+            ]
+          },
+          "data": {
+            "error": {
+              "code": 429,
+              "message": "capacity exhausted",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "RATE_LIMIT_EXCEEDED",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                }
+              ]
+            }
+          },
+          "code": "rate_limit_exceeded"
+        }
+      }
+    },
+    {
+      "id": "rejected-api-key-is-auth",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-error-contract.test.mjs:336",
+      "input": {},
+      "result": {
+        "clockStartMs": 1794225600000,
+        "API_KEY_INVALID": {
+          "error": {
+            "name": "Error",
+            "message": "Gemini 400: {\"error\":{\"code\":400,\"message\":\"API key not valid. Please pass a valid API key.\",\"status\":\"INVALID_ARGUMENT\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"API_KEY_INVALID\",\"domain\":\"googleapis.com\",\"metadata\":{}}]}}",
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {},
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "API key not valid. Please pass a valid API key.",
+              "status": "INVALID_ARGUMENT",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "API_KEY_INVALID",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                }
+              ]
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "API key not valid. Please pass a valid API key.",
+                "status": "INVALID_ARGUMENT",
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "API_KEY_INVALID",
+                    "domain": "googleapis.com",
+                    "metadata": {}
+                  }
+                ]
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_INVALID",
+                "domain": "googleapis.com",
+                "metadata": {}
+              }
+            ],
+            "code": "api_key_invalid"
+          },
+          "kind": {
+            "kind": "auth",
+            "code": "api_key_invalid",
+            "status": 400,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "API_KEY_EXPIRED": {
+          "error": {
+            "name": "Error",
+            "message": "Gemini 400: {\"error\":{\"code\":400,\"message\":\"API key not valid. Please pass a valid API key.\",\"status\":\"INVALID_ARGUMENT\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"API_KEY_EXPIRED\",\"domain\":\"googleapis.com\",\"metadata\":{}}]}}",
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {},
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "API key not valid. Please pass a valid API key.",
+              "status": "INVALID_ARGUMENT",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "API_KEY_EXPIRED",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                }
+              ]
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "API key not valid. Please pass a valid API key.",
+                "status": "INVALID_ARGUMENT",
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "API_KEY_EXPIRED",
+                    "domain": "googleapis.com",
+                    "metadata": {}
+                  }
+                ]
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_EXPIRED",
+                "domain": "googleapis.com",
+                "metadata": {}
+              }
+            ],
+            "code": "api_key_expired"
+          },
+          "kind": {
+            "kind": "auth",
+            "code": "api_key_expired",
+            "status": 400,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "disabled": {
+          "error": {
+            "name": "Error",
+            "message": "Gemini 403: {\"error\":{\"code\":403,\"message\":\"API has not been used\",\"status\":\"PERMISSION_DENIED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.ErrorInfo\",\"reason\":\"SERVICE_DISABLED\",\"domain\":\"googleapis.com\",\"metadata\":{}}]}}",
+            "status": 403,
+            "httpStatus": 403,
+            "headers": {},
+            "initialResponseError": true,
+            "error": {
+              "code": 403,
+              "message": "API has not been used",
+              "status": "PERMISSION_DENIED",
+              "details": [
+                {
+                  "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                  "reason": "SERVICE_DISABLED",
+                  "domain": "googleapis.com",
+                  "metadata": {}
+                }
+              ]
+            },
+            "data": {
+              "error": {
+                "code": 403,
+                "message": "API has not been used",
+                "status": "PERMISSION_DENIED",
+                "details": [
+                  {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "SERVICE_DISABLED",
+                    "domain": "googleapis.com",
+                    "metadata": {}
+                  }
+                ]
+              }
+            },
+            "geminiStatus": "PERMISSION_DENIED",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "SERVICE_DISABLED",
+                "domain": "googleapis.com",
+                "metadata": {}
+              }
+            ],
+            "code": "service_disabled"
+          },
+          "kind": {
+            "kind": "permission",
+            "code": "service_disabled",
+            "status": 403,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "invalid": {
+          "error": {
+            "name": "Error",
+            "message": "Gemini 400: {\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}",
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {},
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "bad field",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "bad field",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT",
+            "code": "invalid_argument"
+          },
+          "kind": {
+            "kind": "invalid_request",
+            "code": "invalid_argument",
+            "status": 400,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      }
+    }
+  ],
+  "clockStartMs": 1794225600000
+}
