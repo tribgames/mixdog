@@ -33,8 +33,8 @@ pub fn rid_of(name: &str) -> Option<&str> {
 }
 
 /// The boundaries of a draft write, each reported before it is taken, with the run and the body (none at `Remove`).
-/// Compiled only with the `crash-hook` feature.
-#[cfg(feature = "crash-hook")]
+/// Compiled for tests and the `test-support` feature only (the crash child is a test binary: it needs these hooks and nothing else).
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DraftStep {
     /// Before a body is appended. An error: the append fails, nothing written.
@@ -49,21 +49,21 @@ pub enum DraftStep {
     Remove,
 }
 
-#[cfg(feature = "crash-hook")]
+#[cfg(any(test, feature = "test-support"))]
 pub type DraftHook = fn(DraftStep, &str, Option<&Value>) -> std::io::Result<()>;
 
-#[cfg(feature = "crash-hook")]
+#[cfg(any(test, feature = "test-support"))]
 static DRAFT_HOOK: std::sync::OnceLock<DraftHook> = std::sync::OnceLock::new();
 
 /// Installs the draft hook for the life of the process; a second installation is a bug of the caller.
-#[cfg(feature = "crash-hook")]
+#[cfg(any(test, feature = "test-support"))]
 pub fn set_draft_hook(hook: DraftHook) {
     assert!(DRAFT_HOOK.set(hook).is_ok(), "the draft hook is installed once");
 }
 
 #[allow(unused_variables)]
 fn step(step_name: &'static str, rid: &str, body: Option<&Value>, path: &Path) -> Result<(), IoError> {
-    #[cfg(feature = "crash-hook")]
+    #[cfg(any(test, feature = "test-support"))]
     if let Some(hook) = DRAFT_HOOK.get() {
         let step = match step_name {
             "append" => DraftStep::Append,
