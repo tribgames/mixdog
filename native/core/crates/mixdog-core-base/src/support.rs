@@ -438,6 +438,7 @@ fn not_queued(error: mixdog_rt::SubmitWaitError) -> CoreError {
         mixdog_rt::SubmitWaitError::Full(full) => full.into(),
         mixdog_rt::SubmitWaitError::Wedged(wedged) => unrun(wedged.lane, "lane-wedged"),
         mixdog_rt::SubmitWaitError::Cancelled => CoreError::Cancelled { by: "caller".into() },
+        mixdog_rt::SubmitWaitError::ShutDown(lane) => unrun(lane, "lane-shut-down"),
     }
 }
 
