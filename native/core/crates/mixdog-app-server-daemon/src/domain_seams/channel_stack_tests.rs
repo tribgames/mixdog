@@ -283,6 +283,248 @@ async fn a_config_edit_reloads_the_channels_runtime_as_node_does() {
     watch.await.unwrap();
 }
 
+/// The session service's routine boundary (Node: the live surface's `submit`, daemon.mjs:1199-1201): every routine turn
+/// is accepted and settles done; kept in order as Node's recorder keeps the submits.
+#[derive(Default)]
+struct HomeTurns {
+    turns: std::sync::Mutex<Vec<Value>>,
+    submitted: tokio::sync::Notify,
+}
+
+#[async_trait::async_trait]
+impl mixdog_services::bots::RoutineHost for HomeTurns {
+    async fn owner_problem(&self, _owner: &str, _stored: bool) -> Result<Option<mixdog_services::bots::OwnerProblem>, String> {
+        Ok(None)
+    }
+    async fn executor_facts(&self, _agent_id: &str) -> Result<mixdog_services::bots::ExecutorFacts, String> {
+        Ok(Default::default())
+    }
+    /// The recording's home thread is a stored, open session.
+    async fn home_thread_open(&self, _session_id: &str) -> Result<bool, String> {
+        Ok(true)
+    }
+    fn is_heartbeat_session(&self, _session_id: &str) -> bool {
+        false
+    }
+    async fn run_turn(&self, turn: mixdog_services::bots::RoutineTurn, _cancel: CancellationToken) -> mixdog_services::bots::TurnSettle {
+        self.turns.lock().unwrap().push(json!({
+            "sessionId": turn.session_id,
+            "prompt": turn.content,
+            "skillSelection": turn.skill_selection,
+            "transcriptMeta": { "routineTrigger": turn.trigger },
+        }));
+        self.submitted.notify_one();
+        mixdog_services::bots::TurnSettle::Done { result: String::new() }
+    }
+    async fn run_executor(&self, _run: mixdog_services::bots::ExecutorRun, _cancel: CancellationToken) -> Result<String, String> {
+        Err("no executor in this recording".into())
+    }
+    async fn deliver_result(&self, _owner: &str, _name: &str, _item: &mixdog_services::bots::DeliveryItem) -> Result<(), String> {
+        Ok(())
+    }
+    async fn announce_run(&self, _owner: &str, _name: &str, _run: &mixdog_services::bots::AnnouncedRun) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// The provider init the start runs (Node's recorder holds it at its gate and releases it).
+struct NoProviders;
+
+#[async_trait::async_trait]
+impl mixdog_services::channels::AgentRuntime for NoProviders {
+    async fn init_providers(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+struct WallClock(i64);
+
+impl mixdog_services::scheduler::Clock for WallClock {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp_millis(self.0).unwrap()
+    }
+}
+
+/// The webhook automation, counting the reload syncs it finished and, when armed, sending the recorded delivery the
+/// moment a reload sync is entered (Node's recorder sends it once `WebhookServer.reloadConfig` was entered).
+struct ArmedReloads {
+    inner: mixdog_services::channels::WebhookAutomation,
+    reloaded: tokio::sync::watch::Sender<usize>,
+    armed: std::sync::Mutex<Option<(u16, String, Value, tokio::sync::oneshot::Sender<Value>)>>,
+}
+
+#[async_trait::async_trait]
+impl mixdog_services::channels::AutomationServices for ArmedReloads {
+    async fn sync(&self, reload: bool) -> Result<(), String> {
+        if reload && let Some((port, body, headers, sent)) = self.armed.lock().unwrap().take() {
+            tokio::spawn(async move {
+                let _ = sent.send(deliver(port, &body, &headers).await);
+            });
+        }
+        let synced = self.inner.sync(reload).await;
+        if reload {
+            self.reloaded.send_modify(|count| *count += 1);
+        }
+        synced
+    }
+    async fn stop(&self) {
+        self.inner.stop().await;
+    }
+}
+
+/// One delivery on a fresh connection: `{status, body}`, or the error the connection ended with under Node's code.
+async fn deliver(port: u16, body: &str, headers: &Value) -> Value {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+        Ok(stream) => stream,
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => return json!({"error": "ECONNREFUSED"}),
+        Err(error) => return json!({"error": error.to_string()}),
+    };
+    let mut request = format!("POST /webhook/gh HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\n", body.len());
+    for (name, value) in headers.as_object().unwrap() {
+        request += &format!("{name}: {}\r\n", value.as_str().unwrap());
+    }
+    request += "\r\n";
+    request += body;
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).await.unwrap();
+    let status: u16 = reply[9..12].parse().unwrap();
+    let (_, text) = reply.split_once("\r\n\r\n").unwrap();
+    json!({"status": status, "body": serde_json::from_str::<Value>(text).unwrap()})
+}
+
+/// Waits for `what` with one deadline.
+async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(std::time::Duration::from_secs(30), future).await.unwrap_or_else(|_| panic!("never happened: {what}"))
+}
+
+/// `record-webhook-late-reload.mjs` (`fixtures/webhook-late-reload`, step `configEdit`, Node b6f10295a with
+/// node-fix-webhook-late-reload.patch): with the receiver listening and the session service running, another process
+/// edits the channels section of the config file on disk (port kept). The composition's watch (`watch_channels_config`
+/// over the real file watch) hears it and reloads the runtime; a delivery not seen before, sent as the reload syncs the
+/// receiver, is answered and runs one routine turn in the owner's home thread. Compared whole: the reply, the reload
+/// count, the receiver still listening, and the turns the session boundary received.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_node() {
+    use mixdog_services::bots::{HomeScheduleRunner, HomeWebhookDispatch, RoutineRuntime, StoreRoutineRecords};
+    use mixdog_services::channels::{AdminDeps, ChannelAdmin, ChannelSettings, RunningWork, WebhookAutomation, WebhookPatch};
+    use mixdog_services::scheduler::{Scheduler, StateScheduleStore};
+    use mixdog_services::webhooks::{StateWebhookStore, WebhookConfig, WebhookService};
+    let rec: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-late-reload/golden.json")).unwrap();
+    let step = &rec["configEdit"];
+    let port = rec["port"].as_u64().unwrap() as u16;
+    let tz: chrono_tz::Tz = rec["timeZone"].as_str().unwrap().parse().unwrap();
+    let wall: Arc<dyn mixdog_services::scheduler::Clock> = Arc::new(WallClock(rec["wallClock"].as_i64().unwrap()));
+    let tokens = mixdog_rt::testing::tokens();
+
+    let root = tempfile::tempdir().unwrap();
+    let config = open(root.path(), None).await;
+    let _file_watch = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
+    let settings: Arc<dyn ChannelSettings> = Arc::new(ConfigChannelSettings::new(config.clone()));
+    // `setWebhookConfigAsync({ port })`, as the recorder seeds the receiver's port.
+    settings.update_webhook(&WebhookPatch::from_params(&json!({ "port": port }))).await.unwrap();
+
+    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &root.path().join("core.sqlite")).unwrap();
+    let schedules = Arc::new(StateScheduleStore::new(state.clone(), wall.clone()));
+    let webhooks = Arc::new(StateWebhookStore::new(state.clone(), wall.clone()));
+    let host = Arc::new(HomeTurns::default());
+    let routines = RoutineRuntime::new(host.clone(), Arc::new(StoreRoutineRecords::new(schedules.clone(), webhooks.clone())), wall.clone(), tz);
+    let work = RunningWork::default();
+    let service = Arc::new(WebhookService::new(
+        webhooks.clone(),
+        Arc::new(HomeWebhookDispatch::new(routines.clone(), webhooks.clone(), None, work.clone())),
+        WebhookConfig::default(),
+        work.clone(),
+        Arc::new(|| 0),
+    ));
+    let relay = "ws://127.0.0.1:9";
+    let tunnels = Arc::new(mixdog_services::webhooks::relay::RelayTunnelStarter::new(tokens.durability_io, root.path().to_path_buf(), Some(relay.into())));
+    let reloaded = tokio::sync::watch::Sender::new(0usize);
+    let automation = Arc::new(ArmedReloads {
+        inner: WebhookAutomation::new(settings.clone(), service.clone(), Arc::new(ServerListener::new(service.clone(), tunnels))),
+        reloaded: reloaded.clone(),
+        armed: std::sync::Mutex::new(None),
+    });
+    let scheduler = Scheduler::new(schedules.clone(), Arc::new(HomeScheduleRunner::new(routines.clone())), wall.clone(), work.clone(), tz, Vec::new());
+    let runtime = mixdog_services::channels::runtime::ChannelRuntime::new(scheduler, schedules.clone(), automation.clone(), Arc::new(NoProviders));
+    let admin = ChannelAdmin::new(AdminDeps {
+        schedules: schedules.clone(),
+        webhooks: webhooks.clone(),
+        owned: Arc::new(mixdog_services::channels::routines_db::OwnedRoutines::new(state.clone())),
+        routines: routines.clone(),
+        runtime: runtime.clone(),
+        settings: settings.clone(),
+        base: Arc::new(HookIdentityBase::new(tokens.durability_io, root.path().to_path_buf(), Some(relay.into()))),
+        probe: Arc::new(mixdog_services::channels::ports::ReqwestProbe::new(reqwest::Client::new())),
+        clock: wall.clone(),
+        local_tz: tz,
+        channel_start_disabled: false,
+        close_requested: CancellationToken::new(),
+    });
+    let cancel = CancellationToken::new();
+    let reloading = runtime.clone();
+    let watch = watch_channels_config(
+        config.clone(),
+        move || {
+            let runtime = reloading.clone();
+            async move { runtime.reload_runtime().await }
+        },
+        cancel.clone(),
+    );
+
+    // The save starts the runtime, the edit reloads it: the receiver listens with the edited instructions.
+    assert_eq!(admin.save_webhook(&rec["entry"]).await.unwrap(), rec["saveReply"]);
+    within("the save's start", runtime.scheduled_start_settled()).await;
+    let mut reloads = reloaded.subscribe();
+    let saved = *reloads.borrow_and_update();
+    assert_eq!(admin.save_webhook(&rec["edit"]).await.unwrap(), rec["editReply"]);
+    within("the edit's reload", reloads.wait_for(|count| *count > saved)).await.unwrap();
+    within("the edit's restart", runtime.scheduled_start_settled()).await;
+    let before = *reloads.borrow_and_update();
+
+    // Another process's edit of the file on disk: its own opening, one write of the section, then gone.
+    let (sent, delivered) = tokio::sync::oneshot::channel();
+    *automation.armed.lock().unwrap() = Some((port, step["body"].as_str().unwrap().to_owned(), step["headers"].clone(), sent));
+    let writer = open(root.path(), None).await;
+    let set = step["set"].clone();
+    writer
+        .update(move |doc: &mut Map<String, Value>| {
+            let channels = doc.entry("channels").or_insert_with(|| json!({})).as_object_mut().unwrap();
+            for (key, value) in set.as_object().unwrap() {
+                channels.insert(key.clone(), value.clone());
+            }
+            Ok::<(), ConfigError>(())
+        })
+        .await
+        .unwrap();
+    drop(writer);
+    let delivery = within("the delivery sent as the edit's reload syncs the receiver", delivered).await.unwrap();
+    within("the edit's reload ends", reloads.wait_for(|count| *count > before)).await.unwrap();
+    within("the delivery's routine turn", async {
+        while host.turns.lock().unwrap().is_empty() {
+            host.submitted.notified().await;
+        }
+    })
+    .await;
+    let listening = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok();
+    let turns = host.turns.lock().unwrap().clone();
+    // The routine submit's `mode` and `priority` are the session host's own options, past the boundary compared here.
+    let recorded_turns: Vec<Value> = step["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|turn| json!({"sessionId": turn["sessionId"], "prompt": turn["prompt"], "skillSelection": turn["skillSelection"], "transcriptMeta": turn["transcriptMeta"]}))
+        .collect();
+    assert_eq!(
+        json!({"delivery": delivery, "reloads": *reloads.borrow() - before, "listeningAfter": listening, "turns": turns}),
+        json!({"delivery": step["delivery"], "reloads": step["reloads"], "listeningAfter": step["listeningAfter"], "turns": recorded_turns}),
+    );
+    cancel.cancel();
+    watch.await.unwrap();
+    mixdog_services::channels::ChannelLifecycle::stop_owned_runtime(&*runtime, "test").await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_public_base_exists_once_a_tunnel_persisted_an_identity() {
     let dir = tempfile::tempdir().unwrap();
