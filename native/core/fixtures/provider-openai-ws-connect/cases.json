@@ -220,29 +220,10 @@
           "fromMs": 0,
           "fired": [
             {
-              "id": 2,
               "dueMs": 3000
             }
           ],
-          "toMs": 3000,
-          "armed": [
-            {
-              "id": 4,
-              "dueMs": 6000
-            },
-            {
-              "id": 1,
-              "dueMs": 15000
-            },
-            {
-              "id": 3,
-              "dueMs": 15000
-            },
-            {
-              "id": 5,
-              "dueMs": 18000
-            }
-          ]
+          "toMs": 3000
         }
       ]
     },
@@ -477,29 +458,10 @@
           "fromMs": 3000,
           "fired": [
             {
-              "id": 9,
               "dueMs": 6000
             }
           ],
-          "toMs": 6000,
-          "armed": [
-            {
-              "id": 11,
-              "dueMs": 9000
-            },
-            {
-              "id": 8,
-              "dueMs": 18000
-            },
-            {
-              "id": 10,
-              "dueMs": 18000
-            },
-            {
-              "id": 12,
-              "dueMs": 21000
-            }
-          ]
+          "toMs": 6000
         }
       ]
     },
@@ -945,148 +907,50 @@
           "fromMs": 6000,
           "fired": [
             {
-              "id": 14,
               "dueMs": 9000
             }
           ],
-          "toMs": 9000,
-          "armed": [
-            {
-              "id": 16,
-              "dueMs": 12000
-            },
-            {
-              "id": 13,
-              "dueMs": 21000
-            },
-            {
-              "id": 15,
-              "dueMs": 21000
-            },
-            {
-              "id": 17,
-              "dueMs": 24000
-            }
-          ]
+          "toMs": 9000
         },
         {
           "advanceMs": 3000,
           "fromMs": 9000,
           "fired": [
             {
-              "id": 16,
               "dueMs": 12000
             }
           ],
-          "toMs": 12000,
-          "armed": [
-            {
-              "id": 18,
-              "dueMs": 15000
-            },
-            {
-              "id": 13,
-              "dueMs": 21000
-            },
-            {
-              "id": 15,
-              "dueMs": 21000
-            },
-            {
-              "id": 17,
-              "dueMs": 24000
-            },
-            {
-              "id": 19,
-              "dueMs": 27000
-            }
-          ]
+          "toMs": 12000
         },
         {
           "advanceMs": 3000,
           "fromMs": 12000,
           "fired": [
             {
-              "id": 18,
               "dueMs": 15000
             }
           ],
-          "toMs": 15000,
-          "armed": [
-            {
-              "id": 20,
-              "dueMs": 18000
-            },
-            {
-              "id": 13,
-              "dueMs": 21000
-            },
-            {
-              "id": 15,
-              "dueMs": 21000
-            },
-            {
-              "id": 17,
-              "dueMs": 24000
-            },
-            {
-              "id": 19,
-              "dueMs": 27000
-            },
-            {
-              "id": 21,
-              "dueMs": 30000
-            }
-          ]
+          "toMs": 15000
         },
         {
           "advanceMs": 3000,
           "fromMs": 15000,
           "fired": [
             {
-              "id": 20,
               "dueMs": 18000
             }
           ],
-          "toMs": 18000,
-          "armed": [
-            {
-              "id": 13,
-              "dueMs": 21000
-            },
-            {
-              "id": 15,
-              "dueMs": 21000
-            },
-            {
-              "id": 17,
-              "dueMs": 24000
-            },
-            {
-              "id": 19,
-              "dueMs": 27000
-            },
-            {
-              "id": 21,
-              "dueMs": 30000
-            },
-            {
-              "id": 22,
-              "dueMs": 33000
-            }
-          ]
+          "toMs": 18000
         },
         {
           "advanceMs": 3000,
           "fromMs": 18000,
           "fired": [
             {
-              "id": 13,
               "dueMs": 21000
             }
           ],
-          "toMs": 21000,
-          "armed": []
+          "toMs": 21000
         }
       ]
     },
@@ -1095,25 +959,45 @@
       "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:94",
       "input": {
         "host": "localhost",
-        "concurrent": 20
+        "concurrent": 20,
+        "scriptedResolver": [
+          {
+            "address": "127.0.0.1",
+            "family": 4
+          },
+          {
+            "address": "::1",
+            "family": 6
+          }
+        ]
       },
       "result": {
         "allSameArrayInstance": true,
         "addresses": [
           {
-            "address": "::1",
-            "family": 6
-          },
-          {
             "address": "127.0.0.1",
             "family": 4
+          },
+          {
+            "address": "::1",
+            "family": 6
           }
         ],
         "single": {
-          "address": "::1",
-          "family": 6
+          "address": "127.0.0.1",
+          "family": 4
         },
-        "singleIsFirstAddress": true
+        "singleIsFirstAddress": true,
+        "resolverCalls": [
+          {
+            "hostname": "localhost",
+            "options": {
+              "family": 0,
+              "hints": 0,
+              "all": true
+            }
+          }
+        ]
       },
       "calls": [
         {
