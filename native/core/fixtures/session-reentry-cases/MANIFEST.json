@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 14420,
+      "bytes": 60982,
       "path": "golden.json",
-      "sha256": "ba91dd44b579be21ae0992ecf23c40df22433ed7210dbfae02092ca1973397f8"
+      "sha256": "d8e51bc103f05f06ba39bce9996e3a0ee497772ba0f8149032bafc1ec7f63f78"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,14 +63,22 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-reentry-cases.mjs",
-  "recorderSha256": "77e5dbf8a0cc669fd66a4ae3fc76a10799df9bf2e1a89dab878bd5863efbe7b7",
+  "recorderSha256": "0eeeafbe478cb9e24d30774966a92a333436f0fac29ced03b6703993e6ac915d",
   "replay": {
-    "entry": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
+    "compare": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
+    "entry": "NO RUST ENTRY ON o1: idle eviction is private (mixdog-core-session/src/session/actor.rs:1233 `arm_idle_evict`); the host re-entry, replayed submission id join and read tracing diagnostics have no counterpart found.",
+    "missingOnO1": [
+      "idle eviction is private (mixdog-core-session/src/session/actor.rs:1233 `arm_idle_evict`); the host re-entry, replayed submission id join and read tracing diagnostics have no counterpart found"
+    ],
     "normalised": {
       "clock": "mock timers, not the shared fixed Date.now",
       "dataDir": "temp user-data dir not in the recording"
-    }
+    },
+    "protocolMethods": [],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-reentry-cases",
-  "totalBytes": 14420
+  "totalBytes": 60982,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
