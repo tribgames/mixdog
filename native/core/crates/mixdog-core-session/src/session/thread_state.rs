@@ -111,8 +111,11 @@ impl ThreadState for SessionThreads {
         Ok(value.get("header").and_then(Value::as_object).cloned().unwrap_or_default())
     }
 
+    /// Answered once the change is durable and in the index, so every read after the answer — the Agents pool's worker
+    /// rows among them — sees it (Node's write is the file every later listing reads).
     async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError> {
-        self.call(thread, "thread/header/patch", json!({ "threadId": thread, "set": set, "unset": unset })).await.map(|_| ())
+        self.call(thread, "thread/header/patch", json!({ "threadId": thread, "set": set, "unset": unset })).await?;
+        self.directory.deps().store.indexed().await.map_err(port_error)
     }
 
     async fn patch_header_if(
@@ -125,6 +128,7 @@ impl ThreadState for SessionThreads {
         let reply = self
             .call(thread, "thread/header/patch", json!({ "threadId": thread, "expect": expect, "set": set, "unset": unset }))
             .await?;
+        self.directory.deps().store.indexed().await.map_err(port_error)?;
         Ok(reply.get("conflict").and_then(Value::as_object).cloned())
     }
 

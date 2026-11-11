@@ -21,7 +21,6 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_session::session::agent_registry::{AgentRegistry, ReapWindow, StoreWorkers};
 use mixdog_core_session::session::testing::Rig;
-use mixdog_core_session::session::thread_list::{FENCE_BOUND, ListFence};
 use mixdog_core_session::session::thread_state::SessionThreads;
 use mixdog_core_session::session::{Clock, SessionDirectory, StoreThreads};
 use mixdog_migrate::durable;
@@ -166,7 +165,6 @@ impl PoolLive for Live {
 struct Daemon {
     pool: AgentPool,
     threads: Arc<dyn ThreadState>,
-    store: Arc<StoreThreads>,
     _rig: Rig,
 }
 
@@ -188,20 +186,17 @@ impl Daemon {
         let workers = Arc::new(StoreWorkers::new(index, threads.clone(), tokens.interactive_io));
         let registry = Arc::new(AgentRegistry::new(workers, directory, Arc::new(NoReap), Arc::new(Held(now))));
         let pool = AgentPool::new(Arc::new(RegistryPoolStore::new(registry, threads.clone())), Arc::new(Live { now, running: running.clone() }));
-        Self { pool, threads, store, _rig: rig }
+        Self { pool, threads, _rig: rig }
     }
 
     async fn list(&self) -> Value {
         Value::Array(self.pool.list().await.expect("agent/pool/list"))
     }
 
-    /// `thread/header/patch` of one session, standing in for Node's rewrite of the store by another writer; the next
-    /// listing is made once the index has projected it (the store's own fence, bounded as the thread list bounds it).
+    /// `thread/header/patch` of one session, standing in for Node's rewrite of the store by another writer. Its answer
+    /// comes once the index holds it, so the next listing is made right after it with no wait.
     async fn patch(&self, session: &str, set: Value) {
         self.threads.patch_header(&ThreadId::from(session), set.as_object().cloned().unwrap(), Vec::new()).await.expect("thread/header/patch");
-        if let Some(projected) = ListFence::pending(&*self.store) {
-            tokio::time::timeout(FENCE_BOUND, projected).await.unwrap_or_else(|_| panic!("the index did not project the patch of {session} within {FENCE_BOUND:?}"));
-        }
     }
 
     async fn header(&self, session: &str) -> Map<String, Value> {
@@ -338,4 +333,23 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     let daemon = Daemon::up(&data, now, &live).await;
     same(&daemon.list().await, want.get("cold"), "case 7 cold");
     same(&daemon.list().await, want.get("warm"), "case 7 warm");
+}
+
+/// A worker row rewritten through the store write is in the very next listing, every time: the write is answered once
+/// the index holds it, as Node's listing reads the file the write left. A hundred rewrites, each listed at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listing_right_after_a_worker_row_write_shows_it_every_time() {
+    let golden = golden();
+    let want = observed(&golden, 4, "a worker index rewrite that keeps its size and mtime is still read");
+    let data = migrated(&files(&want.get("storeAtEachList").as_array()[0]));
+    let daemon = Daemon::up(&data, now(&golden), &HashSet::new()).await;
+    let mut worker = daemon.header("same-size").await["worker"].as_object().cloned().expect("the migrated worker row");
+    for n in 0..100 {
+        let title = format!("rewrite {n}");
+        worker.insert("title".into(), json!(title));
+        daemon.patch("same-size", json!({ "worker": worker })).await;
+        let listed = daemon.list().await;
+        let titles: Vec<&Value> = listed.as_array().unwrap().iter().filter(|row| row["sessionId"] == "same-size").map(|row| &row["title"]).collect();
+        assert_eq!(titles, vec![&json!(title)], "rewrite {n}: the listing right after it: {listed}");
+    }
 }
