@@ -5,8 +5,11 @@
 //! files of the working folder are Node's. Own test binary: the run sets the process environment and boots the executors.
 #![allow(clippy::disallowed_methods, reason = "the test writes the install layout and reads what the run left on disk")]
 
+mod support {
+    pub mod request;
+}
+
 use std::collections::BTreeMap;
-use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,7 +28,6 @@ use mixdog_cli::exec::seams::CoreLauncher;
 use mixdog_cli::exec::seams::CoreSession;
 use serde_json::Value;
 use serde_json::json;
-use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
 /// The cases a command line selects: text output (the mode `review-deck.mjs` runs) and `--json`, each read-only and full.
@@ -86,95 +88,22 @@ fn reply_body(served: &Value, index: usize) -> String {
     parts.concat()
 }
 
-/// What one request the core sent carried, in the recording's shape.
-fn heard(body: &Value) -> Value {
-    let tools: Vec<Value> = body["tools"].as_array().map_or_else(Vec::new, |tools| {
-        tools.iter().map(|tool| json!({ "name": tool["name"], "description": tool["description"], "input_schema": tool["input_schema"] })).collect()
-    });
-    let results: Vec<Value> = body["messages"].as_array().and_then(|messages| messages.last()).and_then(|last| last["content"].as_array()).map_or_else(Vec::new, |blocks| {
-        blocks
-            .iter()
-            .filter(|block| block["type"] == "tool_result")
-            .map(|block| json!({ "tool_use_id": block["tool_use_id"], "is_error": block.get("is_error").cloned().unwrap_or(json!(false)), "content": block["content"] }))
-            .collect()
-    });
-    json!({ "model": body["model"], "tools": tools, "toolResults": results })
-}
-
 /// The stand-in provider: every `POST /v1/messages` is answered with the next recorded reply, and its body is kept.
 async fn serve(listener: tokio::net::TcpListener, replies: Vec<String>, bodies: Arc<Mutex<Vec<Value>>>, others: Arc<Mutex<Vec<String>>>) {
     let mut replies = replies.into_iter();
     loop {
         let Ok((mut socket, _)) = listener.accept().await else { return };
-        let mut raw = Vec::new();
-        let (head_len, length, chunked, gzip, target) = loop {
-            let mut chunk = [0u8; 8192];
-            let read = socket.read(&mut chunk).await.unwrap();
-            assert!(read > 0, "the request ended before its head");
-            raw.extend_from_slice(&chunk[..read]);
-            let mut headers = [httparse::EMPTY_HEADER; 64];
-            let mut request = httparse::Request::new(&mut headers);
-            if let httparse::Status::Complete(head_len) = request.parse(&raw).unwrap() {
-                let header = |name: &str| request.headers.iter().find(|h| h.name.eq_ignore_ascii_case(name)).map(|h| String::from_utf8_lossy(h.value).into_owned());
-                let target = format!("{} {}", request.method.unwrap_or_default(), request.path.unwrap_or_default());
-                break (
-                    head_len,
-                    header("content-length").map_or(0, |v| v.parse::<usize>().unwrap()),
-                    header("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")),
-                    header("content-encoding").as_deref() == Some("gzip"),
-                    target,
-                );
-            }
-        };
-        let mut body = if chunked {
-            // The body runs until the zero-length chunk.
-            let mut decoded = Vec::new();
-            let mut at = head_len;
-            loop {
-                while !raw[at..].windows(2).any(|w| w == b"\r\n") {
-                    let mut chunk = [0u8; 8192];
-                    let read = socket.read(&mut chunk).await.unwrap();
-                    assert!(read > 0, "the request ended inside a chunk size");
-                    raw.extend_from_slice(&chunk[..read]);
-                }
-                let line_end = at + raw[at..].windows(2).position(|w| w == b"\r\n").unwrap();
-                let size = usize::from_str_radix(String::from_utf8_lossy(&raw[at..line_end]).split(';').next().unwrap().trim(), 16).unwrap();
-                at = line_end + 2;
-                while raw.len() < at + size + 2 {
-                    let mut chunk = [0u8; 8192];
-                    let read = socket.read(&mut chunk).await.unwrap();
-                    assert!(read > 0, "the request ended inside a chunk");
-                    raw.extend_from_slice(&chunk[..read]);
-                }
-                if size == 0 {
-                    break decoded;
-                }
-                decoded.extend_from_slice(&raw[at..at + size]);
-                at += size + 2;
-            }
-        } else {
-            while raw.len() < head_len + length {
-                let mut chunk = [0u8; 8192];
-                let read = socket.read(&mut chunk).await.unwrap();
-                assert!(read > 0, "the request ended before its body");
-                raw.extend_from_slice(&chunk[..read]);
-            }
-            raw[head_len..head_len + length].to_vec()
-        };
+        let request = support::request::read_request(&mut socket).await.expect("a request");
+        let target = format!("{} {}", request.method, request.path);
         eprintln!("[stand-in] {target}");
-        if !target.split('?').next().unwrap_or_default().ends_with("/v1/messages") {
+        if !request.path.split('?').next().unwrap_or_default().ends_with("/v1/messages") {
             // Only the turn's messages are scripted; any other call gets the recorder's answer.
             others.lock().unwrap().push(target);
             socket.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-type: text/plain\r\ncontent-length: 9\r\nconnection: close\r\n\r\nno script").await.unwrap();
             socket.shutdown().await.unwrap();
             continue;
         }
-        if gzip {
-            let mut plain = Vec::new();
-            flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut plain).unwrap();
-            body = plain;
-        }
-        bodies.lock().unwrap().push(serde_json::from_slice(&body).unwrap());
+        bodies.lock().unwrap().push(serde_json::from_slice(&request.body).unwrap());
         let reply = replies.next().expect("a recorded reply for every request");
         let response = format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}", reply.len());
         socket.write_all(response.as_bytes()).await.unwrap();
@@ -315,7 +244,7 @@ fn an_exec_on_its_own_core_does_what_node_recorded_for_every_case() {
             code
         });
 
-        let heard: Vec<Value> = bodies.lock().unwrap().iter().map(heard).collect();
+        let heard: Vec<Value> = bodies.lock().unwrap().iter().map(support::request::heard).collect();
         assert_eq!(heard.len(), requests.len(), "{label}: the requests the core sent (other calls: {:?})", others.lock().unwrap());
         // Node reached `api.anthropic.com` (its fetch was intercepted), a first-party route, so its follow-ups are message-thread
         // continues (`anthropic-message-threads.mjs`): a delta body without `tools`, the server holding the create's list (the

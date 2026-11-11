@@ -513,7 +513,9 @@ async fn the_json_lifecycle_is_the_recorded_node_stream() {
     let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
 
     assert_eq!((code, sink.stderr()), (0, Vec::<String>::new()));
-    assert_eq!(sink.stdout().join(""), include_str!("../../tests/goldens/exec_json_lifecycle.jsonl"));
+    // The stream's thread id is the one the exec reserves for its session (`exec_<32 hex>`), as `exec-cli/json` records.
+    let stdout = regex::Regex::new("exec_[0-9a-f]{32}").unwrap().replace_all(&sink.stdout().join(""), "<thread>").into_owned();
+    assert_eq!(stdout, include_str!("../../tests/goldens/exec_json_lifecycle.jsonl"));
     // The credential is bound in process: the run reads the host's own file, no copy.
     let bound = launcher.captured.lock().unwrap().as_ref().unwrap().credential.clone();
     assert_eq!(bound, Some(dir.path().join("host-data").join("openai-oauth.json")));
@@ -606,7 +608,8 @@ async fn a_termination_signal_runs_the_shutdown_once_and_returns_its_code() {
     let (code, sink) = run_with(options(dir.path()), &launcher, dir.path(), signal).await;
 
     assert_eq!(code, 130);
-    assert_eq!(sink.stderr(), Vec::<String>::new());
+    // The turn the shutdown aborted fails with Node's session-closed text (`teardown.mjs`), as `exec-cli/ctrl-c` records.
+    assert_eq!(sink.stderr(), ["mixdog: Session \"sess_signal\" closed: runtime close (reason=SIGINT)\n"]);
     assert_eq!(*launcher.order.lock().unwrap(), ["close", "services"]);
     assert!(!launcher.root().exists());
 }
@@ -742,10 +745,13 @@ async fn the_read_only_exec_is_what_node_recorded_for_every_case() {
         let launcher = FakeLauncher::new("sess_exec_readonly", vec![Turn::Events(recorded_core_events(&case))]);
         let (code, sink) = run_with(opts, &launcher, dir.path(), never()).await;
 
+        // Node's runs here had a runtime that already carried an id, which its stream took; this core's session takes the
+        // id the stream reserved (`exec_<32 hex>`, as `exec-cli/json` records), pinned back to Node's for the comparison.
+        let reserved = regex::Regex::new("exec_[0-9a-f]{32}").unwrap();
         assert_eq!(code, case["code"], "{label}: exit code");
-        assert_eq!(sink.stdout().join(""), case["stdout"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stdout");
+        assert_eq!(reserved.replace_all(&sink.stdout().join(""), "sess_exec_readonly"), case["stdout"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stdout");
         assert_eq!(sink.stderr().join(""), case["stderr"].as_array().unwrap().iter().map(|line| line.as_str().unwrap()).collect::<String>(), "{label}: stderr");
-        let document: Value = serde_json::from_str(&std::fs::read_to_string(&usage_path).unwrap()).unwrap();
+        let document: Value = serde_json::from_str(&reserved.replace_all(&std::fs::read_to_string(&usage_path).unwrap(), "sess_exec_readonly")).unwrap();
         assert_eq!(document, case["usage"], "{label}: usage document");
         // The runtime options Node created the session with, whole (the mode is the one that differs).
         let calls = launcher.calls();

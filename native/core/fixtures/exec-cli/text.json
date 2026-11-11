@@ -1,0 +1,642 @@
+{
+  "case": "text",
+  "argv": [
+    "exec",
+    "--provider",
+    "anthropic",
+    "--model",
+    "claude-sonnet-4-6",
+    "go"
+  ],
+  "stdin": "",
+  "env": {
+    "PATH": "<host>",
+    "SystemRoot": "<host>",
+    "HOME": "<sandbox>/home",
+    "USERPROFILE": "<sandbox>/home",
+    "APPDATA": "<sandbox>/home/AppData/Roaming",
+    "LOCALAPPDATA": "<sandbox>/home/AppData/Local",
+    "MIXDOG_DATA_DIR": "<sandbox>/host-data",
+    "TEMP": "<sandbox>/tmp",
+    "TMP": "<sandbox>/tmp",
+    "TZ": "UTC",
+    "ANTHROPIC_API_KEY": "sk-fake",
+    "NO_PROXY": "127.0.0.1,localhost",
+    "MIXDOG_SKIP_USER_DATA_BACKUP": "1",
+    "MIXDOG_DISABLE_TOOL_PREWARM": "1"
+  },
+  "replies": [
+    {
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-6\",\"content\":[],\"usage\":{\"input_tokens\":21,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1_0\",\"name\":\"read\",\"input\":{}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":11}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+    },
+    {
+      "status": 200,
+      "contentType": "text/event-stream",
+      "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_2\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-6\",\"content\":[],\"usage\":{\"input_tokens\":22,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":12}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+    }
+  ],
+  "repeat": false,
+  "code": 0,
+  "output": [
+    {
+      "stream": "stdout",
+      "text": "done\n"
+    }
+  ],
+  "requests": [
+    {
+      "origin": "https://api.anthropic.com",
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [
+        {
+          "name": "find",
+          "description": "Fuzzy filename/directory path lookup; returns paths only. Only when the target path is unknown and cannot be directly resolved but a fragment is known; general discovery: glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+              },
+              "path": {
+                "type": "string",
+                "description": "Base directory; omit for the current Project."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max paths; default 25; 0 unlimited."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "glob",
+          "description": "Wildcard file-path lookup under a known directory; directories never match. No preliminary listing. Unknown base: find first with a known path fragment.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+              },
+              "path": {
+                "type": "string",
+                "description": "Known existing base directory; omit for the current Project."
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "natural",
+                  "mtime"
+                ],
+                "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max entries; default 100; 0 unlimited."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "list",
+          "description": "Return a known directory's immediate entries (path + type); no wildcard. Only when those entries or metadata are needed, not to re-confirm a known listing or before read/glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Known directory; defaults to the current Project."
+              },
+              "hidden": {
+                "type": "boolean",
+                "description": "Include dotfiles."
+              },
+              "meta": {
+                "type": "boolean",
+                "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "grep",
+          "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Ripgrep regex(es); escape literal metacharacters."
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+              },
+              "glob": {
+                "type": "string",
+                "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "files",
+                  "count"
+                ],
+                "description": "content default; files lists matching paths; count totals all patterns together per file."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "context": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200,
+                "description": "Omit for automatic context; 0 for matches only."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              },
+              "text": {
+                "type": "boolean",
+                "description": "Search binary data as text (archives/Git objects not decoded)."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "code_graph",
+          "description": "Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages; callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations. symbols already outlines a file: never pair it with overview for one need.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "overview",
+                  "imports",
+                  "dependents",
+                  "related",
+                  "impact",
+                  "symbols",
+                  "find_symbol",
+                  "symbol_search",
+                  "search",
+                  "references",
+                  "callers",
+                  "callees"
+                ],
+                "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+              },
+              "files": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+              },
+              "symbols": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+              },
+              "body": {
+                "type": "boolean",
+                "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Max results; modes may cap lower."
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Overview hierarchy or caller traversal depth; default 1."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Explicit root outside the project; omit for project root."
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "read",
+          "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "file_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "file_path": {
+                              "type": "string"
+                            },
+                            "offset": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "limit": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100000
+                            }
+                          },
+                          "required": [
+                            "file_path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1-based start line; default 1; batch default."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000,
+                "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+              },
+              "pages": {
+                "type": "string",
+                "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+              }
+            },
+            "required": [
+              "file_path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "edit",
+          "description": "Replace exact text in one file. old_string must match once unless replace_all is true. Every non-overlapping edit of the stage in one response, using existing text, not text another edit creates; many files → one edit per file. Widened replacements keep intervening lines verbatim.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "file_path": {
+                "type": "string"
+              },
+              "old_string": {
+                "type": "string",
+                "description": "Exact target text. Empty only to create a missing file or fill an empty file; never overwrites non-empty files and is not an absence check."
+              },
+              "new_string": {
+                "type": "string",
+                "description": "Replacement text; may be empty to delete. Must differ from old_string."
+              },
+              "replace_all": {
+                "type": "boolean",
+                "default": false,
+                "description": "Replace all occurrences of old_string."
+              }
+            },
+            "required": [
+              "file_path",
+              "old_string",
+              "new_string"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "git",
+          "description": "Run Git here, never through shell. An array runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends, and is the one add a delegated worker may run; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "command",
+                  "stage",
+                  "worktree"
+                ],
+                "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action and its fields."
+              },
+              "command": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+              },
+              "output_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+              },
+              "include_stage_ids": {
+                "type": "boolean",
+                "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+              },
+              "diff_id": {
+                "type": "string",
+                "description": "stage: exact diff_id from git diff."
+              },
+              "change_ids": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  }
+                ],
+                "description": "stage: exact change ID or IDs to stage, including new files."
+              },
+              "worktree_action": {
+                "type": "string",
+                "enum": [
+                  "enter",
+                  "return",
+                  "merge",
+                  "remove",
+                  "list",
+                  "prune"
+                ],
+                "description": "enter: create or re-enter the managed worktree (branch: that branch, create: new); return: back to the project folder, worktree kept; merge: into its merge target; remove; list; prune."
+              },
+              "session_id": {
+                "type": "string",
+                "description": "enter/return/merge/remove: another session (it must be idle); default the caller."
+              },
+              "name": {
+                "type": "string",
+                "description": "enter: the new worktree name (branch <prefix><name>)."
+              },
+              "branch": {
+                "type": "string",
+                "description": "enter: use the worktree of this branch instead. remove: this session's worktree of that branch."
+              },
+              "create": {
+                "type": "boolean",
+                "description": "enter with branch: create that branch."
+              },
+              "carry": {
+                "type": "string",
+                "enum": [
+                  "leave",
+                  "carry"
+                ],
+                "description": "enter: the user answer to WORKTREE_DIRTY_CHOICE (uncommitted project-folder changes)."
+              },
+              "confirm_large": {
+                "type": "boolean",
+                "description": "enter or git worktree add: the user accepted the WORKTREE_LARGE_REPO_CONFIRM size."
+              },
+              "force": {
+                "type": "boolean",
+                "description": "remove: discard dirty/unmerged work; only on explicit user request."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "shell",
+          "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "Command. PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; no Bash heredocs or </dev/null; Select-Object shapes program output, not file reads; multiline python/node via @'…'@ | python - (node -); 2>$null; /c/→C:\\; $PID is reserved."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory; default the Project. Use it instead of cd/Set-Location."
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Hard kill deadline in ms (omit or 0 = none), separate from the 60s hold; set one for throwaway probes so a slow check fails fast."
+              },
+              "wait_ms": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 600000,
+                "description": "Hold in ms before a still-running command moves to the background (default 60000). Usually omit; for a long finite command needed next, set up to 600000."
+              },
+              "background": {
+                "type": "boolean",
+                "description": "Start in the background at once (servers, watchers, `npm run dev`); returns task_id right away."
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "task",
+          "description": "Manage shell tasks. Completion is delivered automatically; wait only when you need the result now, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "task_id": {
+                "type": "string",
+                "description": "Shell task_id; required for read/wait/cancel."
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "list",
+                  "read",
+                  "wait",
+                  "cancel"
+                ],
+                "description": "list all; read next output; wait for completion and next output; cancel task."
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+              },
+              "output": {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "tail"
+                ],
+                "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "toolResults": []
+    },
+    {
+      "origin": "https://api.anthropic.com",
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [],
+      "toolResults": [
+        {
+          "tool_use_id": "toolu_1_0",
+          "is_error": false,
+          "content": "[lines 1-1]\nhello\n[lines 1-1 of 1]"
+        }
+      ]
+    }
+  ],
+  "others": [
+    "GET https://api.anthropic.com/v1/models",
+    "GET https://github.com/tribgames/mixdog/releases/download/graph-v0.1.35/mixdog-graph-win32-x64.exe",
+    "GET https://github.com/tribgames/mixdog/releases/download/patch-v0.7.34/mixdog-patch-win32-x64.exe",
+    "GET https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.12/mixdog-spawn-win32-x64.exe",
+    "GET https://registry.npmjs.org/mixdog/latest"
+  ],
+  "files": {
+    "a.txt": "hello\n"
+  }
+}
