@@ -513,6 +513,7 @@ impl CoreHandle for ComposedCore {
 
     fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
         self.real.connection_owners.connection_closed(connection, &self.log);
+        self.real.late_lifecycle.client_closed(connection);
     }
 
     fn connection_opened(
@@ -523,6 +524,9 @@ impl CoreHandle for ComposedCore {
         kind: mixdog_protocol::ConnectionKind,
     ) {
         crate::domain_seams::remote::register_local(&self.real.remote.registry, connection, origin, device, kind);
+        if let Err(said) = self.real.late_lifecycle.client_opened(connection, kind) {
+            self.log.log(said);
+        }
     }
 
     fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
