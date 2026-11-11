@@ -8275,7 +8275,8 @@
     "mixdog_data_dir/prompt-cache-idle-gaps.json": "the prompt cache's idle-gap statistics: the core keeps none"
   },
   "notCompared": {
-    "mixdog_data_dir/gateway-usage.local.jsonl": "usage telemetry, no session content: Node buffers its rows and flushes them on a timer (route-meta.mjs recordGatewayUsageEvent), so a phase's process that exits first loses them; this recording keeps only the last turn's row"
+    "mixdog_data_dir/gateway-usage.local.jsonl": "usage telemetry, no session content: Node buffers its rows and flushes them on a timer (route-meta.mjs recordGatewayUsageEvent), so a phase's process that exits first loses them; this recording keeps only the last turn's row",
+    "sends[].messages (role system/developer)": "the replay compares each model call's conversation (role, text, tool-call arguments) and not its system/developer instructions, which the scenario never puts a value in; the instruction text is outside this set's question"
   },
   "normalisation": {
     "session": "<session>",
