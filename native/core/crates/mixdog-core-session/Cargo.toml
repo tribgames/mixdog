@@ -26,7 +26,7 @@ mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-scm = { workspace = true }
 mixdog-services = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-spawn = { workspace = true, features = ["core"] }
 mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
@@ -79,7 +79,7 @@ mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-session = { path = ".", features = ["crash-gates", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).

@@ -30,7 +30,7 @@ sha1 = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 tokio-util = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"], optional = true }
+mixdog-spawn = { workspace = true, features = ["core"], optional = true }
 tempfile = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
@@ -40,7 +40,7 @@ test-support = ["dep:mixdog-spawn", "dep:tempfile", "mixdog-rt/test-support", "m
 
 [dev-dependencies]
 bytes = { workspace = true }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 regex = { workspace = true }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
