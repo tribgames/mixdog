@@ -4,9 +4,9 @@
 //! media job saves through; `mediaOpenCommand` through [`open_command`]), with the recording's clock
 //! (`Date.now` held at `clock.dateNow`), its scripted ids (`00000000-0000-4000-8000-<counter>`, one
 //! counter over the set, as the recorder's) and its zone (UTC). Each case's observation is compared
-//! whole with the recorded one. A thrown error is compared as it crosses the wire (`call-route.mjs`:
-//! `{ error: message, code?, details? }`); `thumbnailBurst` (Node's in-process index cache counters,
-//! which no client reads) is declared in the manifest.
+//! whole with the recorded one, `thumbnailBurst` (the index cache's counters around a burst of
+//! resolves, `mediaStoreCacheStats`) included. A thrown error is compared as it crosses the wire
+//! (`call-route.mjs`: `{ error: message, code?, details? }`).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -102,10 +102,12 @@ impl Store {
         self.ok("media/listMediaAssets", json!({"opId": "o", "options": options})).await
     }
 
+    /// A save in the recording's zone (UTC): the asset's date folder (and a migrated one's) is the
+    /// local date. The zone is this thread's only, so the save runs here rather than on a lane, and
+    /// no other test of the binary sees it.
     async fn save(&self, kind: &str, lane: &str, model: &str, prompt: &str, options: Value, mime: &str, bytes: &[u8], meta: Value) -> Value {
-        let (kind, lane, model, prompt, mime, bytes) = (kind.to_owned(), lane.to_owned(), model.to_owned(), prompt.to_owned(), mime.to_owned(), bytes.to_vec());
         let meta: Map<String, Value> = meta.as_object().cloned().unwrap_or_default();
-        self.store.run(move |s| s.save_asset(&kind, &lane, &model, &prompt, options, &mime, &bytes, meta)).await.unwrap().unwrap()
+        mixdog_js::time::with_local_zone(mixdog_js::time::Tz::UTC, || self.store.save_asset(kind, lane, model, prompt, options, mime, bytes, meta)).unwrap()
     }
 }
 
@@ -207,8 +209,10 @@ async fn media_assets_are_organized(script: &Script, recorded: &Exact, data: &Pa
     out["migratedFilesExist"] = json!(listed.iter().map(|entry| assets_file(&assets, &entry["file"]).exists()).collect::<Vec<_>>());
     out["legacyFlatFileRemains"] = json!(assets.join("legacy-image.jpg").exists());
     // The burst Node measured with its cache counters: three concurrent resolves of the originals.
+    let before = s.store.cache_stats();
     let original = |id: &'static str| s.ok("media/resolveMediaFile", json!({"opId": "o", "id": id}));
     let _burst = tokio::join!(original("legacy-image"), original("legacy-video"), original("legacy-image"));
+    out["thumbnailBurst"] = json!({"before": before, "after": s.store.cache_stats()});
     out["cachedOnlyMiss"] = s.ok("media/resolveMediaFile", json!({"opId": "o", "id": "legacy-image", "options": {"variant": "thumb", "generate": false}})).await;
     let mut read_video = s.ok("media/readMediaAsset", json!({"opId": "o", "id": "legacy-video"})).await;
     read_video["path"] = data_path(&read_video["path"], data);
@@ -358,18 +362,13 @@ async fn a_malformed_boards_file(script: &Script, recorded: &Exact, data: &Path)
     })
 }
 
-/// The recorded observation, with the manifest's declarations applied: errors in their wire form,
-/// `thumbnailBurst` (declared: Node's in-process cache counters) left out.
+/// The recorded observation with its errors in their wire form.
 fn expected(observed: &Exact) -> Exact {
-    let Exact::Object(entries) = node_wire(observed) else { panic!("an observation object") };
-    Exact::Object(entries.into_iter().filter(|(key, _)| key != "thumbnailBurst").collect())
+    node_wire(observed)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_media_store_case_replays_through_the_media_methods() {
-    if let Err(zone) = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::UTC) {
-        assert_eq!(zone, mixdog_js::time::Tz::UTC, "the recording's zone");
-    }
     let golden = Exact::decode(&serde_json::from_str::<Value>(&GOLDEN).unwrap()).unwrap();
     let script = Script { now: golden.get("clock").get("dateNow").as_f64() as i64, ids: Arc::new(AtomicU64::new(0)) };
     let cases = golden.get("cases").as_array();
