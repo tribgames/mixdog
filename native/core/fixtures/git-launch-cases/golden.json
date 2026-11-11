@@ -378,71 +378,109 @@
     {
       "case": "the git runner falls back to the git PATH names once the resolved one is removed",
       "observed": {
-        "files": [
+        "staleFiles": [
           "Git/cmd/git.exe",
           "Git/bin/git.exe",
           "Git/git-bash.exe",
           "Git/usr/bin/",
           "Git/mingw64/bin/git.exe"
         ],
+        "fallback": {
+          "files": [
+            "Git/cmd/git.exe",
+            "Git/bin/git.exe",
+            "Git/git-bash.exe",
+            "Git/usr/bin/",
+            "Git/mingw64/bin/git.exe"
+          ],
+          "realBinary": "Git/mingw64/bin/git.exe: stand-in answering",
+          "answers": [
+            [
+              "dumpenv",
+              0,
+              "$ENV",
+              ""
+            ],
+            [
+              "--version",
+              0,
+              "git version 2.50.0.windows.1\n",
+              ""
+            ]
+          ],
+          "launchers": "Git/cmd/git.exe and Git/bin/git.exe: stand-in launcher running",
+          "wrapper": [
+            "SET MSYSTEM=MINGW64",
+            "SET PLINK_PROTOCOL=ssh",
+            "PREPEND PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;",
+            "EXEC <root>\\Git\\mingw64\\bin\\git.exe"
+          ]
+        },
         "env": {
-          "PATH": "<root>\\Git\\cmd;<root>\\Git\\cmd"
+          "PATH": "<root>\\Git\\cmd;<root>\\Git\\cmd",
+          "SystemRoot": "C:\\Windows"
         },
-        "scriptedAnswer": {
-          "code": 0,
-          "stdout": "git version 2.50.0.windows.1\n",
-          "stderr": ""
+        "options": {
+          "cwd": "<root>",
+          "env": {
+            "PATH": "<root>\\Git\\cmd;<root>\\Git\\cmd",
+            "SystemRoot": "C:\\Windows"
+          },
+          "timeoutMs": 30000,
+          "maxBytes": 1000000
         },
-        "firstCommand": "<root>\\Git\\mingw64\\bin\\git.exe",
+        "staleCommand": "<root>\\Git\\mingw64\\bin\\git.exe",
         "first": {
-          "code": 0,
-          "stdout": "git version 2.50.0.windows.1\n",
-          "stderr": ""
-        },
-        "afterRemoval": {
-          "code": 0,
-          "stdout": "git version 2.50.0.windows.1\n",
-          "stderr": ""
-        },
-        "afterRemovalCommand": "<root>\\Git\\mingw64\\bin\\git.exe",
-        "requests": [
-          {
-            "command": "<root>\\Git\\mingw64\\bin\\git.exe",
-            "args": [
-              "--version"
-            ],
-            "cwd": "<root>",
-            "childEnv": {
-              "PATH": "<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;\\bin;<root>\\Git\\cmd;<root>\\Git\\cmd",
-              "MSYSTEM": "MINGW64",
-              "PLINK_PROTOCOL": "ssh"
-            }
-          },
-          {
-            "command": "<root>\\Git\\mingw64\\bin\\git.exe",
-            "args": [
-              "--version"
-            ],
-            "cwd": "<root>",
-            "childEnv": {
-              "PATH": "<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;\\bin;<root>\\Git\\cmd;<root>\\Git\\cmd",
-              "MSYSTEM": "MINGW64",
-              "PLINK_PROTOCOL": "ssh"
-            }
-          },
-          {
-            "command": "<root>\\Git\\mingw64\\bin\\git.exe",
-            "args": [
-              "--version"
-            ],
-            "cwd": "<root>",
-            "childEnv": {
-              "PATH": "<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;\\bin;<root>\\Git\\cmd;<root>\\Git\\cmd",
-              "MSYSTEM": "MINGW64",
-              "PLINK_PROTOCOL": "ssh"
+          "rejected": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "spawn EFTYPE",
+            "code": "EFTYPE",
+            "props": {
+              "timing": {
+                "queueMs": "<ms>",
+                "spawnMs": "<ms>"
+              }
             }
           }
-        ]
+        },
+        "afterRemoval": {
+          "resolved": {
+            "code": 0,
+            "stdout": "git version 2.50.0.windows.1\n",
+            "stderr": "",
+            "timing": {
+              "queueMs": "<ms>",
+              "spawnMs": "<ms>"
+            }
+          }
+        },
+        "standinStarts": {
+          "launcher": [],
+          "real": [
+            {
+              "argv": [
+                "--version"
+              ],
+              "cwd": "<root>",
+              "env": [
+                "HOMEDRIVE=<machine>",
+                "HOMEPATH=<machine>",
+                "LOGONSERVER=<machine>",
+                "MSYSTEM=MINGW64",
+                "PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;\\bin;<root>\\Git\\cmd;<root>\\Git\\cmd",
+                "PLINK_PROTOCOL=ssh",
+                "SYSTEMDRIVE=<machine>",
+                "SystemRoot=C:\\Windows",
+                "TEMP=<machine>",
+                "USERDOMAIN=<machine>",
+                "USERNAME=<machine>",
+                "USERPROFILE=<machine>",
+                "WINDIR=<machine>"
+              ]
+            }
+          ]
+        }
       }
     },
     {
@@ -464,17 +502,41 @@
     {
       "case": "the direct binary sees the environment the launcher would give it",
       "observed": {
-        "files": [
-          "Git/cmd/git.exe",
-          "Git/bin/git.exe",
-          "Git/git-bash.exe",
-          "Git/usr/bin/",
-          "Git/mingw64/bin/git.exe"
-        ],
+        "fallbackInstall": {
+          "files": [
+            "Git/cmd/git.exe",
+            "Git/bin/git.exe",
+            "Git/git-bash.exe",
+            "Git/usr/bin/",
+            "Git/mingw64/bin/git.exe"
+          ],
+          "realBinary": "Git/mingw64/bin/git.exe: stand-in answering",
+          "answers": [
+            [
+              "dumpenv",
+              0,
+              "$ENV",
+              ""
+            ],
+            [
+              "--version",
+              0,
+              "git version 2.50.0.windows.1\n",
+              ""
+            ]
+          ],
+          "launchers": "Git/cmd/git.exe and Git/bin/git.exe: stand-in launcher running",
+          "wrapper": [
+            "SET MSYSTEM=MINGW64",
+            "SET PLINK_PROTOCOL=ssh",
+            "PREPEND PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;",
+            "EXEC <root>\\Git\\mingw64\\bin\\git.exe"
+          ]
+        },
         "env": {
           "PATH": "<root>\\Git\\cmd",
           "HOME": "D:\\h",
-          "MSYS": "noglob"
+          "SystemRoot": "C:\\Windows"
         },
         "args": [
           "-c",
@@ -485,33 +547,111 @@
         "launcherEnvironment": {
           "PATH": "<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd",
           "HOME": "D:\\h",
-          "MSYS": "noglob",
+          "SystemRoot": "C:\\Windows",
           "MSYSTEM": "MINGW64",
           "PLINK_PROTOCOL": "ssh"
         },
-        "result": {
-          "code": 0,
-          "stdout": "",
+        "viaLauncher": {
+          "status": 0,
+          "signal": null,
+          "output": [
+            null,
+            "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
+            ""
+          ],
+          "pid": "<pid>",
+          "stdout": "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
           "stderr": ""
         },
-        "requests": [
-          {
-            "command": "<root>\\Git\\mingw64\\bin\\git.exe",
-            "args": [
-              "-c",
-              "alias.dumpenv=!env",
-              "dumpenv"
-            ],
-            "cwd": "<root>",
-            "childEnv": {
-              "PATH": "<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd",
-              "HOME": "D:\\h",
-              "MSYS": "noglob",
-              "MSYSTEM": "MINGW64",
-              "PLINK_PROTOCOL": "ssh"
+        "direct": {
+          "status": 0,
+          "signal": null,
+          "output": [
+            null,
+            "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
+            ""
+          ],
+          "pid": "<pid>",
+          "stdout": "HOME=D:\\h\nHOMEDRIVE=<machine>\nHOMEPATH=<machine>\nLOGONSERVER=<machine>\nMSYSTEM=MINGW64\nPATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd\nPLINK_PROTOCOL=ssh\nSYSTEMDRIVE=<machine>\nSystemRoot=C:\\Windows\nTEMP=<machine>\nUSERDOMAIN=<machine>\nUSERNAME=<machine>\nUSERPROFILE=<machine>\nWINDIR=<machine>\n",
+          "stderr": ""
+        },
+        "sameLines": true,
+        "standinStarts": {
+          "launcher": [
+            {
+              "argv": [
+                "-c",
+                "alias.dumpenv=!env",
+                "dumpenv"
+              ],
+              "cwd": "<root>",
+              "env": [
+                "HOME=D:\\h",
+                "HOMEDRIVE=<machine>",
+                "HOMEPATH=<machine>",
+                "LOGONSERVER=<machine>",
+                "PATH=<root>\\Git\\cmd",
+                "SYSTEMDRIVE=<machine>",
+                "SystemRoot=C:\\Windows",
+                "TEMP=<machine>",
+                "USERDOMAIN=<machine>",
+                "USERNAME=<machine>",
+                "USERPROFILE=<machine>",
+                "WINDIR=<machine>"
+              ]
             }
-          }
-        ]
+          ],
+          "real": [
+            {
+              "argv": [
+                "-c",
+                "alias.dumpenv=!env",
+                "dumpenv"
+              ],
+              "cwd": "<root>",
+              "env": [
+                "HOME=D:\\h",
+                "HOMEDRIVE=<machine>",
+                "HOMEPATH=<machine>",
+                "LOGONSERVER=<machine>",
+                "MSYSTEM=MINGW64",
+                "PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd",
+                "PLINK_PROTOCOL=ssh",
+                "SYSTEMDRIVE=<machine>",
+                "SystemRoot=C:\\Windows",
+                "TEMP=<machine>",
+                "USERDOMAIN=<machine>",
+                "USERNAME=<machine>",
+                "USERPROFILE=<machine>",
+                "WINDIR=<machine>"
+              ]
+            },
+            {
+              "argv": [
+                "-c",
+                "alias.dumpenv=!env",
+                "dumpenv"
+              ],
+              "cwd": "<root>",
+              "env": [
+                "HOME=D:\\h",
+                "HOMEDRIVE=<machine>",
+                "HOMEPATH=<machine>",
+                "LOGONSERVER=<machine>",
+                "MSYSTEM=MINGW64",
+                "PATH=<root>\\Git\\mingw64\\bin;<root>\\Git\\usr\\bin;D:\\h\\bin;<root>\\Git\\cmd",
+                "PLINK_PROTOCOL=ssh",
+                "SYSTEMDRIVE=<machine>",
+                "SystemRoot=C:\\Windows",
+                "TEMP=<machine>",
+                "USERDOMAIN=<machine>",
+                "USERNAME=<machine>",
+                "USERPROFILE=<machine>",
+                "WINDIR=<machine>"
+              ]
+            }
+          ]
+        }
       }
     }
   ]
