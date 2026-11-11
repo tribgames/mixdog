@@ -4852,6 +4852,12 @@ impl SessionActor {
     /// completion starts a turn (`createCompletionWakeScheduler`, `notification-bus.mjs:80-96`),
     /// unless the thread was opened only for it (Node wakes only the live session).
     fn task_notification(&mut self, surface: &str, task_id: String, status: String, text: String, origin: Option<&'static str>, live: bool) {
+        // A closing or closed owner never queues a completion (`notification-bus.mjs` `notifySessionCompletion`: `if
+        // (!open) return handled`): the close cancels the session's shells, and their completions must not enqueue
+        // model work for it.
+        if origin.is_none() && (self.deleting || self.tombstoned || self.cell.closed.load(SeqCst) || self.acked.header.get("closed") == Some(&Value::Bool(true))) {
+            return;
+        }
         let now = self.deps.clock.now_ms();
         let built = match origin {
             None => completions::entry(surface, &task_id, &status, &text, now),

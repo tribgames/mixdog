@@ -2,7 +2,11 @@
   "command": "node benchmarks/rust-core/recorders/record-session-address.mjs --tree <tree>",
   "entry": "Ran session-address.mjs, lifecycle/teardown/session-close.mjs (closeCanonicalSession) and notification-bus.mjs (createNotificationBus, createCompletionWakeScheduler) with scripted manager / turn api; setImmediate captured and run by the recorder. Did not run a real runtime facade nor the real manager close.",
   "exclusions": [
-    "the wake scheduler's setImmediate is captured and run by the recorder; the 20 ms WAKE_DELAY stderr note is not triggered (queuedAt = now) and not recorded"
+    "the wake scheduler's setImmediate is captured and run by the recorder; the 20 ms WAKE_DELAY stderr note is not triggered (queuedAt = now) and not recorded",
+    "line 24 step 3 (newSession on the addressed runtime): outcome not compared; Node refuses it and tells the caller to make a new session entry, which is the core's thread/start (a new thread, never this one re-keyed)",
+    "line 35 second close: outcome not compared; the core's thread/delete of a thread already deleted answers false, Node's close of a terminal runtime true",
+    "line 108: the notify steps' outcomes are not compared (Node's listeners outlive the close; a deleted thread has no client), nor the open step's counters (Node's listener hands the completion to the model; the core shows a card and queues the model's copy)",
+    "line 150: rt not compared; Node's runtime stays open under a later lifecycle generation, the core's completions carry no generation and the closed thread is gone"
   ],
   "fileCount": 1,
   "files": [
@@ -49,7 +53,7 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-address.mjs",
   "recorderSha256": "d33b7adab45b8688bd9107a42b81cd04892f1ba95ba2a4797a2bf0b9a6199518",
-  "replay": "mixdog-core-session close fence (S/close.rs detach/close/tombstone, admission open->closing->terminal, lifecycle generation) and the completion-notification routing of a closed owner: drive the same ordered steps per case and compare every step outcome (value or error name/message/props), the runtime snapshot after each step, the manager calls, listener events, enqueued entries and wake asks.",
+  "replay": "mixdog-core-session SessionDirectory, driven through the client's requests (thread/start, thread/resume, turn/start, thread/delete) and the shell completion entry TaskNotifier::finished (directory.rs), over the real thread store in a scratch data dir (session/address_replay.rs). The core has no per-process address: a request names its threadId and SessionDirectory routes it, so `rt.addressedSessionId` is the thread the request answered as and `rt.admission` is open / closing (the thread's cell is closed while its delete holds the mark) / terminal (a later open answers threadNotFound). Node's closeCanonicalSession is thread/delete; its finishCanonicalClose is the delete's durable mark (held in the test between the fence and the write). enqueuedCount/wakeCount are the thread's queue entries and turn/started frames after the step.",
   "set": "session-address",
   "testFile": "src/session-runtime/session-address.test.mjs",
   "totalBytes": 16597,
