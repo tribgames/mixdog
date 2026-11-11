@@ -460,15 +460,23 @@ impl AgentRegistry {
     /// event. A deadline crossed while a pass ran starts the next pass at once; one due before the pass began was looked at
     /// by it. Every refresh and row write arms the timer again. Ends once the registry is gone.
     /// The timer waits on the registry's own clock (`Clock::until_ms`), the clock the rows' deadlines are read on.
-    pub async fn keep_deadlines(registry: std::sync::Weak<Self>) {
+    /// The start is the moment of this call, not of the future's first poll.
+    pub fn keep_deadlines(registry: std::sync::Weak<Self>) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let started = registry.upgrade().map_or(0.0, |first| first.now());
+        Self::deadline_timer(registry, started)
+    }
+
+    async fn deadline_timer(registry: std::sync::Weak<Self>, started: f64) {
         // Node re-arms a deadline past setTimeout's largest delay when it fires; this looks at the registry again.
         const LONGEST_WAIT_MS: f64 = 3_600_000.0;
         let Some(first) = registry.upgrade() else { return };
         let rearm = first.rearm.clone();
         let clock = first.clock.clone();
         drop(first);
-        // Node's first pass looks at every deadline after 0 (`lastPassStart` starts at 0): a row that came due while the
-        // core was down is reaped at once.
+        // Node arms no deadline before a pass has run, and the first pass is the event pass one `MAINTENANCE_EVENT_DELAY_MS`
+        // after the first status read (maintenance-pass.mjs:23,129). It then looks at every deadline after 0
+        // (`lastPassStart` starts at 0): a row that came due while the core was down is reaped by it.
+        clock.until_ms((started + 1_000.0) as i64).await;
         let mut since = 0.0;
         loop {
             let rearmed = rearm.notified();
@@ -850,6 +858,17 @@ impl AgentRegistry {
             }
             st.bind(&tag, &clean(session.get("id")), &clean(session.get("agent")), &clean(session.get("cwd")));
             self.scan_upsert(st, &session, &tag, &by_key);
+        }
+    }
+
+    /// `refreshTagsFromSessions({ memoryOnly: true })` (the status pulse, tag-refresh.mjs:19-22): the index is read and its rows bind
+    /// their tags; nothing is reaped, unbound or scanned, which the maintenance pass and the tool calls do.
+    pub async fn refresh_tags_from_index(&self, scope: &Scope) {
+        self.reload().await;
+        let mut st = self.lock();
+        let now = self.now();
+        for row in st.rows(scope, now) {
+            st.bind(&clean(row.get("tag")), &clean(row.get("sessionId")), &clean(row.get("agent")), &clean(row.get("cwd")));
         }
     }
 

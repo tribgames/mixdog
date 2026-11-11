@@ -313,7 +313,8 @@ impl AgentStatus for AgentToolStatus {
         let pid = positive_int(handle.cell.header.load().get("clientHostPid")).unwrap_or_else(|| u64::from(std::process::id()));
         let scope = Scope { caller_session_id: Some(thread.as_str().to_owned()), host_pid: Some(pid) };
         let now = self.clock.now_ms();
-        self.registry.refresh_tags_from_sessions(false, &scope).await;
+        // The status pulse reads the index only (`memoryOnly`): a row past its deadline leaves it at the maintenance pass.
+        self.registry.refresh_tags_from_index(&scope).await;
         let mut workers = Vec::new();
         for (tag, session) in self.registry.session_entries(false, &scope) {
             let id = mixdog_js::js_trim(session.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
