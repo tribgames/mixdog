@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::config::{self, InputType};
 use crate::memory::embed::engine::{EmbedConfig, Embedder};
-use crate::memory::embed::install;
+use crate::memory::embed::{compress, install};
 use crate::memory::recall::QueryEmbedder;
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
@@ -50,6 +50,8 @@ pub struct EmbeddingProvider {
     /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
     installing: Gate,
     tick: StateTick,
+    /// Runs `compact.exe` after the first successful load (Windows only).
+    compact: Option<compress::Compact>,
 }
 
 impl EmbeddingProvider {
@@ -67,7 +69,14 @@ impl EmbeddingProvider {
             cold_wait: cold_embed_wait(),
             installing: Gate::new(),
             tick,
+            compact: None,
         }
+    }
+
+    /// Compress the model cache with `compact` once the model first loads.
+    pub fn with_compaction(mut self, compact: compress::Compact) -> Self {
+        self.compact = Some(compact);
+        self
     }
 
     /// `getEmbeddingInfo()`: metadata only, never loads the model.
@@ -126,12 +135,21 @@ impl EmbeddingProvider {
 
     /// The shared load, as an owned future a task can run to its end.
     fn load_future(&self) -> impl Future<Output = Result<Embedder, String>> + Send + 'static {
-        let (loaded, load, config, tick) = (self.loaded.clone(), self.load.clone(), self.config.clone(), self.tick.clone());
+        let (loaded, load, config, tick, compact) = (self.loaded.clone(), self.load.clone(), self.config.clone(), self.tick.clone(), self.compact.clone());
         async move {
             loaded
                 .get_or_init(|| async move {
-                    let outcome = load(config).await;
+                    let outcome = load(config.clone()).await;
                     tick.bump();
+                    if let (Ok(_), Some(compact)) = (&outcome, compact) {
+                        mixdog_rt::spawn("embedding-model-compress", mixdog_rt::TaskClass::Work, async move {
+                            match compress::compress_model_cache(cfg!(windows), config.lane, &config.cache_dir, js_trim(&config.model_id), &compact).await {
+                                Ok(Some(dir)) => tracing::info!("[embed-worker] model cache LZX compressed: {}", dir.display()),
+                                Ok(None) => {}
+                                Err(error) => tracing::info!("[embed-worker] model cache LZX compression skipped: {error}"),
+                            }
+                        });
+                    }
                     outcome
                 })
                 .await

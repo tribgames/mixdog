@@ -487,7 +487,16 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
             gates.push((scope, OpGate::domain(OpScope::Domain(scope.into()), store).await.unwrap()));
         }
         let quiet = Arc::new(Quiet);
-        let models = crate::compose::build_models(&tokens, &dir, OrtRuntime::NoBinding).unwrap();
+        let models = crate::compose::build_models(
+            &tokens,
+            &dir,
+            OrtRuntime::NoBinding,
+            &mixdog_services::tidy::process::Processes::new(
+                Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default())),
+                tokens.durability_io,
+            ),
+        )
+        .unwrap();
         let app_feed = core.app_feed_core().clone();
         let state = Arc::new(mixdog_core_base::state::StateRuntime::new(app_feed.clone()));
         let (config, _) = mixdog_core_config::config::Config::open(
