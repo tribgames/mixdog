@@ -229,6 +229,8 @@ pub(crate) enum Inbox {
     ForkPlan {
         tx: oneshot::Sender<Result<(Base, Header), CoreError>>,
     },
+    /// The model rows of records not yet stored, in order (`session.messages` holds them in memory): a body by item id.
+    UnsavedRows { tx: oneshot::Sender<Vec<(String, Value, bool)>> },
     /// What `scheduleQuotaResume` reads of the session.
     QuotaFacts { tx: oneshot::Sender<super::quota_lane::ResumeCheck> },
     /// `cancelQuotaResume`: the explicit cancel of the pending resume.
@@ -421,6 +423,8 @@ pub(crate) enum Init {
         seed: Option<super::seams::SeededThread>,
         /// The settings counter followed from when the creation began (`CreateSpec::settings`).
         settings: Option<SettingsFollow>,
+        /// A heir Node creates in memory whatever its save does (`inheritSession`): answered and held on a failed barrier.
+        kept: bool,
     },
     /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2); the
     /// ops its scope fenced are refused from the start (P §9.4).
@@ -1038,21 +1042,12 @@ impl SessionActor {
     pub async fn run(mut self, init: Init) {
         let mut created_at = None;
         match init {
-            Init::Create { session, tx, value, seed, settings } => {
+            Init::Create { session, tx, value, seed, settings, kept } => {
                 self.seed = seed;
                 self.uncreated = true;
                 created_at = settings;
-                self.accept_record(
-                    session,
-                    Class::Normal,
-                    Display::None,
-                    Vec::new(),
-                    vec![Effect::Reply {
-                        op: None,
-                        tx,
-                        value,
-                    }],
-                );
+                let reply = if kept { Effect::Kept { tx, value } } else { Effect::Reply { op: None, tx, value } };
+                self.accept_record(session, Class::Normal, Display::None, Vec::new(), vec![reply]);
             }
             Init::Open { fenced } => {
                 for op in fenced {
@@ -2174,6 +2169,7 @@ impl SessionActor {
 
     fn effect_done(&mut self, effect: Effect) {
         match effect {
+            Effect::Kept { tx, value } => self.effect_done(Effect::Reply { op: None, tx, value }),
             Effect::Reply { op, tx, value } => {
                 // The first reply of a created thread is its `session` record's: the thread exists.
                 self.uncreated = false;
@@ -2232,7 +2228,12 @@ impl SessionActor {
         let error = refused.as_ref().unwrap_or(error);
         for effect in entry.effects {
             match effect {
-                Effect::Reply { op, tx, .. } => {
+                effect @ (Effect::Reply { .. } | Effect::Kept { .. }) => {
+                    let (op, tx) = match effect {
+                        Effect::Reply { op, tx, .. } => (op, tx),
+                        Effect::Kept { tx, .. } => (None, tx),
+                        _ => unreachable!("matched above"),
+                    };
                     // A failed `session` record: the thread is not created, the seed is abandoned, and the thread ends here: the
                     // actor releases its own slot (the create's caller may be gone, cancelled) and stops once its outbox is empty.
                     self.seed = None;
@@ -4129,6 +4130,22 @@ impl SessionActor {
                 });
                 let _ = tx.send(plan);
             }
+            Inbox::UnsavedRows { tx } => {
+                let rows = self
+                    .outbox
+                    .unsaved_records()
+                    .filter_map(|record| match &**record {
+                        Record::Item(item) if item.form == Form::Message && item.model => Some((item.iid.as_str(), &item.body, false)),
+                        Record::Amend(amend) => Some((amend.iid.as_str(), &amend.body, true)),
+                        _ => None,
+                    })
+                    .filter_map(|(iid, body, amend)| match body {
+                        Slot::Inline(body) => Some((iid.to_owned(), body.clone(), amend)),
+                        Slot::Blob(_) => None,
+                    })
+                    .collect();
+                let _ = tx.send(rows);
+            }
             Inbox::CommitCompaction { snapshot, compaction, header, tx } => self.commit_compaction(snapshot, compaction, header, tx),
             Inbox::PushToast { text, tone, tx } => {
                 // The caller is told when the toast is published, not when it is queued: an earlier unacknowledged record holds it back.
@@ -4340,9 +4357,14 @@ impl SessionActor {
             "thread/roomRows/commit" => self.room_rows_commit(&req),
             _ => Err(invalid("method", "a session-actor method")),
         };
+        // Node's own row and header changes mutate the session in memory and never refuse on a failed save (`inheritFrom`'s
+        // `target.messages.push`, a room's rows, `session.title = …`); a client's change answers the failure.
+        let kept = req.op.is_none()
+            && !matches!(req.ctx.caller, Caller::Connection(_))
+            && matches!(req.method.as_str(), "thread/header/patch" | "thread/roomRows/commit");
         match result {
             Ok(plan) => {
-                self.apply_plan(plan, req.op.clone(), tx);
+                self.apply_plan_kept(plan, req.op.clone(), tx, kept);
                 Ok(())
             }
             Err(error) => fail(error, tx, &mut self.ops),
@@ -4350,10 +4372,14 @@ impl SessionActor {
     }
 
     fn apply_plan(&mut self, plan: Plan, op: Option<OpId>, tx: Waiter) {
-        let reply = Effect::Reply {
-            op,
-            tx: Some(tx),
-            value: plan.value,
+        self.apply_plan_kept(plan, op, tx, false);
+    }
+
+    fn apply_plan_kept(&mut self, plan: Plan, op: Option<OpId>, tx: Waiter, kept: bool) {
+        let reply = if kept {
+            Effect::Kept { tx: Some(tx), value: plan.value }
+        } else {
+            Effect::Reply { op, tx: Some(tx), value: plan.value }
         };
         match plan.kind {
             PlanKind::StartRun(input, op_ref) => {

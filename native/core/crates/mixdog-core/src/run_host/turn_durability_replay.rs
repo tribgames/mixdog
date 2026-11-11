@@ -285,7 +285,7 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
             // The finished message and its seal were not written: what streamed of it is the draft's.
             "crash-answer-streamed" if has_role(records, "assistant") || drafts(records).any(|body| body.get("sealed").is_some()) => die(),
             // Once the seal is on disk the session's saves fail; the process dies once the turn has ended (`crash_child`).
-            "crash-sealed-unsaved" if SESSION_SAVES_FAIL.load(Ordering::SeqCst) => return Err(std::io::Error::other("EIO: injected")),
+            "crash-sealed-unsaved" | "resume-held" if SESSION_SAVES_FAIL.load(Ordering::SeqCst) => return Err(std::io::Error::other("EIO: injected")),
             _ => {}
         },
         AppendStep::Synced => {
@@ -303,7 +303,7 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
                 "crash-mid-stream" if seen.2 == "partial streamed answer" => die(),
                 "crash-tool-wire" if follow_up_on_wire => die(),
                 "crash-saved-uncleared" if has_run(records, RunPhase::Completed) => die(),
-                "crash-sealed-unsaved" if drafts(records).any(|body| body.get("sealed").is_some()) => {
+                "crash-sealed-unsaved" | "resume-held" if drafts(records).any(|body| body.get("sealed").is_some()) => {
                     assert!(!has_role(records, "assistant"), "the seal is written before the answer's row");
                     SESSION_SAVES_FAIL.store(true, Ordering::SeqCst);
                 }
@@ -356,7 +356,7 @@ async fn crash_child() {
                 }
             })
         }),
-        "crash-answer-streamed" | "crash-saved-uncleared" | "crash-sealed-unsaved" => Arc::new(|_| Box::pin(async { answer("answer") })),
+        "crash-answer-streamed" | "crash-saved-uncleared" | "crash-sealed-unsaved" | "resume-held" => Arc::new(|_| Box::pin(async { answer("answer") })),
         other => panic!("unknown case {other}"),
     };
     let rig = Rig::new();
@@ -368,8 +368,13 @@ async fn crash_child() {
     std::fs::write(dir.join("id"), ThreadHandle::id(&*handle).as_str()).unwrap();
     ask(&handle, "do the task", "op-1").await.expect("turn/start");
     // Node's `settleThenKill`: the turn ended with its terminal save failed, then the process dies.
-    if case == "crash-sealed-unsaved" {
+    if case == "crash-sealed-unsaved" || case == "resume-held" {
         until(&handle, "the sealed turn ends", async || SESSION_SAVES_FAIL.load(Ordering::SeqCst) && !handle.turn_busy()).await;
+        // A second client resuming the held thread in the owning process is served the thread's one view (`thread/resume`
+        // subscribes to the cell `thread/read` reads).
+        if case == "resume-held" {
+            std::fs::write(dir.join("resumed.json"), observe(&directory, &handle).await.to_string()).unwrap();
+        }
         kill("the turn's end");
     }
     let _ = tokio::time::timeout(Duration::from_secs(60), std::future::pending::<()>()).await;
@@ -579,7 +584,7 @@ fn same(case: &str, step: &Value, got: Value) {
     let mut want = node_step(step);
     // In the process that ran the turn, Node shows its live end row (`turnDoneItem`, `tui/session/turn.mjs:577`), which names
     // no message; the recorder's view is the stored-transcript projection, whose end row takes the answer's `messageId`.
-    if case == "save-failure" {
+    if step["step"] != "reopened" && step["step"] != "read again" {
         for row in want["rows"].as_array_mut().unwrap() {
             if row["kind"] == "turndone" {
                 row.as_object_mut().unwrap().shift_remove("messageId");
@@ -607,22 +612,56 @@ fn no_diffs() {
 /// turn is refused while they fail, and runs once they land, each record written once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_failed_save_replays_as_node_keeps_the_turn() {
-    let case = cases().into_iter().find(|case| case["name"] == "save-failure").unwrap();
+    held_save("save-failure").await;
+}
+
+/// `save-failure-tool-rounds`: the saves fail from the first request on while the turn runs two tool rounds; nothing is
+/// dropped or refused inside the running turn (Node holds the session whole, `turn-durability.mjs:15`), every record is held
+/// and written once when the saves land.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn work_that_goes_on_while_saves_fail_is_held_whole() {
+    held_save("save-failure-tool-rounds").await;
+}
+
+/// The plays of a held case's first turn; the first request makes the disk refuse writes (`save-failure` also fails the first
+/// rollback: an unknown outcome).
+fn held_plays(case: &str) -> OnSend {
+    let rounds = case == "save-failure-tool-rounds";
+    let rollback = case == "save-failure";
+    Arc::new(move |n| {
+        if n == 1 {
+            if rollback {
+                ROLLBACKS_FAILING.store(1, Ordering::SeqCst);
+            }
+            DISK_FAILS.store(true, Ordering::SeqCst);
+        }
+        let round = |text: &str, id: &str, path: &str| Play {
+            events: VecDeque::from([
+                StreamEvent::TextDelta(text.into()),
+                StreamEvent::ToolCallDone(ToolCall { id: id.into(), name: "read".into(), arguments: json!({ "path": path }), native_type: None }),
+                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+            ]),
+            hang: false,
+        };
+        let play = match n {
+            1 if rounds => round("reading", "call_read", "x.txt"),
+            2 if rounds => round("reading again", "call_read2", "y.txt"),
+            _ => answer("answer"),
+        };
+        Box::pin(async move { play })
+    })
+}
+
+fn rows_of(step: &Value) -> usize {
+    step["view"]["items"].as_array().unwrap().len()
+}
+
+async fn held_save(name: &str) {
+    let case = cases().into_iter().find(|case| case["name"] == name).unwrap();
     let steps = case["steps"].as_array().unwrap();
     install_hook();
     let rig = Rig::new();
-    let armed = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let on_send: OnSend = {
-        let armed = armed.clone();
-        Arc::new(move |_| {
-            if armed.swap(false, Ordering::SeqCst) {
-                ROLLBACKS_FAILING.store(1, Ordering::SeqCst);
-                DISK_FAILS.store(true, Ordering::SeqCst);
-            }
-            Box::pin(async { answer("answer") })
-        })
-    };
-    let provider = stub(on_send);
+    let provider = stub(held_plays(name));
     let workspace = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
     let store = real_store(data.path()).await;
@@ -632,8 +671,8 @@ async fn a_failed_save_replays_as_node_keeps_the_turn() {
 
     ask(&handle, "first task", "op-1").await.expect("turn/start");
     // Settled, not only shown as ended: the next turn is otherwise queued behind its settlement.
-    until(&handle, "the first turn settles", async || !handle.turn_busy() && settled(&observe(&directory, &handle).await, 3)).await;
-    same("save-failure", &steps[0], rust_step(&observe(&directory, &handle).await));
+    until(&handle, "the first turn settles", async || !handle.turn_busy() && settled(&observe(&directory, &handle).await, rows_of(&steps[0]))).await;
+    same(name, &steps[0], rust_step(&observe(&directory, &handle).await));
 
     let refused = ask(&handle, "second task", "op-2").await.expect_err("refused while the first turn is not saved");
     let mixdog_core_api::CoreError::DomainError { code, message, .. } = &refused else { panic!("{refused:?}") };
@@ -643,14 +682,17 @@ async fn a_failed_save_replays_as_node_keeps_the_turn() {
     let want = named(&json!({ "code": steps[1]["code"], "message": steps[1]["message"] }), &mut seen);
     assert_eq!(got, want, "the refusal");
     assert_eq!(provider.sends.load(Ordering::SeqCst), steps[1]["sends"].as_u64().unwrap() as usize, "the refused turn asks nothing");
-    same("save-failure", &steps[1], rust_step(&observe(&directory, &handle).await));
+    same(name, &steps[1], rust_step(&observe(&directory, &handle).await));
 
     DISK_FAILS.store(false, Ordering::SeqCst);
     ask(&handle, "second task", "op-3").await.expect("turn/start");
-    until(&handle, "the second turn ends", async || settled(&observe(&directory, &handle).await, 6)).await;
+    until(&handle, "the second turn ends", async || settled(&observe(&directory, &handle).await, rows_of(&steps[2]))).await;
     assert_eq!(provider.sends.load(Ordering::SeqCst), steps[2]["sends"].as_u64().unwrap() as usize);
-    same("save-failure", &steps[2], rust_step(&observe(&directory, &handle).await));
+    same(name, &steps[2], rust_step(&observe(&directory, &handle).await));
     no_diffs();
+    if name != "save-failure" {
+        return;
+    }
     // The writer went through each fault: a half write rolled back, a rollback that failed (truncated by the next barrier
     // before it wrote), half writes rolled back while the disk refused, then the held records written once (the stored
     // context above has each message once).
@@ -658,6 +700,66 @@ async fn a_failed_save_replays_as_node_keeps_the_turn() {
     let first = steps.iter().position(|step| step == "Write fails").expect("a write failed");
     assert_eq!(steps[first..first + 3], ["Write fails", "Truncate fails", "Truncate"], "the unknown outcome is truncated by the next barrier: {steps:?}");
     assert!(steps.iter().rev().take_while(|step| !step.ends_with("fails")).any(|step| step == "Synced"), "the held records landed: {steps:?}");
+}
+
+/// `fork-held`: a turn held by a failed save, forked (`thread/fork`, the desktop's `inheritSession`) while the saves fail and
+/// after they recover; the heir as shown and as stored, and the source, compared after each.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_turn_forks_as_node_forks_it() {
+    let name = "fork-held";
+    let case = cases().into_iter().find(|case| case["name"] == name).unwrap();
+    let steps = case["steps"].as_array().unwrap();
+    install_hook();
+    let rig = Rig::new();
+    let provider = stub(held_plays(name));
+    let workspace = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let store = real_store(data.path()).await;
+    let directory = stack(&rig, store, provider.clone(), workspace.path(), RUN_AT);
+    let handle = start(&directory, workspace.path()).await;
+    ask(&handle, "first task", "op-1").await.expect("turn/start");
+    until(&handle, "the first turn settles", async || {
+        let view = observe(&directory, &handle).await;
+        !handle.turn_busy() && !busy(&view) && view["items"].as_array().is_some_and(|items| items.len() == rows_of(&steps[0]))
+    })
+    .await;
+    same(name, &steps[0], rust_step(&observe(&directory, &handle).await));
+    for (n, step) in steps[1..].iter().enumerate() {
+        if n == 1 {
+            DISK_FAILS.store(false, Ordering::SeqCst);
+        }
+        let op = format!("op-fork-{n}");
+        let forked = handle.request(request("thread/fork", json!({ "threadId": ThreadHandle::id(&*handle).as_str(), "opId": op }), &op)).await;
+        let label = step["step"].as_str().unwrap();
+        match forked {
+            Ok(Reply::Value(reply)) => {
+                let (got, want) = (json!({ "forked": true, "messages": reply["messages"] }), json!({ "forked": step["forked"], "messages": step["messages"] }));
+                if got != want {
+                    lock(&DIFFS).push(format!("{name} / {label}:\n got {got}\nwant {want}"));
+                }
+                let heir = ThreadId::from(reply["thread"]["id"].as_str().expect("the heir's id"));
+                let heir = directory.open_handle(&heir, &CallContext::internal("test")).await.expect("the heir");
+                let mut shown = step["heir"].clone();
+                shown["step"] = json!(format!("{label} (heir)"));
+                shown["view"]["items"] = step["heir"]["live"]["items"].clone();
+                same(name, &shown, rust_step(&observe(&directory, &heir).await));
+            }
+            Ok(_) => panic!("{label}: thread/fork answers a value"),
+            Err(error) => {
+                let mut seen = Vec::new();
+                let got = named(&json!({ "forked": false, "message": error.to_string() }), &mut seen);
+                let mut seen = Vec::new();
+                let want = named(&json!({ "forked": step["forked"], "message": step["message"] }), &mut seen);
+                if got != want {
+                    lock(&DIFFS).push(format!("{name} / {label}:\n got {got}\nwant {want}"));
+                }
+            }
+        }
+        let mut source = step["source"].clone();
+        source["step"] = json!(format!("{label} (source)"));
+        same(name, &source, rust_step(&observe(&directory, &handle).await));
+    }
+    no_diffs();
 }
 
 /// Each crash point: the child process runs the turn until the store's crash hook kills it, then the thread is opened (the
@@ -680,10 +782,18 @@ async fn crashes_replay_as_node_recovers() {
             .status()
             .expect("the child runs");
         assert_eq!(status.code(), Some(CRASHED), "{name}: the child was not killed at its point");
+        let killed = steps.iter().position(|step| step["step"] == "killed").unwrap();
+        // Steps before the kill are what a client was shown in the owning process (`resume-held`: the live session it resumed).
+        for step in &steps[..killed] {
+            let resumed: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("resumed.json")).unwrap()).unwrap();
+            let mut shown = step.clone();
+            shown["view"]["items"] = step["live"]["items"].clone();
+            same(&name, &shown, rust_step(&resumed));
+        }
         let sends: usize = std::fs::read_to_string(dir.path().join("sends")).unwrap().parse().unwrap();
-        assert_eq!(sends, steps[0]["sends"].as_u64().unwrap() as usize, "{name}: the requests sent before the kill");
-        same(&name, &steps[1], rust_step(&reopen(dir.path()).await));
-        same(&name, &steps[2], rust_step(&reopen(dir.path()).await));
+        assert_eq!(sends, steps[killed]["sends"].as_u64().unwrap() as usize, "{name}: the requests sent before the kill");
+        same(&name, &steps[killed + 1], rust_step(&reopen(dir.path()).await));
+        same(&name, &steps[killed + 2], rust_step(&reopen(dir.path()).await));
     }
     no_diffs();
 }

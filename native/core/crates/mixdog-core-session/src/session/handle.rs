@@ -838,15 +838,27 @@ impl ThreadHandle for SessionHandle {
             "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
                 Ok(Reply::Value(json!({ "header": *self.cell.header.load_full() })))
             }
-            // The model conversation as acked (`session.messages`), for the core's own ports.
+            // The model conversation (`session.messages`), for the core's own ports: what is stored, then what is held in
+            // memory unsaved (asked first, so a record stored in between is read from the store; an amend replaces its row).
             "thread/messages/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
+                let (tx, rx) = oneshot::channel();
+                self.inbox.send(Inbox::UnsavedRows { tx }).await.map_err(|_| self.closing())?;
+                let unsaved = rx.await.map_err(|_| self.closing())?;
                 let context = super::run::ModelContext {
                     store: self.deps.store.clone(),
                     lanes: self.deps.lanes,
                     thread: self.id.clone(),
                     input: mixdog_core_api::ids::ItemId::from(String::new()),
                 };
-                let messages: Vec<serde_json::Value> = context.read().await?.into_iter().map(|(_, message)| message).collect();
+                let mut rows: Vec<(String, serde_json::Value)> = context.read().await?.into_iter().map(|(iid, message)| (iid.as_str().to_owned(), message)).collect();
+                for (iid, body, amend) in unsaved {
+                    match rows.iter_mut().find(|(row, _)| *row == iid) {
+                        Some(row) => row.1 = body,
+                        None if !amend => rows.push((iid, body)),
+                        None => {}
+                    }
+                }
+                let messages: Vec<serde_json::Value> = rows.into_iter().map(|(_, message)| message).collect();
                 Ok(Reply::Value(json!({ "messages": messages })))
             }
             // `restoreQueued` gives the entries' attachments back with their bytes: the actor answers the
