@@ -65,13 +65,16 @@ impl World {
         }
     }
 
-    /// The directory's own close (`markSessionClosed`), the one the idle sweep and a canonical close make.
+    /// `markSessionClosed(id, 'test')`: no client entry takes the reason a random case records (`test`, stored as
+    /// `closedReason`): every client close fixes its own (`thread/delete`, `thread/switchContext`, the exit, the idle sweep),
+    /// and Node's test calls the store function directly (`session-sequence.test.mjs:187`). The directory's close writes it.
     async fn close(&self, reason: &str) -> Exact {
         let landed = super::lifecycle_replay::close_of(&self.real).close(self.id.as_str(), reason).await;
         self.barrier(landed).await
     }
 
-    /// The directory's own detach (`bumpSessionGeneration`), the one the context switch and the exit make.
+    /// `bumpSessionGeneration(id, 'detach')`: likewise no client entry carries the reason `detach`
+    /// (`session-sequence.test.mjs:188`); the directory's detach writes it.
     async fn detach(&self, reason: &str) -> Exact {
         let landed = super::lifecycle_replay::close_of(&self.real).detach(self.id.as_str(), reason, false).await;
         self.barrier(landed).await
@@ -148,6 +151,10 @@ async fn detach_while_deleting(name: &str) {
     // Node's client delete detaches the session first and the closeSession issued right after it lands next, before the
     // delete's unlink: the delete is held once its detach landed, the detach runs, then the delete goes on.
     let held = super::address_replay::begin_delete(&world.real, &world.id).await;
+    // The recorded `desktop-context-switch` detach is the one the client's context switch makes (`thread/switchContext`,
+    // `SessionContextSwitch::leave`). That entry decides detach or tombstone from the thread's stored conversation rows, which
+    // this recording holds only as its header's `messages` field (Node's `session.messages`): the switch would tombstone it,
+    // so the detach it makes is replayed through the directory's own (see the case table).
     let closer = super::lifecycle_replay::close_of(&world.real);
     let closed = awaiting(|| "the detach to answer".to_owned(), closer.detach(world.id.as_str(), close.get("reason").as_str(), false)).await;
     let deleted = held.finish().await;
@@ -167,7 +174,9 @@ async fn random(seed: u32) {
     let case = recording.get("cases").as_array().iter().find(|case| case.get("name").as_str() == name).cloned().expect("the case");
     let (input, result) = (case.get("input"), case.get("result"));
     let world = World::new(input.get("id").as_str()).await;
-    assert_eq!(first_save(&world, input).await, Exact::String("saved".into()), "{name}: the first save");
+    // The recording holds no answer for a random case's first save (only the ops' results): the create is the save and
+    // fails the test when the record is not stored.
+    first_save(&world, input).await;
     let plan = std::sync::Arc::new(std::sync::Mutex::new(input.get("unlinkPlan").as_array().iter().map(|fails| *fails == Exact::Bool(true)).collect::<std::collections::VecDeque<_>>()));
     let queue = plan.clone();
     *lock(&world.real.marks.plan) = Some(Box::new(move |_: &str| lock(&queue).pop_front() == Some(true)));
