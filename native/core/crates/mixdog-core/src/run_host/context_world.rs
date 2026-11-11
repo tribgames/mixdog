@@ -174,6 +174,10 @@ impl ContextWorld for LiveContextWorld {
         // The daemon addresses every session by thread id; there is no ambient current session.
         let Some(thread) = thread else { return Ok(None) };
         let Ok(header) = self.threads.header(thread).await else { return Ok(None) };
+        self.snapshot_for(thread, header).await
+    }
+
+    async fn snapshot_for(&self, thread: &ThreadId, header: serde_json::Map<String, Value>) -> Result<Option<ContextSnapshot>, CoreError> {
         let route = self.routes.route(thread);
         let live = self.session.live_turn_messages(thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
         let rows = if live.is_empty() {
@@ -393,7 +397,7 @@ mod tests {
     /// a thread that is not loaded answers `null`.
     #[tokio::test]
     async fn live_session_status_equals_nodes() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status/golden.json")).expect("golden");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/context-status/golden.json")).expect("golden");
         let mut compared = 0;
         for case in golden["cases"].as_array().expect("cases") {
             let name = case["name"].as_str().expect("name");
@@ -412,7 +416,7 @@ mod tests {
     /// 4 system messages after its turn, with the text not recorded, so the blocks here are stated).
     #[tokio::test]
     async fn the_status_counts_the_system_messages_the_request_is_sent_with() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status/golden.json")).expect("golden");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/context-status/golden.json")).expect("golden");
         let case = golden["cases"].as_array().expect("cases").iter().find(|case| case["status"]["messages"]["count"].as_u64() > Some(0)).expect("a case with messages");
         let name = ThreadId::from(case["name"].as_str().expect("name").to_owned());
         let read = |case: Value| {
@@ -925,8 +929,7 @@ mod tests {
     /// installed compaction record, not from the control session's.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn the_recorded_sequence_is_answered_as_nodes_answered_it() {
-        #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 2.4 MB out of the test build
-        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/context-status-route/golden.json")).expect("golden");
+        let text = mixdog_testkit::fixture!("../../fixtures/context-status-route/golden.json");
         let golden: Value = serde_json::from_str(&text).expect("golden");
         let steps = golden["steps"].as_array().expect("steps");
         let first = steps.iter().find(|step| step["session"] == "control" && step["action"] == "contextStatus").expect("a first control status");
@@ -1026,8 +1029,7 @@ mod tests {
 
     impl Gated {
         async fn new() -> Self {
-            #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 2.4 MB out of the test build
-            let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/context-status-route/golden.json")).expect("golden");
+            let text = mixdog_testkit::fixture!("../../fixtures/context-status-route/golden.json");
             let golden: Value = serde_json::from_str(&text).expect("golden");
             let steps = golden["steps"].as_array().expect("steps");
             let first = steps.iter().find(|step| step["session"] == "control" && step["action"] == "contextStatus").expect("a first control status");
@@ -1097,6 +1099,11 @@ mod tests {
             use mixdog_core_ports::ports::threads::ThreadState;
             let mut got = self.replay.threads.header(&self.id).await.expect("the session");
             let mut want = self.replay.recorded_header(want);
+            // `offloadSources` and `offloadSourcesRules` (every session's reference set, empty for one naming no other
+            // session's sidecars, and the rules it was computed under) are the fix of `node-fix-prune-after-save.patch`,
+            // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
+            assert!(got.remove("offloadSources").is_some_and(|sources| sources.is_array()), "{what}: the session holds its reference set");
+            assert_eq!(got.remove("offloadSourcesRules"), Some(Value::from(mixdog_store::offload_sources::RULES)), "{what}: under the present rules");
             for header in [&mut got, &mut want] {
                 assert!(header.get("updatedAt").is_some_and(Value::is_number), "{what}: a stored time");
                 header.remove("updatedAt");
@@ -1208,7 +1215,7 @@ mod tests {
     /// it discovered (and the anchor) added marked `defer_loading`.
     #[test]
     fn the_request_snapshot_follows_node() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/request-tools/golden.json")).expect("request tools golden");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/request-tools/golden.json")).expect("request tools golden");
         let (mut steps, mut deferred) = (0, 0);
         for case in golden["cases"].as_array().expect("cases") {
             for (n, step) in case["steps"].as_array().expect("steps").iter().enumerate() {

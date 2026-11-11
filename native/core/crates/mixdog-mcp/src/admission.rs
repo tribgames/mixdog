@@ -161,7 +161,7 @@ impl AdmissionGate {
         let outcome = tokio::select! {
             result = &mut *waiting.granted => Some(result),
             () = cancel.cancelled() => None,
-            () = tokio::time::sleep(wait) => {
+            () = mixdog_rt::time::sleep(wait) => {
                 return Err(AdmissionError::WaitTimeout(wait));
             }
         };

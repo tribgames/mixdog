@@ -56,9 +56,9 @@ pub trait SummaryHost: Send + Sync {
     /// names a model and `config.providers[provider].enabled !== false`; an unrelated global
     /// default is never borrowed.
     fn maintainer_route(&self) -> Option<MaintainerRoute>;
-    /// `initProviders(...)` then `getProvider(provider)` can send. An abort propagates as
-    /// [`SummaryFailure::Aborted`]; a provider that is not there is `Ok(false)`.
-    async fn provider_ready(&self, provider: &str) -> Result<bool, SummaryFailure>;
+    /// `getProvider(provider)` can send, after `initProviders(...)` when `init`. An abort
+    /// propagates as [`SummaryFailure::Aborted`]; a provider that is not there is `Ok(false)`.
+    async fn provider_ready(&self, provider: &str, init: bool) -> Result<bool, SummaryFailure>;
     /// `resolveSessionContextMeta(provider, model, {}, { wholeWindow: true }).contextWindow`.
     fn whole_window(&self, provider: &str, model: &str) -> u64;
     /// `providerTokenCalibration`.
@@ -78,7 +78,9 @@ impl SummaryRoutes {
         Self { host }
     }
 
-    /// `summaryRoute`: the provider, its model and the window the summary request must fit.
+    /// `summaryRoute`: the provider, its model and the window the summary request must fit. Only
+    /// the Maintainer's step initializes providers (`resolveMaintainerRoute`); the session and
+    /// lighter steps run on the conversation's own provider, which is already there.
     async fn route(
         &self,
         step: RouteStep,
@@ -87,7 +89,7 @@ impl SummaryRoutes {
         fast: bool,
         effort: Option<String>,
     ) -> Result<SummaryRoute, SummaryFailure> {
-        let ready = !provider.is_empty() && !model.is_empty() && self.host.provider_ready(provider).await?;
+        let ready = !provider.is_empty() && !model.is_empty() && self.host.provider_ready(provider, step == RouteStep::Maintainer).await?;
         if !ready {
             let shown = |text: &str| if text.is_empty() { "unknown".to_owned() } else { text.to_owned() };
             return Err(SummaryFailure::Failed(format!(
@@ -244,7 +246,7 @@ mod tests {
         fn maintainer_route(&self) -> Option<MaintainerRoute> {
             self.maintainer.clone()
         }
-        async fn provider_ready(&self, provider: &str) -> Result<bool, SummaryFailure> {
+        async fn provider_ready(&self, provider: &str, _: bool) -> Result<bool, SummaryFailure> {
             Ok(!self.missing.contains(&provider))
         }
         fn whole_window(&self, _: &str, model: &str) -> u64 {

@@ -33,7 +33,7 @@ use super::*;
 use crate::service::Deps;
 use crate::service::WorkspaceService;
 
-const RECORDING: &str = include_str!("../../../../fixtures/file-downloads/file-downloads.json");
+const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/file-downloads/file-downloads.json");
 
 /// A text naming a staged download's folder in the recording's terms, as the recorder wrote Node's: the folder (the temp folder's
 /// `mixdog-download-<id>`) is `<staged>`, with forward slashes.
@@ -290,7 +290,7 @@ impl World {
                 Some(tick) if tick <= target => {
                     self.manual.advance(tick - now);
                     let swept = self.transfers.sweeper.swept.notified();
-                    tokio::time::timeout(std::time::Duration::from_secs(10), swept).await.unwrap_or_else(|_| panic!("the sweeper did not sweep at {tick} ms"));
+                    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), swept).await.unwrap_or_else(|_| panic!("the sweeper did not sweep at {tick} ms"));
                 }
                 _ => {
                     self.manual.advance(target - now);
@@ -423,7 +423,7 @@ const WINDOWS_ONLY: [&str; 1] = ["windows path names"];
 /// recorded event happens, and after every `handles` step the files the service holds open equal Node's.
 #[tokio::test(flavor = "multi_thread")]
 async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_did() {
-    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let recording: Value = serde_json::from_str(&RECORDING).unwrap();
     let start = recording["clockStart"].as_i64().unwrap();
     let platform = if cfg!(windows) { "win32" } else if cfg!(target_os = "macos") { "darwin" } else { "linux" };
     let all = recording["scenarios"].as_array().unwrap();
@@ -657,7 +657,7 @@ async fn a_relay_caller_gets_nothing_the_catalog_does_not_give_it() {
     std::fs::write(world.dir.join("task/t.bin"), b"task").unwrap();
     link_folder(&world.dir.join("outside"), &world.dir.join("project").join("link")); // `mklink` refuses a mixed-separator path
     let recorded = |scenario: &str, n: usize| -> Value {
-        let recording: Value = serde_json::from_str(RECORDING).unwrap();
+        let recording: Value = serde_json::from_str(&RECORDING).unwrap();
         let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == scenario).unwrap()["steps"].as_array().unwrap().clone();
         let step = steps.into_iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{scenario} has no call {n}"));
         // The index names an authorize of the recording, never another call's frame that happens to sit there.
@@ -694,7 +694,7 @@ async fn a_relay_caller_gets_nothing_the_catalog_does_not_give_it() {
 async fn a_relay_caller_that_skips_the_adapter_is_refused_as_nodes_table_refuses() {
     let dir = tempfile::tempdir().unwrap();
     let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
-    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let recording: Value = serde_json::from_str(&RECORDING).unwrap();
     let mut sent = 0;
     for scenario in recording["scenarios"].as_array().unwrap() {
         for step in scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call" && step["service"].as_array().is_some_and(Vec::is_empty)) {
@@ -760,7 +760,7 @@ async fn begun(world: &World, connection: u64) -> (String, String) {
 
 /// The frame Node's phone got for the held call of the scenario `name`.
 fn node_answer(name: &str) -> Value {
-    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let recording: Value = serde_json::from_str(&RECORDING).unwrap();
     let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"))["steps"].as_array().unwrap().clone();
     let mut frame = steps.into_iter().find(|step| step["op"] == "answer").unwrap()["frame"].clone();
     frame.as_object_mut().unwrap().remove("id");
@@ -769,14 +769,14 @@ fn node_answer(name: &str) -> Value {
 
 /// How many files Node's service held open at the `n`th count of the scenario.
 fn node_open(name: &str, n: usize) -> usize {
-    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let recording: Value = serde_json::from_str(&RECORDING).unwrap();
     let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"))["steps"].as_array().unwrap().clone();
     steps.iter().filter(|step| step["op"] == "handles").nth(n).unwrap()["open"].as_u64().unwrap() as usize
 }
 
 /// The frame Node's phone got for the first call of the scenario `name` by `device` of the phone method `method`.
 fn node_call(name: &str, device: &str, method: &str) -> Value {
-    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let recording: Value = serde_json::from_str(&RECORDING).unwrap();
     let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"))["steps"].as_array().unwrap().clone();
     let mut frame = steps.into_iter().find(|step| step["op"] == "call" && step["device"] == device && step["method"] == method).unwrap()["frame"].clone();
     frame.as_object_mut().unwrap().remove("id");

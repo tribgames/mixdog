@@ -13,7 +13,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, recordingProvenance, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const cli = parseArgs();
 const tree = resolveTree(cli);
@@ -190,5 +190,6 @@ writeSetManifest(outDir, {
   recorder: 'benchmarks/rust-core/recorders/record-provider-status.mjs',
   command: 'node benchmarks/rust-core/recorders/record-provider-status.mjs --tree <tree>',
   identityTree: tree,
+  extra: recordingProvenance('benchmarks/rust-core/recorders/record-provider-status.mjs', ['benchmarks/rust-core/recorders/lib/common.mjs']),
 });
 console.log(`recorded ${cases.length} status cases (${cases.filter((c) => c.error).length} errors), ${rosters.length} roster reads (${rosters.filter((c) => c.error).length} errors)`);

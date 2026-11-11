@@ -30,6 +30,9 @@ export interface PhoneProtocolAdapter {
   readonly calls?: Readonly<Record<string, NodeCall>>;
   /** Calls the page does not wait for; a method only in `calls` is also accepted here. */
   readonly fires?: Readonly<Record<string, (params: unknown[], host: PhoneProtocolHost) => void | Promise<void>>>;
+  /** `invokeCapability` calls this group answers, keyed by the capability the request names (`params[0].capability`); a request
+   *  naming any other capability goes to the group whose `calls` hold `invokeCapability`. */
+  readonly capabilities?: Readonly<Record<string, NodeCall>>;
   /** Wires the group's pushed events into the context's listener sets (`ctx.fanOut(ctx.termListeners, ...)`); returns its teardown. */
   install?(host: PhoneProtocolHost): (() => void) | undefined;
 }
@@ -114,15 +117,31 @@ export function createProtocolRouter(
   const owners = new Map<string, string>();
   const calls = new Map<string, NodeCall>();
   const fires = new Map<string, (params: unknown[], host: PhoneProtocolHost) => void | Promise<void>>();
+  const capabilities = new Map<string, NodeCall>();
   for (const adapter of adapters) {
-    for (const name of new Set([...Object.keys(adapter.calls ?? {}), ...Object.keys(adapter.fires ?? {})])) {
+    const names = [
+      ...Object.keys(adapter.calls ?? {}),
+      ...Object.keys(adapter.fires ?? {}),
+      ...Object.keys(adapter.capabilities ?? {}).map((capability) => `invokeCapability:${capability}`),
+    ];
+    for (const name of new Set(names)) {
       const owner = owners.get(name);
       if (owner !== undefined) throw new Error(`phone: Node method '${name}' is claimed by both '${owner}' and '${adapter.group}'`);
       owners.set(name, adapter.group);
     }
     for (const [name, handler] of Object.entries(adapter.calls ?? {})) calls.set(name, handler);
     for (const [name, handler] of Object.entries(adapter.fires ?? {})) fires.set(name, handler);
+    for (const [name, handler] of Object.entries(adapter.capabilities ?? {})) capabilities.set(name, handler);
   }
+  /** The handler of a call: a capability call by the capability it names, when a group claims that capability. */
+  const handlerOf = (method: string, params: unknown[]): NodeCall | undefined => {
+    if (method === 'invokeCapability') {
+      const capability = (params[0] as { capability?: unknown } | null | undefined)?.capability;
+      const claimed = typeof capability === 'string' ? capabilities.get(capability) : undefined;
+      if (claimed) return claimed;
+    }
+    return calls.get(method);
+  };
   const waiting = new Map<number, true>();
   let nextId = 1;
   const bootReads = new Map<string, Promise<unknown>>();
@@ -136,7 +155,7 @@ export function createProtocolRouter(
   };
 
   const dispatch = <T>(method: string, params: unknown[], gated: boolean, onGate?: () => void): Promise<T> => {
-      const handler = calls.get(method);
+      const handler = handlerOf(method, params);
       if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
       return new Promise<T>((resolve, reject) => {
         // What the queue and the adapter read is what Node's PC read: the arguments after the relay's JSON (a failure rejects the call).
@@ -144,9 +163,9 @@ export function createProtocolRouter(
         // Node's send(): the call waits for the connection and the view sync first (remote-shim-calls.ts:298-303), and its deadline starts only
         // when it is handed on (invoke, :239). A call held by the gate cannot time out, so one that timed out was always run.
         let settle = (): void => undefined;
-        // Enqueued on receipt, as Node's relay does (remote-relay-client-calls.ts:481): readiness is awaited inside the queued job, so a
-        // call whose connection is not ready yet still keeps its place before every call that arrives after it.
-        runQueued(link.host.ctx, method, args, async () => {
+        // The gate is the phone's (Node's send() waits before the frame leaves), the queue is the desktop's (remote-relay-client-calls.ts:481
+        // enqueues a frame on receipt): a call waiting for its gate holds no lane slot, so the ungated boot reads leave beside the sync.
+        (async () => {
           if (!gated || UNGATED_CALLS.has(method)) await link.started();
           else await link.synced();
           onGate?.();
@@ -162,8 +181,8 @@ export function createProtocolRouter(
           // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
           const claim = firstFrame((sent) => void sent.then(watch.transmitted));
           const host: PhoneProtocolHost = { ...link.host, client: () => scopeClient(link.host.client(), claim) };
-          return handler(args, host);
-        }).then(
+          return runQueued(link.host.ctx, method, args, () => handler(args, host));
+        })().then(
           (value) => {
             settle();
             resolve(value as T);
@@ -216,7 +235,7 @@ export function createProtocolRouter(
     fire(method: string, params: unknown[]): void {
       // A call the page does not wait for is still one call of the connection's queue, as in Node. Node's fire() waits for the connection,
       // not for the sync (remote-shim-calls.ts:354-359), and a failure is nobody's to hear.
-      const handler = fires.get(method) ?? calls.get(method);
+      const handler = fires.get(method) ?? handlerOf(method, params);
       if (!handler) throw new UnclaimedNodeMethodError(method);
       let args: unknown[];
       try {
@@ -225,10 +244,10 @@ export function createProtocolRouter(
         // Node's fire dropped a frame it could not write (`.catch(() => {})`).
         return;
       }
-      void runQueued(link.host.ctx, method, args, async () => {
-        await link.started();
-        return handler(args, link.host);
-      }).catch(() => undefined);
+      void link
+        .started()
+        .then(() => runQueued(link.host.ctx, method, args, () => handler(args, link.host)))
+        .catch(() => undefined);
     },
     install(): void {
       for (const adapter of adapters) adapter.install?.(link.host);

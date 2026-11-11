@@ -222,7 +222,7 @@ fn projected(visible: bool, prompt: &Option<String>, body: &Value) -> Option<(Ve
 #[test]
 #[ignore = "release gate over the migration corpus (MIXDOG_MIGRATION_CORPUS)"]
 fn restored_rows_match_node() {
-    let vectors: Value = serde_json::from_str(include_str!("vectors/corpus_rows.json")).unwrap();
+    let vectors: Value = serde_json::from_str(mixdog_testkit::fixture!("src/session/restore/vectors/corpus_rows.json")).unwrap();
     let mut failures = Vec::new();
     let mut compared = 0usize;
     for (scenario, data_rel) in SCENARIOS {

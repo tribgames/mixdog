@@ -16,6 +16,7 @@ mod relay_closed;
 mod relay_interop;
 mod relay_redial;
 mod remote_modules;
+mod terminal_output_droppable;
 mod transport_coordinator;
 mod transport_media;
 mod transport_session;

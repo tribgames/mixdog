@@ -70,7 +70,7 @@ struct FakeServices {
 
 /// Waits for a signal a test double gives; the bound only turns a missing signal into a failure.
 async fn signal(notify: &tokio::sync::Notify, what: &str) {
-    tokio::time::timeout(Duration::from_secs(15), notify.notified()).await.unwrap_or_else(|_| panic!("never signalled: {what}"));
+    mixdog_rt::time::timeout(Duration::from_secs(15), notify.notified()).await.unwrap_or_else(|_| panic!("never signalled: {what}"));
 }
 
 #[async_trait]
@@ -836,7 +836,7 @@ async fn a_shutdown_ends_a_deferred_start_waiting_on_the_active_automation_check
     *e.host.listing_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
     e.admin.schedule_automation_start();
     signal(&e.host.listing_entered, "the active check is inside the listing").await;
-    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    mixdog_rt::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
     assert!(!e.runtime.automation_running());
     assert!(e.services.log.lock().unwrap().is_empty());
     assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0);
@@ -873,7 +873,7 @@ async fn a_shutdown_ends_a_deferred_start_stuck_in_the_provider_init() {
     *e.agent.init_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
     e.admin.schedule_automation_start();
     signal(&e.agent.entered, "the start is inside the provider init").await;
-    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    mixdog_rt::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
     e.runtime.stop_owned_runtime("test").await.unwrap();
     assert!(!e.runtime.automation_running());
     assert!(e.services.log.lock().unwrap().is_empty(), "nothing synced after the shutdown");

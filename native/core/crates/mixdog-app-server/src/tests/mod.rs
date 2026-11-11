@@ -9,6 +9,7 @@ mod dispatch;
 mod errors;
 mod handshake;
 mod host;
+mod inventory_rule;
 mod lane_pushes;
 mod phone_chat;
 mod queues;
@@ -552,7 +553,7 @@ pub(crate) struct Arrivals<T>(tokio::sync::mpsc::UnboundedReceiver<(Value, T)>);
 impl<T> Arrivals<T> {
     /// The next frame queued to the connection; `awaited` names it in the failure when none comes within `deadline`.
     pub(crate) async fn next(&mut self, deadline: std::time::Duration, awaited: &str) -> (Value, T) {
-        tokio::time::timeout(deadline, self.0.recv())
+        mixdog_rt::time::timeout(deadline, self.0.recv())
             .await
             .unwrap_or_else(|_| panic!("no frame within {deadline:?}: awaited {awaited}"))
             .unwrap_or_else(|| panic!("the connection closed: awaited {awaited}"))
@@ -574,6 +575,14 @@ pub(crate) struct Client {
 impl Client {
     pub(crate) fn send(&self, message: Value) -> Inbound {
         let message: JsonRpcMessage = serde_json::from_value(message).unwrap();
+        self.handle.on_message(message)
+    }
+
+    /// A frame as the client's text, read by the server's decoder (lone surrogate escapes and all).
+    pub(crate) fn send_text(&self, frame: &str) -> Inbound {
+        let mixdog_app_protocol::rpc::InboundText::Message(message) = mixdog_app_protocol::rpc::decode_inbound_text(frame, 1 << 20) else {
+            panic!("not a message: {frame}");
+        };
         self.handle.on_message(message)
     }
 
@@ -639,7 +648,7 @@ impl Client {
 /// a bare yield may return before they have done anything.
 async fn pause() {
     tokio::task::yield_now().await;
-    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(1)).await;
 }
 
 /// `error.data.reason` of an error frame.

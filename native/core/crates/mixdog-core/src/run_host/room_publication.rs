@@ -22,7 +22,8 @@ pub struct RoomPublication {
     pub summaries: Arc<RoomSummaries>,
     pub host: Arc<SessionRoomHost>,
     /// The index writes' publisher (a test waits for it to have published every write so far).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     edges: Arc<ThreadEdges>,
 }
 
@@ -53,12 +54,12 @@ where
     };
     let sessions = Arc::new(RenameLists { sessions, summaries: summaries.clone() });
     let host = Arc::new(SessionRoomHost::new(agents, sessions, republish));
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "test-support")))]
     drop(edges);
     Ok(RoomPublication {
         summaries,
         host,
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         edges,
     })
 }
@@ -468,7 +469,7 @@ mod tests {
                 }
                 self.edges.settled().await;
             };
-            tokio::time::timeout(DEADLINE, settled).await.unwrap_or_else(|_| panic!("{what}: the index writes acknowledged so far were not all in the index and published"));
+            mixdog_rt::time::timeout(DEADLINE, settled).await.unwrap_or_else(|_| panic!("{what}: the index writes acknowledged so far were not all in the index and published"));
         }
 
         /// A whole `thread/list` answer.
@@ -492,7 +493,7 @@ mod tests {
         /// [`Self::call`] up to its answer, the reply's mark not yet set: the moment between the call's answer and its reply queued.
         async fn call_held(&self, method: &'static str, input: Value, op: u64) -> (Result<Value, String>, AfterAnswer) {
             let (answering, replied) = self.spawn_held(method, input, op);
-            let answer = tokio::time::timeout(DEADLINE, answering)
+            let answer = mixdog_rt::time::timeout(DEADLINE, answering)
                 .await
                 .unwrap_or_else(|_| panic!("{method} answered within the deadline"))
                 .expect("the call's task");
@@ -513,7 +514,7 @@ mod tests {
             self.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
             let members: Vec<&str> = self.agents.roster.iter().map(|(id, _)| id.as_str()).collect();
             let created = self.call("room/create", json!({ "name": "Release", "members": members }), 1).await.expect("room/create");
-            tokio::time::timeout(DEADLINE, self.summaries.background_ended()).await.expect("the creation's background listing never ended");
+            mixdog_rt::time::timeout(DEADLINE, self.summaries.background_ended()).await.expect("the creation's background listing never ended");
             self.agents.lookup_fails.store(false, std::sync::atomic::Ordering::SeqCst);
             assert!(!self.list.catalog_loaded(), "the failed listings left the catalog unloaded");
             drop(self.app.drain_text());
@@ -551,11 +552,11 @@ mod tests {
         world.load_catalog().await;
         let (open, arrived) = world.gate.arm();
         let creating = world.create().await;
-        tokio::time::timeout(DEADLINE, arrived).await.expect("the room create never published the catalog").expect("gate");
+        mixdog_rt::time::timeout(DEADLINE, arrived).await.expect("the room create never published the catalog").expect("gate");
         assert!(!creating.is_finished(), "the room create answered while its publish was held");
         drop(world.sent("thread/summary/updated"));
         open.send(()).expect("the publish waits at the gate");
-        let created = tokio::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
+        let created = mixdog_rt::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
         let room = log_of(&created);
         assert!(world.sent("thread/summary/updated").contains(&room), "the publish sent the room's row before the reply");
         let listed = value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
@@ -577,13 +578,13 @@ mod tests {
         let before = *waits.borrow_and_update();
         let (open, arrived) = world.agents.arm_edges();
         let creating = world.create().await;
-        tokio::time::timeout(DEADLINE, arrived).await.expect("the room create's writes were never announced").expect("stop");
-        tokio::time::timeout(DEADLINE, waits.wait_for(|waits| *waits > before))
+        mixdog_rt::time::timeout(DEADLINE, arrived).await.expect("the room create's writes were never announced").expect("stop");
+        mixdog_rt::time::timeout(DEADLINE, waits.wait_for(|waits| *waits > before))
             .await
             .expect("no room pass waited for the room create's writes to be announced")
             .expect("the waits are held by the edges");
         open.send(()).expect("the announcement waits at the stop");
-        let created = tokio::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
+        let created = mixdog_rt::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
         world.settled("the room create").await;
         let room = log_of(&created);
         let frames: Vec<String> = world
@@ -622,7 +623,7 @@ mod tests {
         let created = world.unloaded_room().await;
         let (open, arrived) = world.deletes.arm();
         let (mut updating, replied) = world.spawn_held("room/update", json!({ "roomId": created["roomId"], "members": ["gh", "rel"] }), 2);
-        tokio::time::timeout(DEADLINE, async {
+        mixdog_rt::time::timeout(DEADLINE, async {
             tokio::select! {
                 reached = arrived => reached.expect("stop"),
                 answered = &mut updating => panic!("the update answered without deleting the removed member's session: {answered:?}"),
@@ -634,7 +635,7 @@ mod tests {
         assert!(!updating.is_finished(), "the update answered before its deletion went on");
 
         open.send(()).expect("the deletion waits at the stop");
-        let answer = tokio::time::timeout(DEADLINE, updating).await.expect("the update never answered").expect("task").expect("room/update");
+        let answer = mixdog_rt::time::timeout(DEADLINE, updating).await.expect("the update never answered").expect("task").expect("room/update");
         assert_eq!(answer["members"], json!(["gh", "rel"]), "{answer}");
         replied.release();
         assert!(world.list.catalog_loaded(), "the joined listing loaded the catalog");
@@ -827,7 +828,7 @@ mod tests {
                         // No client call: nothing waits for a reply (`agent-rooms.ts:339-350`).
                         "forget-member" => {
                             let forget = world.homes.forget_room_member(&bots[2]);
-                            let answer = tokio::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered");
+                            let answer = mixdog_rt::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered");
                             (answer.map(|()| Value::Null).map_err(|error| format!("{error:?}")), AfterAnswer::default())
                         }
                         // No client call: the core restarted from its files (`Composed::restart`), as Node's host is made again; then a
@@ -835,7 +836,7 @@ mod tests {
                         "restart-and-list" => {
                             let (next, started) = world.restart().await;
                             (world, fold) = (next, Fold::default());
-                            tokio::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up");
+                            mixdog_rt::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up");
                             (Ok(world.listed().await), AfterAnswer::default())
                         }
                         // No client call: the third bot's definition deleted past the host, then the core restarted (`Composed::restart`):
@@ -854,14 +855,14 @@ mod tests {
                             let (next, started) = world.restart().await;
                             (world, fold) = (next, Fold::default());
                             if let Some((_, arrived)) = &mut stop {
-                                tokio::time::timeout(DEADLINE, arrived)
+                                mixdog_rt::time::timeout(DEADLINE, arrived)
                                     .await
                                     .unwrap_or_else(|_| panic!("{what}: the first load never reached its save"))
                                     .expect("the save's stop");
                             }
                             match stop {
                                 Some((open, _)) if call == "restart-held-at-save" => held_save = Some((open, started)),
-                                _ => tokio::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up"),
+                                _ => mixdog_rt::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up"),
                             }
                             (Ok(Value::Null), AfterAnswer::default())
                         }
@@ -870,7 +871,7 @@ mod tests {
                         "update-rounds-and-list-while-held" => {
                             let (open, started) = held_save.take().expect("the save held by the step before");
                             let (updating, replied) = world.spawn_held("room/update", json!({ "roomId": room_id, "maxRounds": 4 }), created);
-                            let listed = tokio::time::timeout(DEADLINE, value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)))
+                            let listed = mixdog_rt::time::timeout(DEADLINE, value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)))
                                 .await
                                 .unwrap_or_else(|_| panic!("{what}: the listing never answered while the save was held"))
                                 .expect("thread/list");
@@ -886,18 +887,18 @@ mod tests {
                             // still pending, and whether the update had ended by then is Node's.
                             let (deleting, deletion) = world.deletes.arm();
                             open.send(()).expect("the save waits at its stop");
-                            tokio::time::timeout(DEADLINE, deletion)
+                            mixdog_rt::time::timeout(DEADLINE, deletion)
                                 .await
                                 .unwrap_or_else(|_| panic!("{what}: the prune never reached its member's deletion"))
                                 .expect("the deletion's stop");
                             let ended = &events.iter().find(|e| e["kind"] == "update-ended-before-the-deletion").expect("Node's update state")["ended"];
                             assert_eq!(&json!(updating.is_finished()), ended, "{what}: whether the update had ended when the prune reached its deletion");
                             deleting.send(()).expect("the deletion waits at its stop");
-                            let answer = tokio::time::timeout(DEADLINE, updating)
+                            let answer = mixdog_rt::time::timeout(DEADLINE, updating)
                                 .await
                                 .unwrap_or_else(|_| panic!("{what}: the update never answered once the save went on"))
                                 .expect("the update's task");
-                            tokio::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up");
+                            mixdog_rt::time::timeout(DEADLINE, started).await.unwrap_or_else(|_| panic!("{what}: the start-up never ended")).expect("the start-up");
                             (answer.map_err(|error| format!("{error:?}")), replied)
                         }
                         "list-sessions" => {
@@ -911,7 +912,7 @@ mod tests {
                             step["loadedBefore"] == json!(false) && step["listingFails"] != json!(true),
                             "{what}: the forced step starts no background listing that lists"
                         );
-                        tokio::time::timeout(DEADLINE, world.summaries.listing_in_hand())
+                        mixdog_rt::time::timeout(DEADLINE, world.summaries.listing_in_hand())
                             .await
                             .unwrap_or_else(|_| panic!("{what}: the call's background listing never had its rows in hand"));
                     }
@@ -923,7 +924,7 @@ mod tests {
                     replied.release();
                     // Node's recorder awaits the call's background listing to its end before the next step sets its listing fault; so
                     // does the replay, for the core's, and for what the index writes made by then publish.
-                    tokio::time::timeout(DEADLINE, world.summaries.background_ended())
+                    mixdog_rt::time::timeout(DEADLINE, world.summaries.background_ended())
                         .await
                         .unwrap_or_else(|_| panic!("{what}: the core's background listing did not end"));
                     world.settled(&what).await;

@@ -65,7 +65,7 @@ impl RouteMaintainer {
 #[async_trait]
 impl Maintainer for RouteMaintainer {
     async fn ask(&self, system: &str, user: &str) -> Maintained {
-        tokio::time::timeout(self.timeout, self.answer(system, user)).await.unwrap_or(Maintained::Failed)
+        mixdog_rt::time::timeout(self.timeout, self.answer(system, user)).await.unwrap_or(Maintained::Failed)
     }
 }
 

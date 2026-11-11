@@ -597,7 +597,7 @@ async fn replay(case: &Value) -> Result<(), String> {
 }
 
 fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/goal/goal-runtime-twin.json")).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/goal/goal-runtime-twin.json")).unwrap()
 }
 
 /// Recorded cases per test: each has its own directory and clock.

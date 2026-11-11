@@ -125,13 +125,19 @@ impl JobStarter {
                     async move {
                         let _ = announced.await;
                         let lease = admission.acquire(&label, owner_key.as_deref(), &admission_cancel).await?;
-                        // Yield before doing agent work, so a caller sees the `running` card first.
+                        // Yield before doing agent work, so a caller sees the `running` card first (`job-start.mjs:78`, one
+                        // `setImmediate`).
                         job.set_slot(lease.yielder());
-                        tokio::task::yield_now().await;
+                        mixdog_rt::time::immediate().await;
                         let outcome = if job.is_cancelled() { Ok(None) } else { run(job, notify_for_run).await };
                         lease.release().await;
-                        // The board stamps the terminal state in its next continuation; publish after it.
-                        drop(mixdog_rt::spawn("agent-status-changed", TaskClass::Work, async move { status_changed() }));
+                        // The board stamps the terminal state in its next continuation; publish after it
+                        // (`job-start.mjs:85`, `setImmediate(notifyStatusChange)`).
+                        let check_phase = mixdog_rt::time::check_phase();
+                        drop(mixdog_rt::spawn("agent-status-changed", TaskClass::Work, async move {
+                            check_phase.await;
+                            status_changed()
+                        }));
                         outcome.map(|value| value.map(|v| TaskResult::Json(v.value)))
                     }
                 },
