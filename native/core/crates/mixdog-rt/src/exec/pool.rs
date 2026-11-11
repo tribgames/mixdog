@@ -547,12 +547,30 @@ fn watchdog(watch: &Arc<Watch>) {
     }
 }
 
+/// A tool call's lane job that waited this long in its queue is logged once ([`slow_wait_line`]),
+/// into the daemon's log. Healthy queue waits stay far below it (the service bounds `S` of
+/// RL §12.2 are 25-40 ms), so a loaded machine does not fill the log; a call stuck behind
+/// unrelated long work (seconds to minutes) always crosses it.
+pub(crate) const SLOW_WAIT: Duration = Duration::from_millis(250);
+
+/// The line of a tool call's job that waited past [`SLOW_WAIT`]: the tool, the lane, the wait
+/// and the time the job then ran.
+pub(crate) fn slow_wait_line(tool: &str, lane: LaneKind, waited: Duration, ran: Duration) -> String {
+    format!("[lane-wait] tool={tool} lane={} waited={}ms ran={}ms", lane.name(), waited.as_millis(), ran.as_millis())
+}
+
 /// Runs one dequeued job. A cancelled job is dropped unrun (RL §7.1); a panicking job resolves
 /// its handle with `JobDropped` and leaves the thread serving the next one.
 fn run_job(stats: &LaneStats, job: QueuedJob) {
-    stats.queue_wait.record(job.enqueued_at().elapsed());
+    let waited = job.enqueued_at().elapsed();
+    stats.queue_wait.record(waited);
+    let slow = if waited >= SLOW_WAIT { job.tool().map(|tool| (tool, job.lane())) } else { None };
     let started = Instant::now();
-    match catch_unwind(AssertUnwindSafe(move || job.run())) {
+    let outcome = catch_unwind(AssertUnwindSafe(move || job.run()));
+    if let Some((tool, lane)) = slow {
+        crate::node_stderr!("{}", slow_wait_line(tool, lane, waited, started.elapsed()));
+    }
+    match outcome {
         Ok(JobRun::Completed) => {
             stats.service.record(started.elapsed());
             stats.completed.fetch_add(1, Relaxed);
@@ -780,6 +798,28 @@ mod tests {
         assert_eq!(failures.load(Relaxed), 1);
         assert_eq!(lane.snapshot().priority_failed, 1);
         assert_eq!(lane.snapshot().completed, 0);
+    }
+
+    /// Only a tool call's job past the threshold is logged, once, naming the tool, the lane, the
+    /// wait and the run time. Enqueue times are set, not waited for: one far enough in the past,
+    /// one in the future (its wait reads as zero).
+    #[test]
+    fn a_tool_calls_job_that_waited_past_the_threshold_is_logged_once() {
+        let stats = LaneStats::new();
+        let (lines, _guard) = crate::node_log::capture();
+        let long_ago = Instant::now().checked_sub(SLOW_WAIT * 3).expect("an instant before the threshold");
+        let ahead = Instant::now() + Duration::from_secs(3600);
+        run_job(&stats, QueuedJob::queued_at(LaneKind::SpawnIo, Some("shell"), long_ago, Box::new(|| {})));
+        run_job(&stats, QueuedJob::queued_at(LaneKind::SpawnIo, Some("shell"), ahead, Box::new(|| {})));
+        run_job(&stats, QueuedJob::queued_at(LaneKind::MaintenanceIo, None, long_ago, Box::new(|| {})));
+        let lines = lines.lock().unwrap();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let line = &lines[0].2;
+        assert!(line.starts_with("[lane-wait] tool=shell lane=io-spawn waited="), "{line}");
+        let waited: u128 = line.split("waited=").nth(1).and_then(|rest| rest.split("ms").next()).unwrap().parse().unwrap();
+        assert!(waited >= SLOW_WAIT.as_millis() * 3, "{line}");
+        assert!(line.contains("ms ran=") && line.ends_with("ms"), "{line}");
+        assert_eq!(stats.completed.load(Relaxed), 3);
     }
 
     #[test]
