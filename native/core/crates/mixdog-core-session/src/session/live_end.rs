@@ -154,12 +154,18 @@ pub(crate) struct LiveCounts {
     /// The reply's text so far (`stream.currentAssistantText`), and when its text batch flushes (`scheduleStreamFlush`).
     reply_text: String,
     flush_due: Option<i64>,
-    /// `streamingTail.at`: the flush that first showed a completed visible line of the reply.
+    /// The unfinished-line publication's timer (`schedulePartial`) and its last publication (`partialPublishedAt`).
+    partial_due: Option<i64>,
+    partial_at: Option<i64>,
+    /// The row's identity time (`claimAssistantIdentity`'s `assistantAt`): claimed by the first publication of the reply, the
+    /// text batch that showed a completed visible line (`ensureAssistant`) or the unfinished line's first (`partialNow`).
     tail_at: Option<i64>,
 }
 
 /// `STREAM_BATCH_INTERVAL_MS` (`turn-stream.mjs:15`): `TUI_FRAME_MS`, `Math.ceil(1000 / 120)` (render-timing.mjs:26).
 const STREAM_BATCH_MS: i64 = 9;
+/// `PARTIAL_INTERVAL_MS` (`turn-stream.mjs:19`).
+const PARTIAL_MS: i64 = 40;
 
 fn units(text: &str) -> u64 {
     text.encode_utf16().count() as u64
@@ -182,16 +188,41 @@ impl LiveCounts {
         self.flush_until(now);
         self.reply_text.push_str(text);
         self.flush_due.get_or_insert(now + STREAM_BATCH_MS);
+        // `schedulePartial`: `Math.max(STREAM_BATCH_INTERVAL_MS, PARTIAL_INTERVAL_MS - (Date.now() - partialPublishedAt))`.
+        if self.partial_due.is_none() {
+            let since = self.partial_at.map_or(i64::MAX, |at| now - at);
+            self.partial_due = Some(now + STREAM_BATCH_MS.max(PARTIAL_MS.saturating_sub(since)));
+        }
     }
 
-    /// The text batch due by `now` flushes (`flushTextBatch`): the reply's row shows once a completed line has visible text
-    /// (`streamingVisibleTextNow`, `visibleText.trim()`), and keeps the time it first showed (`at: current?.at || Date.now()`).
+    /// The batches due by `now` flush, in time order. The text batch (`flushTextBatch`) shows the reply's row once a completed
+    /// line has visible text (`streamingVisibleTextNow`, `visibleText.trim()`) and publishes the unfinished line with it; the
+    /// unfinished-line timer (`schedulePartial` -> `publishPartial`, `partialNow`) publishes the reply's text once it is not
+    /// blank. The first of them claims the row's identity and its time (`claimAssistantIdentity`), which the row keeps.
     fn flush_until(&mut self, now: i64) {
-        let Some(due) = self.flush_due.filter(|due| *due <= now) else { return };
-        self.flush_due = None;
-        let visible = self.reply_text.rfind('\n').map_or("", |end| &self.reply_text[..=end]);
-        if self.tail_at.is_none() && !js_trim(visible).is_empty() {
-            self.tail_at = Some(due);
+        loop {
+            let text = self.flush_due.filter(|due| *due <= now);
+            let partial = self.partial_due.filter(|due| *due <= now);
+            match (text, partial) {
+                (Some(due), partial) if partial.is_none_or(|partial| due <= partial) => {
+                    self.flush_due = None;
+                    let visible = self.reply_text.rfind('\n').map_or("", |end| &self.reply_text[..=end]);
+                    if !js_trim(visible).is_empty() {
+                        self.tail_at.get_or_insert(due);
+                        // `if (rowCreated || patch.streamingTail) publishPartial(stream)`.
+                        self.partial_due = None;
+                        self.partial_at = Some(due);
+                    }
+                }
+                (_, Some(due)) => {
+                    self.partial_due = None;
+                    if !js_trim(&self.reply_text).is_empty() {
+                        self.tail_at.get_or_insert(due);
+                        self.partial_at = Some(due);
+                    }
+                }
+                _ => return,
+            }
         }
     }
 
@@ -230,7 +261,7 @@ impl LiveCounts {
         self.tool_cards += shown as u64;
         // The reply before the calls is settled (`finalizeAssistant`); the next text opens a row of its own.
         self.flush_until(now);
-        (self.reply_text, self.flush_due, self.tail_at) = (String::new(), None, None);
+        (self.reply_text, self.flush_due, self.partial_due, self.tail_at) = (String::new(), None, None, None);
     }
 
     /// `closeThinkingSegment` at the turn's close.
@@ -391,19 +422,30 @@ mod tests {
         assert_eq!(counts.tool_cards, 5, "an unreadable skill source hides nothing");
     }
 
-    /// `streamingTail.at` (turn-stream.mjs `flushTextBatch`): the reply's row shows at the first text batch (9 ms after the delta
-    /// that armed it) holding a completed visible line, not at the delta, and a later batch keeps that time.
+    /// The reply's identity time (`claimAssistantIdentity`): its first publication, the unfinished line's (`partialNow`, the
+    /// first one 9 ms after the delta) even before a completed line (recorded: `running-with-output`'s stopped reply, no newline,
+    /// is `at` 2009 for text at 2000), and a later publication keeps it.
     #[test]
-    fn a_replys_row_shows_at_the_first_batch_with_a_completed_line() {
+    fn a_replys_row_takes_the_time_of_its_first_publication() {
+        let mut counts = LiveCounts::default();
+        counts.text("   ", 1000);
+        assert_eq!(counts.tail_at(1100), None, "blank text publishes nothing");
         let mut counts = LiveCounts::default();
         counts.text("no line yet", 2000);
-        assert_eq!(counts.tail_at(2009), None, "a batch with no completed line shows no row");
+        assert_eq!(counts.tail_at(2008), None, "nothing is due before 2009");
+        assert_eq!(counts.tail_at(2009), Some(2009), "the unfinished line's first publication claims the row");
         counts.text(" ends\nmore", 2020);
-        assert_eq!(counts.tail_at(2028), None, "the batch is not due before 2029");
-        counts.text("\nlast\n", 2040);
-        assert_eq!(counts.tail_at(4000), Some(2029), "the row showed with the batch armed at 2020");
+        assert_eq!(counts.tail_at(4000), Some(2009), "a later batch keeps the time");
         counts.tool_batch(&[json!({ "id": "c1", "name": "read" })], &Names(None), 4000);
         assert_eq!(counts.tail_at(4000), None, "a call ends the reply; the next text opens a row of its own");
+        counts.text("next", 4010);
+        assert_eq!(counts.tail_at(4019), Some(4019), "after a quiet spell the unfinished line publishes on the next frame");
+        let mut counts = LiveCounts::default();
+        counts.text("a\n", 0);
+        counts.text("b", 20);
+        counts.flush_until(29);
+        counts.text("c", 30);
+        assert_eq!(counts.partial_due, Some(69), "1 ms after a publication (the batch at 29) the unfinished line waits 39 ms more");
     }
 
     #[test]
