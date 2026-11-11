@@ -216,20 +216,6 @@
           "importKey": null,
           "inheritedFromSessionId": null
         },
-        "normalizedWorkspace": {
-          "projectPath": "C:/repo",
-          "repoCommonDir": "C:/repo/.git",
-          "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
-          "worktreeId": "fix-login",
-          "branch": "mixdog/fix-login",
-          "baseCommit": null,
-          "mergeTarget": "main",
-          "revision": 3,
-          "transition": {
-            "state": "idle",
-            "txId": null
-          }
-        },
         "normalizedRow": {
           "id": "sess_ws",
           "updatedAt": 2000,
@@ -367,8 +353,7 @@
           "detachedReason": null,
           "importKey": null,
           "inheritedFromSessionId": null
-        },
-        "hasWorkspaceKey": false
+        }
       }
     }
   ]
