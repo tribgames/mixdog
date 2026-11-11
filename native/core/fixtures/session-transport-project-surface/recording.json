@@ -1,0 +1,900 @@
+{
+  "domain": "session-transport-project-surface",
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-project-surface.mjs",
+  "testFile": "scripts/session-transport/project-surface.test.mjs",
+  "cases": [
+    {
+      "name": "project-registry-and-filesystem-operations-have-one-daemon-api",
+      "testLine": 12,
+      "input": {
+        "store": "scripted (see recorder)",
+        "calls": [
+          {
+            "name": "project.list",
+            "args": []
+          },
+          {
+            "name": "project.inspect",
+            "args": [
+              {
+                "path": "existing-directory"
+              }
+            ]
+          },
+          {
+            "name": "project.add",
+            "args": [
+              {
+                "path": "C:\\project"
+              }
+            ]
+          },
+          {
+            "name": "project.touch",
+            "args": [
+              {
+                "path": "C:\\project"
+              }
+            ]
+          },
+          {
+            "name": "project.rename",
+            "args": [
+              {
+                "path": "C:\\project",
+                "name": "Renamed"
+              }
+            ]
+          },
+          {
+            "name": "project.ensureDirectory",
+            "args": [
+              {
+                "path": "C:\\new"
+              }
+            ]
+          },
+          {
+            "name": "project.remove",
+            "args": [
+              {
+                "path": "C:\\project"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "name": "project.list",
+            "args": [],
+            "ok": {
+              "projects": []
+            },
+            "storeCalls": [
+              [
+                "listProjects"
+              ]
+            ],
+            "rowsAfter": []
+          },
+          {
+            "name": "project.inspect",
+            "args": [
+              {
+                "path": "existing-directory"
+              }
+            ],
+            "ok": {
+              "path": "resolved:existing-directory",
+              "exists": true,
+              "directory": true
+            },
+            "storeCalls": [
+              [
+                "resolveProjectPath",
+                "existing-directory"
+              ],
+              [
+                "pathExists",
+                "resolved:existing-directory"
+              ],
+              [
+                "isDirectory",
+                "resolved:existing-directory"
+              ]
+            ],
+            "rowsAfter": []
+          },
+          {
+            "name": "project.add",
+            "args": [
+              {
+                "path": "C:\\project"
+              }
+            ],
+            "ok": {
+              "project": {
+                "name": "Added",
+                "path": "C:\\project"
+              }
+            },
+            "storeCalls": [
+              [
+                "addProject",
+                "C:\\project"
+              ]
+            ],
+            "rowsAfter": [
+              {
+                "name": "Added",
+                "path": "C:\\project"
+              }
+            ]
+          },
+          {
+            "name": "project.touch",
+            "args": [
+              {
+                "path": "C:\\project"
+              }
+            ],
+            "ok": {
+              "project": {
+                "name": "Added",
+                "path": "C:\\project"
+              }
+            },
+            "storeCalls": [
+              [
+                "touchProjectSelected",
+                "C:\\project"
+              ]
+            ],
+            "rowsAfter": [
+              {
+                "name": "Added",
+                "path": "C:\\project"
+              }
+            ]
+          },
+          {
+            "name": "project.rename",
+            "args": [
+              {
+                "path": "C:\\project",
+                "name": "Renamed"
+              }
+            ],
+            "ok": {
+              "project": {
+                "name": "Renamed",
+                "path": "C:\\project"
+              }
+            },
+            "storeCalls": [
+              [
+                "renameProject",
+                "C:\\project",
+                "Renamed"
+              ]
+            ],
+            "rowsAfter": [
+              {
+                "name": "Renamed",
+                "path": "C:\\project"
+              }
+            ]
+          },
+          {
+            "name": "project.ensureDirectory",
+            "args": [
+              {
+                "path": "C:\\new"
+              }
+            ],
+            "ok": {
+              "path": "created:C:\\new"
+            },
+            "storeCalls": [
+              [
+                "ensureDir",
+                "C:\\new"
+              ]
+            ],
+            "rowsAfter": [
+              {
+                "name": "Renamed",
+                "path": "C:\\project"
+              }
+            ]
+          },
+          {
+            "name": "project.remove",
+            "args": [
+              {
+                "path": "C:\\project"
+              }
+            ],
+            "ok": {
+              "removed": true
+            },
+            "storeCalls": [
+              [
+                "removeProject",
+                "C:\\project"
+              ]
+            ],
+            "rowsAfter": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "remote-tui-project-surface-uses-only-daemon-project-and-cwd-routes",
+      "testLine": 144,
+      "input": {
+        "rows": [
+          {
+            "name": "Shared",
+            "path": "C:\\shared"
+          }
+        ],
+        "createSession": {
+          "cwd": "C:\\initial"
+        },
+        "steps": [
+          "listProjects",
+          "addProject('C:\\added')",
+          "setCwd('C:\\shared')"
+        ],
+        "cwdConstant": "C:\\recorded\\cwd"
+      },
+      "result": {
+        "steps": [
+          {
+            "label": "createSession({cwd: C:\\initial})",
+            "state": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000006",
+              "items": [],
+              "busy": false
+            },
+            "serviceCalls": [
+              {
+                "name": "session.create",
+                "args": {
+                  "cwd": "C:\\initial",
+                  "toolMode": "full",
+                  "remote": false,
+                  "desktopSession": null
+                },
+                "context": {
+                  "clientToken": "00000000-0000-4000-8000-000000000004",
+                  "leadPid": 4242,
+                  "cwd": "C:\\initial",
+                  "revision": 6,
+                  "queuedMs": 0
+                },
+                "result": {
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000006",
+                  "reservedOnly": true,
+                  "revision": 1700000000000001,
+                  "full": {
+                    "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000006",
+                    "items": [],
+                    "busy": false
+                  }
+                }
+              }
+            ],
+            "exchanges": [
+              {
+                "connection": 0,
+                "request": {
+                  "startLine": "GET /health HTTP/1.1",
+                  "headers": [
+                    [
+                      "X-Mixdog-Daemon-Token",
+                      "00000000-0000-4000-8000-000000000002"
+                    ],
+                    [
+                      "Host",
+                      "127.0.0.1:<port>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ]
+                  ],
+                  "body": ""
+                },
+                "response": {
+                  "startLine": "HTTP/1.1 200 OK",
+                  "headers": [
+                    [
+                      "Content-Type",
+                      "application/json; charset=utf-8"
+                    ],
+                    [
+                      "Content-Length",
+                      "895"
+                    ],
+                    [
+                      "Cache-Control",
+                      "no-store"
+                    ],
+                    [
+                      "X-Content-Type-Options",
+                      "nosniff"
+                    ],
+                    [
+                      "Date",
+                      "<date>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "Keep-Alive",
+                      "timeout=5"
+                    ]
+                  ],
+                  "body": "{\"status\":\"ok\",\"pid\":4242,\"clients\":0,\"connections\":0,\"protocol\":1,\"revision\":6,\"capabilityFingerprint\":\"2b18bcef9d5b1987\",\"modelProxy\":null,\"draining\":null,\"drainCommitted\":false,\"installHold\":false,\"version\":\"1.4.5\",\"packageVersion\":\"1.4.5\",\"buildHash\":null,\"busySessions\":0,\"idle\":true,\"activeCalls\":0,\"queuedCalls\":0,\"queuedUrgentCalls\":0,\"queuedInteractiveCalls\":0,\"callOwners\":0,\"callQueues\":{\"critical\":{\"active\":0,\"queued\":0,\"owners\":0,\"activeMax\":null,\"dispatchBurst\":8,\"queueMax\":256,\"oldestWaitMs\":0},\"interactive\":{\"active\":0,\"queued\":0,\"owners\":0,\"activeMax\":null,\"dispatchBurst\":1,\"queueMax\":512,\"oldestWaitMs\":0},\"normal\":{\"active\":0,\"queued\":0,\"owners\":0,\"activeMax\":null,\"dispatchBurst\":1,\"queueMax\":1024,\"oldestWaitMs\":0}},\"transportMemory\":{\"bodyBytesInFlight\":0,\"bodyBytesMax\":67108864,\"callCacheEntries\":0,\"callCacheBytes\":0,\"callCacheMaxBytes\":8388608,\"ssePendingBytes\":0}}"
+                }
+              },
+              {
+                "connection": 0,
+                "request": {
+                  "startLine": "POST /client/register HTTP/1.1",
+                  "headers": [
+                    [
+                      "X-Mixdog-Daemon-Token",
+                      "00000000-0000-4000-8000-000000000002"
+                    ],
+                    [
+                      "Content-Type",
+                      "application/json"
+                    ],
+                    [
+                      "Content-Length",
+                      "158"
+                    ],
+                    [
+                      "Host",
+                      "127.0.0.1:<port>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ]
+                  ],
+                  "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\initial\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000003\",\"protocol\":1,\"revision\":6}"
+                },
+                "response": {
+                  "startLine": "HTTP/1.1 200 OK",
+                  "headers": [
+                    [
+                      "Content-Type",
+                      "application/json; charset=utf-8"
+                    ],
+                    [
+                      "Content-Length",
+                      "85"
+                    ],
+                    [
+                      "Cache-Control",
+                      "no-store"
+                    ],
+                    [
+                      "X-Content-Type-Options",
+                      "nosniff"
+                    ],
+                    [
+                      "Date",
+                      "<date>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "Keep-Alive",
+                      "timeout=5"
+                    ]
+                  ],
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000004\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
+                }
+              },
+              {
+                "connection": 1,
+                "request": {
+                  "startLine": "GET /events?token=00000000-0000-4000-8000-000000000004 HTTP/1.1",
+                  "headers": [
+                    [
+                      "Accept",
+                      "text/event-stream"
+                    ],
+                    [
+                      "X-Mixdog-Daemon-Token",
+                      "00000000-0000-4000-8000-000000000002"
+                    ],
+                    [
+                      "Host",
+                      "127.0.0.1:<port>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ]
+                  ],
+                  "body": ""
+                },
+                "response": {
+                  "startLine": "HTTP/1.1 200 OK",
+                  "headers": [
+                    [
+                      "Content-Type",
+                      "text/event-stream; charset=utf-8"
+                    ],
+                    [
+                      "Cache-Control",
+                      "no-cache, no-transform"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "X-Accel-Buffering",
+                      "no"
+                    ],
+                    [
+                      "Date",
+                      "<date>"
+                    ],
+                    [
+                      "Transfer-Encoding",
+                      "chunked"
+                    ]
+                  ],
+                  "frames": [
+                    ": attached",
+                    "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000006\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000006\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000006\",\"items\":[],\"busy\":false}}"
+                  ]
+                }
+              },
+              {
+                "connection": 2,
+                "request": {
+                  "startLine": "POST /call HTTP/1.1",
+                  "headers": [
+                    [
+                      "X-Mixdog-Daemon-Token",
+                      "00000000-0000-4000-8000-000000000002"
+                    ],
+                    [
+                      "Content-Type",
+                      "application/json"
+                    ],
+                    [
+                      "Content-Length",
+                      "224"
+                    ],
+                    [
+                      "Host",
+                      "127.0.0.1:<port>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ]
+                  ],
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000004\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\initial\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000005\"}"
+                },
+                "response": {
+                  "startLine": "HTTP/1.1 200 OK",
+                  "headers": [
+                    [
+                      "Content-Type",
+                      "application/json; charset=utf-8"
+                    ],
+                    [
+                      "Content-Length",
+                      "239"
+                    ],
+                    [
+                      "Cache-Control",
+                      "no-store"
+                    ],
+                    [
+                      "X-Content-Type-Options",
+                      "nosniff"
+                    ],
+                    [
+                      "Date",
+                      "<date>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "Keep-Alive",
+                      "timeout=5"
+                    ]
+                  ],
+                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000006\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000006\",\"items\":[],\"busy\":false}}}"
+                }
+              }
+            ]
+          },
+          {
+            "label": "runtime.listProjects()",
+            "ok": [
+              {
+                "name": "Shared",
+                "path": "C:\\shared"
+              }
+            ],
+            "serviceCalls": [
+              {
+                "name": "project.list",
+                "args": {},
+                "context": {
+                  "clientToken": "00000000-0000-4000-8000-000000000004",
+                  "leadPid": 4242,
+                  "cwd": "C:\\initial",
+                  "revision": 6,
+                  "queuedMs": 0
+                },
+                "result": {
+                  "projects": [
+                    {
+                      "name": "Shared",
+                      "path": "C:\\shared"
+                    }
+                  ]
+                }
+              }
+            ],
+            "exchanges": [
+              {
+                "connection": 2,
+                "request": {
+                  "startLine": "POST /call HTTP/1.1",
+                  "headers": [
+                    [
+                      "X-Mixdog-Daemon-Token",
+                      "00000000-0000-4000-8000-000000000002"
+                    ],
+                    [
+                      "Content-Type",
+                      "application/json"
+                    ],
+                    [
+                      "Content-Length",
+                      "128"
+                    ],
+                    [
+                      "Host",
+                      "127.0.0.1:<port>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ]
+                  ],
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000004\",\"name\":\"project.list\",\"args\":{},\"callId\":\"00000000-0000-4000-8000-000000000007\"}"
+                },
+                "response": {
+                  "startLine": "HTTP/1.1 200 OK",
+                  "headers": [
+                    [
+                      "Content-Type",
+                      "application/json; charset=utf-8"
+                    ],
+                    [
+                      "Content-Length",
+                      "63"
+                    ],
+                    [
+                      "Cache-Control",
+                      "no-store"
+                    ],
+                    [
+                      "X-Content-Type-Options",
+                      "nosniff"
+                    ],
+                    [
+                      "Date",
+                      "<date>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "Keep-Alive",
+                      "timeout=5"
+                    ]
+                  ],
+                  "body": "{\"result\":{\"projects\":[{\"name\":\"Shared\",\"path\":\"C:\\\\shared\"}]}}"
+                }
+              }
+            ],
+            "rowsAfter": [
+              {
+                "name": "Shared",
+                "path": "C:\\shared"
+              }
+            ],
+            "touched": []
+          },
+          {
+            "label": "runtime.addProject('C:\\\\added')",
+            "ok": {
+              "name": "Added",
+              "path": "C:\\added"
+            },
+            "serviceCalls": [
+              {
+                "name": "project.add",
+                "args": {
+                  "path": "C:\\added"
+                },
+                "context": {
+                  "clientToken": "00000000-0000-4000-8000-000000000004",
+                  "leadPid": 4242,
+                  "cwd": "C:\\initial",
+                  "revision": 6,
+                  "queuedMs": 0
+                },
+                "result": {
+                  "project": {
+                    "name": "Added",
+                    "path": "C:\\added"
+                  }
+                }
+              }
+            ],
+            "exchanges": [
+              {
+                "connection": 2,
+                "request": {
+                  "startLine": "POST /call HTTP/1.1",
+                  "headers": [
+                    [
+                      "X-Mixdog-Daemon-Token",
+                      "00000000-0000-4000-8000-000000000002"
+                    ],
+                    [
+                      "Content-Type",
+                      "application/json"
+                    ],
+                    [
+                      "Content-Length",
+                      "145"
+                    ],
+                    [
+                      "Host",
+                      "127.0.0.1:<port>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ]
+                  ],
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000004\",\"name\":\"project.add\",\"args\":{\"path\":\"C:\\\\added\"},\"callId\":\"00000000-0000-4000-8000-000000000008\"}"
+                },
+                "response": {
+                  "startLine": "HTTP/1.1 200 OK",
+                  "headers": [
+                    [
+                      "Content-Type",
+                      "application/json; charset=utf-8"
+                    ],
+                    [
+                      "Content-Length",
+                      "58"
+                    ],
+                    [
+                      "Cache-Control",
+                      "no-store"
+                    ],
+                    [
+                      "X-Content-Type-Options",
+                      "nosniff"
+                    ],
+                    [
+                      "Date",
+                      "<date>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "Keep-Alive",
+                      "timeout=5"
+                    ]
+                  ],
+                  "body": "{\"result\":{\"project\":{\"name\":\"Added\",\"path\":\"C:\\\\added\"}}}"
+                }
+              }
+            ],
+            "rowsAfter": [
+              {
+                "name": "Shared",
+                "path": "C:\\shared"
+              },
+              {
+                "name": "Added",
+                "path": "C:\\added"
+              }
+            ],
+            "touched": []
+          },
+          {
+            "label": "runtime.setCwd('C:\\\\shared')",
+            "ok": "C:\\shared",
+            "serviceCalls": [
+              {
+                "name": "session.configure",
+                "args": {
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000006",
+                  "action": "setCwd",
+                  "args": [
+                    "C:\\shared"
+                  ],
+                  "open": {
+                    "cwd": "C:\\initial",
+                    "toolMode": "full",
+                    "remote": false,
+                    "desktopSession": null
+                  },
+                  "baseRevision": 1700000000000001
+                },
+                "context": {
+                  "clientToken": "00000000-0000-4000-8000-000000000004",
+                  "leadPid": 4242,
+                  "cwd": "C:\\initial",
+                  "revision": 6,
+                  "queuedMs": 0
+                },
+                "result": {
+                  "value": "C:\\shared",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000006",
+                  "revision": 1700000000000002,
+                  "baseRevision": 1700000000000001,
+                  "patch": {
+                    "set": {
+                      "cwd": "C:\\shared"
+                    },
+                    "remove": [],
+                    "itemsAppend": null
+                  }
+                }
+              }
+            ],
+            "exchanges": [
+              {
+                "connection": 2,
+                "request": {
+                  "startLine": "POST /call HTTP/1.1",
+                  "headers": [
+                    [
+                      "X-Mixdog-Daemon-Token",
+                      "00000000-0000-4000-8000-000000000002"
+                    ],
+                    [
+                      "Content-Type",
+                      "application/json"
+                    ],
+                    [
+                      "Content-Length",
+                      "361"
+                    ],
+                    [
+                      "Host",
+                      "127.0.0.1:<port>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ]
+                  ],
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000004\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000006\",\"action\":\"setCwd\",\"args\":[\"C:\\\\shared\"],\"open\":{\"cwd\":\"C:\\\\initial\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000001},\"callId\":\"00000000-0000-4000-8000-000000000009\"}"
+                },
+                "response": {
+                  "startLine": "HTTP/1.1 200 OK",
+                  "headers": [
+                    [
+                      "Content-Type",
+                      "application/json; charset=utf-8"
+                    ],
+                    [
+                      "Content-Length",
+                      "234"
+                    ],
+                    [
+                      "Cache-Control",
+                      "no-store"
+                    ],
+                    [
+                      "X-Content-Type-Options",
+                      "nosniff"
+                    ],
+                    [
+                      "Date",
+                      "<date>"
+                    ],
+                    [
+                      "Connection",
+                      "keep-alive"
+                    ],
+                    [
+                      "Keep-Alive",
+                      "timeout=5"
+                    ]
+                  ],
+                  "body": "{\"result\":{\"value\":\"C:\\\\shared\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000006\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{\"cwd\":\"C:\\\\shared\"},\"remove\":[],\"itemsAppend\":null}}}"
+                }
+              }
+            ],
+            "rowsAfter": [
+              {
+                "name": "Shared",
+                "path": "C:\\shared"
+              },
+              {
+                "name": "Added",
+                "path": "C:\\added"
+              }
+            ],
+            "touched": [
+              "C:\\shared"
+            ]
+          },
+          {
+            "label": "runtime.getState()",
+            "state": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000006",
+              "items": [],
+              "busy": false,
+              "cwd": "C:\\shared"
+            }
+          }
+        ],
+        "touched": [
+          "C:\\shared"
+        ],
+        "rowsAfter": [
+          {
+            "name": "Shared",
+            "path": "C:\\shared"
+          },
+          {
+            "name": "Added",
+            "path": "C:\\added"
+          }
+        ],
+        "allCalls": [
+          "session.create",
+          "project.list",
+          "project.add",
+          "session.configure",
+          "session.unsubscribe"
+        ]
+      }
+    }
+  ],
+  "notRecorded": [
+    {
+      "testLine": 85,
+      "name": "the TUI project picker awaits service switches and contains service failures",
+      "reason": "drives createProjectPicker/createPanelSurface of the Node TUI with scripted callbacks: client UI code, no Rust counterpart"
+    }
+  ]
+}

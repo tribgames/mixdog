@@ -164,6 +164,23 @@ struct Shared {
     /// The serving attempt's `Completed`, released after the pool's own stamp and notices.
     completed: Option<StreamEvent>,
     delivery: DeliveryState,
+    /// The consumer's [`ModelStream::on_wire_left`], handed to each attempt's stream and called once the serving
+    /// attempt's `Completed` is in: the pool then binds the serving key before it releases that `Completed`.
+    wire_left: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// The serving attempt's `Completed` came in before the consumer gave `wire_left`.
+    wire_done: bool,
+}
+
+/// The serving attempt's wire is done: tells the consumer now, or as it hands its callback over.
+fn leave_wire(queue: &Queue) {
+    let left = {
+        let mut shared = lock(queue);
+        shared.wire_done = true;
+        shared.wire_left.clone()
+    };
+    if let Some(left) = left {
+        left();
+    }
 }
 
 type Queue = Arc<Mutex<Shared>>;
@@ -228,6 +245,9 @@ impl AccountSender<()> for KeySend {
             let unsafe_to_retry = error.unsafe_to_retry;
             Failed { unsafe_to_retry, ..Failed::new(error) }
         })?;
+        if let Some(left) = lock(&self.queue).wire_left.clone() {
+            stream.on_wire_left(left);
+        }
         let mut emitted = false;
         loop {
             let item = stream.next().await;
@@ -236,6 +256,8 @@ impl AccountSender<()> for KeySend {
                 None => return Ok(()),
                 Some(Ok(event @ StreamEvent::Completed { .. })) => {
                     lock(&self.queue).completed = Some(event);
+                    // The pool goes on to bind the serving key (`pool_send`'s store work) before `Completed` is released.
+                    leave_wire(&self.queue);
                     return Ok(());
                 }
                 Some(Ok(event)) => {
@@ -330,6 +352,17 @@ impl ModelStream for KeyStream {
     fn delivery(&self) -> DeliveryState {
         lock(&self.queue).delivery.clone()
     }
+
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        let done = {
+            let mut shared = lock(&self.queue);
+            shared.wire_left = Some(Arc::clone(&left));
+            shared.wire_done
+        };
+        if done {
+            left();
+        }
+    }
 }
 
 #[async_trait]
@@ -386,6 +419,8 @@ impl ProviderAdapter for KeyPoolAdapter {
             waiting: None,
             completed: None,
             delivery: DeliveryState::NotSent,
+            wire_left: None,
+            wire_done: false,
         }));
         let context = SendContext {
             model: request.model.clone(),

@@ -15,7 +15,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     }
   ],
   "nodeVersion": "v22.20.0",

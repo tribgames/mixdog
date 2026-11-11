@@ -1,0 +1,316 @@
+{
+  "domain": "session-global-extensions",
+  "recorder": "benchmarks/rust-core/recorders/record-session-global-extensions.mjs",
+  "testFile": "src/session-runtime/global-extensions.test.mjs",
+  "cases": [
+    {
+      "name": "named-mcp-reconnect-reaches-peers-as-a-scoped-change",
+      "testLine": 17,
+      "input": {
+        "runtimes": [
+          "writer",
+          "peer"
+        ],
+        "steps": [
+          {
+            "call": "reconnectMcpAndAnnounce",
+            "args": [
+              {
+                "only": "rea",
+                "enabled": true,
+                "drop": [
+                  "old"
+                ]
+              }
+            ]
+          },
+          {
+            "call": "reconnectMcpAndAnnounce",
+            "args": []
+          }
+        ]
+      },
+      "result": {
+        "results": [
+          {
+            "servers": []
+          },
+          {
+            "servers": []
+          }
+        ],
+        "events": [
+          {
+            "runtime": "writer",
+            "connect": {
+              "only": "old",
+              "enabled": false
+            }
+          },
+          {
+            "runtime": "writer",
+            "connect": {
+              "only": "rea",
+              "enabled": true
+            }
+          },
+          {
+            "runtime": "writer",
+            "connect": {
+              "reconcile": true
+            }
+          },
+          {
+            "runtime": "writer",
+            "invalidatePreSessionToolSurface": true
+          },
+          {
+            "runtime": "peer",
+            "connect": {
+              "only": "old",
+              "enabled": false
+            }
+          },
+          {
+            "runtime": "peer",
+            "connect": {
+              "only": "rea",
+              "enabled": true
+            }
+          },
+          {
+            "runtime": "peer",
+            "connect": {
+              "reconcile": true
+            }
+          },
+          {
+            "runtime": "peer",
+            "invalidatePreSessionToolSurface": true
+          },
+          {
+            "runtime": "writer",
+            "connect": {
+              "reset": true
+            }
+          },
+          {
+            "runtime": "writer",
+            "invalidatePreSessionToolSurface": true
+          },
+          {
+            "runtime": "peer",
+            "connect": {
+              "reset": true
+            }
+          },
+          {
+            "runtime": "peer",
+            "invalidatePreSessionToolSurface": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "enable-disable-reconnect-never-request-an-interactive-login",
+      "testLine": 39,
+      "input": {
+        "steps": [
+          {
+            "call": "scheduleMcpToggle",
+            "args": [
+              "server",
+              true
+            ]
+          },
+          {
+            "call": "scheduleMcpToggle",
+            "args": [
+              "server",
+              false
+            ]
+          },
+          {
+            "call": "reconnectMcpAndAnnounce",
+            "args": [
+              {
+                "only": "server",
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "results": [
+          {
+            "servers": []
+          },
+          {
+            "servers": []
+          },
+          {
+            "servers": []
+          }
+        ],
+        "events": [
+          {
+            "runtime": "only",
+            "connect": {
+              "only": "server",
+              "enabled": true
+            }
+          },
+          {
+            "runtime": "only",
+            "invalidatePreSessionToolSurface": true
+          },
+          {
+            "runtime": "only",
+            "connect": {
+              "only": "server",
+              "enabled": false
+            }
+          },
+          {
+            "runtime": "only",
+            "invalidatePreSessionToolSurface": true
+          },
+          {
+            "runtime": "only",
+            "connect": {
+              "only": "server",
+              "enabled": true
+            }
+          },
+          {
+            "runtime": "only",
+            "connect": {
+              "reconcile": true
+            }
+          },
+          {
+            "runtime": "only",
+            "invalidatePreSessionToolSurface": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "disable-during-a-pending-enable-cancels-its-login",
+      "testLine": 57,
+      "input": {
+        "steps": [
+          {
+            "call": "scheduleMcpToggle",
+            "args": [
+              "server",
+              true
+            ]
+          },
+          {
+            "call": "scheduleMcpToggle",
+            "args": [
+              "server",
+              false
+            ]
+          }
+        ],
+        "connector": "an enabled connect stays pending until cancelMcpLogin resolves it"
+      },
+      "result": {
+        "results": [
+          {
+            "servers": []
+          },
+          {
+            "servers": []
+          }
+        ],
+        "events": [
+          {
+            "connect": {
+              "only": "server",
+              "enabled": true
+            }
+          },
+          {
+            "cancelMcpLogin": "server"
+          },
+          {
+            "connectDone": {
+              "only": "server",
+              "enabled": true
+            }
+          },
+          {
+            "connect": {
+              "only": "server",
+              "enabled": false
+            }
+          },
+          {
+            "connectDone": {
+              "only": "server",
+              "enabled": false
+            }
+          },
+          {
+            "invalidatePreSessionToolSurface": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "changes-fan-out-to-every-runtime-except-the-writer",
+      "testLine": 86,
+      "input": {
+        "subscribers": [
+          "writer",
+          "peer"
+        ],
+        "publish": {
+          "call": "publishGlobalExtensionChange",
+          "args": [
+            "mcp",
+            "writer"
+          ],
+          "originIs": "the writer subscriber id (a process counter, not recorded)"
+        }
+      },
+      "result": {
+        "published": {
+          "$exact": "undefined"
+        },
+        "events": [
+          {
+            "to": "peer",
+            "kind": "mcp",
+            "detail": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "unsubscribed-runtimes-stop-receiving-changes",
+      "testLine": 99,
+      "input": {
+        "subscribers": [
+          "runtime (unsubscribed)"
+        ],
+        "publish": {
+          "call": "publishGlobalExtensionChange",
+          "args": [
+            "skills"
+          ]
+        }
+      },
+      "result": {
+        "published": {
+          "$exact": "undefined"
+        },
+        "events": []
+      }
+    }
+  ]
+}

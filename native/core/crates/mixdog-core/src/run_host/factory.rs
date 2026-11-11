@@ -1362,6 +1362,7 @@ mod tests {
         fn delivery(&self) -> DeliveryState {
             DeliveryState::Accepted
         }
+        fn on_wire_left(&mut self, _left: std::sync::Arc<dyn Fn() + Send + Sync>) {}
     }
 
     struct Scripted {
@@ -1596,7 +1597,9 @@ mod tests {
     /// real TUI/desktop notice surface made of it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_providers_notice_reaches_the_threads_clients_as_the_row_node_showed() {
-        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/gemini.json")).expect("the Gemini recording");
+        #[allow(clippy::disallowed_methods)] // test fixture loading, read at run time to keep 4.8 MB out of the test build
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/wire-anthropic-gemini/gemini.json")).expect("the Gemini recording");
+        let recorded: Value = serde_json::from_str(&text).expect("the Gemini recording");
         let send = &recorded["scenarios"].as_array().unwrap().iter().find(|s| s["id"] == "pro25.boundary-at").expect("the redirect scenario")["sends"][0];
         let (notice, row) = (&send["notices"][0], &send["noticeRows"][0]);
         let provider = Arc::new(Scripted {

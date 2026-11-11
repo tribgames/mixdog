@@ -741,6 +741,13 @@ pub enum StreamEvent {
     /// `send` result `model`: Gemini's dated redirect). The usage ledger books the send under it and the turn's
     /// response reports it.
     ServedModel(String),
+    /// Provider facts about the turn that the committed assistant message keeps (Node result `providerMetadata`, copied
+    /// onto the turn by `assistantEchoFields`): Anthropic's `anthropicFallbacks`, which the usage ledger also reads to
+    /// book the answer as substituted. The last one stands.
+    ProviderMetadata(JsonValue),
+    /// The id the provider gave the response (Node result `responseId`: OpenAI's HTTP/SSE Responses route), which the
+    /// usage ledger books the send under. Folds into nothing else.
+    ResponseId(String),
     /// The roster account that served the answer (Node `recordServingAccount`: the result's
     /// `providerMetadata.accountRouting`). The turn's assistant message stores it, and a later send of the
     /// same provider reads it to give each account only its own replay state.
@@ -753,6 +760,11 @@ pub enum StreamEvent {
     /// `sendOnRoute`'s `wireReroute`): the session's new `wireRoute`, whole, as Node stores it. A session whose pin
     /// named this provider and model takes it. Folds into nothing.
     WireRerouted(JsonValue),
+    /// The model began its output (Node's `firstOutputAt`, generation-window.mjs): raised once per attempt by a
+    /// decoder whose Node stream stamps it, at the wire event Node stamps (an Anthropic content block opening, a
+    /// Responses output item added, a compatible Chat stream's first visible delta). The accounting layer times the
+    /// first-output wait from it (`ttftMs`). Folds into nothing.
+    OutputStarted,
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -1066,6 +1078,13 @@ pub struct FirstResponseBudget {
 pub trait ModelStream: Send {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>>;
     fn delivery(&self) -> DeliveryState;
+    /// Given once by the consumer, before the stream is polled. A stream whose `next` goes on to await something else once
+    /// the send's wire has delivered its terminal event (the usage ledger writing the completed row, the key pool binding
+    /// the serving key) calls `left` inside that `next`, before the await: from then on a pending `next` is not a wait for
+    /// the wire. Required, with no default, so that every stream decides: a wrapper hands `left` to the stream it wraps,
+    /// a stream that produces attempts to each attempt's stream as it is created, and only a leaf whose `next` awaits
+    /// nothing after the wire's terminal event ignores it.
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>);
 }
 
 #[async_trait]
@@ -1073,6 +1092,12 @@ pub trait ProviderAdapter: Send + Sync {
     fn id(&self) -> &ProviderId;
     fn codec(&self) -> &dyn WireCodec;
     fn retry_policy(&self) -> &RetryPolicy;
+    /// The retry policy of a send to `model`: a provider that reaches some models through another engine (Vertex AI's
+    /// open models over Chat Completions) retries those as that engine does. The provider's own by default; a wrapper
+    /// forwards its inner provider's.
+    fn retry_policy_for(&self, _model: &str) -> &RetryPolicy {
+        self.retry_policy()
+    }
     fn keepalive(&self) -> &KeepaliveSchedule;
     /// Exactly one attempt; never retries internally. Dropping the future
     /// aborts the attempt.
