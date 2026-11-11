@@ -9,7 +9,8 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { CASE_DEADLINE_MS, startRecording } from './lib/provider-case-recorder.mjs';
+import net from 'node:net';
+import { startRecording } from './lib/provider-case-recorder.mjs';
 
 // The recorder's endpoint redirects every fetch; the stand-in server is a real loopback process, so loopback fetches go straight to the network stack.
 const nativeFetch = globalThis.fetch;
@@ -40,7 +41,13 @@ copyFileSync(join(standinDir, 'launcher.exe'), join(binDir, 'nvidia-smi.exe'));
 process.env.STANDIN_NODE = process.execPath;
 process.env.STANDIN_SCRIPT = fileURLToPath(new URL('standin.mjs', SOURCE_ROOT));
 process.env.STANDIN_DIR = standinDir;
-process.env.STANDIN_DEADLINE_MS = String(CASE_DEADLINE_MS);
+// The lifeline: every launcher connects to this pipe and exits when it ends, i.e. when this process ends (finished, failed or killed), taking
+// its stand-in with it (kill-on-close job). The recorder never writes to it; it does not keep the recorder alive.
+const LIFELINE = `mixdog-standin-lifeline-${process.pid}`;
+const lifeline = net.createServer((socket) => socket.unref().on('error', () => {}));
+await new Promise((resolve, reject) => lifeline.once('error', reject).listen(`\\\\.\\pipe\\${LIFELINE}`, resolve));
+lifeline.unref();
+process.env.STANDIN_LIFELINE = LIFELINE;
 process.env.PATH = `${binDir}${delimiter}${process.env.PATH}`;
 const logPath = join(standinDir, 'standin.log.jsonl');
 const answerPath = join(standinDir, 'nvidia-smi.answer.json');

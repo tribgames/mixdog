@@ -56,7 +56,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/standins/launcher.cs",
-      "sha256": "330d0243fd4ae243a79be40838034d9f6df6c5273c431b471c85f3625c50ef22"
+      "sha256": "89e20bea76f41cfe408db365020c946bc1e65bf80798ebe85e388b064f74f82d"
     },
     {
       "path": "benchmarks/rust-core/recorders/standins/standin.mjs",
@@ -114,7 +114,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mixdog-local-wire.mjs",
-  "recorderSha256": "7de7b319e5116f3cfc103339e7f3376216208b5fb5f17087edb0c82f5ccd10d1",
+  "recorderSha256": "4df04d0ac327bdf52a5e9b2874767124e54ceef7d0ef08b79a4eb149988b4036",
   "replay": "none in o1 for the whole send: mixdog-ai providers::local (local/mod.rs:109 adapter(), :86 LocalRewriter, :64 pub merge_instructions(&mut Value)) takes the lowered request body, not the history Node's toLocalProviderMessages takes, and the server start / GPU query / launch (mixdog_services::local_provider) has no public function of the recorded input and output. Replay at wire level: a stand-in llama-server process and a stand-in nvidia-smi first on PATH, fed the recorded answers, then compare the EXEC and HTTP exchanges in order and the launches.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
