@@ -94,7 +94,8 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     invalidateWorkerRowsCache: store.invalidate,
     readAllWorkerRows: store.readAll,
     readAllTagTombstones,
-    readTagTombstones: (context = {}) => readAllTagTombstones().filter((row) => rowMatchesContext(row, context)),
+    readTagTombstoneIndex: reads.readTagTombstoneIndex,
+    readTagTombstones:(context = {}) => readAllTagTombstones().filter((row) => rowMatchesContext(row, context)),
     readWorkerRows,
     resolveTombstoneOwners: reads.resolveTombstoneOwners,
     /** `listener()` runs when what the reads answer may have changed: the

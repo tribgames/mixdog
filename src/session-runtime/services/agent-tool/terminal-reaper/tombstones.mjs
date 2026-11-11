@@ -6,38 +6,21 @@ import { tagTombstoneKey } from '../worker-rows.mjs';
 import { insertTombstone, isTerminalRow } from './row-helpers.mjs';
 import { findTagTombstone, tombstoneBlocksWork } from '../../../../runtime/shared/agent-reap-state.mjs';
 
-// Tombstone rows are flat records. Legacy-owner recovery returns fresh (but
-// equal) objects on every read, so equality is by field, not identity.
-function sameTombstoneRows(a, b) {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] === b[i]) continue;
-    const keys = Object.keys(a[i]);
-    if (keys.length !== Object.keys(b[i]).length) return false;
-    if (!keys.every((key) => Object.hasOwn(b[i], key) && Object.is(a[i][key], b[i][key]))) return false;
-  }
-  return true;
-}
-
 export function createTagTombstones({ tagMaps, index }) {
-  const { readAllTagTombstones, readTagTombstones, writeWorkerRows, flushWorkerIndexMutations, removeWorkerRow } =
+  const { readTagTombstoneIndex, readTagTombstones, writeWorkerRows, flushWorkerIndexMutations, removeWorkerRow } =
     index;
 
   // Scans check every listed session, and each blocked check used to rebuild
   // the keyed tombstone Map and the whole tombstone-filtered worker-row list.
-  // Both projections are memoized on the row store's parsed arrays, which the
-  // store revalidates by file stat (and drops after its own writes), so a
-  // tombstone written by this or another process still invalidates them.
-  let memo = null; // { tombstones, byKey, workerRows, liveWork }
+  // Both projections are memoized on the row store's parsed arrays (the keyed
+  // Map is the worker index's own, row-reads.mjs), whose identity changes
+  // with every document the store serves — a tombstone written by this or
+  // another process — so identity alone decides.
+  let memo = null; // { byKey, workerRows, liveWork }
 
   function tombstoneMemo() {
-    const rows = readAllTagTombstones();
-    if (!memo || !sameTombstoneRows(memo.tombstones, rows)) {
-      const byKey = new Map();
-      for (const row of rows) byKey.set(tagTombstoneKey(row), row);
-      memo = { tombstones: rows, byKey, workerRows: null, liveWork: null };
-    }
+    const byKey = readTagTombstoneIndex();
+    if (memo?.byKey !== byKey) memo = { byKey, workerRows: null, liveWork: null };
     return memo;
   }
 
