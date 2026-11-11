@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Records Node's `session` tool answers for the actions a model triggers (list, read, compact, fork, send, create), success and each
+// Records Node's `session` tool answers for the actions a model triggers (list, read, compact, fork, send, create, bots), success and each
 // refusal, and the compactions a call leaves scheduled:the real `createWorkspaceToolHandlers(...).session` over the real `createSessionControl`, for a caller record
 // (its scope decides what a list shows). Only the session service's two reads are stood in, each over the scenario's
 // data through Node's own code:
@@ -47,6 +47,7 @@ const { readStoredSessionTranscript } = await importFrom(tree, 'src/runtime/agen
 const { createSession } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
 const { createLifecycleApi } = await importFrom(tree, 'src/session-runtime/lifecycle-api.mjs');
 const { createAgentTaskSessions } = await importFrom(tree, 'src/session-runtime/agent-task-sessions.mjs');
+const { createBotStatus } = await importFrom(tree, 'src/session-runtime/bot-status.mjs');
 const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
@@ -255,6 +256,71 @@ const WORKTREE_OUTCOMES = {
 const DROP_FAILURE = 'the store is locked';
 const BRIEF = 'Fix the parser.\nThe failing test is parser_test.';
 const createWith = (extra = {}) => ({ action: 'create', brief: BRIEF, ...extra });
+
+// `bots`: what bot status reads besides the catalog (`createBotStatus`'s `listBots`, `taskWatches`, `heldRequests`,
+// `routines`, `mixyName`, `now` and the service's `liveSessionAwaitingApproval`), and a catalog of the bots' sessions,
+// newest first.
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
+const BOT_NOW = T0 + 10 * DAY;
+const STATUS = {
+  list: [
+    { id: 'ann', name: 'Ann' },
+    { id: 'bob', name: 'Bob\n the  <b>builder</b>', disabled: true },
+    { id: 'cara', name: 'Cara' },
+    { id: 'dan', name: 'Dan' },
+  ],
+  watches: [
+    { agentId: 'cara', taskSessionId: 'sess_task_cara', title: 'Fix CI', at: BOT_NOW - 12 * MIN },
+    { agentId: 'cara', taskSessionId: 'sess_task_cara2', title: 'Second <i>job</i> with a rather long title here', at: BOT_NOW - 20 * MIN },
+    { agentId: 'ann', taskSessionId: 'sess_task_ann', title: 'Ann task', at: BOT_NOW - 30 * MIN },
+    { agentId: 'ann', target: 'session', taskSessionId: 'sess_x', title: 'a send to a session' },
+    { agentId: 'zed', taskSessionId: 'sess_z', title: 'not a visible bot' },
+    { agentId: 'lead', taskSessionId: 'sess_task_mixy', title: 'Mixy errand', at: 0 },
+  ],
+  held: [
+    { agentId: 'cara', kind: 'approval', tool: 'bash', run: { kind: 'schedule', name: 'nightly' }, expiresAt: BOT_NOW + 30 * MIN },
+    { agentId: 'cara', kind: 'approval', tool: 'web_fetch', run: { kind: 'webhook', name: '' }, expiresAt: BOT_NOW - MIN },
+    { agentId: 'bob', kind: 'question', tool: 'ask_user' },
+  ],
+  routines: [
+    { kind: 'schedule', name: 'nightly', owner: 'cara', enabled: true, nextFireAt: iso(BOT_NOW + 2 * HOUR), time: '03:00\n daily', lastSuccessAt: iso(BOT_NOW - 21 * HOUR), consecutiveFailures: 0 },
+    { kind: 'webhook', name: 'deploy', owner: 'bob', enabled: true, consecutiveFailures: 3, lastFailedAt: BOT_NOW - 90 * MIN, lastSuccessAt: BOT_NOW - 3 * DAY },
+    { kind: 'schedule', name: 'news', enabled: true, nextFireAt: iso(BOT_NOW + 50 * HOUR), undelivered: { count: 2, failed: true, error: 'the <x>chat</x> refused' } },
+    { kind: 'schedule', name: 'digest', enabled: false, nextFireAt: iso(BOT_NOW + HOUR) },
+    { kind: 'schedule', name: 'paused one', owner: 'ann', ownerProblem: 'Ann lost\n access', nextFireAt: iso(BOT_NOW - MIN) },
+    { kind: 'schedule', name: 'flaky', owner: 'dan', lastFailedAt: iso(BOT_NOW - HOUR), lastSuccessAt: iso(BOT_NOW - 2 * HOUR) },
+    { kind: 'webhook', name: 'ghost', owner: 'zed' },
+  ],
+  approvals: ['sess_task_cara', 'sess_home_ann'],
+  mixy: '  Mixy\n  Prime ',
+  now: BOT_NOW,
+};
+const STATUS_CATALOG = [
+  row('sess_lead1', BOT_NOW - MIN),
+  row('sess_home_ann', BOT_NOW - 2 * MIN, { title: '', sourceType: 'exec', working: true, lastMessagePreview: 'Working on the  <system-reminder>quarterly</system-reminder> report\nnow' }),
+  row('sess_task_ann', BOT_NOW - 5 * MIN, { sourceName: 'agent:ann@home', title: 'Ann task', working: true, handedBy: ['ann'], createdAt: BOT_NOW - 40 * MIN }),
+  row('sess_task_ann2', BOT_NOW - 6 * MIN, { sourceName: 'agent:ann@run', title: 'Quiet task', working: true }),
+  row('sess_rmem_abcdef_ann', BOT_NOW - 7 * MIN, { title: 'Room seat', working: true, handedBy: ['ann'] }),
+  row('sess_home_lead', BOT_NOW - 30 * MIN, { title: '', sourceType: 'exec' }),
+  row('sess_task_mixy', BOT_NOW - 50 * MIN, { sourceName: 'agent:lead@home', title: 'Mixy errand' }),
+  row('sess_home_bob', BOT_NOW - 3 * HOUR, { title: '', sourceType: 'exec', lastMessagePreview: '', preview: 'Bob preview' }),
+  row('sess_task_cara_old', BOT_NOW - 4 * DAY, { sourceName: 'agent:cara', title: '', lastMessagePreview: '' }),
+];
+// Wide text (three UTF-8 bytes a character) past one output page: the overview's lines and one bot's sessions are dropped
+// from the end until it fits.
+const WIDE = '漢字仮名交じり文の長い名前です';
+const MANY_BOTS = Array.from({ length: 36 }, (_, i) => ({ id: `bot${String(i).padStart(2, '0')}x`, name: `${WIDE}${WIDE} ${i}` }));
+const MANY_BOTS_CATALOG = MANY_BOTS.map((bot, i) => row(`sess_home_${bot.id}`, BOT_NOW - (i + 1) * MIN, { title: '', sourceType: 'exec', lastMessagePreview: WIDE.repeat(10) }));
+const ANN_TASKS = Array.from({ length: 120 }, (_, i) =>
+  row(`sess_t${String(i).padStart(3, '0')}`, BOT_NOW - (i + 1) * MIN, { sourceName: 'agent:ann@home', title: `${WIDE} ${i}`, lastMessagePreview: WIDE.repeat(8) })
+);
+const ANN_HELD = Array.from({ length: 12 }, (_, i) => ({ agentId: 'ann', kind: 'approval', tool: `tool_${i}`, run: { kind: 'schedule', name: `run ${i}` } }));
+const ANN_ROUTINES = Array.from({ length: 25 }, (_, i) => ({ kind: 'schedule', name: `routine ${String(i).padStart(2, '0')}`, owner: 'ann', enabled: true, nextFireAt: iso(BOT_NOW + (i + 1) * HOUR) }));
+// More catalog rows than one bot status scans (SCAN_ROWS): Ann's chat lies past them.
+const FILLER = Array.from({ length: 2100 }, (_, i) => ({ id: `sess_fill_${String(i).padStart(4, '0')}`, lastUsedAt: BOT_NOW - i * 1000 }));
+const NO_STATUS = { list: [], watches: [], held: [], routines: [], approvals: [], mixy: 'Mixy', now: BOT_NOW };
 
 const compacted = await compactForReal();
 const base = {
@@ -470,6 +536,34 @@ const SCENARIOS = [
     ['create-bot-chain', { caller: { ...ANN_CHAT, turnBotChain: ['bob'] }, args: createWith() }],
     ['create-watch-cap', { send: { watch: 'cap' }, args: createWith() }],
   ].map(([name, scenario]) => ({ name, caller: ANN_CHAT, send: {}, create: {}, ...scenario })),
+  ...[
+    ['bots-overview', {}],
+    ['bots-none', { bots: NO_STATUS, catalog: [] }],
+    ['bots-routines-unavailable', { bots: { ...STATUS, routinesError: 'the store is <down>\n  now' } }],
+    ['bots-detail', { args: { action: 'bots', session_id: 'ann', limit: 2 } }],
+    ['bots-detail-chat-id', { args: { action: 'bots', session_id: 'sess_home_cara' } }],
+    ['bots-detail-bob', { args: { action: 'bots', session_id: 'bob' } }],
+    ['bots-detail-dan', { args: { action: 'bots', session_id: 'dan' } }],
+    ['bots-detail-mixy', { args: { action: 'bots', session_id: 'lead' } }],
+    ['bots-detail-unknown', { args: { action: 'bots', session_id: 'zed' } }],
+    ['bots-detail-unknown-chat', { args: { action: 'bots', session_id: 'sess_home_zed' } }],
+    ['bots-agent', { caller: ANN_CHAT }],
+    ['bots-agent-own', { caller: ANN_CHAT, args: { action: 'bots', session_id: 'ann' } }],
+    ['bots-agent-other', { caller: ANN_CHAT, args: { action: 'bots', session_id: 'sess_home_cara' } }],
+    ['bots-room', { caller: ROOM_MEMBER }],
+    ['bots-run', { caller: RUN }],
+    ['bots-limit-zero', { args: { action: 'bots', session_id: 'ann', limit: 0 } }],
+    ['bots-limit-fraction', { args: { action: 'bots', limit: 1.5 } }],
+    ['bots-limit-over', { args: { action: 'bots', limit: 101 } }],
+    ['bots-limit-string', { args: { action: 'bots', limit: '5' } }],
+    ['bots-limit-null', { args: { action: 'bots', session_id: 'ann', limit: null } }],
+    ['bots-overflow', { bots: { ...NO_STATUS, list: MANY_BOTS }, catalog: MANY_BOTS_CATALOG }],
+    [
+      'bots-detail-overflow',
+      { bots: { ...STATUS, held: ANN_HELD, routines: ANN_ROUTINES }, catalog: [STATUS_CATALOG[1], ...ANN_TASKS], args: { action: 'bots', session_id: 'ann', limit: 100 } },
+    ],
+    ['bots-scan-capped', { catalog: [...FILLER, STATUS_CATALOG[1]] }],
+  ].map(([name, scenario]) => ({ name, bots: STATUS, catalog: STATUS_CATALOG, args: { action: 'bots' }, ...scenario })),
 ].map((scenario) => ({ ...base, ...scenario }));
 
 // ---- `agentTasks` over a send scenario: the real `createAgentTaskSessions` (report origin, watch, envelope, turn,
@@ -591,6 +685,25 @@ function serviceOf(scenario) {
   };
 }
 
+// ---- bot status over a scenario: the real `createBotStatus` over the scenario's catalog (the service's page read) and
+// its `bots` sources.
+function botStatusOf(scenario) {
+  const data = scenario.bots;
+  const service = { ...serviceOf(scenario), liveSessionAwaitingApproval: (id) => data.approvals.includes(id) };
+  return createBotStatus({
+    getSessionService: () => service,
+    listBots: async () => clone(data.list),
+    routines: async () => {
+      if (data.routinesError) throw new Error(data.routinesError);
+      return clone(data.routines);
+    },
+    heldRequests: async () => clone(data.held),
+    taskWatches: async () => clone(data.watches),
+    mixyName: async () => data.mixy,
+    now: () => data.now,
+  });
+}
+
 async function record(scenario) {
   const unregister = registerSessionSidebarHost(async () => {}, { state: async () => ({ archived: clone(scenario.archived) }) });
   try {
@@ -607,6 +720,7 @@ async function record(scenario) {
     const executeSessionControl = createSessionControl({
       getSessionService: () => (scenario.noService ? null : sending ? sending.service : serviceOf(scenario)),
       ...(sending ? { agentTasks: sending.agentTasks } : {}),
+      ...(scenario.bots ? { botStatus: botStatusOf(scenario) } : {}),
       listBots: async () => clone(BOTS),
       liveWork: async () => live,
       readRow: async (id) => clone(scenario.catalog.find((entry) => entry.id === id) ?? null),
@@ -674,6 +788,7 @@ if (only) {
         "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run.",
         "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. Sends to a group room and a refused submission are not recorded.",
         "A create runs the real `createAgentTaskSessions(...).create` over the send stand-ins above plus: `listProjects` (`create.projects`), `newTaskDefault` (the scenario's `create.newTaskDefault`), `leadRoute` (`create.lead`, or the scenario's), the session service's `createSession` (kept as given; it answers `create.sessionId`), its `configureSession` for `requestWorktree` (answering `create.worktree[<scenario's create.worktree>]`) and `deleteSession` (answering true, false for `drop: 'refused'`, or throwing `create.dropFailure` for `drop: 'fails'`), and `listSessionCatalog` (the scenario's `create.catalog`, one page). `configModelRoute` reads the recorder's empty config (no presets). A created session's request id is recorded as `atask_<send>`. A Project named by a directory path and attachments are not recorded.",
+        "A bots call runs the real `createBotStatus` over the scenario's catalog (the session service's page read above, with `liveSessionAwaitingApproval` true for `bots.approvals`) and the scenario's `bots` sources in place of their process stores: `listBots` (`bots.list`), `taskWatches` (`bots.watches`), `heldRequests` (`bots.held`), `routines` (`bots.routines`, rows already of their kind, or a throw of `bots.routinesError`), `mixyName` (`bots.mixy`) and `now` (`bots.now`). A failing bot list, watch store, held requests or name read, and the over-budget refusal (no bot status a model can ask for reaches it), are not recorded.",
         "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered.",
       ],
       scenarios: scenarios.length,

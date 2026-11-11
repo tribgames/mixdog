@@ -171,6 +171,8 @@ pub struct SessionPortParts {
     pub listing: Arc<dyn SessionListing>,
     /// What `session action=send` queues and reports through.
     pub send: Arc<super::session_send::LateSend>,
+    /// What `session action=bots` reads besides the catalog.
+    pub bot_sources: Arc<dyn super::session_bots::BotSources>,
     pub io: InteractiveIo,
 }
 
@@ -212,6 +214,11 @@ impl DirectorySessionPort {
         if action == "create" {
             let attended = matches!(self.parts.callers.scope(&call.caller_thread).await, CallerScope::Human | CallerScope::Agent { unattended: false, .. });
             return self.parts.send.get().map_err(failed)?.create(call, attended).await.map_err(failed);
+        }
+        // `botStatus(args, { callerScope })`: no target to check either.
+        if action == "bots" {
+            let own = session_control::scoped_bot(&self.parts.callers.scope(&call.caller_thread).await, call.caller_thread.as_str());
+            return super::session_bots::status(self.parts.bot_sources.as_ref(), self.parts.listing.as_ref(), &call.args, own).await.map_err(failed);
         }
         if !matches!(action, "list" | "read" | "send" | "cancel" | "delete") {
             return Err(PortError::Unavailable {

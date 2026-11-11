@@ -457,6 +457,7 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         suggestions: suggested.clone(),
         listing: Arc::new(replay::Fixture::default()),
         send: Arc::new(super::session_send::LateSend::default()),
+        bot_sources: Arc::new(super::session_bots::LateBotSources::default()),
         io: mixdog_rt::testing::tokens().interactive_io,
     });
     Port { port, threads, requests, suggested }
@@ -591,7 +592,6 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     };
     assert_eq!(p.port.control(control("cancel")).await, Ok(json!({ "sessionId": "sess_x", "aborted": true })));
     assert_eq!(p.port.control(control("delete")).await, Ok(json!({ "sessionId": "sess_x", "deleted": true })));
-    assert!(matches!(p.port.control(control("bots")).await, Err(PortError::Unavailable { .. })));
 }
 
 #[tokio::test]
