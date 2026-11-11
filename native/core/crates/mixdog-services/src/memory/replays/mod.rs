@@ -4,6 +4,7 @@
 
 mod light_ko_morph;
 mod project_id;
+mod query_ranking;
 mod recall_fusion;
 mod scope_filter;
 mod tokenizer;
