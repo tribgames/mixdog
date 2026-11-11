@@ -130,13 +130,41 @@ async fn a_disabled_or_removed_provider_is_not_reached_while_the_registry_keeps_
     assert_eq!(pc.provider("openai").await, log[2]["provider"]);
 }
 
-/// Case 24, this PC's advertisement of every built-in family and custom protocol.
+/// `value` without the `mixdog-local` entry: the Rust registry never builds it (mixdog-ai registry/builder.rs:1286 —
+/// it is built per turn from the managed runtime's endpoint), and enabling it fails the whole init
+/// (registry/providers.rs:388) where Node registers `MixdogLocalProvider`. Declared in the manifest (24/28).
+fn without_local(value: &Value) -> Value {
+    let mut value = value.clone();
+    value.as_object_mut().unwrap().shift_remove("mixdog-local").expect("Node's case names mixdog-local");
+    value
+}
+
+/// Case 24, this PC's advertisement of every built-in family and custom protocol, but `mixdog-local`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "differs, not fixed here: the Rust registry never builds mixdog-local (mixdog-ai registry/builder.rs:1286; providers::local::adapter has no production caller), so a config enabling it fails the whole init (registry/providers.rs:388) where Node registers MixdogLocalProvider"]
 async fn every_family_is_advertised_as_its_adapter_declares() {
     let node = observed("all built-in provider families and custom protocols use the same PC catalog and send path");
-    let pc = pc(node["available"].clone(), scripted("present")).await;
-    same(&pc.answer().await, &node["advertised"], "advertised");
+    let pc = pc(without_local(&node["available"]), scripted("present")).await;
+    let mut want = node["advertised"].clone();
+    want["providers"] = without_local(&want["providers"]);
+    let mut got = pc.answer().await;
+    // Differs, left: Node's custom provider on the anthropic protocol is an AnthropicProvider (`static
+    // inputExcludesCache = true`); the core decides by name only (mixdog-ai registry/accounted.rs:131
+    // `input_excludes_cache`, read by the accounting and the session books too), so it says false. Compared apart.
+    for id in ["custom-00000000-0000-4000-8000-000000000020", "custom-00000000-0000-4000-8000-000000000021"] {
+        assert_eq!(want["providers"][id]["modelProxy"]["inputExcludesCache"], true, "{id}: Node");
+        assert_eq!(got["providers"][id]["modelProxy"]["inputExcludesCache"], false, "{id}: the core, by name");
+        got["providers"][id]["modelProxy"]["inputExcludesCache"] = json!(true);
+    }
+    // Declared: Node's recorder registry reads no Developer options, so it builds the dev-gated classes; the core's
+    // registry gates them off (mixdog-ai service/admin_models.rs:445 `provider_available`), and turning the options on
+    // makes the build need a real sign-in. Node's entries are compared whole against what Node advertised; the core's
+    // are pinned to the gated answer.
+    for id in ["mimo-oauth", "cursor-oauth", "antigravity-oauth"] {
+        assert_eq!(want["providers"][id]["enabled"], true, "{id}: Node");
+        same(&got["providers"][id], &json!({ "enabled": false, "authState": "present", "modelProxy": {} }), id);
+        got["providers"][id] = want["providers"][id].clone();
+    }
+    same(&got, &want, "advertised");
 }
 
 /// Case 25.
@@ -247,14 +275,12 @@ async fn an_unreadable_credential_with_a_live_adapter_is_advertised_at_once() {
     same(&pc.answer().await["providers"]["openai-oauth"], &node["second"], "second");
 }
 
-/// Case 28.
+/// Case 28, the `openai` half; the `mixdog-local` half (`localTraits`) is left: see [`without_local`].
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "differs, not fixed here: the Rust registry never builds mixdog-local (mixdog-ai registry/builder.rs:1286), see case 24"]
 async fn a_text_only_adapter_advertises_its_image_trait() {
     let node = observed("a text-only adapter's image trait is advertised, so a remote read sends it OCR text");
-    let pc = pc(json!({ "mixdog-local": { "enabled": true }, "openai": { "enabled": true } }), scripted("present")).await;
+    let pc = pc(json!({ "openai": { "enabled": true } }), scripted("present")).await;
     let providers = pc.answer().await["providers"].clone();
-    same(&providers["mixdog-local"]["modelProxy"], &node["localTraits"], "local");
     same(&providers["openai"]["modelProxy"], &node["openaiTraits"], "openai");
 }
 
