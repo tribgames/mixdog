@@ -84,8 +84,8 @@ try {
   const writer = core.client;
 
   /** The desktop: the protocol client over a socket whose outgoing reads this replay counts and can hold (a read in flight). */
-  async function desktop(name, { reconnects = false } = {}) {
-    const wire = { reads: [], hold: null, held: [], replies: [], replyHold: null, replyIds: new Set(), heldReplies: [], deliver: null };
+  async function desktop(name) {
+    const wire = { closes: [], reads: [], hold: null, held: [], replies: [], replyHold: null, replyIds: new Set(), heldReplies: [], deliver: null };
     let socket = null;
     const client = await within(lib.connect({
       target: { id: 'local' },
@@ -116,16 +116,18 @@ try {
             if (text.includes('"error"')) wire.replies.push(JSON.parse(text));
             sink.frame(text);
           });
-          socket.on('close', (code, reason) => sink.closed(code, reason.toString('utf8')));
+          socket.on('close', (code, reason) => {
+            wire.closes.push(code);
+            sink.closed(code, reason.toString('utf8'));
+          });
           socket.on('error', fail);
         });
       } },
       clientInfo: { name, title: name, version: String(JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version), kind: 'desktop' },
       capabilities: {},
       threadReducer: lib.sessionReducer,
-      // A connection lost is a failure of the replay, except where the case is about a stale reply: the client that is handed one closes
-      // the feed (1002, a gap) and reconnects from the core's state, which is what the case then shows (`reconnects`).
-      clock: { sleep: (ms) => (reconnects ? Promise.resolve() : Promise.reject(new Error(`${name} asked to sleep ${ms} ms (a reconnect backoff): its connection was lost`))) },
+      // A connection lost is a failure of the replay: Node's host shows no reconnect in any case.
+      clock: { sleep: (ms) => Promise.reject(new Error(`${name} asked to sleep ${ms} ms (a reconnect backoff): its connection was lost`)) },
       random: Math.random,
     }), LIMIT, `${name} connecting`);
     opened.push(client);
@@ -220,9 +222,15 @@ try {
     const rec = observed(name);
     const threadId = await newThread(writer);
     await written(threadId, 'stored');
-    const { client: a, holdReplyTo, releaseReply } = await desktop('reentry-delayed', { reconnects: true });
+    const { client: a, wire, holdReplyTo, releaseReply } = await desktop('reentry-delayed');
     await within(a.resumeThread(threadId, { lastItems: 50 }), LIMIT, 'opening the stored session');
     await shows(a, threadId, step(rec, 'opened with a stored answer').texts, 'opened with a stored answer');
+    // Every transcript the desktop shows from here on, in order (a state equal to the one before it is not a new one).
+    const shown = [texts(a, threadId)];
+    const unseen = a.store.subscribe(() => {
+      const now = texts(a, threadId);
+      if (lib.sessionStateOf(a, threadId) && JSON.stringify(now) !== JSON.stringify(shown.at(-1))) shown.push(now);
+    });
     // The case is about a stale reply: the read goes out and the core answers it, the answer is held back from the client while a new
     // turn is written, and delivered after. The read is the desktop's own `resumeThread`, whose reply is the one the client folds into
     // the transcript (`client.ts` resumeThread's `attached` callback); a generic `call` reply never updates it.
@@ -236,8 +244,19 @@ try {
     await within(read, LIMIT, 'the held reply');
     const done = step(rec, 'read released');
     assert.deepStrictEqual({ texts: texts(a, threadId), lastTwo: texts(a, threadId).slice(-2) }, { texts: done.texts, lastTwo: done.lastTwo }, `${name}: after the read is released`);
-    // The stale reply made the client close its feed and read the session again: it settles on the same rows.
-    await shows(a, threadId, done.texts, 'the transcript after the client read the session again');
+    // A round trip after the release: every frame the core sent before its answer has been handled by then.
+    await within(a.call('thread/read', { threadId, window: { none: true } }), LIMIT, 'a read after the release');
+    unseen();
+    // Node's recorded steps show the transcript [stored], [stored], [stored, new turn, reply], [stored, new turn, reply]: two
+    // different states in that order. Node's scripted runtime answered a turn in one publication; the core's turn shows its prompt
+    // before its answer (manifest `replay.declared`, "delayed stored reply, transcripts shown"). So the desktop shows both recorded states in order, and every
+    // state between them only adds rows to the one before: nothing is dropped, reordered or repeated.
+    const recordedSequence = [];
+    for (const recorded of rec.steps) if (JSON.stringify(recorded.texts) !== JSON.stringify(recordedSequence.at(-1))) recordedSequence.push(recorded.texts);
+    const grows = (from, to) => to.length > from.length && from.every((text, at) => to[at] === text);
+    assert.deepStrictEqual([shown[0], shown.at(-1)], [recordedSequence[0], recordedSequence.at(-1)], `${name}: the first and the last transcript shown`);
+    assert.ok(shown.every((state, at) => at === 0 || grows(shown[at - 1], state)), `${name}: every transcript shown extends the one before it: ${JSON.stringify(shown)}`);
+    assert.deepStrictEqual(wire.closes, [], `${name}: the connection stays open (Node's host shows no reconnect)`);
     console.log(`${name}: replayed`);
   }
 
