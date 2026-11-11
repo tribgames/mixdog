@@ -77,6 +77,13 @@ enum Step {
     Event(StreamEvent),
     Fail(ProviderError),
     Hang,
+    /// The stream goes on once the count reaches the number: a response still streaming while the calls it handed over run.
+    Until(tokio::sync::watch::Receiver<usize>, usize, &'static str),
+    /// The response is still waiting for the wire until the future ends.
+    Wire(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>, &'static str),
+    /// The wire's terminal event is in (`ModelStream::on_wire_left`) and the stream works on the ledger's write until the
+    /// future ends.
+    Ledger(std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>, &'static str),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -85,21 +92,43 @@ enum Attempt {
     Reject(ProviderError),
 }
 
-struct ScriptedStream(VecDeque<Step>);
+struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>);
 
 #[async_trait]
 impl ModelStream for ScriptedStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        match self.0.pop_front() {
-            None => None,
-            Some(Step::Event(event)) => Some(Ok(event)),
-            Some(Step::Fail(error)) => Some(Err(error)),
-            Some(Step::Hang) => std::future::pending().await,
+        loop {
+            return match self.0.pop_front() {
+                None => None,
+                Some(Step::Event(event)) => Some(Ok(event)),
+                Some(Step::Fail(error)) => Some(Err(error)),
+                Some(Step::Hang) => std::future::pending().await,
+                Some(Step::Until(mut count, at, what)) => {
+                    let reached = tokio::time::timeout(Duration::from_secs(30), count.wait_for(|n| *n >= at)).await;
+                    assert!(reached.is_ok(), "the stream waited 30 s for {what}");
+                    continue;
+                }
+                Some(Step::Wire(wait, what)) => {
+                    assert!(tokio::time::timeout(Duration::from_secs(30), wait).await.is_ok(), "the stream waited 30 s for {what}");
+                    continue;
+                }
+                Some(Step::Ledger(wait, what)) => {
+                    if let Some(left) = &self.1 {
+                        left();
+                    }
+                    assert!(tokio::time::timeout(Duration::from_secs(30), wait).await.is_ok(), "the ledger waited 30 s for {what}");
+                    continue;
+                }
+            };
         }
     }
 
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
+    }
+
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        self.1 = Some(left);
     }
 }
 
@@ -164,7 +193,7 @@ impl ProviderAdapter for Scripted {
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
-            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into()))),
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None))),
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("provider script exhausted"),
         }
@@ -442,6 +471,213 @@ async fn a_partial_result_is_never_admitted_to_the_cache() {
         finish(h.run(config(), vec![Arc::new(Marked(complete))], vec![AgentMessage::user("go")])).await;
         assert_eq!(*reuse.0.lock().unwrap(), stored, "complete = {complete}");
     }
+}
+
+/// `edit` of one file kept in memory, answering as the str-replace adapter does: a unique anchor is replaced, one found more than
+/// once is refused as ambiguous unless the call says how many remain (`editOccurrence`), when the first is taken. It counts the
+/// runs that ended.
+struct AnchoredFile {
+    spec: ToolSpec,
+    text: Mutex<String>,
+    runs: Mutex<Vec<(String, Option<u32>)>>,
+    ended: tokio::sync::watch::Sender<usize>,
+}
+
+impl AnchoredFile {
+    fn new(text: &str) -> Arc<Self> {
+        let spec = ToolSpec {
+            name: "edit".into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: "edit".into(),
+            input_schema: json!({"type": "object"}),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        Arc::new(Self { spec, text: Mutex::new(text.into()), runs: Mutex::default(), ended: tokio::sync::watch::Sender::new(0) })
+    }
+}
+
+#[async_trait]
+impl Tool for AnchoredFile {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let (old, new) = (args["old_string"].as_str().unwrap(), args["new_string"].as_str().unwrap());
+        let expected = ctx.options.edit_occurrence.map(|o| o.expected);
+        self.runs.lock().unwrap().push((ctx.call_id.as_str().to_owned(), expected));
+        let outcome = {
+            let mut text = self.text.lock().unwrap();
+            let found = text.matches(old).count() as u32;
+            if found == 1 || (found >= 2 && expected == Some(found)) {
+                *text = text.replacen(old, new, 1);
+                Ok(ToolOutput { parts: vec![ToolPart::Text("Updated a.txt (1 replacement)".into())], ..ToolOutput::default() })
+            } else if found == 0 {
+                Err(ToolError::new(ToolErrorCode::NotFound { target: old.into() }, "Error: old_string not found"))
+            } else {
+                Err(ToolError::new(ToolErrorCode::Conflict { matches: found }, format!("Error: edit failed (old_string found {found} times)")))
+            }
+        };
+        self.ended.send_modify(|n| *n += 1);
+        outcome
+    }
+}
+
+/// `createEagerBarriers` (`eager-dispatch/barriers.mjs:81,96`) lets a same-file edit go when the edit before it settles, an
+/// ambiguous one included; its batch-group retry (`retryAmbiguousEdit`) comes when the batch reaches it, here after the response
+/// ended, so the edit behind it has already run against the file as the first run left it.
+#[tokio::test]
+async fn an_edit_behind_an_ambiguous_streamed_edit_runs_before_the_group_retry() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "a.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(file.ended.subscribe(), 2, "both streamed edits to end"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// Releases the held edits, then ends once `id` reached the settle gate.
+fn release_until_at_gate(hold: &Arc<mixdog_agent::test_hooks::EditHold>, id: &'static str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    let (hold, mut at) = (Arc::clone(hold), hold.at_gate());
+    Box::pin(async move {
+        hold.release();
+        let _ = at.wait_for(|seen| seen.iter().any(|(seen, _)| seen == id)).await;
+    })
+}
+
+/// One `next` waits on the wire, then the response's end arrives and the same `next` goes on to the ledger's write of the
+/// completed row (`agent-trace-run` scenario 2): an ambiguous streamed edit settling during the write finds the gate the
+/// wire wait opened closed, so it is acted on once the batch is at it and its group retry runs before the edit behind it.
+#[tokio::test]
+async fn an_ambiguous_edit_settling_in_the_ledger_write_after_a_wait_on_the_wire_finds_the_batch_at_it() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let hold = Arc::new(mixdog_agent::test_hooks::hold_edits("ledger-phase.txt", &["x1"]));
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "ledger-phase.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(hold.parked(), 1, "x1 parked before its run"),
+            Step::Ledger(release_until_at_gate(&hold, "x1"), "x1 at the settle gate"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(hold.at_gate().borrow().first().cloned(), Some(("x1".to_owned(), false)));
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// The same `next`, with the settlement while it still waits on the wire: the gate is open, the edit behind goes first and
+/// the group retry runs after it, as in Node.
+#[tokio::test]
+async fn an_ambiguous_edit_settling_in_the_wire_wait_before_the_ledger_write_lets_the_edit_behind_it_go() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let hold = Arc::new(mixdog_agent::test_hooks::hold_edits("wire-phase.txt", &["x1"]));
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "wire-phase.txt", "old_string": "same", "new_string": new }));
+    let ended = file.ended.subscribe();
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(hold.parked(), 1, "x1 parked before its run"),
+            Step::Wire(release_until_at_gate(&hold, "x1"), "x1 at the settle gate"),
+            Step::Until(ended, 2, "x2's run to end"),
+            Step::Ledger(Box::pin(async {}), "nothing"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(hold.at_gate().borrow().first().cloned(), Some(("x1".to_owned(), true)));
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// Releases the held edits once the group retry either queued behind a place still held or ran (`ended` runs ended): the
+/// retry that a free file lets through first runs before the held edits, the one queued behind them after.
+async fn release_after_the_retry(hold: &mixdog_agent::test_hooks::EditHold, file: &AnchoredFile, ended: usize) {
+    let (mut waiting, mut runs) = (hold.retries_waiting(), file.ended.subscribe());
+    tokio::select! {
+        _ = waiting.wait_for(|ids| !ids.is_empty()) => {}
+        _ = runs.wait_for(|n| *n >= ended) => {}
+    }
+    hold.release();
+}
+
+/// Runs `run` while `release` frees the held edits; one deadline for both.
+async fn finish_with(run: Run, release: impl std::future::Future<Output = ()>) {
+    let both = async { tokio::join!(finish(run), release) };
+    assert!(tokio::time::timeout(Duration::from_secs(30), both).await.is_ok(), "the run did not end within 30 s");
+}
+
+/// The edit an ambiguous streamed edit's settlement lets go holds its place at the file from that settlement on (Node's
+/// single thread runs it before anything else reaches the file): parked before its first poll while the response completes
+/// and the batch reaches the group retry, it still runs before the retry.
+#[tokio::test]
+async fn an_edit_let_go_by_a_settlement_runs_before_a_retry_the_batch_reaches_while_it_is_parked() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let hold = mixdog_agent::test_hooks::hold_edits("gate-one.txt", &["x2"]);
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "gate-one.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![edit("x1", "one"), edit("x2", "two"), Step::Until(hold.parked(), 1, "x2 parked before its run"), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish_with(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")]), release_after_the_retry(&hold, &file, 2)).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// Two edits behind an ambiguous one: the second is let go by the first's settlement, the third by the second's, so a retry
+/// the batch reaches between the two settlements queues behind the second and ahead of the third, as in Node.
+#[tokio::test]
+async fn a_retry_reached_between_two_settlements_runs_between_the_edits_they_let_go() {
+    let file = AnchoredFile::new("same\nsame\nsame\n");
+    let hold = mixdog_agent::test_hooks::hold_edits("gate-two.txt", &["x2"]);
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "gate-two.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            edit("x3", "three"),
+            Step::Until(hold.parked(), 1, "x2 parked before its run"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish_with(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")]), release_after_the_retry(&hold, &file, 2)).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![
+        ("x1".into(), None),
+        ("x2".into(), None),
+        ("x1".into(), Some(3)),
+        ("x3".into(), None),
+        ("x2".into(), Some(2)),
+        ("x3".into(), None),
+    ];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\nthree\n");
 }
 
 /// `echo` whose result carries the given `meta`, as `apply_patch` carries `uiDiff`.
