@@ -3,6 +3,7 @@
 //! its MANIFEST.json names.
 
 mod project_id;
+mod recall_fusion;
 mod scope_filter;
 
 use mixdog_testkit::Exact;
