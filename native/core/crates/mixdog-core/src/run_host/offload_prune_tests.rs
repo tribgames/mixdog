@@ -74,8 +74,8 @@ impl ManualCompaction for Pruning {
     fn route_config(&self, header: &Header) -> mixdog_app_protocol::v2::thread::ThreadRoute {
         self.rig.route_config(header)
     }
-    fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
-        self.rig.settings_changes()
+    fn settings_changes(&self, thread: &ThreadId) -> Option<mixdog_core_session::session::turn_ops::SettingsFeed> {
+        self.rig.settings_changes(thread)
     }
 }
 
