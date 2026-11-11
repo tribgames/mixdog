@@ -638,7 +638,7 @@ pub(crate) struct SessionActor {
     suppressed: std::collections::HashSet<String>,
     /// Completions a wake drained that still wait for their own turns, oldest first.
     wake_tail: Vec<String>,
-    /// A queue drain waited for [`Self::starts_held`]: the pump runs it once starts are free.
+    /// A queue drain waited for [`Self::starts_gated`]: the pump runs it once starts are free.
     drain_held: bool,
     /// A delete closed the thread (`Ctl::Delete`): no run starts again.
     deleting: bool,
@@ -1443,12 +1443,13 @@ impl SessionActor {
                     return (encoded, Vec::new(), Vec::new());
                 }
                 // The final reply's completion restores as a `done` end in history; live, the turn's close shows its
-                // own end ([`Self::close_done`]), so this one is not shown.
+                // own end ([`Self::close_done`]), so this one is not shown. A sealed reply recovery commits has no close:
+                // its end shows as history shows it.
                 let shown: Vec<Shown> = deps
                     .transcript
                     .items(lane, row)
                     .into_iter()
-                    .filter(|shown| !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
+                    .filter(|shown| !live || !matches!(shown, Shown::Item(ThreadItem::TurnEnd { status: mixdog_protocol::TurnEndStatus::Done, .. })))
                     .map(|shown| {
                         if !live {
                             return shown;
@@ -1936,7 +1937,7 @@ impl SessionActor {
         self.publish_cell();
         // The unsaved records landed (and the crashed runs ended): the turn that waited for them starts, or the queue
         // drain that waited goes on.
-        if !self.starts_held() {
+        if !self.starts_gated() {
             if let Some(start) = self.deferred_start.take() {
                 self.start_run_with(start.input, start.body, start.op_ref, start.reply, start.prompt, start.wake);
             } else if std::mem::take(&mut self.drain_held) {
@@ -3079,7 +3080,7 @@ impl SessionActor {
         }
         // Nothing is dequeued while starts are held: the drain goes on once they are not (an unsaved turn's records
         // are written again first).
-        if self.starts_held() {
+        if self.starts_gated() {
             self.drain_held = true;
             self.retry_due |= self.outbox.has_unsaved();
             return;
@@ -3225,6 +3226,13 @@ impl SessionActor {
     /// Goal entry is being checked.
     fn turn_busy(&self) -> bool {
         self.turn_held() || self.turn_pending()
+    }
+
+    /// Work on the session may not start now, whatever would start it (a turn of any origin in
+    /// [`Self::start_run_with`], a queue drain, prioritised entry or live notification in
+    /// [`Self::start_next_queued`]): the previous turn is unsaved. A held start waits and [`Self::pump`] resumes it.
+    fn starts_gated(&self) -> bool {
+        self.turn_unsettled()
     }
 
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.
@@ -5072,13 +5080,6 @@ impl SessionActor {
         self.start_run_with(input, body, op_ref, reply, prompt, false);
     }
 
-    /// The one check every path that starts work on the session passes (a turn of any origin in
-    /// [`Self::start_run_with`], a queue drain in [`Self::start_next_queued`]): while it holds, a start waits and is
-    /// resumed by [`Self::pump`]. Another reason to hold starts joins this condition.
-    fn starts_held(&self) -> bool {
-        self.turn_unsettled()
-    }
-
     /// `awaitPreviousTurnDurable` (`ask-turn-open.mjs:41`), which every ask passes: the previous turn's records
     /// (through its `turnCoverage`) have not all landed, or the crashed runs are still being finalized.
     fn turn_unsettled(&self) -> bool {
@@ -5106,7 +5107,7 @@ impl SessionActor {
     ) {
         // Every turn waits here for the previous turn to land: records a failed barrier left unsaved are written again
         // first (the fresh save), and the turn starts once they land and is refused if they do not.
-        if self.starts_held() {
+        if self.starts_gated() {
             let unsaved = self.outbox.has_unsaved();
             self.retry_due = unsaved;
             self.deferred_start = Some(DeferredStart { input, body, op_ref, reply, prompt, wake, retried: unsaved });
