@@ -8,7 +8,7 @@
     "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
     "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
   },
-  "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs consumeCompatChatCompletionStream / consumeCompatResponsesStream(stream, opts), retry-classifier.mjs classifyError, lib/stream-outcome.mjs readStreamOutcome, openai-compat-response-normalization.mjs normalizeCompatChatResponse. A stream is an async iterable over the recorded `events` (a `throws` entry makes the iterator throw it).",
+  "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs consumeCompatChatCompletionStream / consumeCompatResponsesStream(stream, opts), retry-classifier.mjs classifyError, lib/stream-outcome.mjs readStreamOutcome, openai-compat-response-normalization.mjs normalizeCompatChatResponse. The malformed-frame cases and the in-band error, cancel and idle cases are WIRE (the provider send against the loopback endpoint); the other cases hand the consumer an async iterable over the recorded `events`.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 233015,
+      "bytes": 287973,
       "path": "cases.json",
-      "sha256": "c4c1e86da46e4896b96cf666374b40ab72c04f8b0901c319b87ba6ebaf3d8b69"
+      "sha256": "8849494e7433986496b05ac94215ac91e978f180d762a5456f018e8614ae6343"
     }
   ],
   "inputs": [
@@ -87,23 +87,19 @@
     },
     {
       "id": "chat-malformed-json-frame-typed-with-exposure",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub, re-exported at compat/chat/mod.rs:18; feed :578, finish :601, with_known_tools :224)"
+      "level": "wire"
     },
     {
       "id": "chat-malformed-json-before-output-replay-safe",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub, re-exported at compat/chat/mod.rs:18; feed :578, finish :601, with_known_tools :224)"
+      "level": "wire"
     },
     {
       "id": "responses-malformed-json-frame-typed-with-exposure",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/openai/decoder.rs:140 ResponsesDecoder (pub mod decoder; new :408, with_label :724, compat_events :734, feed/finish in `impl WireDecoder` :1362)"
+      "level": "wire"
     },
     {
       "id": "responses-malformed-json-before-output-replay-safe",
-      "level": "pure",
-      "rust": "mixdog-ai/src/providers/openai/decoder.rs:140 ResponsesDecoder (pub mod decoder; new :408, with_label :724, compat_events :734, feed/finish in `impl WireDecoder` :1362)"
+      "level": "wire"
     },
     {
       "id": "responses-failure-constructors-carry-the-provider-label",
@@ -151,12 +147,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-compat-stream-lifecycle.mjs",
-  "recorderSha256": "ad3cd9b4bd12fa52305d2672b98f7ba509cb08b9cb108846a06a66b7da5c5ca6",
+  "recorderSha256": "d3e9a3177b7a1026c0921c6c7f8aa712c89bb167d1d3961d7e2d86aaa841b5be",
   "replay": "WIRE: mixdog_ai provider send (ModelBroker::send, mixdog-ai/src/broker/send.rs:75, with the compat adapter providers/compat/adapter.rs:63) against a loopback endpoint; PURE: the public decoders named per case in `levels`: mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub, re-exported at compat/chat/mod.rs:18; feed :578, finish :601, with_known_tools :224); mixdog-ai/src/providers/openai/decoder.rs:140 ResponsesDecoder (pub mod decoder; new :408, with_label :724, compat_events :734, feed/finish in `impl WireDecoder` :1362). The non-streaming normalizer case is Rust work: compat/chat/decode.rs exposes only the streaming ChatDecoder (+ `usage_from` :99), no public function turns an already assembled non-streaming chat response into a typed result.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openai-compat-stream-lifecycle",
-  "totalBytes": 233015,
+  "totalBytes": 287973,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
