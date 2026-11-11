@@ -16,7 +16,7 @@ use mixdog_core_run::run_host::artifact::ToolResultArtifacts;
 use mixdog_core_session::session::run::Compaction;
 use mixdog_core_session::session::testing::offload_replay::{item, within};
 use mixdog_core_session::session::testing::{Rig, TestCompaction};
-use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, ManualCompaction};
+use mixdog_core_session::session::turn_ops::{Books, CompactionCommit, ManualCompaction, OffloadCopies};
 use mixdog_core_session::session::{SessionDirectory, SystemClock};
 use mixdog_store::schema::record::{Header, Record};
 use serde_json::{Value, json};
@@ -49,8 +49,8 @@ impl ManualCompaction for Pruning {
         self.listings.send_modify(|count| *count += 1);
         candidates
     }
-    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
-        super::manual_compaction::prune_offloads(&io(), &self.data, &SystemClock, thread, candidates, transcripts).await;
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: OffloadCopies) {
+        super::manual_compaction::prune_offloads(&io(), &self.data, &SystemClock, thread, candidates, transcripts, copies).await;
         self.prunes.send_modify(|count| *count += 1);
     }
     async fn rearm(&self, thread: &ThreadId) {

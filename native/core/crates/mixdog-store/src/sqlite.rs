@@ -1731,6 +1731,28 @@ impl SqliteStore {
         .await
     }
 
+    /// The listed sessions whose header names `session` as its source (`inheritedFromSessionId`: an inheritance's
+    /// heir, a clear's fork), in id order, read from their list rows (no session log is opened); and the first
+    /// session the index holds as not readable (`status` other than `ok`), whose source is not known, if any.
+    pub async fn inherited_from(&self, session: &str) -> Result<(Vec<String>, Option<String>), DbError> {
+        let session = session.to_owned();
+        self.read(move |c| {
+            let unreadable: Option<String> =
+                c.prepare_cached("SELECT id FROM sessions WHERE deleted = 0 AND status <> 'ok' ORDER BY id LIMIT 1")?.query_row([], |r| r.get(0)).optional()?;
+            let needle = format!("\"inheritedFromSessionId\":{}", serde_json::Value::String(session.clone()));
+            let mut rows = c.prepare_cached("SELECT id, summary FROM sessions WHERE deleted = 0 AND log_id <> '' AND instr(summary, ?1) > 0 ORDER BY id")?;
+            let listed = rows.query_map([&needle], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<Result<Vec<_>, _>>()?;
+            // The text match finds the candidates; the row's own field decides.
+            let heirs = listed
+                .into_iter()
+                .filter(|(_, summary)| serde_json::from_str::<serde_json::Value>(summary).ok().is_some_and(|row| row["inheritedFromSessionId"].as_str() == Some(session.as_str())))
+                .map(|(id, _)| id)
+                .collect();
+            Ok((heirs, unreadable))
+        })
+        .await
+    }
+
     /// The raw header `title` of a session (1.4.5 `readStoredSessionMetadata`'s
     /// `session.title || null`); `None` when it has none, is not listed or was deleted.
     pub async fn title(&self, session: &str) -> Result<Option<String>, DbError> {

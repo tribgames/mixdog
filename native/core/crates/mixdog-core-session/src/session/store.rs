@@ -942,6 +942,18 @@ impl ThreadStore for StoreThreads {
         })
     }
 
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+        let (projector, index, id) = (self.projector.clone(), self.index.clone(), id.as_str().to_owned());
+        Box::pin(async move {
+            projector.caught_up().await?;
+            let (heirs, unreadable) = index.inherited_from(&id).await.map_err(|e| internal("copies", &e))?;
+            if let Some(unreadable) = unreadable {
+                return Err(internal("copies", &format!("the session {unreadable} cannot be read")));
+            }
+            Ok(heirs)
+        })
+    }
+
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         let (projector, index, lane, data) = (self.projector.clone(), self.index.clone(), self.maintenance, self.data.clone());
         Box::pin(async move {

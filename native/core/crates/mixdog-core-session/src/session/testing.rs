@@ -177,10 +177,10 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         self.listed.send_modify(|count| *count += 1);
         candidates
     }
-    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String) {
+    async fn prune_offloads(&self, thread: &ThreadId, candidates: Vec<std::path::PathBuf>, transcripts: String, copies: super::turn_ops::OffloadCopies) {
         let offloads = lock(&self.offloads).clone();
         if let Some((data, now)) = offloads {
-            offload_store(&data, thread).prune(candidates, transcripts.clone(), now).await;
+            offload_store(&data, thread).prune(candidates, transcripts.clone(), copies, now).await;
         }
         lock(&self.pruned).push((thread.as_str().to_owned(), transcripts));
     }
@@ -310,6 +310,9 @@ pub struct MemStore {
     pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
     pub listed: AtomicBool,
+    /// The sessions whose log cannot be read (damaged on disk): reading their header or model context fails, and the
+    /// catalog holds them as not readable (`copies_of` fails).
+    pub damaged: Mutex<std::collections::BTreeSet<String>>,
     /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
     pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
     /// The next commit to an open log tells `.0` it arrived, then waits for `.1` before it commits.
@@ -334,6 +337,37 @@ impl MemStore {
 
     fn log(&self, id: &ThreadId) -> Log {
         lock(&self.logs).entry(id.clone()).or_default().clone()
+    }
+
+    fn unreadable(id: &str) -> CoreError {
+        CoreError::Internal { incident_id: format!("session-store-copies: the session {id} cannot be read").into() }
+    }
+
+    /// The header of the session record, as `decode` takes it.
+    fn header_of(&self, id: &ThreadId) -> Result<Header, CoreError> {
+        if lock(&self.damaged).contains(id.as_str()) {
+            return Err(Self::unreadable(id.as_str()));
+        }
+        let records = self.records(id);
+        let Some((_, Record::Session(session))) = records.first() else {
+            return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
+        };
+        let mut header = match &session.header {
+            Slot::Inline(header) => header.clone(),
+            _ => Header::new(),
+        };
+        // The header fold: each change removes its `unset` keys, then merges its `set`.
+        for (_, record) in &records {
+            let Record::Meta(meta) = record else { continue };
+            let Slot::Inline(change) = &meta.change else { continue };
+            for key in &change.unset {
+                header.shift_remove(key);
+            }
+            for (key, value) in &change.set {
+                header.insert(key.clone(), value.clone());
+            }
+        }
+        Ok(header)
     }
 }
 
@@ -419,28 +453,8 @@ impl ThreadStore for MemStore {
         Ok(HeadRead(Box::new(records)))
     }
 
-    /// The header of the session record, as `decode` takes it.
     fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
-        let records = self.records(id);
-        let Some((_, Record::Session(session))) = records.first() else {
-            return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
-        };
-        let mut header = match &session.header {
-            Slot::Inline(header) => header.clone(),
-            _ => Header::new(),
-        };
-        // The header fold: each change removes its `unset` keys, then merges its `set`.
-        for (_, record) in &records {
-            let Record::Meta(meta) = record else { continue };
-            let Slot::Inline(change) = &meta.change else { continue };
-            for key in &change.unset {
-                header.shift_remove(key);
-            }
-            for (key, value) in &change.set {
-                header.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(header)
+        self.header_of(id)
     }
 
     fn read_log_id(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
@@ -510,6 +524,26 @@ impl ThreadStore for MemStore {
         Box::pin(async { Ok(Vec::new()) })
     }
 
+    /// Every thread whose header names `id` as `inheritedFromSessionId`, in id order; an error naming the first
+    /// damaged session while one is.
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+        let damaged = lock(&self.damaged).first().cloned();
+        let answer = match damaged {
+            Some(damaged) => Err(Self::unreadable(&damaged)),
+            None => {
+                let threads: Vec<ThreadId> = lock(&self.logs).keys().cloned().collect();
+                let mut heirs: Vec<String> = threads
+                    .into_iter()
+                    .filter(|thread| self.header_of(thread).ok().is_some_and(|header| header.get("inheritedFromSessionId").and_then(Value::as_str) == Some(id.as_str())))
+                    .map(|thread| thread.as_str().to_owned())
+                    .collect();
+                heirs.sort();
+                Ok(heirs)
+            }
+        };
+        Box::pin(async move { answer })
+    }
+
     fn context_io(
         &self,
         _lane: &InLane<InteractiveIo>,
@@ -518,6 +552,9 @@ impl ThreadStore for MemStore {
     ) -> Result<ContextRead, CoreError> {
         if self.fail_context.swap(false, Ordering::SeqCst) {
             return Err(CoreError::Internal { incident_id: "context-read-failed".into() });
+        }
+        if lock(&self.damaged).contains(id.as_str()) {
+            return Err(Self::unreadable(id.as_str()));
         }
         Ok(ContextRead(Box::new(self.records(id))))
     }
@@ -734,6 +771,7 @@ impl ThreadStore for CallCounted {
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+        fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
         fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
         fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;

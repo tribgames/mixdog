@@ -169,15 +169,28 @@ impl ToolResultArtifacts {
     }
 
     /// The rest of `pruneOffloadSession`: of `candidates`, deletes the sidecars `transcripts` (the
-    /// session's message lists, serialized as `JSON.stringify` writes them) neither names by path or
-    /// file name nor reaches through the archives it names, and old at `now_ms`. Best-effort: an
-    /// unreadable archive deletes nothing (a later prune, the next open's, finds it again).
-    pub async fn prune(&self, candidates: Vec<PathBuf>, transcripts: String, now_ms: u64) {
+    /// session's message lists, serialized as `JSON.stringify` writes them) and `copies` (the stored
+    /// transcripts of the copies of the conversation in other sessions, serialized) neither name by
+    /// path or file name nor reach through the archives they name, and old at `now_ms`. `copies` is
+    /// awaited only once an old sidecar `transcripts` does not keep remains, and its `None` (a copy
+    /// that cannot be read) deletes nothing. Best-effort: an unreadable archive deletes nothing (a
+    /// later prune, the next open's, finds it again).
+    pub async fn prune(&self, candidates: Vec<PathBuf>, transcripts: String, copies: impl std::future::Future<Output = Option<String>> + Send, now_ms: u64) {
         if candidates.is_empty() {
             return;
         }
         let dir = self.dir.clone();
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| prune_dir(lane, &dir, candidates, &transcripts, now_ms)) else {
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| (unkept(lane, &dir, candidates, &transcripts, now_ms).0, transcripts)) else {
+            return;
+        };
+        let Ok((unkept, transcripts)) = job.await else { return };
+        if unkept.is_empty() {
+            return;
+        }
+        let Some(copies) = copies.await else { return };
+        let (dir, all) = (self.dir.clone(), format!("{transcripts}{copies}"));
+        let candidates = unkept.into_iter().map(|(_, path)| path).collect();
+        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| prune_dir(lane, &dir, candidates, &all, now_ms)) else {
             return;
         };
         let _ = job.await;
@@ -195,33 +208,36 @@ fn listed_sidecars(_lane: &InLane<DurabilityIo>, dir: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 static ARCHIVE_READS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
 
+/// Whether the sidecar at `path` is old enough to be pruned at `now_ms` (inside a durability-lane job).
+#[allow(clippy::disallowed_methods, reason = "called inside durability-lane job bodies")]
+fn old(path: &Path, now_ms: u64) -> bool {
+    std::fs::metadata(path).ok().and_then(|info| info.modified().ok()).and_then(|modified| age_ms(modified, now_ms)).is_some_and(|age| age >= PRUNE_MIN_AGE_MS)
+}
+
+/// Of `candidates` (this session's own sidecars only), the ones `transcripts` neither names by path or file name
+/// nor names among its sidecar names, and old at `now_ms`, with every sidecar name it names: what only the
+/// archive walk can still keep. Reads no archive; a sidecar's age only once nothing names it.
 #[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
-fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>, transcripts: &str, now_ms: u64) {
-    // Only this session's own directory is pruned.
-    let candidates: Vec<(String, PathBuf)> = candidates
-        .into_iter()
-        .filter(|path| path.parent() == Some(dir))
-        .filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), path)))
-        .collect();
-    if candidates.is_empty() {
-        return;
-    }
+fn unkept(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>, transcripts: &str, now_ms: u64) -> (Vec<(String, PathBuf)>, Vec<String>) {
+    let candidates = candidates.into_iter().filter(|path| path.parent() == Some(dir)).filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), path)));
     let fold = |text: &str| if cfg!(windows) { text.to_lowercase() } else { text.to_owned() };
     let haystack = fold(transcripts);
-    let mut unreferenced: Vec<(String, PathBuf)> = candidates
-        .into_iter()
-        .filter(|(name, path)| ![display(path), name.clone()].iter().any(|needle| haystack.contains(&fold(needle))))
-        .collect();
+    let mut unreferenced: Vec<(String, PathBuf)> = candidates.filter(|(name, path)| ![display(path), name.clone()].iter().any(|needle| haystack.contains(&fold(needle)))).collect();
     let mut reachable: Vec<String> = Vec::new();
     for name in sidecar_names(&haystack) {
         if !reachable.contains(&name) {
             reachable.push(name);
         }
     }
-    let old = |path: &Path| std::fs::metadata(path).ok().and_then(|info| info.modified().ok()).and_then(|modified| age_ms(modified, now_ms)).is_some_and(|age| age >= PRUNE_MIN_AGE_MS);
     unreferenced.retain(|(name, _)| !reachable.contains(name));
     // Only an old sidecar can be deleted: without one, the archives are not walked.
-    unreferenced.retain(|(_, path)| old(path));
+    unreferenced.retain(|(_, path)| old(path, now_ms));
+    (unreferenced, reachable)
+}
+
+#[allow(clippy::disallowed_methods, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn prune_dir(lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>, transcripts: &str, now_ms: u64) {
+    let (mut unreferenced, mut reachable) = unkept(lane, dir, candidates, transcripts, now_ms);
     let mut retain = |reachable: &[String]| {
         unreferenced.retain(|(name, _)| !reachable.contains(name));
         !unreferenced.is_empty()
@@ -250,7 +266,7 @@ fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, candidates: Vec<PathBuf>,
     let _held = sidecars();
     for (_, path) in unreferenced {
         // Reused since it was listed: a turn holds it now.
-        let still_old = old(&path);
+        let still_old = old(&path, now_ms);
         // Best-effort, as Node's `unlink(...).catch(() => {})`: a sidecar that cannot be deleted stays.
         if still_old {
             let _ = std::fs::remove_file(path);
@@ -351,7 +367,7 @@ mod tests {
         }
         let haystack = serde_json::json!([{"content": format!("[tool output offloaded: {}]", display(&dir.join(&shown)))}]).to_string();
         let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
-        store.prune(store.prune_candidates().await, haystack, now_ms).await;
+        store.prune(store.prune_candidates().await, haystack, std::future::ready(Some(String::new())), now_ms).await;
         let left: Vec<bool> = [&shown, &chained, &gone, &young].iter().map(|file| dir.join(file).exists()).collect();
         assert_eq!(left, [true, true, false, true]);
     }
@@ -373,11 +389,50 @@ mod tests {
         let haystack = serde_json::json!([{ "content": format!("the archive is at {}", display(&dir.join(&archive))) }]).to_string();
         let now_ms = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
         let reads = || ARCHIVE_READS.lock().unwrap().iter().filter(|path| path.starts_with(&dir)).count();
-        store.prune(store.prune_candidates().await, haystack.clone(), now_ms()).await;
+        let none = || std::future::ready(Some(String::new()));
+        store.prune(store.prune_candidates().await, haystack.clone(), none(), now_ms()).await;
         assert_eq!((reads(), dir.join(&archive).exists(), dir.join(&young).exists()), (0, true, true));
         aged(&young);
-        store.prune(store.prune_candidates().await, haystack, now_ms()).await;
+        store.prune(store.prune_candidates().await, haystack, none(), now_ms()).await;
         assert_eq!((reads(), dir.join(&archive).exists(), dir.join(&young).exists()), (1, true, false));
+    }
+
+    /// The copies of the conversation in other sessions are read only once an old sidecar the session itself does
+    /// not keep remains: none while every old one is named and the unnamed one is young. Once it is old they are
+    /// read: one that cannot be read (`None`) deletes nothing, one that names it keeps it, and without either it goes.
+    #[tokio::test]
+    async fn the_copies_are_read_only_once_an_old_sidecar_the_session_does_not_keep_remains() {
+        let data = tempfile::tempdir().unwrap();
+        let store = ToolResultArtifacts::new(io(), data.path(), "sess_c");
+        let dir = data.path().join("tool-results/sess_c");
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = |c: char| format!("{}.txt", c.to_string().repeat(64));
+        let (named, young) = (name('a'), name('b'));
+        std::fs::write(dir.join(&named), "named output").unwrap();
+        std::fs::write(dir.join(&young), "young output").unwrap();
+        let aged = |file: &str| std::fs::File::options().write(true).open(dir.join(file)).unwrap().set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60)).unwrap();
+        aged(&named);
+        let haystack = serde_json::json!([{ "content": format!("the result is at {}", display(&dir.join(&named))) }]).to_string();
+        let now_ms = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        let reads = std::sync::atomic::AtomicUsize::new(0);
+        let copies = |text: Option<String>| {
+            let reads = &reads;
+            async move {
+                reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                text
+            }
+        };
+        let state = || (reads.load(std::sync::atomic::Ordering::SeqCst), dir.join(&named).exists(), dir.join(&young).exists());
+        store.prune(store.prune_candidates().await, haystack.clone(), copies(Some(String::new())), now_ms()).await;
+        assert_eq!(state(), (0, true, true), "nothing old is left unkept: no copy is read");
+        aged(&young);
+        store.prune(store.prune_candidates().await, haystack.clone(), copies(None), now_ms()).await;
+        assert_eq!(state(), (1, true, true), "a copy that cannot be read deletes nothing");
+        let naming = serde_json::json!([[{ "content": format!("see {young}") }]]).to_string();
+        store.prune(store.prune_candidates().await, haystack.clone(), copies(Some(naming)), now_ms()).await;
+        assert_eq!(state(), (2, true, true), "a copy naming it keeps it");
+        store.prune(store.prune_candidates().await, haystack, copies(Some(String::new())), now_ms()).await;
+        assert_eq!(state(), (3, true, false));
     }
 
     #[test]

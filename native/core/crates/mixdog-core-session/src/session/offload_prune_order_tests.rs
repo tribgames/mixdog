@@ -430,6 +430,52 @@ async fn an_heirs_fork_keeps_the_sources_sidecars_it_names() {
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
 }
 
+/// Node's `older-fork`: the heir an inheritance made before its source recorded its copies (Node as shipped) names its
+/// source in its own header only (`inheritedFromSessionId`); the source is cleared, closed and opened again: the
+/// catalog lists the heir as a copy (`copies_of`), and its transcript keeps `named`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_heir_its_source_never_recorded_keeps_the_sidecars_it_names() {
+    let world = world("older-fork").await;
+    let id = world.handle.id.as_str().to_owned();
+    let heir_id = mixdog_core_api::ids::ThreadId::from(format!("{id}_heir"));
+    let heir = &world.case["seed"]["heir"];
+    let header = json!({ "cwd": "/ws", "inheritedFromSessionId": heir["inheritedFromSessionId"] }).as_object().cloned().expect("object");
+    let heirs = SessionDirectory::new(world.rig.deps());
+    within("the heir is created", heirs.create_with_id(heir_id.clone(), header, json!({}))).await.expect("create");
+    let carried = serde_json::to_string(&unmask(world.data.path(), &heir["transcript"])).expect("json").replace("<HEIR>", heir_id.as_str());
+    let carried: Value = serde_json::from_str(&carried).expect("the heir's transcript");
+    world.rig.store.seed(&heir_id, carried.as_array().expect("transcript").iter().enumerate().map(|(index, body)| item(format!("heir{index}"), body)).collect());
+    within("the heir's directory shuts down", heirs.shutdown_for("test close")).await;
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+}
+
+/// Node's `unreadable-fork`: as `clear-fork`; the fork's log is then damaged and the cleared session opened again: a
+/// session the store cannot read may be a copy, so nothing is deleted. Closed, the fork readable again, opened again:
+/// the reconcile prunes `stray`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copy_that_cannot_be_read_keeps_every_sidecar() {
+    let world = world("unreadable-fork").await;
+    let (id, fork) = (world.handle.id.as_str().to_owned(), world.case["seed"]["forkId"].as_str().expect("the fork id").to_owned());
+    let forked = json!({ "threadId": id, "opId": "op-fork", "intoThreadId": fork });
+    within("the fork answers", world.handle.request(request("thread/fork", forked, "op-fork"))).await.expect("thread/fork");
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    lock(&world.rig.store.damaged).insert(fork.clone());
+    let (directory, _handle) = world.reopened(1).await;
+    let unreadable = world.point("after-unreadable-resume", false).await;
+    within("the directory shuts down", directory.shutdown_for("test close")).await;
+    lock(&world.rig.store.damaged).remove(&fork);
+    let _reopened = world.reopened(2).await;
+    let readable = world.point("after-readable-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, unreadable, readable]), world.case);
+}
+
 /// Node's `owner-let-go`: the session is opened, and let go (its directory shut down, its actor ended) while the
 /// open's reconcile lists its directory: the decision is the actor's, so nothing is deleted. The next owner's open
 /// reconciles it.
