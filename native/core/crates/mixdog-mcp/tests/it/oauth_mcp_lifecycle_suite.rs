@@ -223,7 +223,7 @@ async fn serve(listener: TcpListener, fixture: Arc<Fixture>) {
 
 /// One raw request and everything the listener answers; `Err` when it does not accept.
 async fn exchange(port: u16, request: &str) -> Result<Vec<u8>, ErrorKind> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.map_err(|error| error.kind())?;
+    let mut stream = crate::connect_loopback(port).await.map_err(|error| error.kind())?;
     stream.write_all(request.as_bytes()).await.map_err(|error| error.kind())?;
     let mut answer = Vec::new();
     stream.read_to_end(&mut answer).await.map_err(|error| error.kind())?;
