@@ -6,10 +6,11 @@
 // pid, or a process found by its command line.
 import { openJob, spawnInJob } from './process-job.mjs';
 
-/** How long each answer of the job's guard may take. Ending the job takes up to two of them and closing it one: the teardown keeps them
- *  in reserve so that the whole of it ends within its one deadline. */
+/** How long the job's guard may take to start and to assign a process. The teardown's one deadline keeps two of them for ending the job
+ *  (its wait for the ended processes and its answer) and two for closing it (the guard's exit and, if it does not, its forced end). */
 const ANSWER_MS = 5_000;
-const RESERVE_MS = 3 * ANSWER_MS;
+const END_SHARE_MS = 2 * ANSWER_MS;
+const CLOSE_SHARE_MS = 2 * ANSWER_MS;
 
 /** Starts `command args` in a job of its own; `child` is the job's gate, whose exit and stderr are the command's. */
 export async function spawnCore(command, args, { cwd, env }) {
@@ -40,7 +41,10 @@ function before(until, promise, what) {
  *  default `<exe> ctl stop`) runs in the core's job, so a request that hangs ends with it. Resolves once nothing of the job runs; rejects
  *  when anything had to be ended, naming what. A core that is gone already stops nothing more: what it left is ended at once. */
 export async function endCore({ exe, child, job, env, ms = 60_000, stop = [exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop']] }) {
-  const until = Date.now() + ms - RESERVE_MS;
+  // The one deadline, taken once: each step ends by its own part of it.
+  const until = Date.now() + ms;
+  const endBy = until - CLOSE_SHARE_MS;
+  const stopBy = endBy - END_SHARE_MS;
   const forced = [];
   let failure = null;
   try {
@@ -48,22 +52,22 @@ export async function endCore({ exe, child, job, env, ms = 60_000, stop = [exe, 
     if (ran) {
       const exited = new Promise((resolve) => child.once('exit', resolve));
       try {
-        const request = await before(until, spawnInJob(job, stop[0], stop[1], { env }), 'the stop request to start');
+        const request = await before(stopBy, spawnInJob(job, stop[0], stop[1], { env }), 'the stop request to start');
         let said = '';
         request.stdout.on('data', (chunk) => (said += chunk));
         request.stderr.on('data', (chunk) => (said += chunk));
         const asked = new Promise((resolve, reject) => request.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`the stop request exited ${code}: ${said.trim()}`)))));
-        await before(until, asked.then(() => exited), `the core (pid ${child.pid}) to stop when asked`);
+        await before(stopBy, asked.then(() => exited), `the core (pid ${child.pid}) to stop when asked`);
       } catch (error) {
         forced.push(error.message);
       }
     }
-    const left = await job.end(ran && !forced.length ? Math.max(0, until - Date.now()) : 0);
+    const left = await job.end(ran && !forced.length ? Math.max(0, stopBy - Date.now()) : 0, endBy);
     if (left > 0) forced.push(`${left} process(es) of its job ended with the job`);
   } catch (error) {
     failure = error;
   }
-  await job.close().catch((error) => (failure ??= error));
+  await job.close(until).catch((error) => (failure ??= error));
   if (failure) throw failure;
   if (forced.length) throw new Error(`the core's stop needed force: ${forced.join('; ')}`);
 }

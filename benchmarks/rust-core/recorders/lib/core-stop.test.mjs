@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { endCore, spawnCore } from './core-stop.mjs';
+import { suspendProcess } from './suspend-process.mjs';
 
 /** `promise`, or a failure naming `what` after `ms`. */
 function within(ms, promise, what) {
@@ -99,6 +100,41 @@ test('a stop request that hangs ends with the core, within the teardown\'s one d
     await w.closed('request');
     await w.closed('core');
     assert.ok(!alive(request.pid), `the stop request (pid ${request.pid}) still runs`);
+  } finally {
+    w.close();
+  }
+});
+
+test('a job guard that has failed fails the teardown, and the core ends with the job', { timeout: 120_000 }, async () => {
+  const w = await world();
+  try {
+    const { child, job } = await spawnCore(process.execPath, ['-e', CORE(w.port, false)], { env: process.env });
+    await w.arrived('core');
+    process.kill(job.pid);
+    const started = Date.now();
+    await assert.rejects(endCore({ child, job, env: process.env, ms: 25_000, stop: [process.execPath, ['-e', STOP(w.port)]] }), /the job guard exited/);
+    const took = Date.now() - started;
+    assert.ok(took <= 25_000, `the teardown took ${took} ms of its 25000`);
+    await w.closed('core');
+  } finally {
+    w.close();
+  }
+});
+
+test('a guard that stops answering does not take the teardown past its one deadline', { timeout: 120_000 }, async () => {
+  const w = await world();
+  try {
+    const { child, job } = await spawnCore(process.execPath, ['-e', CORE(w.port, false)], { env: process.env });
+    await w.arrived('core');
+    suspendProcess(job.pid);
+    const started = Date.now();
+    // Shorter than the guard's answers allow when each step takes its own (two to end the job, two to close it, 5 s each).
+    await assert.rejects(endCore({ child, job, env: process.env, ms: 12_000, stop: [process.execPath, ['-e', STOP(w.port)]] }));
+    const took = Date.now() - started;
+    // Timers fire a little late, never early: the margin is for that, not for another step.
+    assert.ok(took <= 12_500, `the teardown took ${took} ms of its 12000`);
+    await w.closed('core');
+    assert.ok(!alive(job.pid), `the guard (pid ${job.pid}) still runs`);
   } finally {
     w.close();
   }
