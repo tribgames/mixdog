@@ -59,6 +59,10 @@ impl RoomDaemon for Daemon {
     fn republish_catalog(&self) {
         *self.catalog.lock().unwrap() += 1;
     }
+    /// Member `a`'s session in room01 marked `482913`.
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        if Some(session_id) == room_member_session_id("room01", "a").as_deref() { text.replace("482913", "[redacted]") } else { text.to_owned() }
+    }
 }
 
 /// The approval calls the room made, the views it published, in order, and the handed-off questions
@@ -379,6 +383,24 @@ async fn a_post_stores_the_canonical_row_and_the_list_preview_follows_the_spoken
     assert!(*rig.daemon.catalog.lock().unwrap() >= 1);
     // A row Node refuses fails the post.
     assert!(host.post(vec![json!({ "id": "bad id", "kind": "pass" })]).await.is_err());
+}
+
+/// A member's speech leaves its session: the values that session marked sensitive are the marker in the log, in the
+/// rows the other members are shown and in the list preview; another speaker's text is its own.
+#[tokio::test]
+async fn a_members_speech_is_posted_with_its_sessions_sensitive_values_as_the_marker() {
+    let rig = rig(&["a", "b"]).await;
+    rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
+    let host = rig.live.host("room01").unwrap();
+    host.post(vec![json!({ "id": "row_1", "kind": "speech", "speaker": "a", "text": "the code is 482913", "at": 5 })]).await.unwrap();
+    host.post(vec![json!({ "id": "row_2", "kind": "speech", "speaker": "b", "text": "b says 482913", "at": 6 })]).await.unwrap();
+    let appended = rig.daemon.appended.lock().unwrap().clone();
+    assert_eq!(appended.iter().map(|m| m["content"].as_str().unwrap()).collect::<Vec<_>>(), ["the code is [redacted]", "b says 482913"]);
+    let rows = host.rows().await.unwrap();
+    assert_eq!(rows[0]["text"], "the code is [redacted]");
+    host.post(vec![json!({ "id": "row_3", "kind": "speech", "speaker": "a", "text": "again 482913", "at": 7 })]).await.unwrap();
+    host.persist().await.unwrap();
+    assert_eq!(rig.rooms.get("room01").await.unwrap().last_preview.as_deref(), Some("again [redacted]"));
 }
 
 #[tokio::test]
