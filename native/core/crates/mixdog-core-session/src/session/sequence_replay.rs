@@ -4,12 +4,20 @@
 //! session's fenced header write (`thread/header/patch` with `expectedGeneration`, `saveSessionAsync(session, { expectedGeneration })`) or, for a
 //! session that is not stored, its create under the same id (the record Node's save writes anew); the debounced save is
 //! the same write (the core keeps no debounced copy) and answers nothing; the close and the detach are the directory's
-//! own (`SessionClose::close`, `SessionClose::detach`: `markSessionClosed`, `bumpSessionGeneration`), answered with the
-//! generation they resolved; the delete is `thread/delete`, Node's client delete. Node's injected unlink failure is the delete mark's durable write
+//! own for the random cases (`SessionClose::close`, `SessionClose::detach`: `markSessionClosed`, `bumpSessionGeneration`),
+//! answered with the generation they resolved; line 64's detach is the client's context switch (`thread/switchContext`); the delete is `thread/delete`, Node's client delete. Node's injected unlink failure is the delete mark's durable write
 //! failing (rolled back), asked of the case's plan once per mark as Node asks it once per unlink. Each case compares the
 //! answers, the plan left, the marks written with their failure, and the whole stored record, as the manifest declares.
 
+use std::sync::Arc;
+
+use mixdog_core_api::ThreadHandle as _;
+use mixdog_core_api::call::CallContext;
+use mixdog_core_api::call::CoreRequest;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_config::workflow::thread_settings::ContextSwitch;
+use mixdog_core_ports::ports::memory_source::ThreadMessages;
 use mixdog_testkit::exact::Exact;
 use serde_json::Map;
 use serde_json::Value;
@@ -18,7 +26,10 @@ use serde_json::json;
 use super::address_replay::Real;
 use super::address_replay::real;
 use super::testing::awaiting;
+use super::switch_replay::Target;
 use super::testing::lock;
+use super::thread_state::SessionThreads;
+use super::thread_switches::SessionContextSwitch;
 
 fn recording() -> Exact {
     let text = mixdog_testkit::fixture!("../../fixtures/session-sequence/recording.json");
@@ -45,6 +56,27 @@ impl World {
         let header = json!({ "id": self.id, "generation": 0, "closed": false, "tools": [], "messages": messages });
         self.real.directory.create_with_id(self.id.clone(), header.as_object().cloned().unwrap(), json!({})).await.expect("the record is created");
         Exact::String("saved".into())
+    }
+
+    /// The first save as Node's log holds it (`record: header` without `messages`, then the `compacted` record with the
+    /// conversation): the record created under its id, its conversation stored as the thread's rows.
+    async fn create_with_rows(&self, messages: &[Value]) -> Exact {
+        let header = json!({ "id": self.id, "generation": 0, "closed": false, "tools": [] });
+        self.real.directory.create_with_id(self.id.clone(), header.as_object().cloned().unwrap(), json!({})).await.expect("the record is created");
+        let ctx = CallContext::internal("replay");
+        let handle = self.real.directory.open_handle(&self.id, &ctx).await.expect("the thread opens");
+        let rows = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx };
+        handle.request(rows).await.expect("the conversation is stored as rows");
+        Exact::String("saved".into())
+    }
+
+    /// The recorded `desktop-context-switch` close: the client's context switch (`thread/switchContext`) leaving this
+    /// thread, which detaches a thread holding a conversation. Whether it answered.
+    async fn switch_context(&self) -> bool {
+        let directory = self.real.directory.clone();
+        let close = Arc::new(super::lifecycle_replay::close_of(&self.real));
+        let switch = SessionContextSwitch::new(directory, close, Arc::new(Target::default()));
+        awaiting(|| "the context switch to answer".to_owned(), ContextSwitch::switch_context(&switch, self.id.as_str(), None, None, false)).await.is_ok()
     }
 
     /// `saveSessionAsync({ id, generation: 0, closed: false, messages }, { expectedGeneration: 0 })` after the first: the
@@ -87,7 +119,16 @@ impl World {
 
     async fn stored(&self) -> Exact {
         match self.real.directory.stored_header(&self.id).await {
-            Some(header) => Exact::plain(&Value::Object(header)),
+            Some(mut header) => {
+                // Node's loader gives the record its conversation: a thread holding it as rows has it as `messages`.
+                if !header.contains_key("messages") {
+                    let rows = SessionThreads::new(self.real.directory.clone()).messages(&self.id).await.expect("the conversation rows");
+                    if !rows.is_empty() {
+                        header.insert("messages".into(), Value::Array(rows));
+                    }
+                }
+                Exact::plain(&Value::Object(header))
+            }
             None => Exact::Null,
         }
     }
@@ -141,7 +182,10 @@ async fn detach_while_deleting(name: &str) {
     let case = recording.get("cases").as_array().iter().find(|case| case.get("name").as_str() == name).cloned().expect("the case");
     let (input, result) = (case.get("input"), case.get("result"));
     let world = World::new(input.get("id").as_str()).await;
-    let first = first_save(&world, input).await;
+    let initial = input.get("initialSave");
+    assert_eq!((initial.get("generation"), initial.get("closed")), (&Exact::Number(0.0), &Exact::Bool(false)));
+    let messages: Vec<Value> = initial.get("messages").as_array().iter().map(|content| message(content.as_str())).collect();
+    let first = world.create_with_rows(&messages).await;
     let mut plan: std::collections::VecDeque<bool> = input.get("unlinkPlan").as_array().iter().map(|fails| *fails == Exact::Bool(true)).collect();
     *lock(&world.real.marks.plan) = Some(Box::new(move |_: &str| plan.pop_front() == Some(true)));
     let ops = input.get("ops").as_array();
@@ -152,11 +196,9 @@ async fn detach_while_deleting(name: &str) {
     // delete's unlink: the delete is held once its detach landed, the detach runs, then the delete goes on.
     let held = super::address_replay::begin_delete(&world.real, &world.id).await;
     // The recorded `desktop-context-switch` detach is the one the client's context switch makes (`thread/switchContext`,
-    // `SessionContextSwitch::leave`). That entry decides detach or tombstone from the thread's stored conversation rows, which
-    // this recording holds only as its header's `messages` field (Node's `session.messages`): the switch would tombstone it,
-    // so the detach it makes is replayed through the directory's own (see the case table).
-    let closer = super::lifecycle_replay::close_of(&world.real);
-    let closed = awaiting(|| "the detach to answer".to_owned(), closer.detach(world.id.as_str(), close.get("reason").as_str(), false)).await;
+    // `SessionContextSwitch::leave`): it detaches a thread whose conversation is stored as rows, as Node's log holds it.
+    assert_eq!(close.get("reason").as_str(), "desktop-context-switch");
+    let closed = world.switch_context().await;
     let deleted = held.finish().await;
     let what = |field: &str| format!("{name}: {field}");
     assert_eq!(first, *result.get("firstSave"), "{}", what("firstSave"));
