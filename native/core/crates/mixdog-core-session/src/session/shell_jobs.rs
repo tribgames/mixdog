@@ -445,6 +445,41 @@ mod tests {
         assert_eq!(after["finished"], json!([]), "an empty list, as Node's empty bucket");
     }
 
+    /// The same boundary through the session's own open path: a session opened again (a directory over the same store, as after an
+    /// unload) after the retention shows no stale strip, and one opened at the boundary shows the finished job.
+    #[tokio::test]
+    async fn a_session_opened_after_the_retention_shows_no_stale_strip() {
+        use mixdog_spawn::tasks::FINISHED_RETENTION_MS;
+        use mixdog_spawn::tasks::TaskOutcome;
+        use mixdog_spawn::tasks::TaskStatus;
+        let dir = tempfile::tempdir().unwrap();
+        let ended_at = 1_767_323_045_678;
+        let now = Arc::new(std::sync::atomic::AtomicU64::new(ended_at));
+        let (service, tasks, _) = service_at(dir.path(), Arc::new(Sees(Vec::new())), now.clone()).await;
+        let rig = crate::session::testing::Rig::new();
+        let opened = || {
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.shell_strips = service.shells.clone();
+            crate::session::SessionDirectory::new(Arc::new(deps))
+        };
+        let thread = ThreadId::from("closed-session");
+        opened().create_with_id(thread.clone(), Header::new(), json!({})).await.unwrap();
+        start(&tasks, "ended", "shell", Some("closed-session"), "build", "/w", false);
+        tasks.finish("ended", TaskOutcome { status: TaskStatus::Completed, exit_code: Some(0) }).unwrap();
+        let finished_at = |ms: u64| {
+            let (directory, now) = (opened(), now.clone());
+            let thread = thread.clone();
+            async move {
+                now.store(ended_at + ms, std::sync::atomic::Ordering::SeqCst);
+                let handle = directory.open_handle(&thread, &mixdog_core_api::call::CallContext::internal("test")).await.unwrap();
+                let strip = handle.cell.view.load_full().state.shell_jobs.clone().expect("the strip the session loaded with");
+                strip["finished"].as_array().unwrap().iter().map(|row| row["taskId"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(finished_at(FINISHED_RETENTION_MS).await, vec!["ended".to_owned()], "a session opened exactly the retention after the end shows the job");
+        assert_eq!(finished_at(FINISHED_RETENTION_MS + 1).await, Vec::<String>::new(), "a session opened after it shows no stale strip");
+    }
+
     /// Node's recording of the shell-job actions (`record-shell-job-actions.mjs`).
     fn golden() -> Value {
         serde_json::from_str(include_str!("../../../../fixtures/shell-job-actions/shell-job-actions.json")).expect("golden")
