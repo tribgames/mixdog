@@ -27,9 +27,11 @@
 //! first stop at or after its due, unordered among its kind.
 //!
 //! A thread of its own reads the connection while commands run, so a closed connection or a malformed command ends the process at
-//! once, during an `advance` or a `wait` too. Every millisecond count on the wire, and wall-ms + V, is at most [`MAX_MS`]
-//! (2^53 - 1, JavaScript's largest exact integer): a larger number, or an `advance` that would take wall-ms + V past it, ends the
-//! process, as do a wrong token, a non-loopback address and no settle within settle-ms: exit [`EXIT_CODE`], the cause on stderr.
+//! once, during an `advance` or a `wait` too. Every millisecond count on the wire is at most [`MAX_MS`] (2^53 - 1, JavaScript's
+//! largest exact integer), and the wall clock (wall-ms, then wall-ms + V) at most [`max_wall_ms`], the last millisecond every
+//! reader of it holds (chrono's `DateTime<Utc>`, this platform's `SystemTime`): a larger number, a `start` past it, or an
+//! `advance` that would take wall-ms + V past it, ends the process, as do a wrong token, a non-loopback address and no settle
+//! within settle-ms: exit [`EXIT_CODE`], the cause on stderr.
 //!
 //! # The settle point: invariant
 //!
@@ -407,9 +409,32 @@ pub fn now_ms() -> Option<i64> {
 /// `SystemTime::now()`, on the replay's clock when one runs this process.
 pub fn system_now() -> SystemTime {
     match CLOCK.get() {
+        // At most `max_wall_ms()`: `start` and `advance` refuse a wall clock past it.
         Some(clock) => UNIX_EPOCH + Duration::from_millis(clock.wall_origin + clock.now.load(SeqCst)),
         None => SystemTime::now(),
     }
+}
+
+/// Whether every reader of the wall clock holds `ms` since the Unix epoch: the wire ([`MAX_MS`]), this platform's `SystemTime`
+/// ([`system_now`]) and chrono's `DateTime<Utc>` (`utc_now!`).
+fn wall_holds(ms: u64) -> bool {
+    ms <= MAX_MS && UNIX_EPOCH.checked_add(Duration::from_millis(ms)).is_some() && i64::try_from(ms).ok().and_then(chrono::DateTime::from_timestamp_millis).is_some()
+}
+
+/// The largest wall clock, in milliseconds since the Unix epoch, every reader holds: chrono's last instant (year 262142), or
+/// sooner where this platform's `SystemTime` ends (Windows: year 30828).
+pub fn max_wall_ms() -> u64 {
+    // `wall_holds` is true from 0 up to its bound and false past it.
+    let (mut held, mut past) = (0, MAX_MS + 1);
+    while past - held > 1 {
+        let mid = held + (past - held) / 2;
+        if wall_holds(mid) {
+            held = mid;
+        } else {
+            past = mid;
+        }
+    }
+    held
 }
 
 /// Node's timer duration (the `Timeout` constructor and `insert`): whole milliseconds, the fraction cut, under 1 ms made 1 ms.
@@ -635,6 +660,10 @@ fn handshake() -> (TcpStream, BufReader<TcpStream>, u64, Duration) {
                 fail(format!("the replay's `start` carries a token that is not this core's {TOKEN_ENV}: its clock is refused"));
             }
             match (wire_ms(wall, &line), wire_ms(settle, &line)) {
+                (Some(wall), Some(_)) if !wall_holds(wall) => fail(format!(
+                    "the replay sent {line:?}: wall-ms {wall} is past {} ms, the largest wall clock this core's readers hold",
+                    max_wall_ms()
+                )),
                 (Some(wall), Some(settle)) if settle > 0 => (wall, Duration::from_millis(settle)),
                 _ => fail(format!("the replay sent a malformed `start` {line:?}: expected `start <token> <wall-ms> <settle-ms>`")),
             }
@@ -739,8 +768,8 @@ fn move_to(clock: &Clock, to: u64, during: &str) {
 fn advance(clock: &Clock, ms: u64) -> u64 {
     let during = format!("advance {ms}");
     let now = clock.now.load(SeqCst);
-    let Some((target, wall)) = now.checked_add(ms).and_then(|target| Some((target, clock.wall_origin.checked_add(target)?))).filter(|(_, wall)| *wall <= MAX_MS) else {
-        fail(format!("{during}: wall-ms {} + V {now} + {ms} is past {MAX_MS} ms (2^53 - 1), the largest wall clock the replay's clock answers", clock.wall_origin))
+    let Some((target, wall)) = now.checked_add(ms).and_then(|target| Some((target, clock.wall_origin.checked_add(target)?))).filter(|(_, wall)| wall_holds(*wall)) else {
+        fail(format!("{during}: wall-ms {} + V {now} + {ms} is past {} ms, the largest wall clock this core's readers hold", clock.wall_origin, max_wall_ms()))
     };
     settle(clock, &during);
     // An idle Node loop over `ms`: it turns at each list's expiry, in order, and fires what `processTimers` fires there.

@@ -4777,6 +4777,7 @@ name = "mixdog-rt"
 version = "1.4.5"
 dependencies = [
  "arc-swap",
+ "chrono",
  "crossbeam-channel",
  "libc",
  "mixdog-rt",
