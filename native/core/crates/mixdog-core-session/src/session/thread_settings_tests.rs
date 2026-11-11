@@ -456,6 +456,35 @@ async fn a_cwd_switches_the_project_with_its_classification() {
     assert_eq!(world.workspace.state.lock().unwrap().cwd, other, "a refused switch moves nothing");
 }
 
+/// `fixtures/session-transport-project-surface/recording.json` case 144: a session opened in an unregistered folder moves to
+/// the registered Project `C:\shared` (`runtime.setCwd` -> `thread/setCwd`). What a client sees: the answer is the new folder,
+/// the session's cwd is it, and that Project is the one touched (the picker's most recent). `C:\initial` is a folder outside
+/// every Project, `C:\shared` the registered one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cwd_move_to_a_registered_project_answers_what_node_recorded() {
+    let recording: Value = serde_json::from_str(
+        &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-transport-project-surface/recording.json")).unwrap(),
+    )
+    .unwrap();
+    let case = recording["cases"].as_array().unwrap().iter().find(|case| case["testLine"] == 144).unwrap();
+    let world = world().await;
+    let initial = tempfile::tempdir().unwrap();
+    let shared = world.workspace.repo.to_string_lossy().into_owned();
+    let at = |recorded: &Value| match recorded.as_str().unwrap() {
+        "C:\\shared" => json!(shared),
+        "C:\\initial" => json!(initial.path().to_string_lossy()),
+        other => panic!("unmapped recorded path {other}"),
+    };
+    world.session("lead", json!({ "cwd": initial.path().to_string_lossy() })).await;
+    let step = case["result"]["steps"].as_array().unwrap().iter().find(|step| step["label"].as_str().unwrap().starts_with("runtime.setCwd")).unwrap();
+    let answer = world.call(SET_CWD, json!({ "threadId": "lead", "path": shared }), 1).await.unwrap();
+    assert_eq!(answer, at(&step["ok"]), "the answer");
+    let state = case["result"]["steps"].as_array().unwrap().last().unwrap();
+    assert_eq!(json!(world.workspace.state.lock().unwrap().cwd), at(&state["state"]["cwd"]), "the session's folder");
+    let touched: Vec<Value> = step["touched"].as_array().unwrap().iter().map(at).collect();
+    assert_eq!(lock(&world.projects.touched).iter().map(|p| json!(p)).collect::<Vec<_>>(), touched, "the Project touched");
+}
+
 /// `setEffort(value, { sessionOnly })` reaches the route as given and answers the live route;
 /// the route's refusal is the answer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
