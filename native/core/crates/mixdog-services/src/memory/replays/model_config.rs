@@ -1,7 +1,8 @@
 //! memory-embedding-model-config: memory/embed/config.rs (`EmbedEnv` for the MIXDOG_EMBED_MODEL /
 //! MIXDOG_EMBED_DTYPE settings the daemon composes the embedder from, `known_dims`, `normalize_dtype`,
 //! `graph_file`, `pooling`, `output_name`, `default_device`, `InputType::parse`, `prepare_input`).
-//! A null model or text (JS `clean(null)`) has no Rust caller: reported per case, not replayed.
+//! A null model or text is replayed as the value Node's functions read it as: `clean(null)` (`shared/clean.mjs`,
+//! `String(value ?? '').trim()`) is `''`, the core's `&str` has no null, so the core is asked with `""`.
 
 use mixdog_testkit::Exact;
 
@@ -27,9 +28,14 @@ fn input_type_name(input_type: InputType) -> &'static str {
     }
 }
 
-/// A per-model probe (dims, pooling, output name, device, every dtype). Returns false for a null model.
-fn model_probe(case_name: &str, probe: &Exact) -> bool {
-    let Ok(Some(model)) = opt_str(probe.get("model")) else { return false };
+/// `clean(value)` of a recorded string, null or undefined.
+fn cleaned(value: &Exact) -> &str {
+    opt_str(value).expect("a string, null or undefined").unwrap_or("")
+}
+
+/// A per-model probe (dims, pooling, output name, device, every dtype).
+fn model_probe(case_name: &str, probe: &Exact) {
+    let model = cleaned(probe.get("model"));
     let what = |part: &str| format!("{case_name}: {model:?} {part}");
     same(&what("dims"), probe.get("dims").get("result"), &opt(known_dims(model), |d| int(d as i64)));
     same(&what("pooling"), probe.get("pooling").get("result"), &pooling_name(model));
@@ -40,24 +46,18 @@ fn model_probe(case_name: &str, probe: &Exact) -> bool {
         same(&what(&format!("dtype {dtype:?}")), entry.get("normalized").get("result"), &string(normalize_dtype(model, dtype)));
         same(&what(&format!("graph file {dtype:?}")), entry.get("graphFile").get("result"), &string(graph_file(model, dtype)));
     }
-    true
 }
 
-/// Input probes; returns how many have a null text.
-fn input_probes(case_name: &str, inputs: &Exact) -> usize {
-    let mut null_text = 0;
+/// Input probes.
+fn input_probes(case_name: &str, inputs: &Exact) {
     for probe in inputs.as_array() {
         let model = probe.get("model").as_str();
         let input_type = InputType::parse(opt_str(probe.get("inputType")).expect("input type"));
         let what = format!("{case_name}: {model} {:?} {:?}", probe.get("inputType"), probe.get("text"));
         same(&format!("{what} type"), probe.get("type").get("result"), &string(input_type_name(input_type)));
-        let Some(text) = opt_str(probe.get("text")).expect("text") else {
-            null_text += 1;
-            continue;
-        };
+        let text = cleaned(probe.get("text"));
         same(&format!("{what} prepared"), probe.get("prepared").get("result"), &string(prepare_input(text, input_type, model)));
     }
-    null_text
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn multilingual_e5_small_is_the_fixed_production_default() {
         same(&what("graphFile"), probe.get("graphFile").get("result"), &string(graph_file(&model, None)));
         same(&what("pooling"), probe.get("pooling").get("result"), &pooling_name(&model));
     }
-    assert!(model_probe(name, case.get("e5")));
+    model_probe(name, case.get("e5"));
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn multilingual_e5_small_applies_asymmetric_retrieval_prefixes() {
     let name = "multilingual E5-small applies asymmetric retrieval prefixes";
     let golden = golden(SET);
     let case = case(&golden, 1, name);
-    assert_eq!(input_probes(name, case.get("inputs")), 9, "inputs with a null text");
+    input_probes(name, case.get("inputs"));
     // The recorder's `prepareEmbeddingInput(TEXT)` and `(TEXT, 'query')` with the default model (no env setting);
     // TEXT is the first recorded input's text.
     let text = case.get("inputs").as_array()[0].get("text").as_str();
@@ -106,8 +106,8 @@ fn granite_fallback_keeps_its_official_cls_pooling_contract() {
     let name = "Granite fallback keeps its official CLS pooling contract";
     let golden = golden(SET);
     let case = case(&golden, 2, name);
-    assert!(model_probe(name, case.get("granite")));
-    assert_eq!(input_probes(name, case.get("inputs")), 9, "inputs with a null text");
+    model_probe(name, case.get("granite"));
+    input_probes(name, case.get("inputs"));
 }
 
 #[test]
@@ -115,8 +115,8 @@ fn graph_file_names_follow_the_transformers_js_dtype_suffixes() {
     let name = "graph file names follow the transformers.js dtype suffixes";
     let golden = golden(SET);
     let case = case(&golden, 3, name);
-    assert!(model_probe(name, case.get("bgeM3")));
-    assert!(model_probe(name, case.get("custom")));
+    model_probe(name, case.get("bgeM3"));
+    model_probe(name, case.get("custom"));
 }
 
 #[test]
@@ -124,7 +124,8 @@ fn every_other_model_and_dtype_shape() {
     let name = "every other model and dtype shape";
     let golden = golden(SET);
     let case = case(&golden, 4, name);
-    let replayed: Vec<bool> = case.get("perModel").as_array().iter().map(|p| model_probe(name, p)).collect();
-    assert_eq!(replayed, [true, true, false], "the null model is the JS-only probe");
-    assert_eq!(input_probes(name, case.get("inputs")), 18, "inputs with a null text");
+    for probe in case.get("perModel").as_array() {
+        model_probe(name, probe);
+    }
+    input_probes(name, case.get("inputs"));
 }
