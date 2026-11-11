@@ -52,7 +52,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
-      "sha256": "5a1bc2a993be16a1919a82639f5f10144f4a9fd529227651dcc68eaa51a9e9c4"
+      "sha256": "3bbd21f382d6762424a1305dc976f5babc2a6836cd631d6fce898125c61240cb"
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-remote-state-null-session.patch",

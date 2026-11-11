@@ -1,7 +1,7 @@
 // Declared normalisation of this machine's roots: in the string values at the paths `matches(path)` accepts, the checkout
 // (process.cwd()), the OS temp dir and the user's home become <CWD>, <TMP> and <HOME> in every spelling the text carries them
 // (as Node produced it, forward slashes, JSON-escaped backslashes, URL-encoded, and each lower-cased); whatever follows the
-// root, separators included, is kept. Nothing else is touched.
+// root, separators included, is kept. A root is replaced only where it ends at a path boundary (end of text, a separator in\n// any handled spelling, or a character that cannot continue a path segment), so C:\\Users\\tempest is not <HOME>st.\n// Nothing else is touched.
 import { homedir, tmpdir } from 'node:os';
 
 export const TMP_MARKER = '<TMP>';
@@ -27,14 +27,35 @@ export function machineRoots() {
     .flatMap(([label, root]) => spellings(root).map(([spelling, text]) => ({ label, spelling, text })));
 }
 
+// What may follow a root: a separator (plain, or URL-encoded as %5C / %2F) or a character no path segment continues with.
+const BOUNDARY_AFTER = /^(?:$|[\\/"'`<>|:;,()\[\]{}?*\s]|%5c|%2f)/i;
+
+function replaceAtBoundary(text, root, label) {
+  let out = '';
+  let from = 0;
+  let count = 0;
+  for (let at = text.indexOf(root); at !== -1; at = text.indexOf(root, from)) {
+    const end = at + root.length;
+    if (!BOUNDARY_AFTER.test(text.slice(end, end + 3))) {
+      out += text.slice(from, at + 1);
+      from = at + 1;
+      continue;
+    }
+    out += text.slice(from, at) + label;
+    from = end;
+    count += 1;
+  }
+  return { text: out + text.slice(from), count };
+}
+
 /** The text with the roots replaced, and per label (spelling when not as written) its original length and count. */
 export function markMachineText(text) {
   const rewrites = {};
   let out = text;
   for (const { label, spelling, text: root } of machineRoots()) {
-    const count = out.split(root).length - 1;
+    const { text: replaced, count } = replaceAtBoundary(out, root, label);
     if (!count) continue;
-    out = out.split(root).join(label);
+    out = replaced;
     rewrites[spelling === 'as written' ? label : `${label} (${spelling})`] = { originalLength: root.length, count };
   }
   return { text: out, rewrites };
