@@ -19,6 +19,9 @@ use serde_json::Value;
 
 use crate::rpc::RpcError;
 
+/// fancy-regex's bound on the backtracking steps of one match (its default, which jsonschema keeps).
+const BACKTRACK_LIMIT: usize = 1_000_000;
+
 /// The `$id` schemas registered so far, which a schema's references resolve against.
 struct Registered(Arc<HashMap<String, Value>>);
 
@@ -103,6 +106,9 @@ impl Slot {
     /// cannot be.
     fn compile(&self) -> &Result<jsonschema::Validator, String> {
         self.compiled.get_or_init(|| {
+            if crate::ajv_stack::compile_overflows(&crate::ajv_stack::Documents::new(&self.schema, &self.registered)) {
+                return Err(crate::ajv_stack::STACK_OVERFLOW.to_owned());
+            }
             build(&for_engine(&self.schema)?, &self.registered)
                 .map_err(|error| compile_error_text(&self.schema, &error))
         })
@@ -337,7 +343,27 @@ impl OutputValidators {
                 format!("Failed to validate structured content: {error}"),
             )
         })?;
+        // Where Ajv's validation recurses without end, or past V8's stack, Node's call fails; the walk is bounded.
+        if crate::ajv_stack::validation_overflows(&crate::ajv_stack::Documents::new(&slot.schema, &slot.registered), structured) {
+            return Err(refused(
+                -32602,
+                format!("Failed to validate structured content: {}", crate::ajv_stack::STACK_OVERFLOW),
+            ));
+        }
         let errors: Vec<ValidationError<'_>> = validator.iter_errors(structured).collect();
+        // A pattern whose backtracking ran past the engine's bound has no verdict; V8 has no such bound and answers
+        // after as long as it takes. The call fails as a validator that threw does.
+        if let Some(at) = errors.iter().find_map(|error| match error.kind() {
+            ValidationErrorKind::BacktrackLimitExceeded { .. } => Some(error.instance_path().as_str().to_owned()),
+            _ => None,
+        }) {
+            return Err(refused(
+                -32602,
+                format!(
+                    "Failed to validate structured content: data{at}: its pattern needs more than {BACKTRACK_LIMIT} backtracking steps"
+                ),
+            ));
+        }
         if errors.is_empty() {
             return Ok(());
         }
