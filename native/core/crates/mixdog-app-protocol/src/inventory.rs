@@ -1153,7 +1153,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Services,
         "resolveToolApprovalForSession",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answer"),
     ),
     (
         InventoryList::Services,
@@ -1447,12 +1447,12 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "resolveToolApprovalForSession",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answer"),
     ),
     (
         InventoryList::Remote,
         "answerApprovalNotification",
-        Target::ServerRequestResponse("item/tool/requestApproval"),
+        Target::Method("thread/approval/answerNotification"),
     ),
     (
         InventoryList::Remote,
@@ -1836,7 +1836,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "readLocalFile",
-        Target::Method("projectFs/readLocal"),
+        Target::Methods(&["projectFs/readLocal", "transfer/readRange", "transfer/endRead"]),
     ),
     (
         InventoryList::Remote,

@@ -2530,21 +2530,31 @@ impl SessionActor {
                     }
                 }
             }
-            Ctl::Decide(decision) => {
+            Ctl::Decide(decision, arbitrated) => {
                 let device = self.deps.devices.describe(decision.connection);
                 let at = self.deps.clock.now_ms();
-                match self
-                    .book
-                    .validate(&decision.request, &decision.result, device, at)
-                {
-                    Ok(Some(accepted)) => {
-                        self.resolve(accepted.aid, &accepted.rid, accepted.resolution)
+                let shown = self.cell.shown_approval.load_full();
+                // A refused remote Allow is not taken: the approval stays pending and the answer is told it lost (a response, as a
+                // late one, gets nothing).
+                let refused =
+                    super::approval_notification::refuses_remote_allow(decision.origin, shown.as_deref(), &decision.request, &decision.result);
+                let outcome = match (!refused).then(|| self.book.validate(&decision.request, &decision.result, device, at)) {
+                    Some(Ok(Some(accepted))) => {
+                        self.resolve(accepted.aid, &accepted.rid, accepted.resolution);
+                        Ok(true)
                     }
-                    Ok(None) => {}
-                    Err(error) => self
+                    None | Some(Ok(None)) => Ok(false),
+                    Some(Err(error)) => Err(error),
+                };
+                match (arbitrated, outcome) {
+                    (Some(arbitrated), outcome) => {
+                        let _ = arbitrated.send(outcome);
+                    }
+                    (None, Err(error)) => self
                         .deps
                         .server_requests
                         .response_rejected(decision.connection, error),
+                    (None, Ok(_)) => {}
                 }
             }
             Ctl::RunEnded { turn, outcome } => self.run_ended(turn, outcome),
@@ -3913,6 +3923,10 @@ impl SessionActor {
             }
             RunShown::SearchUsage(usage) => {
                 let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });
+                self.accept_view(Change::Barrier, vec![note]);
+            }
+            RunShown::Stage { stage, detail } => {
+                let note = Note::new("thread/stage/updated", &mixdog_app_protocol::v2::thread::ThreadStageUpdatedParams { thread_id: self.id.clone(), stage, detail });
                 self.accept_view(Change::Barrier, vec![note]);
             }
             RunShown::ToolStream => self.stream_heartbeat(),

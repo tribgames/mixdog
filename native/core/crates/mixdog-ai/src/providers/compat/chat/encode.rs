@@ -239,6 +239,9 @@ fn attach_reasoning(
     msg: &mut JsonObject,
 ) {
     let Some(replayed) = source.replay_for(owner).filter_map(reasoning::replayed).last() else {
+        if dialect.pad_tool_call_reasoning && !source.tool_calls.is_empty() {
+            msg.insert("reasoning_content".into(), " ".into());
+        }
         return;
     };
     match dialect.reasoning_shape {
@@ -271,6 +274,13 @@ fn attach_reasoning(
                 && let Some(details) = replayed.details
             {
                 msg.insert("reasoning_details".into(), JsonValue::Array(details.clone()));
+            }
+        }
+        None if dialect.pad_tool_call_reasoning => {
+            if !replayed.text.is_empty() {
+                msg.insert("reasoning_content".into(), replayed.text.into());
+            } else if !source.tool_calls.is_empty() {
+                msg.insert("reasoning_content".into(), " ".into());
             }
         }
         None if dialect.replay_reasoning => {

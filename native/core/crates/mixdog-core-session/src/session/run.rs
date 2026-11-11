@@ -279,6 +279,8 @@ pub(crate) enum RunShown {
     Settled(Settled),
     /// A hosted web search's spend (`onNativeWebSearchUsage`): the delta `reportNativeWebSearchUsage` hands the turn.
     SearchUsage(Value),
+    /// A stage the client shows as its status (`onStageChange(stage, detail)` relayed to `applyStageChange`).
+    Stage { stage: String, detail: Option<Value> },
 }
 
 /// What a compaction pass's summary model used (ccumulateCompactUsage).
@@ -579,6 +581,11 @@ impl RunPort {
     /// (`persistIterationMetrics`, fed by `onUsageDelta` only) and the live output count never hear it.
     pub async fn search_usage(&self, delta: Value) -> Result<(), RunError> {
         self.shown(RunShown::SearchUsage(delta)).await
+    }
+
+    /// A stage the client shows as its status, never a transcript row: `thread/stage/updated`.
+    pub async fn stage(&self, stage: String, detail: Option<Value>) -> Result<(), RunError> {
+        self.shown(RunShown::Stage { stage, detail }).await
     }
 
     async fn shown(&self, shown: RunShown) -> Result<(), RunError> {

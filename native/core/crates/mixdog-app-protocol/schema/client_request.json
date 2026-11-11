@@ -1150,6 +1150,14 @@
       ],
       "type": "string"
     },
+    "ApprovalNotificationAction": {
+      "description": "A phone notification's button on an approval (today's `answerApprovalNotification`).",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "type": "string"
+    },
     "ApprovalProvideSecretParams": {
       "description": "Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`); never part of a decision or a log record.",
       "properties": {
@@ -6703,6 +6711,13 @@
     "ProjectFsReadLocalParams": {
       "description": "Params of `projectFs/readLocal`.",
       "properties": {
+        "paged": {
+          "description": "The file's bytes are not in the answer, which names a transfer of them to page through (`transfer/readRange`, then `transfer/endRead`): a 20 MB file is more than one answer carries.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "path": {
           "type": "string"
         }
@@ -9430,6 +9445,44 @@
       ],
       "type": "object"
     },
+    "ThreadApprovalAnswerNotificationParams": {
+      "description": "`thread/approval/answerNotification`: the approval the notification was about, in the thread it waits in.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/ApprovalNotificationAction"
+        },
+        "approvalId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "approvalId",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "ThreadApprovalAnswerParams": {
+      "description": "`thread/approval/answer`: a card's decision on the approval request `approval_id` (the server request's id) of the thread it waits in, the `result` a server-request response would carry.",
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "result": true,
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "result",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadAskSideParams": {
       "description": "Params of `thread/askSide`.",
       "properties": {
@@ -11008,19 +11061,18 @@
     "TransferGrantMintParams": {
       "description": "Params of `transfer/grant/mint`.",
       "properties": {
-        "path": {
-          "type": "string"
+        "attachmentId": {
+          "description": "A conversation's attachment (with `sessionId`), staged in the PC's temp folder and granted to that conversation."
         },
-        "sessionId": {
+        "path": {
+          "description": "The local path to describe; absent when `attachmentId` names a conversation's attachment instead.",
           "type": [
             "string",
             "null"
           ]
-        }
+        },
+        "sessionId": true
       },
-      "required": [
-        "path"
-      ],
       "type": "object"
     },
     "TransferReadRangeParams": {
@@ -13016,6 +13068,52 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadQueueDeleteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's `answerApprovalNotification`: a notification's Allow or Deny on the approval the thread shows. Allow is taken only where the PC's card allows once with a bare Enter, and answers with that card's decision; like a server-request response, it is not an op.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/approval/answerNotification"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadApprovalAnswerNotificationParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's `resolveToolApprovalForSession`: a card's decision on the approval request it shows, answered once the thread took it or another decision had (`accepted`), as Node's serialized answer was; like a server-request response, it is not an op.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "thread/approval/answer"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadApprovalAnswerParams"
         }
       },
       "required": [

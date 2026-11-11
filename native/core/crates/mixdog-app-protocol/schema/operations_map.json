@@ -1776,8 +1776,8 @@
       "list": "services",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {
@@ -2242,16 +2242,16 @@
       "list": "remote",
       "name": "resolveToolApprovalForSession",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answer"
       }
     },
     {
       "list": "remote",
       "name": "answerApprovalNotification",
       "target": {
-        "kind": "serverRequestResponse",
-        "target": "item/tool/requestApproval"
+        "kind": "method",
+        "target": "thread/approval/answerNotification"
       }
     },
     {
@@ -2913,8 +2913,12 @@
       "list": "remote",
       "name": "readLocalFile",
       "target": {
-        "kind": "method",
-        "target": "projectFs/readLocal"
+        "kind": "methods",
+        "target": [
+          "projectFs/readLocal",
+          "transfer/readRange",
+          "transfer/endRead"
+        ]
       }
     },
     {
