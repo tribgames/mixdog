@@ -14,6 +14,8 @@ use crate::tidy::process::{Processes, RunOptions};
 pub type Compact = Arc<dyn Fn(Vec<String>) -> BoxFuture<'static, Result<(), String>> + Send + Sync>;
 
 const COMPACT_TIMEOUT: Duration = Duration::from_secs(120);
+/// Node's `maxBuffer`.
+const COMPACT_MAX_BUFFER: usize = 1024 * 1024;
 
 /// `embeddingModelCachePath`: the model's directory, refused when the id would leave the root.
 pub fn model_cache_path(cache_dir: &Path, model_id: &str) -> Result<PathBuf, String> {
@@ -53,7 +55,7 @@ pub fn compact_with(processes: Processes) -> Compact {
         let processes = processes.clone();
         Box::pin(async move {
             let cwd = std::env::temp_dir();
-            let result = processes.run("compact.exe", &args, RunOptions { timeout: COMPACT_TIMEOUT, ..RunOptions::new(&cwd) }).await;
+            let result = processes.run("compact.exe", &args, RunOptions { timeout: COMPACT_TIMEOUT, max_capture: COMPACT_MAX_BUFFER, ..RunOptions::new(&cwd) }).await;
             match (result.code, result.timed_out) {
                 (_, true) => Err("compact.exe timed out".to_owned()),
                 (0, _) => Ok(()),

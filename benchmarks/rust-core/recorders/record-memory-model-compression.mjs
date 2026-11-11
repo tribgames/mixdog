@@ -8,7 +8,8 @@
 // answered without running anything. Cases, each a fresh worker over a fresh cache:
 //   1. the load succeeds and compact.exe succeeds; then the model is disposed and loaded again;
 //   2. the load succeeds and compact.exe fails;
-//   3. the graph is damaged, so the load fails.
+//   3. the graph is damaged, so the load fails;
+//   4-5. the load succeeds where the compression reads linux / darwin: nothing is called.
 // Recorded per case: each request's reply and, in order, the compression calls (command, arguments with the model
 // directory as `<modelDir>`, options) and the step they came in. A compression comes only after a load; the recorder
 // waits for its call (with a deadline) where the worker reported the load, and a later load or a failed one is
@@ -19,7 +20,7 @@ import { Worker } from 'node:worker_threads';
 import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { begin, finish, within } from './lib/mc-record.mjs';
+import { begin, exact, finish, within } from './lib/mc-record.mjs';
 
 const ctx = begin();
 const SCRATCH = process.env.MIXDOG_RECORDER_SCRATCH ?? 'D:/mixdog-build/tmp/w23/rec';
@@ -30,13 +31,22 @@ const modelFiles = Object.fromEntries(
 );
 const SEAM = pathToFileURL(fileURLToPath(new URL('./lib/compact-seam.mjs', import.meta.url))).href;
 
-async function runCase(name, { compact, damaged, steps }) {
+// A reply as the worker posted it, without its request id; `wallMs` (a measured duration) is written <wallMs> and the
+// model directory in a message <modelDir>.
+function wholeReply(reply, modelDir) {
+  const { id: _id, ...rest } = reply;
+  if (typeof rest.wallMs === 'number') rest.wallMs = '<wallMs>';
+  if (typeof rest.message === 'string') rest.message = rest.message.replaceAll(modelDir, '<modelDir>');
+  return exact(rest);
+}
+
+async function runCase(name, { compact, damaged, steps, platform }) {
   const dataDir = mkdtempSync(join(SCRATCH, 'compress-'));
   const modelDir = resolve(dataDir, 'memory-models', ...MODEL_ID.split('/'));
   cpSync(MODEL_FILES, modelDir, { recursive: true });
   if (damaged) writeFileSync(join(modelDir, 'onnx', 'model_quantized.onnx'), 'not a graph');
   const worker = new Worker(join(ctx.tree, 'src/runtime/memory/lib/embedding-worker.mjs'), {
-    env: { ...process.env, MIXDOG_DATA_DIR: dataDir, MIXDOG_MEMORY_EMBED_DEVICE: 'cpu', MIXDOG_SEAM_COMPACT: compact },
+    env: { ...process.env, MIXDOG_DATA_DIR: dataDir, MIXDOG_MEMORY_EMBED_DEVICE: 'cpu', MIXDOG_SEAM_COMPACT: compact, ...(platform ? { MIXDOG_SEAM_PLATFORM: platform } : {}) },
     execArgv: ['--import', SEAM],
     workerData: { dtype: 'q8' },
   });
@@ -55,7 +65,7 @@ async function runCase(name, { compact, damaged, steps }) {
         step,
         command: msg.command,
         args: msg.args.map((a) => String(a).replaceAll(modelDir, '<modelDir>')),
-        options: msg.options,
+        options: exact(msg.options),
       });
       onCall?.();
     } else if (msg?.type === 'profile' && msg.record?.phase === 'load') {
@@ -77,19 +87,22 @@ async function runCase(name, { compact, damaged, steps }) {
     await within(`${name}: ${step}`, new Promise((done) => (replies.has(id) ? done() : waiting.set(id, done))));
     const reply = replies.get(id);
     // A load that ran reports itself before its reply; its compression call, if one comes, follows the load.
-    if (loaded > loadsBefore && compactsBefore === 0 && action === 'warmup' && reply.type === 'result') {
+    // Off Windows nothing is called: the compression answers "unsupported" without a call.
+    if (!platform && loaded > loadsBefore && compactsBefore === 0 && action === 'warmup' && reply.type === 'result') {
       await within(`${name}: the compression call`, new Promise((done) => (calls.some((c) => c.command === 'compact.exe') ? done() : (onCall = done))));
     }
-    outcomes.push({ step, reply: { type: reply.type, ...(reply.type === 'error' ? { message: reply.message } : { dims: reply.dims }) }, loaded: loaded > loadsBefore });
+    outcomes.push({ step, reply: wholeReply(reply, modelDir), loaded: loaded > loadsBefore });
   }
   await worker.terminate();
-  return { name, compact, damaged, outcomes, calls, sep };
+  return { name, compact, damaged, platform: platform ?? process.platform, outcomes, calls, sep };
 }
 
 const cases = [
   await runCase('the first load compresses the model cache, once', { compact: 'ok', damaged: false, steps: ['warmup', 'dispose', 'warmup'] }),
   await runCase('a failed compression leaves the load succeeded', { compact: 'fail', damaged: false, steps: ['warmup'] }),
   await runCase('a failed load compresses nothing', { compact: 'ok', damaged: true, steps: ['warmup'] }),
+  await runCase('linux: unsupported, the cache is left uncompressed', { compact: 'ok', damaged: false, steps: ['warmup'], platform: 'linux' }),
+  await runCase('darwin: unsupported, the cache is left uncompressed', { compact: 'ok', damaged: false, steps: ['warmup'], platform: 'darwin' }),
 ];
 
 finish(ctx, {
@@ -101,8 +114,8 @@ finish(ctx, {
     entry: 'src/runtime/memory/lib/embedding-worker.mjs in a worker thread (as embedding-provider.mjs starts it), its warmup/dispose requests',
     replay: 'native/core/crates/mixdog-services/src/memory/tests/model_compression.rs',
     exclusions:
-      "execFile is a seam (lib/compact-seam.mjs): nothing runs; only compact.exe calls are recorded (the load's CPU-affinity PowerShell calls are not this set's subject); the worker's log lines are not recorded. The replay compares each warmup's reply type and dims (an error by its type: the message is onnxruntime's own text), and every compression call's step, command and arguments; the options' 120 s limit is the Rust run's own deadline, not a spawn argument, and is not compared; the Rust provider has no dispose (its one load serves every later warmup), so the dispose step has no counterpart",
-    normalised: 'the model directory in arguments is written <modelDir>',
+      "execFile is a seam (lib/compact-seam.mjs): nothing runs; only compact.exe calls are recorded (the load's CPU-affinity PowerShell calls are not this set's subject); the worker's log lines (__mixdogMemoryLog: the loaded/compressed/skipped lines) are not recorded: they are diagnostics, not a reply. The linux and darwin cases are recorded on Windows with the platform compressEmbeddingModelCache reads set by the seam (MIXDOG_SEAM_PLATFORM); onnxruntime still loads its Windows binding. The replay compares every reply whole, the loaded flag of each step, and every compression call with its options (timeout as the spawn's time limit, windowsHide as a non-PTY spawn of the manager, which always hides; maxBuffer is not compared: it is the run's capture bound (compress.rs COMPACT_MAX_BUFFER), not a spawn argument the manager sees)",
+    normalised: "the model directory in arguments and messages is written <modelDir>; a reply's wallMs (measured) is written <wallMs>; the request id is left out of each reply (the step names the request)",
   },
 });
 process.exit(0);

@@ -10,12 +10,16 @@
       "name": "the first load compresses the model cache, once",
       "compact": "ok",
       "damaged": false,
+      "platform": "win32",
       "outcomes": [
         {
           "step": "warmup #1",
           "reply": {
             "type": "result",
-            "dims": 384
+            "dims": 384,
+            "wallMs": "<wallMs>",
+            "device": "cpu",
+            "dtype": "q8"
           },
           "loaded": true
         },
@@ -23,9 +27,8 @@
           "step": "dispose #2",
           "reply": {
             "type": "result",
-            "dims": {
-              "$exact": "undefined"
-            }
+            "prevDevice": "cpu",
+            "dtype": "q8"
           },
           "loaded": false
         },
@@ -33,7 +36,10 @@
           "step": "warmup #3",
           "reply": {
             "type": "result",
-            "dims": 384
+            "dims": 384,
+            "wallMs": "<wallMs>",
+            "device": "cpu",
+            "dtype": "q8"
           },
           "loaded": true
         }
@@ -63,12 +69,16 @@
       "name": "a failed compression leaves the load succeeded",
       "compact": "fail",
       "damaged": false,
+      "platform": "win32",
       "outcomes": [
         {
           "step": "warmup #1",
           "reply": {
             "type": "result",
-            "dims": 384
+            "dims": 384,
+            "wallMs": "<wallMs>",
+            "device": "cpu",
+            "dtype": "q8"
           },
           "loaded": true
         }
@@ -98,14 +108,57 @@
       "name": "a failed load compresses nothing",
       "compact": "ok",
       "damaged": true,
+      "platform": "win32",
       "outcomes": [
         {
           "step": "warmup #1",
           "reply": {
             "type": "error",
-            "message": "Load model from D:\\mixdog-build\\tmp\\w23\\rec\\compress-U08l4M\\memory-models\\Xenova\\multilingual-e5-small\\onnx\\model_quantized.onnx failed:Protobuf parsing failed."
+            "message": "Load model from <modelDir>\\onnx\\model_quantized.onnx failed:Protobuf parsing failed."
           },
           "loaded": false
+        }
+      ],
+      "calls": [],
+      "sep": "\\"
+    },
+    {
+      "name": "linux: unsupported, the cache is left uncompressed",
+      "compact": "ok",
+      "damaged": false,
+      "platform": "linux",
+      "outcomes": [
+        {
+          "step": "warmup #1",
+          "reply": {
+            "type": "result",
+            "dims": 384,
+            "wallMs": "<wallMs>",
+            "device": "cpu",
+            "dtype": "q8"
+          },
+          "loaded": true
+        }
+      ],
+      "calls": [],
+      "sep": "\\"
+    },
+    {
+      "name": "darwin: unsupported, the cache is left uncompressed",
+      "compact": "ok",
+      "damaged": false,
+      "platform": "darwin",
+      "outcomes": [
+        {
+          "step": "warmup #1",
+          "reply": {
+            "type": "result",
+            "dims": 384,
+            "wallMs": "<wallMs>",
+            "device": "cpu",
+            "dtype": "q8"
+          },
+          "loaded": true
         }
       ],
       "calls": [],
