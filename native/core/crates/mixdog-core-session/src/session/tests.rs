@@ -2255,10 +2255,11 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
             header
         };
         let (rust_header, node_header) = (scratched(&rust_header, &rust.id), scratched(&node_header, &node_heir));
-        // `offloadSources` (the sessions whose sidecars the heir may name, which the prune's index reads) is the fix of
-        // `node-fix-prune-after-save.patch`, which this recording of Node as shipped predates: its value is replayed by
-        // the offload-prune-order set.
-        let keys: std::collections::BTreeSet<&String> = rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "offloadSources"].contains(&key.as_str())).collect();
+        // `offloadSources` and `offloadSourcesRules` (the sessions whose sidecars the heir may name, which the prune's
+        // index reads, and the rules that set was computed under) are the fix of `node-fix-prune-after-save.patch`,
+        // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
+        let keys: std::collections::BTreeSet<&String> =
+            rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "offloadSources", "offloadSourcesRules"].contains(&key.as_str())).collect();
         let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
         assert!(differing.is_empty(), "header of {label}: {differing:#?}");
         // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source

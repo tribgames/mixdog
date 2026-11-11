@@ -136,18 +136,27 @@ impl SessionDirectory {
             read => read?,
         };
         let before = handle.cell.header.load_full();
+        let source_fields = source_header.get("header").and_then(Value::as_object).cloned().unwrap_or_default();
         let mut sources: std::collections::BTreeSet<String> = offload_sources::sources(&before).into_iter().collect();
-        sources.extend(offload_sources::sources(source_header.get("header").and_then(Value::as_object).unwrap_or(&Map::new())));
+        sources.extend(offload_sources::sources(&source_fields));
         sources.insert(offload_sources::safe_segment(source.as_str()));
         let mut marking = Map::new();
-        marking.insert(offload_sources::SOURCES.into(), json!(sources));
         marking.insert(offload_sources::INHERITING.into(), json!(source.as_str()));
         marking.insert(offload_sources::INHERITING_BOOT.into(), json!(offload_sources::boot()));
+        // The heir's rows name what the source's name: its set is known when the source's is (under the present
+        // rules); else it is stored unknown, and read once the copy is stored.
+        let mut unset = Vec::new();
+        if offload_sources::holds_set(&source_fields) {
+            offload_sources::set_sources(&mut marking, sources.into_iter().collect());
+        } else {
+            marking.insert(offload_sources::SOURCES.into(), json!(sources));
+            unset.push(offload_sources::SOURCES_RULES);
+        }
         let patch = |set: Map<String, Value>, unset: Vec<&str>| {
             let ctx = CallContext::internal("inheritance");
             handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": heir, "set": set, "unset": unset }), op: None, ctx })
         };
-        patch(marking, Vec::new()).await?;
+        patch(marking, unset).await?;
         let count = match self.carry_rows(source, heir, &handle, &source_header, compact).await {
             Ok(count) => count,
             Err(Carry { error, appended: false }) => {

@@ -484,8 +484,9 @@ fn upsert_edge(
 }
 
 /// The session's reference set and copy mark as its header holds them now (`offload_sources`). A header holding a set
-/// makes the session known and its set the rows; one holding none leaves it unknown but for a scan of its transcript
-/// at the ordinal it is projected to (`offload_known`), and leaves the rows it had (a set only grows).
+/// makes the session known under the present rules and its set the rows; one holding none, or one of earlier rules
+/// (whose rows join), leaves it unknown but for a scan of its transcript at the ordinal it is projected to under the
+/// present rules (`offload_known`), and leaves the rows it had (a set only grows).
 fn write_offload_refs(tx: &Transaction<'_>, head: &CatalogHead) -> rusqlite::Result<()> {
     use crate::offload_sources as sets;
     tx.prepare_cached("DELETE FROM offload_marks WHERE session = ?1")?.execute([&head.session])?;
@@ -497,29 +498,34 @@ fn write_offload_refs(tx: &Transaction<'_>, head: &CatalogHead) -> rusqlite::Res
         for source in sets::sources(&head.header) {
             tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
         }
-        tx.prepare_cached("INSERT INTO offload_known (session, ordinal) VALUES (?1, NULL) ON CONFLICT(session) DO UPDATE SET ordinal = NULL")?
-            .execute([&head.session])?;
+        tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, NULL, ?2) ON CONFLICT(session) DO UPDATE SET ordinal = NULL, rules = excluded.rules")?
+            .execute(params![head.session, sets::RULES])?;
     } else {
+        for source in sets::sources(&head.header) {
+            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
+        }
         tx.prepare_cached("DELETE FROM offload_known WHERE session = ?1 AND ordinal IS NULL")?.execute([&head.session])?;
     }
     Ok(())
 }
 
-/// A scan of the transcript of `session`, a session whose header holds no set, at `ordinal`: its `sources` join its
-/// rows and it is known at that ordinal, unless it was projected past it meanwhile (or gained a set) - then the
-/// next prune scans it again.
+/// A scan of the transcript of `session`, a session whose header holds no set under the present rules, at `ordinal`:
+/// its `sources` join its rows and it is known at that ordinal under those rules, unless it was projected past it
+/// meanwhile (or gained a set) - then the next prune scans it again.
 fn record_offload_scan(tx: &Transaction<'_>, session: &str, ordinal: i64, sources: &[String]) -> rusqlite::Result<()> {
+    use crate::offload_sources as sets;
     let current: Option<i64> = tx.prepare_cached("SELECT projected_ordinal FROM sessions WHERE id = ?1")?.query_row([session], |r| r.get(0)).optional()?;
-    let from_header: bool = tx.prepare_cached("SELECT EXISTS (SELECT 1 FROM offload_known WHERE session = ?1 AND ordinal IS NULL)")?.query_row([session], |r| r.get(0))?;
+    let from_header: bool = tx
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM offload_known WHERE session = ?1 AND ordinal IS NULL AND rules = ?2)")?
+        .query_row(params![session, sets::RULES], |r| r.get(0))?;
     if current != Some(ordinal) || from_header {
         return Ok(());
     }
     for source in sources {
-        tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?
-            .execute(params![crate::offload_sources::segment_key(source), session])?;
+        tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(source), session])?;
     }
-    tx.prepare_cached("INSERT INTO offload_known (session, ordinal) VALUES (?1, ?2) ON CONFLICT(session) DO UPDATE SET ordinal = excluded.ordinal")?
-        .execute(params![session, ordinal])?;
+    tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, ?2, ?3) ON CONFLICT(session) DO UPDATE SET ordinal = excluded.ordinal, rules = excluded.rules")?
+        .execute(params![session, ordinal, sets::RULES])?;
     Ok(())
 }
 
@@ -1817,10 +1823,12 @@ impl SqliteStore {
             let mut rows = c.prepare_cached(
                 "SELECT s.id, s.projected_ordinal FROM sessions s LEFT JOIN offload_known k ON k.session = s.id
                  WHERE s.deleted = 0 AND s.status = 'ok' AND s.log_id <> '' AND s.id <> ?1
-                   AND (k.session IS NULL OR (k.ordinal IS NOT NULL AND k.ordinal <> s.projected_ordinal))
+                   AND (k.session IS NULL OR k.rules <> ?2 OR (k.ordinal IS NOT NULL AND k.ordinal <> s.projected_ordinal))
                  ORDER BY s.id",
             )?;
-            let unknown = rows.query_map([&own], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?.collect::<Result<Vec<_>, _>>()?;
+            let unknown = rows
+                .query_map(params![own, crate::offload_sources::RULES], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(OffloadReferencers { sessions, unreadable, copying, unknown })
         })
         .await
