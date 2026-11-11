@@ -250,6 +250,34 @@ pub(in crate::memory::replays) mod pg {
         same(name, c.get("steps"), &actual);
     }
 
+    /// The TUI parser's process until it has answered: dropped before that, it kills the tree and waits for the reaping.
+    struct KillOnDrop {
+        pid: u32,
+        waited: std::sync::mpsc::Receiver<std::io::Result<std::process::Output>>,
+        answered: std::cell::Cell<bool>,
+    }
+
+    impl Drop for KillOnDrop {
+        fn drop(&mut self) {
+            if self.answered.get() {
+                return;
+            }
+            let mut kill = if cfg!(windows) {
+                let mut kill = std::process::Command::new("taskkill");
+                kill.args(["/PID", &self.pid.to_string(), "/T", "/F"]);
+                kill
+            } else {
+                let mut kill = std::process::Command::new("kill");
+                kill.args(["-KILL", &self.pid.to_string()]);
+                kill
+            };
+            #[cfg(windows)]
+            std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
+            let _ = kill.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
+            let _ = self.waited.recv_timeout(std::time::Duration::from_secs(10));
+        }
+    }
+
     /// `parseMemoryCoreRows(formatted)` of the shipped TUI (`src/tui/app/input-parsers.mjs:50`, the reader of this text),
     /// run by Node over the core's formatted text and encoded with the recordings' encoder.
     /// The child is killed (with its tree) and reaped on every exit path: a write failure, the deadline, or a failure.
@@ -278,41 +306,54 @@ pub(in crate::memory::replays) mod pg {
         std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000); // CREATE_NO_WINDOW
         let mut child = command.spawn().unwrap_or_else(|e| panic!("{what}: node runs the TUI parser: {e}"));
         let pid = child.id();
-        let stdin = child.stdin.take().expect("stdin");
+        let mut stdin = child.stdin.take().expect("stdin");
         let (done, waited) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let _ = done.send(child.wait_with_output());
         });
-        // Ends the parser's process tree and waits for the waiting thread to reap it, then fails naming the case.
-        let fail = |why: String| -> ! {
-            let mut kill = if cfg!(windows) {
-                let mut kill = std::process::Command::new("taskkill");
-                kill.args(["/PID", &pid.to_string(), "/T", "/F"]);
-                kill
-            } else {
-                let mut kill = std::process::Command::new("kill");
-                kill.args(["-KILL", &pid.to_string()]);
-                kill
-            };
-            #[cfg(windows)]
-            std::os::windows::process::CommandExt::creation_flags(&mut kill, 0x0800_0000);
-            let killed = kill.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
-            let reaped = waited.recv_timeout(std::time::Duration::from_secs(10)).is_ok();
-            panic!("{what}: {why} (parser pid {pid} killed: {killed:?}, reaped: {reaped})");
-        };
-        let mut stdin = stdin;
+        // From here every way out of this function but the parser's own answer (a panic included, here or in the waiting thread)
+        // ends the parser's process tree and waits for the waiting thread to reap it.
+        let parser = KillOnDrop { pid, waited, answered: std::cell::Cell::new(false) };
         if let Err(e) = stdin.write_all(formatted.as_bytes()) {
-            fail(format!("writing the formatted text to the TUI parser failed: {e}"));
+            panic!("{what}: writing the formatted text to the TUI parser failed: {e}");
         }
         drop(stdin);
-        let output = match waited.recv_timeout(std::time::Duration::from_secs(60)) {
-            Ok(Ok(output)) => output,
+        let output = match parser.waited.recv_timeout(std::time::Duration::from_secs(60)) {
+            Ok(Ok(output)) => {
+                parser.answered.set(true);
+                output
+            }
             Ok(Err(e)) => panic!("{what}: the TUI parser's output could not be read: {e}"),
-            Err(_) => fail("the TUI parser did not answer within 60 s".to_owned()),
+            Err(_) => panic!("{what}: the TUI parser did not answer within 60 s"),
         };
         assert!(output.status.success(), "{what}: the TUI parser failed: {}", String::from_utf8_lossy(&output.stderr));
         let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("the parser's JSON");
         Exact::decode(&value).expect("the parser's encoded rows")
+    }
+
+    /// A panic while the parser runs ends its process tree and waits until it is reaped.
+    #[test]
+    fn a_panic_while_the_parser_runs_kills_and_reaps_it() {
+        let mut command = std::process::Command::new("node");
+        command.args(["-e", "setInterval(() => {}, 1000)"]).stdin(std::process::Stdio::null());
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000); // CREATE_NO_WINDOW
+        let child = command.spawn().expect("node runs");
+        let pid = child.id();
+        let reaped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (done, waited) = std::sync::mpsc::channel();
+        let flag = reaped.clone();
+        std::thread::spawn(move || {
+            let output = child.wait_with_output();
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = done.send(output);
+        });
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _parser = KillOnDrop { pid, waited, answered: std::cell::Cell::new(false) };
+            panic!("the parser's output could not be read");
+        }));
+        assert!(unwound.is_err());
+        assert!(reaped.load(std::sync::atomic::Ordering::SeqCst), "the guard returned before the parser (pid {pid}) was reaped");
     }
 
     /// The recorder's `roundTrip(formatted, entries)` over the core's formatted text and the core's listed entries.
