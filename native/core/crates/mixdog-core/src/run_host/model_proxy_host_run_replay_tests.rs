@@ -901,7 +901,8 @@ async fn a_forked_side_request_gets_its_own_transport_scope_released_when_it_end
     same_failure(&answer, &node_log[1]["fail"]["rejected"], "fail");
     compared(1, step_of("error", view(&scripted)), &node_step(1));
 
-    scripted.started.notified().await;
+    // The permit the failed run's attempt left, taken so the next one is the hanging request's.
+    mixdog_core_session::session::testing::awaiting(|| "the failed side request's attempt to have started".to_owned(), scripted.started.notified()).await;
     let cancel = CancellationToken::new();
     let mut hanging = Box::pin(super::model_proxy_trust_replay_tests::answered(&service, side("hang", true, cancel.clone())));
     mixdog_core_session::session::testing::awaiting(|| "the hanging side request to start".to_owned(), async {
