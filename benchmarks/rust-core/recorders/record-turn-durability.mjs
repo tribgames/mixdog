@@ -43,6 +43,9 @@ const CASES = [
   { name: 'save-failure-tool-rounds', crash: false, note: 'every save fails from the first request on while the turn runs two tool rounds and answers; the next turn is refused, then runs once the saves land' },
   { name: 'fork-held', crash: false, note: "a turn held by a failed save, then forked (the desktop's inheritSession) while the saves fail and after they recover" },
   { name: 'resume-held', crash: true, note: 'a turn held by a failed save, shown to a client resuming it in the owning process, then killed and reopened' },
+  { name: 'crash-queued-before-take', crash: true, note: "two prompts queued while a turn's request is on the wire (the desktop's session flow, its durable mirror), killed before the turn takes them; the resume restores and drains them" },
+  { name: 'crash-queued-while-take', crash: true, note: 'as crash-queued-before-take, killed while the request that took the queued prompts is on the wire' },
+  { name: 'crash-queued-after-take', crash: true, note: 'as crash-queued-before-take, killed after the turn that took the queued prompts answered and settled' },
   { name: 'crash-sensitive', crash: true, note: 'a streamed value is checkpointed, then marked sensitive; the checkpoint is rewritten redacted, then killed: which files of the data hold the value, at the kill and after recovery' },
 ];
 const only = args.get('only');
@@ -127,8 +130,14 @@ writeSetManifest(stage, {
       'disk.messages: the `system` message, the assembled system prompt Node stores and Rust assembles per request',
       "disk on the Rust side: the input row's meta.transcript checkpointId, device and completionVerb and its completion's checkpointId (stamps of Rust's turn/start, outside this change), and the cancel line's meta.turnEnd (the typed fact Node reads from the line's text)",
       'save-failure rows: the end row\'s messageId: in the process that ran the turn Node shows its live end row (turnDoneItem), which names no message; this view is the stored-transcript projection',
-      'checkpoint: the 1.4.5 turn-checkpoint file; Rust keeps the same draft in its draft file beside the session log, compared through what the reopened session shows and stores, and (crash-sensitive) through secretFiles: Rust compares whether any file of its data holds the value, as the layouts differ',
-      'stage: compared only as busy (non-null) or idle; result and the refusal name: the answer is compared through the rows, the refusal through its code and message',
+      "checkpoint: compared as present (null or not) and `sealed`, against the session's draft files beside its log; `turnMessages`, the count of the turn's messages the 1.4.5 checkpoint copies: Rust's draft keeps only what the log does not hold yet (the streamed text, the seal), the turn's messages being compared as view and disk",
+      'secretFiles: compared as whether any file of the data holds the value, as the two layouts name different files',
+      "result: askSession's return to its caller; a Rust client is given the answer as the item the turn's end row names (finalAssistantId), whose text is compared",
+      'stage: compared only as busy (non-null) or idle; the refusal name (the JS error class): the refusal is compared through its code and message',
+      "live with view (resume-held, fork-held heir): `live` is what the owning process shows (Rust's resumed snapshot and the heir's read are compared against it); `view` is the stored projection a second process would read, which Rust's reopen is compared against in the crash steps",
+      "queued: the desktop's projection of the queue, compared as id, text, mode and priority; Node's id is the submission id, which Rust's row carries as clientSubmissionId (its id being the queue entry's); Node's submittedAt and displayText (the text again) and Rust's enqueuedAt are not compared",
+      'spool: the 1.4.5 steering mirror file; Rust keeps queued entries in the session log, compared through the queue a reopened session shows and drains',
+      'requests: the user messages of each request, whole, per process',
     ],
   },
 });

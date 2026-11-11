@@ -1,5 +1,5 @@
 {
-  "cases": 12,
+  "cases": 15,
   "command": "node benchmarks/rust-core/recorders/record-turn-durability.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "exact": true,
   "exclusions": [
@@ -10,15 +10,21 @@
     "disk.messages: the `system` message, the assembled system prompt Node stores and Rust assembles per request",
     "disk on the Rust side: the input row's meta.transcript checkpointId, device and completionVerb and its completion's checkpointId (stamps of Rust's turn/start, outside this change), and the cancel line's meta.turnEnd (the typed fact Node reads from the line's text)",
     "save-failure rows: the end row's messageId: in the process that ran the turn Node shows its live end row (turnDoneItem), which names no message; this view is the stored-transcript projection",
-    "checkpoint: the 1.4.5 turn-checkpoint file; Rust keeps the same draft in its draft file beside the session log, compared through what the reopened session shows and stores, and (crash-sensitive) through secretFiles: Rust compares whether any file of its data holds the value, as the layouts differ",
-    "stage: compared only as busy (non-null) or idle; result and the refusal name: the answer is compared through the rows, the refusal through its code and message"
+    "checkpoint: compared as present (null or not) and `sealed`, against the session's draft files beside its log; `turnMessages`, the count of the turn's messages the 1.4.5 checkpoint copies: Rust's draft keeps only what the log does not hold yet (the streamed text, the seal), the turn's messages being compared as view and disk",
+    "secretFiles: compared as whether any file of the data holds the value, as the two layouts name different files",
+    "result: askSession's return to its caller; a Rust client is given the answer as the item the turn's end row names (finalAssistantId), whose text is compared",
+    "stage: compared only as busy (non-null) or idle; the refusal name (the JS error class): the refusal is compared through its code and message",
+    "live with view (resume-held, fork-held heir): `live` is what the owning process shows (Rust's resumed snapshot and the heir's read are compared against it); `view` is the stored projection a second process would read, which Rust's reopen is compared against in the crash steps",
+    "queued: the desktop's projection of the queue, compared as id, text, mode and priority; Node's id is the submission id, which Rust's row carries as clientSubmissionId (its id being the queue entry's); Node's submittedAt and displayText (the text again) and Rust's enqueuedAt are not compared",
+    "spool: the 1.4.5 steering mirror file; Rust keeps queued entries in the session log, compared through the queue a reopened session shows and drains",
+    "requests: the user messages of each request, whole, per process"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 966489,
+      "bytes": 1324579,
       "path": "golden.json",
-      "sha256": "bb04c8db990584e162a82536302cb17e4056bee675e5eeb665e7439eaf61ffb4"
+      "sha256": "16e1d47e3bd4abaffd6b193d8dbb91857aaed7d4a2df4ab68a03c04745ee31f6"
     }
   ],
   "inputs": [
@@ -32,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/turn-durability-child.mjs",
-      "sha256": "b0f54762beb27943550cc00712986720a7736c1c9629ff88a2742ad050e9da3c"
+      "sha256": "6591f543a100b2066a982cdce852c4dc6d817c7fc3d5f17e94c44671fd991e26"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -54,7 +60,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-durability.mjs",
-  "recorderSha256": "d15c669ae2527c86916f136ea0f689cad59722445cdcae1b68321fac6c120842",
+  "recorderSha256": "b061480c0142d682366408261020d63273ac1d102117bf10f886b42599420a9f",
   "set": "turn-durability",
-  "totalBytes": 966489
+  "totalBytes": 1324579
 }
