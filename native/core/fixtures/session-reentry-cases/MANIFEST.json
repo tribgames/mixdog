@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +67,12 @@
   "recorderSha256": "7e93f7d96460011ff91a9e07428298c1f33eb113916aae9ce713e5eebac11146",
   "replay": {
     "compare": "mixdog-core-session + mixdog-app-server (session host re-entry): replay each step list on a virtual clock (mock timers: Date, setInterval, setTimeout from 1_800_000_000_000; tick values are in the step labels); compare published texts, service size, stored read count and diagnostics records after each step",
-    "entry": "NO RUST ENTRY ON o1: idle eviction is private (mixdog-core-session/src/session/actor.rs:1233 `arm_idle_evict`); the host re-entry, replayed submission id join and read tracing diagnostics have no counterpart found.",
+    "entry": "NO RUST ENTRY ON o1: the unload of an idle session and its re-entry from the stored view, the replayed submission id join and the read tracing diagnostics: no counterpart found.",
+    "existsButNotPublicOnO1": [
+      "idle eviction: mixdog-core-session/src/session/actor.rs:1233 `arm_idle_evict` / :1240 `on_idle_evict` (private) re-arm the deadline and check has_active(\"agent\" / \"shell\") (:1248); that is the only part of the recording they show"
+    ],
     "missingOnO1": [
-      "idle eviction is private (mixdog-core-session/src/session/actor.rs:1233 `arm_idle_evict`); the host re-entry, replayed submission id join and read tracing diagnostics have no counterpart found"
+      "the unload of an idle session and its re-entry from the stored view, the replayed submission id join and the read tracing diagnostics: no counterpart found"
     ],
     "normalised": {
       "clock": "mock timers, not the shared fixed Date.now",
