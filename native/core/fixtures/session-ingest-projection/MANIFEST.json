@@ -15,6 +15,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -36,7 +40,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-ingest-projection.mjs",
-  "recorderSha256": "8c04dfe186983f34297dc27fe1bb2f3a049027630c050145155b47d7d77aef43",
+  "recorderSha256": "376ef60080225c70d8c07d45ebf28ac8f94afb5ab2c2d4a78474257c0398e504",
   "set": "session-ingest-projection",
   "tests": [
     "src/runtime/memory/lib/session-ingest-projection.test.mjs (:10, :28, :55, :78)"
