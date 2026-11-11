@@ -4803,13 +4803,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -5069,13 +5063,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -5344,13 +5332,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -5578,13 +5560,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -5796,13 +5772,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -6455,13 +6425,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -6686,13 +6650,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -6922,13 +6880,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -7175,22 +7127,10 @@
                     "maxRetries": 0,
                     "defaultHeaders": {
                       "session-id": {
-                        "$exact": "object",
-                        "entries": [
-                          [
-                            "$exact",
-                            "undefined"
-                          ]
-                        ]
+                        "$exact": "undefined"
                       },
                       "X-Client-Request-ID": {
-                        "$exact": "object",
-                        "entries": [
-                          [
-                            "$exact",
-                            "undefined"
-                          ]
-                        ]
+                        "$exact": "undefined"
                       }
                     }
                   }
@@ -7428,22 +7368,10 @@
                     "maxRetries": 0,
                     "defaultHeaders": {
                       "session-id": {
-                        "$exact": "object",
-                        "entries": [
-                          [
-                            "$exact",
-                            "undefined"
-                          ]
-                        ]
+                        "$exact": "undefined"
                       },
                       "X-Client-Request-ID": {
-                        "$exact": "object",
-                        "entries": [
-                          [
-                            "$exact",
-                            "undefined"
-                          ]
-                        ]
+                        "$exact": "undefined"
                       }
                     }
                   }
@@ -7687,13 +7615,7 @@
                       "Session-ID": [],
                       "X-Client-Request-ID": [
                         {
-                          "$exact": "object",
-                          "entries": [
-                            [
-                              "$exact",
-                              "undefined"
-                            ]
-                          ]
+                          "$exact": "undefined"
                         }
                       ]
                     }
@@ -8646,13 +8568,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]
@@ -8713,13 +8629,7 @@
                     "baseURL": "https://mixdog-test.invalid/v1",
                     "maxRetries": 0,
                     "defaultHeaders": {
-                      "$exact": "object",
-                      "entries": [
-                        [
-                          "$exact",
-                          "undefined"
-                        ]
-                      ]
+                      "$exact": "undefined"
                     }
                   }
                 ]

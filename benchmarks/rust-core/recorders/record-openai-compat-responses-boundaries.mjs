@@ -19,6 +19,8 @@ const rec = await startRecording({
 const tree = rec.tree;
 // The SDK of the tree under test (not the recorder checkout's copy).
 const { default: OpenAI } = await rec.load('node_modules/openai/index.mjs');
+// The client as the product received it: the arguments it was constructed with are described once, raw (the wrapper above has already encoded them, and the encoded form would be encoded again).
+const sdkClient = (options) => rec.describe(new OpenAI(options), { $instance: 'node_modules/openai/index.mjs.default', constructedWith: [options] });
 const P = 'agent/orchestrator/providers/';
 const { isVisibleStreamProgress } = await rec.P('shared/stream-progress.mjs');
 const { effortConfigurationMode, prepareTurnEffortConfiguration, withEffortConfigurationFallback } = await rec.P(`${P}effort-configuration.mjs`);
@@ -129,7 +131,7 @@ function fixture(suffix, { reply } = {}) {
     return reply ? reply(requests.length, completed) : sse(completed());
   };
   const provider = { name: `custom-boundary-${suffix}`, config: { clientOptions: {} }, defaultHeaders: undefined, customConfig: MODE, nativePdf: false, getCachedModelInfo: () => row,
-    client: new OpenAI({ apiKey: 'test-only', baseURL: 'https://mixdog-test.invalid/v1', maxRetries: 0 }) };
+    client: sdkClient({ apiKey: 'test-only', baseURL: 'https://mixdog-test.invalid/v1', maxRetries: 0 }) };
   return { provider, requests };
 }
 function appendTurn(session, provider, effort) {
@@ -211,7 +213,7 @@ const wireFixture = (suffix, { defaultHeaders, clientOptions = {} } = {}) => ({
   customConfig: MODE,
   nativePdf: false,
   getCachedModelInfo: () => ROW,
-  client: new OpenAI({ apiKey: 'test-only', baseURL: 'https://mixdog-test.invalid/v1', maxRetries: 0, defaultHeaders, ...clientOptions }),
+  client: sdkClient({ apiKey: 'test-only', baseURL: 'https://mixdog-test.invalid/v1', maxRetries: 0, defaultHeaders, ...clientOptions }),
 });
 const answerOk = (net) => { net.reply = () => ({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify(completedEvent)}\n\n` }); };
 const hi = [{ role: 'user', content: 'hi' }];
