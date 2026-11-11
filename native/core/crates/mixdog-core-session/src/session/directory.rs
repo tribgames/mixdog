@@ -1762,6 +1762,8 @@ impl ThreadDirectory for SessionDirectory {
             }
             method if super::reads::serves(method) => self.inner.serve_read(&req).await,
             "thread/inheritancePreflight" => self.inheritance_preflight(&req.params).await.map(Reply::Value),
+            "thread/approval/answerNotification" => self.answer_approval_notification(&req).await,
+            "thread/approval/answer" => self.answer_approval(&req).await,
             _ => Err(CoreError::InvalidParams {
                 path: "method".into(),
                 expected: "a session-directory method".into(),

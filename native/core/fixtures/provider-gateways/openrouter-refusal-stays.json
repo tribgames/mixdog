@@ -1,0 +1,74 @@
+{
+  "id": "openrouter-refusal-stays",
+  "provider": "openrouter",
+  "config": {
+    "enabled": true,
+    "preconnect": false,
+    "apiKey": "or-fixture"
+  },
+  "sends": [
+    {
+      "model": "anthropic/claude-sonnet-4.5",
+      "tools": [],
+      "history": [],
+      "sessionId": null,
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://openrouter.ai",
+          "path": "/api/v1/messages",
+          "headers": {
+            "host": "openrouter.ai",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "Anthropic/JS 0.137.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-timeout": "600",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "0.137.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "anthropic-version": "2023-06-01",
+            "authorization": "Bearer or-fixture",
+            "http-referer": "https://github.com/tribgames/mixdog",
+            "x-openrouter-title": "mixdog",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "308"
+          },
+          "body": "{\"model\":\"anthropic/claude-sonnet-4.5\",\"max_tokens\":16384,\"system\":[{\"type\":\"text\",\"text\":\"You are a fixture assistant.\",\"cache_control\":{\"type\":\"ephemeral\",\"ttl\":\"1h\"}}],\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Look up the answer.\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true}",
+          "answer": {
+            "status": 400,
+            "body": "{\"error\":{\"message\":\"No endpoints found for anthropic/claude-sonnet-4.5.\",\"code\":400}}"
+          }
+        }
+      ],
+      "events": [
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "stageChange",
+          "stage": "requesting",
+          "payload": null
+        },
+        {
+          "on": "request",
+          "n": 1
+        }
+      ],
+      "error": {
+        "message": "400 {\"error\":{\"message\":\"No endpoints found for anthropic/claude-sonnet-4.5.\",\"code\":400}}",
+        "status": 400,
+        "code": "invalid_request_error",
+        "quotaExhausted": null
+      }
+    }
+  ]
+}

@@ -23,7 +23,7 @@
    "turn/interrupt(v2::thread::TurnInterruptParams) -> v2::thread::TurnInterruptResponse"
   ],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:600"
+   "mixdog-app-server/src/server.rs:617"
   ],
   "rust_composed": [
    "app-server built-in (Server::dispatch)"
@@ -32,7 +32,7 @@
   "proof": "test",
   "proof_evidence": [
    "mixdog-app-server/src/tests/admission.rs:69",
-   "mixdog-app-server/src/tests/approvals.rs:364"
+   "mixdog-app-server/src/tests/approvals.rs:365"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -65,21 +65,20 @@
    "project/create(ProjectCreateParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:535"
+   "mixdog-workspace/src/service.rs:780"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:273",
-   "mixdog-workspace/tests/it/service.rs:306"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Project list",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Project list"
  },
@@ -105,6 +104,7 @@
    "room/update",
    "room/continue",
    "room/leave",
+   "room/reset",
    "room/remove"
   ],
   "rust_shape": [
@@ -112,25 +112,31 @@
    "room/update(RoomUpdateParams) -> JsonValue",
    "room/continue(RoomContinueParams) -> JsonValue",
    "room/leave(RoomLeaveParams) -> JsonValue",
+   "room/reset(RoomResetParams) -> JsonValue",
    "room/remove(RoomRemoveParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-rooms/src/rooms/service.rs:316",
-   "mixdog-core-rooms/src/rooms/service.rs:317",
-   "mixdog-core-rooms/src/rooms/service.rs:318",
-   "mixdog-core-rooms/src/rooms/service.rs:319",
-   "mixdog-core-rooms/src/rooms/service.rs:320"
+   "mixdog-core-rooms/src/rooms/service.rs:382",
+   "mixdog-core-rooms/src/rooms/service.rs:383",
+   "mixdog-core-rooms/src/rooms/service.rs:384",
+   "mixdog-core-rooms/src/rooms/service.rs:385",
+   "mixdog-core-rooms/src/rooms/service.rs:387",
+   "mixdog-core-rooms/src/rooms/service.rs:386"
   ],
   "rust_composed": [
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2426",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2426",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2426",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2426",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2426"
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording",
+  "proof_evidence": [
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -154,25 +160,28 @@
    "apps/desktop/src/main/remote-session-methods.ts:200"
   ],
   "inventory": "remote",
-  "rust_kind": "serverRequestResponse",
+  "rust_kind": "method",
   "rust_targets": [
-   "item/tool/requestApproval"
+   "thread/approval/answerNotification"
   ],
-  "rust_shape": [],
+  "rust_shape": [
+   "thread/approval/answerNotification(v2::approval::ThreadApprovalAnswerNotificationParams) -> v2::approval::ThreadApprovalAnswerNotificationResponse"
+  ],
   "rust_sites": [
-   "mixdog-core-api/src/domain/approval.rs:45"
+   "mixdog-core-session/src/session/directory.rs:1760"
   ],
-  "rust_composed": [],
+  "rust_composed": [
+   "core path (session actor / app-server built-in)"
+  ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-app-server/src/late.rs:119",
-   "mixdog-app-server/src/tests/actor.rs:92"
+   "apps/mobile/fixtures/phone-pushes/golden.json (exact=None; names the wire method) <- mixdog-core-session/src/session/approval_notification_tests.rs:1"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Chat: open, read, send, stop, approve, rename, archive, delete, route/model, agent rooms",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Chat: open, read, send, stop, approve, rename, archive, delete, route/model, agent rooms"
  },
@@ -202,18 +211,17 @@
    "transfer/grant/mint(TransferGrantMintParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:805",
-   "mixdog-workspace/src/service.rs:922"
+   "mixdog-workspace/src/service.rs:1120",
+   "mixdog-workspace/src/service.rs:1336"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278",
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:137",
-   "mixdog-workspace/tests/it/service.rs:155"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -246,20 +254,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -287,20 +295,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -328,20 +336,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -367,20 +375,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -408,20 +416,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -449,20 +457,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -493,20 +501,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -523,22 +531,27 @@
   ],
   "phone_reply": "",
   "node": [],
-  "inventory": "",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "inventory": "mechanics",
+  "rust_kind": "methods",
+  "rust_targets": [
+   "browser/screenDisplays"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:826"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-app-server-daemon/src/compose_domains/tests.rs:366",
+   "mixdog-app-server-transport/tests/it/websocket.rs:216"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -556,22 +569,27 @@
   "node": [
    "apps/desktop/src/main/remote-relay-client-calls.ts:241"
   ],
-  "inventory": "",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "inventory": "mechanics",
+  "rust_kind": "methods",
+  "rust_targets": [
+   "browser/stream"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:808"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "browser-streams/streams.json (exact=True; names the wire method) <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:719",
+   "browser-streams/streams.json (exact=True; names the wire method) <- mixdog-app-server-daemon/src/live_view_streams_replay.rs:50"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
-  "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "server": "served",
+  "class": "same",
+  "feature": "",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -589,22 +607,26 @@
   "node": [
    "apps/desktop/src/main/remote-relay-client-calls.ts:403"
   ],
-  "inventory": "",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "inventory": "mechanics",
+  "rust_kind": "clientNotification",
+  "rust_targets": [
+   "browser/streamAck"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:847"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "browser-streams/streams.json (exact=True; names the wire method) <- mixdog-app-server-daemon/src/live_view_streams_replay.rs:50"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
-  "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "server": "served",
+  "class": "same",
+  "feature": "",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -631,20 +653,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -674,20 +696,20 @@
    "browser/command(BrowserCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/domain_browser.rs:36"
+   "mixdog-exthost/src/domain_browser.rs:65"
   ],
   "rust_composed": [
    "BrowserService @ mixdog-app-server-daemon/src/compose_domains.rs:66"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/domain_browser.rs:71"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/domain_browser.rs:128"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Remote browser live view and tabs on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
@@ -743,21 +765,26 @@
    "apps/desktop/src/main/index.ts:2444"
   ],
   "inventory": "operations",
-  "rust_kind": "none",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "the Rust live view (mixdog-remote webrtc/liveview.rs LiveViewConnection) is built only by interop tests; nothing in the daemon starts it for a phone"
+  "rust_kind": "methods",
+  "rust_targets": [
+   "browser/webrtcSignal"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "rust_shape": [],
+  "rust_sites": [
+   "mixdog-app-server-daemon/src/live_view.rs:819"
+  ],
+  "rust_composed": [],
+  "problems": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-app-server-daemon/src/compose_domains/tests.rs:366",
+   "mixdog-app-server-daemon/src/live_view.rs:956"
+  ],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Remote browser live view and tabs on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view and tabs on the phone"
  },
  {
@@ -792,8 +819,8 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:176",
-   "mixdog-app-server/src/tests/dispatch.rs:385"
+   "mixdog-app-protocol/tests/it/contract.rs:176",
+   "mixdog-app-server/src/tests/dispatch.rs:416"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -827,18 +854,20 @@
    "projectFs/captureSnapshot(ProjectFsCaptureSnapshotParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1169"
+   "mixdog-workspace/src/service.rs:1610"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -864,7 +893,7 @@
    "update/desktop/command(v2::host::UpdateDesktopCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-domains/src/domains/update.rs:710"
+   "mixdog-core-domains/src/domains/update.rs:714"
   ],
   "rust_composed": [
    "UpdateService @ mixdog-app-server-daemon/src/compose_domains/adapters.rs:43"
@@ -906,21 +935,20 @@
    "project/codeGraph(ProjectCodeGraphParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1003"
+   "mixdog-workspace/src/service.rs:1434"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:715",
-   "mixdog-workspace/tests/it/service.rs:717"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -951,12 +979,12 @@
    "mixdog-core-domains/src/domains/ai_admin/thread_route_service.rs:26"
   ],
   "rust_composed": [
-   "ThreadRouteService @ mixdog-app-server-daemon/src/compose_flip.rs:2609"
+   "ThreadRouteService @ mixdog-app-server-daemon/src/compose_flip.rs:2814"
   ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/dispatch.rs:385",
+   "mixdog-app-server/src/tests/dispatch.rs:416",
    "mixdog-core-domains/src/domains/ai_admin/thread_route_service_tests.rs:96"
   ],
   "phone_o1": "unchanged",
@@ -990,21 +1018,20 @@
    "projectFs/copy(ProjectFsCopyParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:645"
+   "mixdog-workspace/src/service.rs:937"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:585",
-   "mixdog-workspace/tests/it/service.rs:797"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -1032,21 +1059,20 @@
    "projectFs/create(ProjectFsCreateParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:625"
+   "mixdog-workspace/src/service.rs:915"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:582",
-   "mixdog-workspace/tests/it/service.rs:793"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -1074,21 +1100,20 @@
    "projectFs/backup/delete(ProjectFsBackupDeleteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:969"
+   "mixdog-workspace/src/service.rs:1400"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:985",
-   "mixdog-workspace/tests/it/service.rs:985"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -1117,7 +1142,7 @@
    "thread/delete(v2::thread::ThreadDeleteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/directory.rs:1579"
+   "mixdog-core-session/src/session/directory.rs:1738"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -1125,7 +1150,7 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:163",
+   "mixdog-app-protocol/tests/it/contract.rs:163",
    "mixdog-app-server/src/tests/dispatch.rs:101"
   ],
   "phone_o1": "unchanged",
@@ -1160,7 +1185,7 @@
    "mixdog-core-domains/src/domains/remote_access.rs:336"
   ],
   "rust_composed": [
-   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2321"
+   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2481"
   ],
   "problems": [],
   "proof": "none",
@@ -1194,20 +1219,20 @@
    "transfer/endRead(TransferEndReadParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:867"
+   "mixdog-workspace/src/service.rs:1278"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:888"
+   "file-downloads/file-downloads.json (exact=None; names the wire method) <- mixdog-workspace/src/transfer/replay.rs:1"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "File and media transfer: downloads, attachments, previews",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "File and media transfer: downloads, attachments, previews"
  },
@@ -1227,27 +1252,26 @@
   "inventory": "remote",
   "rust_kind": "method",
   "rust_targets": [
-   "transfer/beginRead"
+   "transfer/authorizeRead"
   ],
   "rust_shape": [
-   "transfer/beginRead(v2::domain::TransferBeginReadParams) -> v2::domain::TransferBeginReadResponse"
+   "transfer/authorizeRead(TransferAuthorizeReadParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:805"
+   "mixdog-workspace/src/service.rs:1192"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:137",
-   "mixdog-workspace/tests/it/service.rs:155"
+   "file-downloads/file-downloads.json (exact=None; names the wire method) <- mixdog-workspace/src/transfer/replay.rs:1"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "File and media transfer: downloads, attachments, previews",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "File and media transfer: downloads, attachments, previews"
  },
@@ -1267,27 +1291,26 @@
   "inventory": "remote",
   "rust_kind": "method",
   "rust_targets": [
-   "transfer/beginRead"
+   "transfer/redeemGrant"
   ],
   "rust_shape": [
-   "transfer/beginRead(v2::domain::TransferBeginReadParams) -> v2::domain::TransferBeginReadResponse"
+   "transfer/redeemGrant(TransferRedeemGrantParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:805"
+   "mixdog-workspace/src/service.rs:1270"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:137",
-   "mixdog-workspace/tests/it/service.rs:155"
+   "file-downloads/file-downloads.json (exact=None; names the wire method) <- mixdog-workspace/src/transfer/replay.rs:1"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "File and media transfer: downloads, attachments, previews",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "File and media transfer: downloads, attachments, previews"
  },
@@ -1307,26 +1330,26 @@
   "inventory": "remote",
   "rust_kind": "method",
   "rust_targets": [
-   "transfer/endRead"
+   "transfer/finishRead"
   ],
   "rust_shape": [
-   "transfer/endRead(TransferEndReadParams) -> v2::feed::EmptyResult"
+   "transfer/finishRead(TransferFinishReadParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:867"
+   "mixdog-workspace/src/service.rs:1274"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:888"
+   "file-downloads/file-downloads.json (exact=None; names the wire method) <- mixdog-workspace/src/transfer/replay.rs:1"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "File and media transfer: downloads, attachments, previews",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "File and media transfer: downloads, attachments, previews"
  },
@@ -1352,21 +1375,20 @@
    "transfer/readRange(TransferReadRangeParams) -> v2::op::BlobReadResponse"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:851"
+   "mixdog-workspace/src/service.rs:1166"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:139",
-   "mixdog-workspace/tests/it/service.rs:202"
+   "file-downloads/file-downloads.json (exact=None; names the wire method) <- mixdog-workspace/src/transfer/replay.rs:1"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "File and media transfer: downloads, attachments, previews",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "File and media transfer: downloads, attachments, previews"
  },
@@ -1394,18 +1416,20 @@
    "fs/unwatch(FsUnwatchParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:759"
+   "mixdog-workspace/src/service.rs:1067"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:679"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Terminal tabs (output, input, resize) and folder watching",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Terminal tabs (output, input, resize) and folder watching"
  },
@@ -1433,21 +1457,20 @@
    "fs/watch(FsWatchParams) -> v2::feed::Subscription"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:740"
+   "mixdog-workspace/src/service.rs:1047"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:386",
-   "mixdog-workspace/tests/no_polling.rs:89"
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:679"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Terminal tabs (output, input, resize) and folder watching",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Terminal tabs (output, input, resize) and folder watching"
  },
@@ -1472,7 +1495,7 @@
   "rust_shape": [],
   "rust_sites": [
    "mixdog-agent/src/compact/settings_service.rs:69",
-   "mixdog-ai/src/service/network_proxy.rs:80"
+   "mixdog-ai/src/registry/gateway_replay.rs:417"
   ],
   "rust_composed": [],
   "problems": [],
@@ -1509,7 +1532,7 @@
   "rust_shape": [],
   "rust_sites": [
    "mixdog-agent/src/compact/settings_service.rs:69",
-   "mixdog-ai/src/service/network_proxy.rs:80"
+   "mixdog-ai/src/registry/gateway_replay.rs:417"
   ],
   "rust_composed": [],
   "problems": [],
@@ -1549,8 +1572,10 @@
   "problems": [
    "removed by design: thread feeds and the client store (P §12.3)"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-order/golden.json (exact=None)"
+  ],
   "phone_o1": "replaced: packages/protocol-client/src/client.ts",
   "server": "by-design",
   "class": "phone-changed",
@@ -1583,16 +1608,16 @@
    "project/taskWorkspace(ProjectTaskWorkspaceParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:998"
+   "mixdog-workspace/src/service.rs:1429"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:986",
-   "mixdog-workspace/tests/it/service.rs:986"
+   "mixdog-workspace/tests/it/service.rs:1541",
+   "mixdog-workspace/tests/it/service.rs:1541"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -1661,14 +1686,16 @@
    "github/pr/checkout(GithubPrCheckoutParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:669"
+   "mixdog-scm/src/input.rs:354"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:185"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1700,14 +1727,16 @@
    "github/pr/create(GithubPrCreateParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:668"
+   "mixdog-scm/src/input.rs:351"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:186"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1739,14 +1768,16 @@
    "github/pr/defaultBranch(GithubPrDefaultBranchParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:667"
+   "mixdog-scm/src/input.rs:350"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:182"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1779,14 +1810,16 @@
    "github/pr/diff(GithubPrDiffParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:666"
+   "mixdog-scm/src/input.rs:353"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:184"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1819,14 +1852,16 @@
    "github/pr/list(GithubPrListParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:664"
+   "mixdog-scm/src/input.rs:349"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:181"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1858,14 +1893,16 @@
    "github/pr/merge(GithubPrMergeParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:670"
+   "mixdog-scm/src/input.rs:355"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:187"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1898,14 +1935,16 @@
    "github/pr/view(GithubPrViewParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:665"
+   "mixdog-scm/src/input.rs:352"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:183"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1937,14 +1976,16 @@
    "git/abortOperation(GitAbortOperationParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:639"
+   "mixdog-scm/src/input.rs:318"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:179"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -1976,14 +2017,16 @@
    "git/amend(GitAmendParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:615"
+   "mixdog-scm/src/input.rs:274"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:149"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2015,14 +2058,16 @@
    "git/applyPatch(GitApplyPatchParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:636"
+   "mixdog-scm/src/input.rs:261"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:143"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2055,10 +2100,10 @@
    "git/branches(GitBranchesParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:593"
+   "mixdog-scm/src/input.rs:309"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording+test",
@@ -2096,14 +2141,16 @@
    "git/cherryPickCommit(GitCherryPickCommitParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:635"
+   "mixdog-scm/src/input.rs:308"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:168"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2134,10 +2181,10 @@
    "git/cliStatus(GitCliStatusParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:604"
+   "mixdog-scm/src/service.rs:500"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -2173,14 +2220,16 @@
    "git/commit(GitCommitParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:610"
+   "mixdog-scm/src/input.rs:270"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:147"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2212,14 +2261,16 @@
    "git/commitPaths(GitCommitPathsParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:611"
+   "mixdog-scm/src/input.rs:271"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:148"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2251,14 +2302,16 @@
    "git/continue(GitContinueParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:638"
+   "mixdog-scm/src/input.rs:317"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:178"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2290,10 +2343,10 @@
    "git/createTag(GitCreateTagParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:625"
+   "mixdog-scm/src/input.rs:283"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording",
@@ -2332,14 +2385,16 @@
    "git/deleteBranch(GitDeleteBranchParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:627"
+   "mixdog-scm/src/input.rs:282"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:158"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2371,14 +2426,16 @@
    "git/deleteTag(GitDeleteTagParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:626"
+   "mixdog-scm/src/input.rs:284"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:160"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2411,10 +2468,10 @@
    "git/diff(GitDiffParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:598"
+   "mixdog-scm/src/input.rs:259"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording+test",
@@ -2452,14 +2509,16 @@
    "git/fetch(GitFetchParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:619"
+   "mixdog-scm/src/input.rs:314"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:176"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2489,10 +2548,10 @@
    "git/globalConfig/read(GitGlobalConfigReadParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:605"
+   "mixdog-scm/src/service.rs:501"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -2528,14 +2587,16 @@
    "git/ignore(GitIgnoreParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:637"
+   "mixdog-scm/src/input.rs:269"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:146"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2568,10 +2629,10 @@
    "git/log(GitLogParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:594"
+   "mixdog-scm/src/input.rs:285"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording+test",
@@ -2609,14 +2670,16 @@
    "git/pull(GitPullParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:618"
+   "mixdog-scm/src/input.rs:313"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:175"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2648,10 +2711,10 @@
    "git/push(GitPushParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:617"
+   "mixdog-scm/src/input.rs:312"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "test",
@@ -2690,14 +2753,16 @@
    "git/renameBranch(GitRenameBranchParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:628"
+   "mixdog-scm/src/input.rs:281"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:157"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2729,14 +2794,16 @@
    "git/requestContext(GitRequestContextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:600"
+   "mixdog-scm/src/input.rs:295"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:165"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2768,14 +2835,16 @@
    "git/resetToCommit(GitResetToCommitParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:632"
+   "mixdog-scm/src/input.rs:304"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:166"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2807,14 +2876,16 @@
    "git/revertFile(GitRevertFileParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:634"
+   "mixdog-scm/src/input.rs:276"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:151"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2846,14 +2917,16 @@
    "git/revertCommit(GitRevertCommitParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:633"
+   "mixdog-scm/src/input.rs:307"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:167"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -2886,15 +2959,16 @@
    "review/diff/get(v2::domain::ReviewDiffGetParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:671"
+   "mixdog-scm/src/input.rs:331"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-scm/src/review_dispatch_tests.rs:131"
+   "mixdog-scm/src/input_tests.rs:118",
+   "mixdog-scm/src/review_dispatch_tests.rs:136"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -2928,15 +3002,16 @@
    "review/diff/get(v2::domain::ReviewDiffGetParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:671"
+   "mixdog-scm/src/input.rs:331"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-scm/src/review_dispatch_tests.rs:131"
+   "mixdog-scm/src/input_tests.rs:118",
+   "mixdog-scm/src/review_dispatch_tests.rs:136"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -2970,15 +3045,16 @@
    "review/diff/get(v2::domain::ReviewDiffGetParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:671"
+   "mixdog-scm/src/input.rs:331"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-scm/src/review_dispatch_tests.rs:131"
+   "mixdog-scm/src/input_tests.rs:118",
+   "mixdog-scm/src/review_dispatch_tests.rs:136"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -3012,10 +3088,10 @@
    "git/show(GitShowParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:595"
+   "mixdog-scm/src/input.rs:293"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording+test",
@@ -3054,14 +3130,16 @@
    "git/showDiff(GitShowDiffParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:596"
+   "mixdog-scm/src/input.rs:294"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:163"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3093,14 +3171,16 @@
    "git/showFile(GitShowFileParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:597"
+   "mixdog-scm/src/input.rs:296"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:164"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3132,10 +3212,10 @@
    "git/stage(GitStageParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:608"
+   "mixdog-scm/src/input.rs:267"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording",
@@ -3174,14 +3254,16 @@
    "git/stash(GitStashParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:621"
+   "mixdog-scm/src/input.rs:275"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:150"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3213,14 +3295,16 @@
    "git/stashApply(GitStashApplyParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:623"
+   "mixdog-scm/src/input.rs:279"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:155"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3252,14 +3336,16 @@
    "git/stashDrop(GitStashDropParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:624"
+   "mixdog-scm/src/input.rs:280"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:156"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3291,10 +3377,10 @@
    "git/stashList(GitStashListParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:599"
+   "mixdog-scm/src/input.rs:310"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording",
@@ -3333,14 +3419,16 @@
    "git/stashPop(GitStashPopParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:622"
+   "mixdog-scm/src/input.rs:316"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:172"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3373,10 +3461,10 @@
    "git/status(GitStatusParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:592"
+   "mixdog-scm/src/input.rs:258"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording+test",
@@ -3414,14 +3502,16 @@
    "git/sync(GitSyncParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:620"
+   "mixdog-scm/src/input.rs:315"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:177"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3453,14 +3543,16 @@
    "git/undoLastCommit(GitUndoLastCommitParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:616"
+   "mixdog-scm/src/input.rs:311"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:173"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3492,10 +3584,10 @@
    "git/unstage(GitUnstageParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:609"
+   "mixdog-scm/src/input.rs:268"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording",
@@ -3533,10 +3625,10 @@
    "github/account(GithubAccountParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:643"
+   "mixdog-scm/src/service.rs:555"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -3572,14 +3664,16 @@
    "github/login/cancel(GithubLoginCancelParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:651"
+   "mixdog-scm/src/input.rs:359"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:189"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3611,14 +3705,16 @@
    "github/login/openBrowser(GithubLoginOpenBrowserParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:650"
+   "mixdog-scm/src/input.rs:360"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:190"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3648,10 +3744,10 @@
    "github/login/start(GithubLoginStartParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:644"
+   "mixdog-scm/src/service.rs:556"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -3687,14 +3783,16 @@
    "github/login/status(GithubLoginStatusParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:645"
+   "mixdog-scm/src/input.rs:358"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:188"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -3724,10 +3822,10 @@
    "github/logout(GithubLogoutParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:659"
+   "mixdog-scm/src/service.rs:571"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -3762,10 +3860,10 @@
    "github/status(GithubStatusParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:642"
+   "mixdog-scm/src/service.rs:554"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -3801,16 +3899,16 @@
    "github/request(GithubRequestParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:661"
+   "mixdog-scm/src/input.rs:343"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
   "proof": "recording",
   "proof_evidence": [
    "desktop/github/corpus.json (exact=None)",
-   "unlinked: desktop/github/corpus.json <- mixdog-scm/src/golden_tests.rs:1328"
+   "unlinked: desktop/github/corpus.json <- mixdog-scm/src/golden_tests.rs:1386"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -3841,10 +3939,10 @@
    "github/starStatus(GithubStarStatusParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:662"
+   "mixdog-scm/src/service.rs:574"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -3880,7 +3978,7 @@
    "thread/fork(v2::thread::ThreadForkParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/directory.rs:1580"
+   "mixdog-core-session/src/session/directory.rs:1739"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -3888,8 +3986,8 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-core/src/run_host/context_world.rs:931",
-   "mixdog-core/src/run_host/tool_pool/tests.rs:565"
+   "mixdog-core/src/run_host/context_world.rs:958",
+   "mixdog-core/src/run_host/tool_pool/tests.rs:564"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -3920,10 +4018,10 @@
    "git/cli/install(GitCliInstallParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:641"
+   "mixdog-scm/src/service.rs:552"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -3957,10 +4055,10 @@
    "github/install(GithubInstallParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:660"
+   "mixdog-scm/src/service.rs:572"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -3994,16 +4092,16 @@
    "document/installLibreOffice(DocumentInstallLibreOfficeParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/document.rs:141"
+   "mixdog-exthost/src/document.rs:193"
   ],
   "rust_composed": [
-   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2310"
+   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2468"
   ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-exthost/src/document.rs:268",
-   "mixdog-exthost/src/document.rs:282"
+   "mixdog-exthost/src/document.rs:320",
+   "mixdog-exthost/src/document.rs:331"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -4037,15 +4135,15 @@
    "document/libreOfficeStatus(DocumentLibreOfficeStatusParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/document.rs:136"
+   "mixdog-exthost/src/document.rs:188"
   ],
   "rust_composed": [
-   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2310"
+   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2468"
   ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-exthost/src/document.rs:287"
+   "mixdog-exthost/src/document.rs:449"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -4075,7 +4173,7 @@
   "rust_shape": [],
   "rust_sites": [
    "mixdog-agent/src/compact/settings_service.rs:69",
-   "mixdog-ai/src/service/network_proxy.rs:80"
+   "mixdog-ai/src/registry/gateway_replay.rs:417"
   ],
   "rust_composed": [],
   "problems": [],
@@ -4115,14 +4213,17 @@
    "projectFs/browseDirs(ProjectFsBrowseDirsParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:579"
+   "mixdog-workspace/src/service.rs:849"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None)",
+   "unlinked: apps/mobile/fixtures/phone-files/golden.json <- mixdog-exthost/src/document.rs:354"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -4155,21 +4256,20 @@
    "projectFs/listDir(ProjectFsListDirParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:561"
+   "mixdog-workspace/src/service.rs:815"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:340",
-   "mixdog-workspace/tests/it/service.rs:343"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4197,16 +4297,16 @@
    "project/list(ProjectListParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:521"
+   "mixdog-workspace/src/service.rs:764"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/admission.rs:85",
-   "mixdog-app-server/src/tests/dispatch.rs:250"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None)",
+   "unlinked: apps/mobile/fixtures/phone-files/golden.json <- mixdog-exthost/src/document.rs:354"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -4243,7 +4343,7 @@
    "mixdog-core-domains/src/domains/ai_admin/model_list.rs:47"
   ],
   "rust_composed": [
-   "ModelListService @ mixdog-app-server-daemon/src/compose_flip.rs:642"
+   "ModelListService @ mixdog-app-server-daemon/src/compose_flip.rs:698"
   ],
   "problems": [],
   "proof": "recording",
@@ -4283,18 +4383,20 @@
    "projectFs/localPageUrl(ProjectFsLocalPageUrlParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1170"
+   "mixdog-workspace/src/service.rs:1611"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4322,20 +4424,20 @@
    "projectFs/writeTextBatch(ProjectFsWriteTextBatchParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:614"
+   "mixdog-workspace/src/service.rs:904"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:578"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4363,20 +4465,20 @@
    "lsp/document(LspDocumentParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1031"
+   "mixdog-workspace/src/service.rs:1462"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "recording",
+  "proof": "recording+test",
   "proof_evidence": [
-   "desktop/lsp/corpus.json (exact=None)"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4404,20 +4506,20 @@
    "lsp/request(LspRequestParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1039"
+   "mixdog-workspace/src/service.rs:1470"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "recording",
+  "proof": "recording+test",
   "proof_evidence": [
-   "desktop/lsp/corpus.json (exact=None)"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4448,7 +4550,7 @@
    "mixdog-core-session/src/session/thread_settings.rs:67"
   ],
   "rust_composed": [
-   "ThreadSettings @ mixdog-app-server-daemon/src/compose_flip.rs:2605"
+   "ThreadSettings @ mixdog-app-server-daemon/src/compose_flip.rs:2810"
   ],
   "problems": [],
   "proof": "none",
@@ -4484,21 +4586,20 @@
    "projectFs/move(ProjectFsMoveParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:645"
+   "mixdog-workspace/src/service.rs:937"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:584",
-   "mixdog-workspace/tests/it/service.rs:796"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4518,19 +4619,25 @@
    "apps/desktop/src/main/remote-methods.ts:916"
   ],
   "inventory": "remote",
-  "rust_kind": "deleted",
-  "rust_targets": [],
-  "rust_shape": [],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "removed by design: publishers own their changes (DS §3)"
+  "rust_kind": "method",
+  "rust_targets": [
+   "ui/providerModels/announce"
   ],
+  "rust_shape": [
+   "ui/providerModels/announce(v2::config::UiProviderModelsChangedParams) -> v2::feed::EmptyResult"
+  ],
+  "rust_sites": [
+   "mixdog-core-config/src/config/service.rs:144"
+  ],
+  "rust_composed": [
+   "ConfigService @ mixdog-app-server-daemon/src/compose_domains.rs:59"
+  ],
+  "problems": [],
   "proof": "none",
   "proof_evidence": [],
   "phone_o1": "unchanged",
-  "server": "by-design",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Settings, desktop update and feedback",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Settings, desktop update and feedback"
@@ -4562,13 +4669,13 @@
    "mixdog-core-agents/src/agents/home_api.rs:642"
   ],
   "rust_composed": [
-   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2701"
+   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2910"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-core-agents/src/agents/home_api_tests.rs:806",
-   "mixdog-core-agents/src/agents/home_api_tests.rs:815"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -4601,7 +4708,7 @@
    "thread/read(v2::thread::ThreadReadParams) -> v2::thread::ThreadReadResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/handle.rs:637"
+   "mixdog-core-session/src/session/handle.rs:816"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -4644,20 +4751,20 @@
    "document/previewPages(DocumentPreviewPagesParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/document.rs:129"
+   "mixdog-exthost/src/document.rs:174"
   ],
   "rust_composed": [
-   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2310"
+   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2468"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/document.rs:231"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/document.rs:354"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4679,27 +4786,26 @@
   "inventory": "remote",
   "rust_kind": "method",
   "rust_targets": [
-   "transfer/beginRead"
+   "projectFs/previewFile"
   ],
   "rust_shape": [
-   "transfer/beginRead(v2::domain::TransferBeginReadParams) -> v2::domain::TransferBeginReadResponse"
+   "projectFs/previewFile(ProjectFsPreviewFileParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:805"
+   "mixdog-workspace/src/service.rs:854"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:137",
-   "mixdog-workspace/tests/it/service.rs:155"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4721,27 +4827,26 @@
   "inventory": "remote",
   "rust_kind": "method",
   "rust_targets": [
-   "transfer/readRange"
+   "projectFs/previewRange"
   ],
   "rust_shape": [
-   "transfer/readRange(TransferReadRangeParams) -> v2::op::BlobReadResponse"
+   "projectFs/previewRange(ProjectFsPreviewRangeParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:851"
+   "mixdog-workspace/src/service.rs:859"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:139",
-   "mixdog-workspace/tests/it/service.rs:202"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -4770,16 +4875,15 @@
    "projectFs/recovery(ProjectFsRecoveryParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:723"
+   "mixdog-workspace/src/service.rs:1015"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:674",
-   "mixdog-workspace/tests/it/service.rs:676"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -4812,16 +4916,16 @@
    "approval/provideSecret(v2::approval::ApprovalProvideSecretParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-core-api/src/call.rs:76"
+   "mixdog-core-api/src/call.rs:114"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-core/src/run_host/handoff_env.rs:350",
-   "mixdog-core-session/src/session/secret_input/replies.rs:325"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -4855,7 +4959,7 @@
    "mixdog-core-domains/src/domains/remote_access.rs:339"
   ],
   "rust_composed": [
-   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2321"
+   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2481"
   ],
   "problems": [],
   "proof": "test",
@@ -4892,18 +4996,18 @@
   "rust_shape": [],
   "rust_sites": [
    "mixdog-agent/src/compact/settings_service.rs:69",
-   "mixdog-ai/src/service/network_proxy.rs:80"
+   "mixdog-ai/src/registry/gateway_replay.rs:417"
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "recording",
+  "proof": "recording+test",
   "proof_evidence": [
-   "desktop/settings/corpus.json (exact=None)"
+   "apps/mobile/fixtures/phone-pushes/golden.json <- apps/desktop/src/renderer/remote-protocol-pushes.slow.test.mjs (via phone-pushes-replay.mjs)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Settings, desktop update and feedback",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Settings, desktop update and feedback"
  },
@@ -4937,10 +5041,9 @@
    "BlobService @ mixdog-app-server-daemon/src/compose_domains/rows.rs:12"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:130",
-   "mixdog-app-server-client/tests/it/feed_lanes.rs:68"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -4974,8 +5077,10 @@
   "problems": [
    "removed by design: each capability is its own method; settings reads are sections (DS §15 P13)"
   ],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-order/golden.json (exact=None)"
+  ],
   "phone_o1": "unchanged",
   "server": "by-design",
   "class": "missing",
@@ -5007,21 +5112,20 @@
    "projectFs/backup/read(ProjectFsBackupReadParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:959"
+   "mixdog-workspace/src/service.rs:1390"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:980",
-   "mixdog-workspace/tests/it/service.rs:980"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -5049,21 +5153,20 @@
    "projectFs/readEditorSettings(ProjectFsReadEditorSettingsParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:985"
+   "mixdog-workspace/src/service.rs:1416"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:969",
-   "mixdog-workspace/tests/it/service.rs:973"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -5089,7 +5192,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142",
+   "mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:234",
    "mixdog-core-domains/src/domains/host.rs:65"
   ],
   "rust_composed": [],
@@ -5119,22 +5222,32 @@
    "apps/desktop/src/main/remote-methods.ts:1049"
   ],
   "inventory": "remote",
-  "rust_kind": "method",
+  "rust_kind": "methods",
   "rust_targets": [
-   "projectFs/readLocal"
+   "projectFs/readLocal",
+   "transfer/readRange",
+   "transfer/endRead"
   ],
   "rust_shape": [
-   "projectFs/readLocal(ProjectFsReadLocalParams) -> JsonValue"
+   "projectFs/readLocal(ProjectFsReadLocalParams) -> JsonValue",
+   "transfer/readRange(TransferReadRangeParams) -> v2::op::BlobReadResponse",
+   "transfer/endRead(TransferEndReadParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:584"
+   "mixdog-workspace/src/service.rs:865",
+   "mixdog-workspace/src/service.rs:1166",
+   "mixdog-workspace/src/service.rs:1278"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -5167,21 +5280,20 @@
    "projectFs/readText(ProjectFsReadTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:566"
+   "mixdog-workspace/src/service.rs:820"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:143",
-   "mixdog-workspace/tests/it/service.rs:144"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -5208,7 +5320,7 @@
   "rust_shape": [],
   "rust_sites": [
    "mixdog-agent/src/compact/settings_service.rs:69",
-   "mixdog-ai/src/service/network_proxy.rs:80"
+   "mixdog-ai/src/registry/gateway_replay.rs:417"
   ],
   "rust_composed": [],
   "problems": [],
@@ -5247,15 +5359,16 @@
    "thread/items/list(v2::thread::ThreadItemsListParams) -> v2::thread::ThreadItemsListResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/reads.rs:121"
+   "mixdog-core-session/src/session/reads.rs:122"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-core-session/src/session/tests.rs:2515"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5288,7 +5401,7 @@
    "thread/items/read(v2::thread::ThreadItemsReadParams) -> v2::thread::ThreadItemsReadResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/reads.rs:122"
+   "mixdog-core-session/src/session/reads.rs:123"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -5330,17 +5443,17 @@
    "mixdog-core-domains/src/domains/remote_access.rs:337"
   ],
   "rust_composed": [
-   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2321"
+   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2481"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-core-domains/src/domains/remote_access.rs:505"
+   "apps/mobile/fixtures/phone-pushes/golden.json <- apps/desktop/src/renderer/remote-protocol-pushes.slow.test.mjs (via phone-pushes-replay.mjs)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Notifications: Web Push / native push registration and preferences",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Notifications: Web Push / native push registration and preferences"
  },
@@ -5371,7 +5484,7 @@
    "mixdog-core-domains/src/domains/remote_access.rs:340"
   ],
   "rust_composed": [
-   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2321"
+   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2481"
   ],
   "problems": [],
   "proof": "test",
@@ -5412,7 +5525,7 @@
    "mixdog-core-session/src/session/shell_jobs.rs:36"
   ],
   "rust_composed": [
-   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2637"
+   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2846"
   ],
   "problems": [],
   "proof": "none",
@@ -5448,16 +5561,16 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/routing.rs:56",
-   "mixdog-core-domains/src/domains/client/tests.rs:51"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None)",
+   "unlinked: apps/mobile/fixtures/phone-plumbing/golden.json <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
-  "phone_o1": "unchanged",
+  "phone_o1": "removed",
   "server": "served",
   "class": "exists-unproven",
   "feature": "Phone session plumbing",
-  "unit": "PH-2 phone UI calls -> protocol methods",
+  "unit": "",
   "area": "Phone session plumbing"
  },
  {
@@ -5484,18 +5597,20 @@
    "project/delete(ProjectDeleteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:541"
+   "mixdog-workspace/src/service.rs:790"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "file-downloads/file-downloads.json (exact=None; names the Node op only) <- mixdog-workspace/src/transfer/replay.rs:1"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Project list",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Project list"
  },
@@ -5526,7 +5641,7 @@
    "mixdog-core-domains/src/domains/remote_access.rs:341"
   ],
   "rust_composed": [
-   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2321"
+   "RemoteAccessService @ mixdog-app-server-daemon/src/compose_flip.rs:2481"
   ],
   "problems": [],
   "proof": "test",
@@ -5564,14 +5679,17 @@
    "project/update(ProjectUpdateParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:537"
+   "mixdog-workspace/src/service.rs:786"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None)",
+   "unlinked: apps/mobile/fixtures/phone-files/golden.json <- mixdog-exthost/src/document.rs:354"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -5603,21 +5721,20 @@
    "projectFs/rename(ProjectFsRenameParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:635"
+   "mixdog-workspace/src/service.rs:927"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:583",
-   "mixdog-workspace/tests/it/service.rs:795"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -5646,16 +5763,15 @@
    "thread/name/set(v2::thread::ThreadNameSetParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/actor.rs:3859"
+   "mixdog-core-session/src/session/actor.rs:4122"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/dispatch.rs:157",
-   "mixdog-core-session/src/session/tests.rs:2050"
+   "apps/mobile/fixtures/phone-order/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5688,21 +5804,20 @@
    "projectFs/replaceText(ProjectFsReplaceTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:689"
+   "mixdog-workspace/src/service.rs:981"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:447",
-   "mixdog-workspace/tests/it/service.rs:804"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -5733,16 +5848,16 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/routing.rs:56",
-   "mixdog-core-domains/src/domains/client/tests.rs:51"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None)",
+   "unlinked: apps/mobile/fixtures/phone-plumbing/golden.json <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
-  "phone_o1": "unchanged",
+  "phone_o1": "removed",
   "server": "served",
   "class": "exists-unproven",
   "feature": "Phone session plumbing",
-  "unit": "PH-2 phone UI calls -> protocol methods",
+  "unit": "",
   "area": "Phone session plumbing"
  },
  {
@@ -5772,13 +5887,13 @@
    "mixdog-core-agents/src/agents/home_api.rs:643"
   ],
   "rust_composed": [
-   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2701"
+   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2910"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:249",
-   "mixdog-app-protocol/tests/contract.rs:262"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5814,18 +5929,17 @@
    "transfer/grant/mint(TransferGrantMintParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:588",
-   "mixdog-workspace/src/service.rs:922"
+   "mixdog-workspace/src/service.rs:879",
+   "mixdog-workspace/src/service.rs:1336"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278",
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:213",
-   "mixdog-app-server-transport/tests/it/websocket.rs:203"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5850,20 +5964,23 @@
    "apps/desktop/src/main/remote-session-methods.ts:168"
   ],
   "inventory": "remote",
-  "rust_kind": "serverRequestResponse",
+  "rust_kind": "method",
   "rust_targets": [
-   "item/tool/requestApproval"
+   "thread/approval/answer"
   ],
-  "rust_shape": [],
+  "rust_shape": [
+   "thread/approval/answer(v2::approval::ThreadApprovalAnswerParams) -> v2::approval::ThreadApprovalAnswerResponse"
+  ],
   "rust_sites": [
-   "mixdog-core-api/src/domain/approval.rs:45"
+   "mixdog-core-session/src/session/directory.rs:1761"
   ],
-  "rust_composed": [],
+  "rust_composed": [
+   "core path (session actor / app-server built-in)"
+  ],
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-server/src/late.rs:119",
-   "mixdog-app-server/src/tests/actor.rs:92"
+   "mixdog-core-session/src/session/approval_notification_tests.rs:77"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5896,21 +6013,20 @@
    "projectFs/workspaceFile/write(ProjectFsWorkspaceFileWriteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:979"
+   "mixdog-workspace/src/service.rs:1410"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:966",
-   "mixdog-workspace/tests/it/service.rs:967"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -5946,8 +6062,8 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:172",
-   "mixdog-app-server/src/tests/dispatch.rs:385"
+   "mixdog-app-protocol/tests/it/contract.rs:172",
+   "mixdog-app-server/src/tests/dispatch.rs:416"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5985,25 +6101,24 @@
    "search/stop(SearchStopParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:767",
-   "mixdog-workspace/src/service.rs:795",
-   "mixdog-workspace/src/service.rs:799"
+   "mixdog-workspace/src/service.rs:1082",
+   "mixdog-workspace/src/service.rs:1110",
+   "mixdog-workspace/src/service.rs:1114"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278",
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278",
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:420",
-   "mixdog-workspace/tests/no_polling.rs:98"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -6035,7 +6150,7 @@
    "mixdog-services/src/memory/thread_search.rs:23"
   ],
   "rust_composed": [
-   "ThreadSearchService @ mixdog-app-server-daemon/src/compose_flip.rs:2658"
+   "ThreadSearchService @ mixdog-app-server-daemon/src/compose_flip.rs:2867"
   ],
   "problems": [],
   "proof": "test",
@@ -6074,21 +6189,20 @@
    "projectFs/searchText(ProjectFsSearchTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:679"
+   "mixdog-workspace/src/service.rs:971"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:444",
-   "mixdog-workspace/tests/it/service.rs:798"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -6117,10 +6231,10 @@
    "notify/test(NotifyTestParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-domains/src/notify/service.rs:110"
+   "mixdog-core-domains/src/notify/service.rs:126"
   ],
   "rust_composed": [
-   "NotifyService @ mixdog-app-server-daemon/src/compose_flip.rs:2327"
+   "NotifyService @ mixdog-app-server-daemon/src/compose_flip.rs:2491"
   ],
   "problems": [],
   "proof": "recording",
@@ -6158,7 +6272,7 @@
    "config/value/write(v2::config::ConfigValueWriteParams) -> v2::config::ConfigWriteResponse"
   ],
   "rust_sites": [
-   "mixdog-core-config/src/config/service.rs:95"
+   "mixdog-core-config/src/config/service.rs:128"
   ],
   "rust_composed": [
    "ConfigService @ mixdog-app-server-daemon/src/compose_domains.rs:59"
@@ -6166,7 +6280,7 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:169"
+   "mixdog-app-protocol/tests/it/contract.rs:169"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6202,7 +6316,7 @@
    "mixdog-core-domains/src/domains/ai_admin/route_set_service.rs:32"
   ],
   "rust_composed": [
-   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2609"
+   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2814"
   ],
   "problems": [],
   "proof": "none",
@@ -6243,10 +6357,9 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-app-server-daemon/src/connection_close.rs:179",
-   "mixdog-remote/tests/it/foreground.rs:112"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None; names the wire method) <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "replaced: apps/mobile/src/screen-reporter.ts",
   "server": "served",
@@ -6279,14 +6392,16 @@
    "git/globalConfig/write(GitGlobalConfigWriteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:640"
+   "mixdog-scm/src/input.rs:320"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "test",
+  "proof_evidence": [
+   "mixdog-scm/src/input_tests.rs:169"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -6321,7 +6436,7 @@
    "mixdog-core-domains/src/domains/ai_admin/route_set_service.rs:31"
   ],
   "rust_composed": [
-   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2609"
+   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2814"
   ],
   "problems": [],
   "proof": "test",
@@ -6359,7 +6474,7 @@
    "config/value/write(v2::config::ConfigValueWriteParams) -> v2::config::ConfigWriteResponse"
   ],
   "rust_sites": [
-   "mixdog-core-config/src/config/service.rs:95"
+   "mixdog-core-config/src/config/service.rs:128"
   ],
   "rust_composed": [
    "ConfigService @ mixdog-app-server-daemon/src/compose_domains.rs:59"
@@ -6400,7 +6515,7 @@
    "config/value/write(v2::config::ConfigValueWriteParams) -> v2::config::ConfigWriteResponse"
   ],
   "rust_sites": [
-   "mixdog-core-config/src/config/service.rs:95"
+   "mixdog-core-config/src/config/service.rs:128"
   ],
   "rust_composed": [
    "ConfigService @ mixdog-app-server-daemon/src/compose_domains.rs:59"
@@ -6408,7 +6523,7 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:169"
+   "mixdog-app-protocol/tests/it/contract.rs:169"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6439,7 +6554,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:574"
+   "mixdog-app-server/src/server.rs:591"
   ],
   "rust_composed": [],
   "problems": [],
@@ -6482,10 +6597,9 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-app-server-daemon/src/connection_close.rs:179",
-   "mixdog-remote/tests/it/foreground.rs:112"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None; names the wire method) <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "replaced: apps/mobile/src/screen-reporter.ts",
   "server": "served",
@@ -6528,10 +6642,9 @@
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-core/src/run_host/tool_pool/tests.rs:579",
-   "mixdog-core/src/run_host/tool_pool/tests.rs:579"
+   "apps/mobile/fixtures/phone-order/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6572,7 +6685,7 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-core/src/run_host/tool_pool/tests.rs:579"
+   "mixdog-core/src/run_host/tool_pool/tests.rs:578"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6613,7 +6726,7 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-core/src/run_host/tool_pool/tests.rs:579"
+   "mixdog-core/src/run_host/tool_pool/tests.rs:578"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6651,8 +6764,8 @@
    "thread/unsubscribe(v2::thread::ThreadIdParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/handle.rs:636",
-   "mixdog-app-server/src/server.rs:596"
+   "mixdog-core-session/src/session/handle.rs:815",
+   "mixdog-app-server/src/server.rs:613"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)",
@@ -6697,10 +6810,9 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-app-server-daemon/src/connection_close.rs:179",
-   "mixdog-remote/tests/it/foreground.rs:112"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None; names the wire method) <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "replaced: apps/mobile/src/screen-reporter.ts",
   "server": "served",
@@ -6733,7 +6845,7 @@
    "update/desktop/command(v2::host::UpdateDesktopCommandParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-core-domains/src/domains/update.rs:710"
+   "mixdog-core-domains/src/domains/update.rs:714"
   ],
   "rust_composed": [
    "UpdateService @ mixdog-app-server-daemon/src/compose_domains/adapters.rs:43"
@@ -6773,10 +6885,10 @@
    "github/star(GithubStarParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-scm/src/service.rs:663"
+   "mixdog-scm/src/service.rs:575"
   ],
   "rust_composed": [
-   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2313"
+   "ScmHandle @ mixdog-app-server-daemon/src/compose_flip.rs:2473"
   ],
   "problems": [],
   "proof": "none",
@@ -6812,16 +6924,16 @@
    "thread/start(v2::thread::ThreadStartParams) -> v2::thread::ThreadStartResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/directory.rs:1444"
+   "mixdog-app-server-daemon/src/compose.rs:531"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:413",
-   "mixdog-app-server/src/tests/dispatch.rs:135"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6854,16 +6966,16 @@
    "thread/start(v2::thread::ThreadStartParams) -> v2::thread::ThreadStartResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/directory.rs:1444"
+   "mixdog-app-server-daemon/src/compose.rs:531"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:413",
-   "mixdog-app-server/src/tests/dispatch.rs:135"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6894,16 +7006,16 @@
    "thread/start(v2::thread::ThreadStartParams) -> v2::thread::ThreadStartResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/directory.rs:1444"
+   "mixdog-app-server-daemon/src/compose.rs:531"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:413",
-   "mixdog-app-server/src/tests/dispatch.rs:135"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6937,21 +7049,20 @@
    "projectFs/stat(ProjectFsStatParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:571"
+   "mixdog-workspace/src/service.rs:841"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:148",
-   "mixdog-workspace/tests/it/service.rs:152"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -6977,7 +7088,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:596"
+   "mixdog-app-server/src/server.rs:613"
   ],
   "rust_composed": [],
   "problems": [],
@@ -7020,7 +7131,7 @@
    "mixdog-core-session/src/session/shell_jobs.rs:35"
   ],
   "rust_composed": [
-   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2637"
+   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2846"
   ],
   "problems": [],
   "proof": "none",
@@ -7097,7 +7208,7 @@
    "thread/start(v2::thread::ThreadStartParams) -> v2::thread::ThreadStartResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/directory.rs:1444"
+   "mixdog-app-server-daemon/src/compose.rs:531"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
@@ -7105,7 +7216,7 @@
   "problems": [],
   "proof": "test",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/contract.rs:413",
+   "mixdog-app-protocol/tests/it/contract.rs:413",
    "mixdog-app-server/src/tests/dispatch.rs:135"
   ],
   "phone_o1": "unchanged",
@@ -7141,16 +7252,16 @@
    "turn/start(v2::thread::TurnStartParams) -> v2::thread::TurnStartResponse"
   ],
   "rust_sites": [
-   "mixdog-core-session/src/session/actor.rs:3855"
+   "mixdog-core-session/src/session/actor.rs:4118"
   ],
   "rust_composed": [
    "core path (session actor / app-server built-in)"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/errors.rs:102",
-   "mixdog-cli/src/exec/tests.rs:171"
+   "phone-chat/host.json (exact=None)",
+   "unlinked: phone-chat/host.json <- mixdog-workspace/tests/it/service.rs:1683"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -7182,7 +7293,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server/src/server.rs:560"
+   "mixdog-app-server/src/server.rs:577"
   ],
   "rust_composed": [],
   "problems": [],
@@ -7219,12 +7330,13 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:125"
+   "native/mixdog-spawn/src/service/terminal.rs:192"
   ],
   "rust_composed": [],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1459",
    "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
   ],
   "phone_o1": "unchanged",
@@ -7259,14 +7371,16 @@
    "terminal/attach(TerminalAttachParams) -> JsonValue"
   ],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:231"
+   "native/mixdog-spawn/src/service/terminal.rs:329"
   ],
   "rust_composed": [
-   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:127"
+   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:133"
   ],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1459",
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the wire method) <- native/mixdog-spawn/tests/services.rs:217",
    "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
   ],
   "phone_o1": "unchanged",
@@ -7301,14 +7415,16 @@
    "terminal/dispose(TerminalDisposeParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:280"
+   "native/mixdog-spawn/src/service/terminal.rs:383"
   ],
   "rust_composed": [
-   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:127"
+   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:133"
   ],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1459",
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the wire method) <- native/mixdog-spawn/tests/services.rs:217",
    "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
   ],
   "phone_o1": "unchanged",
@@ -7343,14 +7459,16 @@
    "terminal/ensure(TerminalEnsureParams) -> JsonValue"
   ],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:206"
+   "native/mixdog-spawn/src/service/terminal.rs:304"
   ],
   "rust_composed": [
-   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:127"
+   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:133"
   ],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1459",
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the wire method) <- native/mixdog-spawn/tests/services.rs:217",
    "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
   ],
   "phone_o1": "unchanged",
@@ -7384,14 +7502,16 @@
    "terminal/focus(TerminalFocusParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:265"
+   "native/mixdog-spawn/src/service/terminal.rs:366"
   ],
   "rust_composed": [
-   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:127"
+   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:133"
   ],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1459",
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the wire method) <- native/mixdog-spawn/tests/services.rs:217",
    "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
   ],
   "phone_o1": "unchanged",
@@ -7424,14 +7544,16 @@
    "terminal/profiles(TerminalProfilesParams) -> JsonValue"
   ],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:249"
+   "native/mixdog-spawn/src/service/terminal.rs:350"
   ],
   "rust_composed": [
-   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:127"
+   "TerminalService @ mixdog-app-server-daemon/src/compose_flip.rs:133"
   ],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1459",
+   "apps/mobile/fixtures/phone-terminal/golden.json (exact=None; names the wire method) <- native/mixdog-spawn/tests/services.rs:217",
    "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
   ],
   "phone_o1": "unchanged",
@@ -7464,13 +7586,14 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:301"
+   "native/mixdog-spawn/src/service/terminal.rs:413"
   ],
   "rust_composed": [],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
-   "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
+   "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3",
+   "terminal-ops/failure-paths.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1349"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -7502,13 +7625,14 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "native/mixdog-spawn/src/service/terminal.rs:300"
+   "native/mixdog-spawn/src/service/terminal.rs:412"
   ],
   "rust_composed": [],
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
-   "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3"
+   "desktop/terminal/corpus.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:3",
+   "terminal-ops/failure-paths.json (exact=None; names the Node op only) <- native/mixdog-spawn/tests/terminal.rs:1349"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -7541,20 +7665,20 @@
    "projectFs/trash(ProjectFsTrashParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:663"
+   "mixdog-workspace/src/service.rs:955"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:634"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -7582,7 +7706,7 @@
    "config/value/write(v2::config::ConfigValueWriteParams) -> v2::config::ConfigWriteResponse"
   ],
   "rust_sites": [
-   "mixdog-core-config/src/config/service.rs:95"
+   "mixdog-core-config/src/config/service.rs:128"
   ],
   "rust_composed": [
    "ConfigService @ mixdog-app-server-daemon/src/compose_domains.rs:59"
@@ -7590,7 +7714,8 @@
   "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
-   "desktop/settings/config-twin.json (exact=None; names the Node op only) <- mixdog-core-config/src/config/tests.rs:414"
+   "desktop/settings/config-twin.json (exact=None; names the Node op only) <- mixdog-core-config/src/config/tests.rs:452",
+   "desktop/settings/write-errors-twin.json (exact=None; names the Node op only) <- mixdog-core-config/src/config/tests.rs:546"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -7623,7 +7748,7 @@
    "config/value/write(v2::config::ConfigValueWriteParams) -> v2::config::ConfigWriteResponse"
   ],
   "rust_sites": [
-   "mixdog-core-config/src/config/service.rs:95"
+   "mixdog-core-config/src/config/service.rs:128"
   ],
   "rust_composed": [
    "ConfigService @ mixdog-app-server-daemon/src/compose_domains.rs:59"
@@ -7664,7 +7789,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-protocol/src/v1.rs:130"
+   "mixdog-app-protocol/src/v1.rs:172"
   ],
   "rust_composed": [],
   "problems": [],
@@ -7871,20 +7996,20 @@
    "document/previewPages(DocumentPreviewPagesParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-exthost/src/document.rs:129"
+   "mixdog-exthost/src/document.rs:174"
   ],
   "rust_composed": [
-   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2310"
+   "DocumentService @ mixdog-app-server-daemon/src/compose_flip.rs:2468"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-exthost/src/document.rs:231"
+   "phone-guards/golden.json (exact=None; names the wire method) <- mixdog-exthost/src/document.rs:371"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Visualize panel (agent canvases) on the phone",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Visualize panel (agent canvases) on the phone"
  },
@@ -7955,7 +8080,7 @@
   ],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142",
+   "mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:234",
    "mixdog-core-domains/src/domains/host.rs:65"
   ],
   "rust_composed": [],
@@ -7993,21 +8118,20 @@
    "projectFs/backup/write(ProjectFsBackupWriteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:963"
+   "mixdog-workspace/src/service.rs:1394"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:941",
-   "mixdog-workspace/tests/it/service.rs:981"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -8035,21 +8159,20 @@
    "projectFs/writeText(ProjectFsWriteTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:602"
+   "mixdog-workspace/src/service.rs:893"
   ],
   "rust_composed": [
-   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2278"
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:226",
-   "mixdog-workspace/tests/it/service.rs:245"
+   "apps/mobile/fixtures/phone-files/golden.json (exact=None; names the wire method) <- mixdog-workspace/tests/it/service.rs:108"
   ],
   "phone_o1": "unchanged",
   "server": "served",
-  "class": "exists-unproven",
-  "feature": "Files and editor: browse, open, edit, search, language server",
+  "class": "same",
+  "feature": "",
   "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Files and editor: browse, open, edit, search, language server"
  },
@@ -8145,22 +8268,21 @@
    "catalog rows are app-feed notifications"
   ],
   "rust_sites": [
+   "thread/started <- mixdog-core-session/src/session/thread_edges.rs:34",
    "thread/summary/updated <- mixdog-core/src/run_host/bot_work_summaries.rs:26",
-   "thread/deleted <- mixdog-core-session/src/session/purge.rs:337",
-   "thread/archived <- mixdog-core-session/src/session/thread_settings.rs:691",
-   "thread/unarchived <- mixdog-core-session/src/session/thread_settings.rs:691"
+   "thread/deleted <- mixdog-core-session/src/session/thread_edges.rs:36",
+   "thread/archived <- mixdog-core-session/src/session/thread_settings.rs:706",
+   "thread/unarchived <- mixdog-core-session/src/session/thread_settings.rs:706"
   ],
   "rust_composed": [],
-  "problems": [
-   "thread/started: static search found no publisher outside the protocol crates"
-  ],
+  "problems": [],
   "proof": "none",
   "proof_evidence": [],
   "phone_o1": "replaced: packages/protocol-client/src/method-table.ts",
-  "server": "unserved",
+  "server": "served",
   "class": "phone-changed",
-  "feature": "Live updates on the phone",
-  "unit": "RS-5 event publishers",
+  "feature": "",
+  "unit": "",
   "area": "Live updates on the phone"
  },
  {
@@ -8225,11 +8347,11 @@
   ],
   "rust_sites": [
    "thread/snapshot <- mixdog-core-session/src/session/view.rs:121",
-   "turn/started <- mixdog-core-session/src/session/actor.rs:1870",
+   "turn/started <- mixdog-core-session/src/session/actor.rs:1963",
    "turn/completed <- mixdog-cli/src/exec/feed.rs:190",
    "item/started <- mixdog-cli/src/exec/feed.rs:182",
    "item/completed <- mixdog-cli/src/exec/feed.rs:186",
-   "item/agentMessage/delta <- mixdog-core-session/src/session/actor.rs:3080"
+   "item/agentMessage/delta <- mixdog-core-session/src/session/actor.rs:3284"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8267,8 +8389,10 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-pushes/golden.json <- apps/desktop/src/renderer/remote-protocol-pushes.slow.test.mjs (via phone-pushes-replay.mjs)"
+  ],
   "phone_o1": "replaced: packages/protocol-client/src/method-table.ts",
   "server": "served",
   "class": "phone-changed",
@@ -8296,18 +8420,18 @@
   "rust_shape": [
    "section modelCatalog"
   ],
-  "rust_sites": [],
-  "rust_composed": [],
-  "problems": [
-   "model/catalog/updated: static search found no publisher outside the protocol crates"
+  "rust_sites": [
+   "model/catalog/updated <- mixdog-core-domains/src/domains/ai_admin/model_catalog_feed.rs:143"
   ],
+  "rust_composed": [],
+  "problems": [],
   "proof": "none",
   "proof_evidence": [],
   "phone_o1": "replaced: packages/protocol-client/src/method-table.ts",
-  "server": "unserved",
+  "server": "served",
   "class": "phone-changed",
-  "feature": "Live updates on the phone",
-  "unit": "RS-5 event publishers",
+  "feature": "",
+  "unit": "",
   "area": "Live updates on the phone"
  },
  {
@@ -8335,8 +8459,10 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-pushes/golden.json <- apps/desktop/src/renderer/remote-protocol-pushes.slow.test.mjs (via phone-pushes-replay.mjs)"
+  ],
   "phone_o1": "replaced: packages/protocol-client/src/method-table.ts",
   "server": "served",
   "class": "phone-changed",
@@ -8399,12 +8525,14 @@
    "section reviewDiff (turn-review-changed)"
   ],
   "rust_sites": [
-   "review/diff/updated <- mixdog-scm/src/service.rs:567"
+   "review/diff/updated <- mixdog-scm/src/service.rs:235"
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording+test",
+  "proof_evidence": [
+   "turn-review-signal/scenarios.json <- mixdog-app-server-daemon/src/compose/review_restart_tests.rs:189"
+  ],
   "phone_o1": "replaced: packages/protocol-client/src/method-table.ts",
   "server": "served",
   "class": "phone-changed",
@@ -8501,7 +8629,7 @@
    "section hostState (publishBrowserApprovalSessions)"
   ],
   "rust_sites": [
-   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142"
+   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:234"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8529,23 +8657,23 @@
   "inventory": "EVENT_MAP",
   "rust_kind": "notification",
   "rust_targets": [
-   "host/browser/viewFrames"
+   "browser/frame"
   ],
   "rust_shape": [
-   "X17 binary frames, purpose browserView (SPEC In-app browser view)"
+   "the live view streams push a subscribed phone its JPEG-view frames (live_view_streams.rs), acknowledged by browser/streamAck"
   ],
-  "rust_sites": [],
+  "rust_sites": [
+   "browser/frame <- mixdog-app-server-daemon/src/live_view.rs:467"
+  ],
   "rust_composed": [],
-  "problems": [
-   "host/browser/viewFrames: static search found no publisher outside the protocol crates"
-  ],
+  "problems": [],
   "proof": "none",
   "proof_evidence": [],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Remote browser live view on the phone",
-  "unit": "RS-2 live view and remote screen",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Remote browser live view on the phone"
  },
  {
@@ -8561,24 +8689,24 @@
   "inventory": "EVENT_MAP",
   "rust_kind": "notification",
   "rust_targets": [
-   "host/state/updated"
+   "browser/webrtcSignal"
   ],
   "rust_shape": [
-   "WebRTC signalling stays in Electron/core carrier (mixdog-remote webrtc); no phone-visible notification of this name"
+   "the live view relay pushes the phone its WebRTC signals (live_view.rs RelayAdapter::send)"
   ],
   "rust_sites": [
-   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142"
+   "browser/webrtcSignal <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:785"
   ],
   "rust_composed": [],
   "problems": [],
   "proof": "none",
   "proof_evidence": [],
-  "phone_o1": "replaced: packages/protocol-client/src/method-table.ts",
+  "phone_o1": "unchanged",
   "server": "served",
-  "class": "phone-changed",
-  "feature": "",
-  "unit": "",
-  "area": "Live updates on the phone"
+  "class": "exists-unproven",
+  "feature": "Remote browser live view on the phone",
+  "unit": "PH-2 phone UI calls -> protocol methods",
+  "area": "Remote browser live view on the phone"
  },
  {
   "surface": "event",
@@ -8601,7 +8729,7 @@
    "section hostState key browserTabs"
   ],
   "rust_sites": [
-   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142"
+   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:234"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8635,7 +8763,7 @@
    "section hostState key browserImport"
   ],
   "rust_sites": [
-   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142"
+   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:234"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8669,7 +8797,7 @@
    "ui/openRequested"
   ],
   "rust_sites": [
-   "ui/openRequested <- mixdog-core-session/src/session/terminal_host.rs:57"
+   "ui/openRequested <- mixdog-core-session/src/session/terminal_host.rs:55"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8703,7 +8831,7 @@
    "ui/openRequested (terminal-run request) + ui/terminalRun/claimed"
   ],
   "rust_sites": [
-   "ui/openRequested <- mixdog-core-session/src/session/terminal_host.rs:57"
+   "ui/openRequested <- mixdog-core-session/src/session/terminal_host.rs:55"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8737,7 +8865,7 @@
    "section hostState key visualize"
   ],
   "rust_sites": [
-   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:142"
+   "host/state/updated <- mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:234"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8771,7 +8899,7 @@
    "terminal output is the terminal/* method family + X17 frames; activity is the section"
   ],
   "rust_sites": [
-   "terminal/activity/updated <- native/mixdog-spawn/src/service/terminal.rs:125"
+   "terminal/activity/updated <- native/mixdog-spawn/src/service/terminal.rs:192"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8805,7 +8933,7 @@
    "terminal-size-owner is replaced by the terminalTabs section (desktop-services 2.4)"
   ],
   "rust_sites": [
-   "terminal/tabs/updated <- native/mixdog-spawn/src/service/terminal.rs:141"
+   "terminal/tabs/updated <- native/mixdog-spawn/src/service/terminal.rs:214"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8839,7 +8967,7 @@
    "section terminalActivity"
   ],
   "rust_sites": [
-   "terminal/activity/updated <- native/mixdog-spawn/src/service/terminal.rs:125"
+   "terminal/activity/updated <- native/mixdog-spawn/src/service/terminal.rs:192"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8873,7 +9001,7 @@
    "folder-changed -> gitStatus re-read (desktop-services 2.4); file watch is git/watch"
   ],
   "rust_sites": [
-   "git/status/updated <- mixdog-scm/src/service.rs:264"
+   "git/status/updated <- mixdog-scm/src/input.rs:258"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8907,7 +9035,7 @@
    "section lspDiagnostics"
   ],
   "rust_sites": [
-   "lsp/diagnostics/updated <- mixdog-workspace/src/service.rs:166"
+   "lsp/diagnostics/updated <- mixdog-workspace/src/service.rs:165"
   ],
   "rust_composed": [],
   "problems": [],
@@ -8941,7 +9069,7 @@
    "section lspStatus"
   ],
   "rust_sites": [
-   "lsp/status/updated <- mixdog-workspace/src/service.rs:159"
+   "lsp/status/updated <- mixdog-workspace/src/service.rs:158"
   ],
   "rust_composed": [],
   "problems": [],
@@ -9055,10 +9183,10 @@
   "proof_evidence": [],
   "phone_o1": "unchanged (apps/mobile native decryptors untouched; test vector shared)",
   "server": "served",
-  "feature": "Push notifications when a turn finishes, needs input or approval",
-  "class": "exists-unproven",
-  "unit": "RS-3 push payload parity",
-  "area": "Push notifications when a turn finishes, needs input or approval"
+  "feature": "",
+  "class": "same",
+  "unit": "PH-2 phone UI calls -> protocol methods",
+  "area": "Live updates on the phone"
  },
  {
   "surface": "transport",
@@ -9078,7 +9206,7 @@
   "rust_targets": [],
   "rust_shape": [],
   "rust_sites": [
-   "mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:44",
+   "mixdog-app-server-daemon/src/domain_seams/remote/e2e.rs:57",
    "native/core/crates/mixdog-remote/src/e2ee/handshake.rs"
   ],
   "rust_composed": [],
@@ -9111,23 +9239,22 @@
   "rust_targets": [],
   "rust_shape": [],
   "rust_sites": [
+   "mixdog-remote/src/access/runtime.rs:21",
    "native/core/crates/mixdog-remote/src/transport/",
    "native/core/crates/mixdog-remote/src/webrtc/carrier.rs"
   ],
   "rust_composed": [],
-  "problems": [
-   "mixdog-remote `transport` module is not used by any non-test code outside its own directory (access/runtime.rs does not reach it)"
-  ],
+  "problems": [],
   "proof": "recording+test",
   "proof_evidence": [
    "native/core/fixtures/remote-transport/vectors.json <- mixdog-remote/tests/it/transport_vectors.rs"
   ],
   "phone_o1": "reused: apps/mobile/src/relay-connector.ts",
-  "server": "unserved",
-  "class": "missing",
-  "feature": "Direct phone-to-PC data channel (lower latency, less relay load)",
-  "unit": "RS-1 transport and media lane wiring",
-  "area": "Direct phone-to-PC data channel (lower latency, less relay load)"
+  "server": "served",
+  "class": "same",
+  "feature": "",
+  "unit": "",
+  "area": "Live updates on the phone"
  },
  {
   "surface": "transport",
@@ -9179,20 +9306,19 @@
   "rust_targets": [],
   "rust_shape": [],
   "rust_sites": [
+   "mixdog-remote/src/access/runtime.rs:248",
    "native/core/crates/mixdog-remote/src/media/mod.rs",
    "native/core/crates/mixdog-remote/src/media/range.rs"
   ],
   "rust_composed": [],
-  "problems": [
-   "mixdog-remote `media` module is not used by any non-test code outside its own directory (access/runtime.rs does not reach it)"
-  ],
+  "problems": [],
   "proof": "none",
   "proof_evidence": [],
   "phone_o1": "unchanged",
-  "server": "unserved",
-  "class": "missing",
+  "server": "served",
+  "class": "exists-unproven",
   "feature": "Inline image / video / audio previews and ranged downloads on the phone",
-  "unit": "RS-1 transport and media lane wiring",
+  "unit": "PH-2 phone UI calls -> protocol methods",
   "area": "Inline image / video / audio previews and ranged downloads on the phone"
  }
 ]

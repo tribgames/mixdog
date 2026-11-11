@@ -585,13 +585,13 @@
       "type": "string"
     },
     "HostBrowserViewFramesParams": {
-      "description": "First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).",
+      "description": "A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off` (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).",
       "properties": {
         "on": {
           "type": "boolean"
         },
         "request": {
-          "description": "Phone stream request (fit, quality) as today's take-over request."
+          "description": "The largest `{maxWidth, maxHeight, fit?}` of the session's subscribers (Node's `largest`, `remote-browser-streams.ts`); `null` with `on: false`."
         },
         "streamId": {
           "description": "The X17 `streamId` the host stamps on this tab's frames.",
@@ -1765,6 +1765,99 @@
           },
           "required": [
             "model",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "session_account_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "accountRouting"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountSwitching"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "at": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "accountChanged"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "account_id",
+            "at",
+            "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole (`StreamEvent::WireRerouted`, Node `wireReroute`).",
+          "properties": {
+            "route": true,
+            "type": {
+              "enum": [
+                "wireRerouted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "route",
             "type"
           ],
           "type": "object"
@@ -4039,6 +4132,23 @@
       ],
       "type": "object"
     },
+    "ThreadStageUpdatedParams": {
+      "description": "`thread/stage/updated`: a run stage a client shows as its status, not a transcript row (Node's `onStageChange` relayed to the turn's `applyStageChange`: the spinner's mode and verb), with the stage's detail.",
+      "properties": {
+        "detail": true,
+        "stage": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "ThreadStartedParams": {
       "properties": {
         "thread": {
@@ -5573,6 +5683,24 @@
       "properties": {
         "method": {
           "enum": [
+            "thread/stage/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadStageUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
             "thread/name/updated"
           ],
           "type": "string"
@@ -6231,6 +6359,23 @@
         "params": {
           "$ref": "#/definitions/BrowserWebrtcSignalParams"
         }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": true
       },
       "required": [
         "method",
