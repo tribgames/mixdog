@@ -90,7 +90,7 @@ function hostAnswer(params) {
 }
 
 /** One core on the profile `p` until `script(client, threadId)` has run; then a graceful stop. */
-async function runCore(p, bin, log, script) {
+export async function runCore(p, bin, log, script) {
   const cleanups = [];
   let child;
   let exited;
@@ -114,6 +114,7 @@ async function runCore(p, bin, log, script) {
     const { ws: WebSocket, client: lib } = await loadLibs();
     const turnWaiters = [];
     const notifications = [];
+    const notificationListeners = new Set();
     cleanups.push(() => writeFileSync(join(p.root, `notifications-${Date.now()}.json`), JSON.stringify(notifications, null, 1)));
     client = await deadline(lib.connect({
       target: { id: 'local' },
@@ -133,6 +134,7 @@ async function runCore(p, bin, log, script) {
         apply(state, notification) {
           notifications.push({ method: notification.method, params: notification.params });
           if (notification.method === 'turn/completed') for (const w of turnWaiters.splice(0)) w();
+          for (const listener of [...notificationListeners]) listener(notification);
           return lib.sessionReducer.apply(state, notification);
         },
       },
@@ -164,7 +166,12 @@ async function runCore(p, bin, log, script) {
       client.respond(id, { error: { code: -32601, message: `the replay does not serve ${method}` } });
     }));
     const turnCompleted = () => new Promise((r) => turnWaiters.push(r));
-    await script({ client, turnCompleted, serverRequests, notifications });
+    // `onNotification(listener)`: every later notification is handed to `listener`; returns the function that stops it.
+    const onNotification = (listener) => {
+      notificationListeners.add(listener);
+      return () => notificationListeners.delete(listener);
+    };
+    await script({ client, turnCompleted, serverRequests, notifications, onNotification });
     await deadline(client.close(), 30_000, 'the client closing');
     client = null;
     const stopping = new AbortController();
