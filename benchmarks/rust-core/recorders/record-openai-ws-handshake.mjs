@@ -3,39 +3,36 @@
 // `unexpected-response` with a scripted status / headers / body chunks. The settled value is recorded whole (status, headers, code,
 // retry-after / reset advice, raw body, message).
 //   node benchmarks/rust-core/recorders/record-openai-ws-handshake.mjs --tree <exact export of b6f10295a>
-import { EventEmitter } from 'node:events';
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-openai-ws-handshake',
   net: false,
-  entry: 'src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs attachHandshakeFailureHandlers({ socket, errLabel: "OpenAI WS", openStart, isSettled, settle }); the socket is an EventEmitter, the response chunks are emitted synchronously (no timer).',
-  compare: 'mixdog-ai providers/openai ws handshake failure (transport/ws.rs:40): feed `input` (status, headers, body chunks) and compare the settled `{ ok, val }` (val fields: status, httpStatus, headers, code, retryAfterMs, resetAt, httpBody, message; `messageLength` for the long case).',
+  entry: 'src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs acquireWebSocket (the real ws client; openai-ws-handshake.mjs attachHandshakeFailureHandlers inside it) against a loopback server (lib/ws-world.mjs) that refuses the upgrade with a scripted non-101 response. Not run: a live endpoint.',
+  compare: 'mixdog-ai transport/ws.rs connect (:40 handshake failure): serve `input.refusal` (status, header pairs, body chunks) and compare the error whole (message, status, httpStatus, headers, code, retryAfterMs, resetAt, httpBody) and the ordered `events` (dial, upgrade request with every header, the refusal).',
   replay: "Rust entry (pub, on o1): mixdog_ai::transport::ws::connect (transport/ws.rs:237) and ConnectError (transport/ws.rs:70); the adapter above it is OpenAiAdapter (openai/adapter.rs:308).",
 });
-const { attachHandshakeFailureHandlers } = await rec.load('src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs');
+const world = await rec.wsWorld();
+const { acquireWebSocket } = await rec.raw('agent/orchestrator/providers/openai-ws-pool.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/openai-ws-handshake.test.mjs';
-function handshake(statusCode, headers, chunks) {
-  const socket = new EventEmitter();
-  socket.terminate = () => {};
-  let settled = null;
-  attachHandshakeFailureHandlers({ socket, errLabel: 'OpenAI WS', openStart: Date.now(), isSettled: () => settled !== null, settle: (ok, val) => { settled = { ok, val }; } });
-  const res = new EventEmitter();
-  res.statusCode = statusCode;
-  res.headers = headers;
-  socket.emit('unexpected-response', {}, res);
-  for (const chunk of chunks) res.emit('data', Buffer.from(chunk));
-  res.emit('end');
-  return settled;
-}
-const shape = (statusCode, headers, chunks) => {
-  const { ok, val } = handshake(statusCode, headers, chunks);
-  return { ok, status: val.status, httpStatus: val.httpStatus, headers: val.headers, code: val.code, retryAfterMs: val.retryAfterMs, resetAt: val.resetAt, httpBody: val.httpBody, message: val.message, messageLength: val.message.length };
+const AUTH = { type: 'openai-oauth', access_token: 'fixture-access-token', account_id: 'acct-fixture' };
+// The provider's real client dials a server that refuses the upgrade with a non-101 response (status, headers, body chunks as the server writes them);
+// attachHandshakeFailureHandlers (through acquireWebSocket) settles the connect with the error, recorded whole.
+const handshake = async (refusal) => {
+  world.reset({ refuse: () => refusal });
+  let outcome;
+  try {
+    outcome = { value: await acquireWebSocket({ auth: AUTH, poolKey: '', cacheKey: 'ws-handshake-test', forceFresh: true }) };
+  } catch (error) {
+    outcome = { error };
+  }
+  await world.until((t) => t.some((e) => e.event === 'upgrade-refused'), 'upgrade refused');
+  return { outcome, events: world.trace.map((e) => ({ ...e })) };
 };
 const body = JSON.stringify({ error: { type: 'usage_limit_reached', message: 'm'.repeat(400), resets_at: 1893456000 } });
-const headers = { 'retry-after': '30', 'x-request-id': 'req_1' };
-const chunks = [body.slice(0, 50), body.slice(50)];
-await rec.run('unexpected-response-preserves-status-headers-body', `${SRC}:28`, { statusCode: 429, headers, chunks }, () => shape(429, headers, chunks));
-await rec.run('non-json-body-keeps-status-and-headers', `${SRC}:46`, { statusCode: 403, headers: { server: 'cloudflare' }, chunks: ['<html>blocked</html>'] }, () => shape(403, { server: 'cloudflare' }, ['<html>blocked</html>']));
+const refusal429 = { status: 429, headers: [['retry-after', '30'], ['x-request-id', 'req_1']], bodyChunks: [body.slice(0, 50), body.slice(50)] };
+await rec.run('unexpected-response-preserves-status-headers-body', `${SRC}:28`, { refusal: refusal429 }, () => handshake(refusal429));
+const refusal403 = { status: 403, headers: [['server', 'cloudflare']], bodyChunks: ['<html>blocked</html>'] };
+await rec.run('non-json-body-keeps-status-and-headers', `${SRC}:46`, { refusal: refusal403 }, () => handshake(refusal403));
 await rec.finish();
