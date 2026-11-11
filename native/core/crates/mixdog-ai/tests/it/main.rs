@@ -20,6 +20,8 @@ mod openai_switch;
 mod openai_ws_pool;
 mod process_state;
 mod provider_case;
+mod replay_anthropic_stream;
+mod replay_env;
 mod retry;
 mod tls_hello;
 mod transport;
