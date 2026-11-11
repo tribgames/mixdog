@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,20 +66,17 @@
   "recorderSha256": "9e6e4a04d439361cd06775f7aa0f3f4a9662a7d91b3a9b8904a78a6d97eee13e",
   "replay": {
     "compare": "mixdog-computer capture size fit: compare each fitted size and the geometry error; the provider preparation case compares the prepared messages whole (image bytes included) and the metadata of the image sent",
-    "entry": "Drive these public items on o1: mixdog-agent/src/compact/image.rs:71 target_dimensions.",
+    "entry": "NO RUST ENTRY ON o1: computerCaptureSize (fit to 1280 x 1568 and the 28 / 32 px patch budgets, error capture_geometry_invalid): not in the crates; owner of the new code: mixdog-ai (the capture frame is bound before provider preparation); a public way to run the Anthropic message lowering on a message list with an image part (prepareAnthropicImages).",
+    "existsButNotPublicOnO1": [
+      "provider preparation of an image part: mixdog-ai/src/providers/anthropic/lowering.rs:134 `part_to_block` (private; `mod lowering` is private, providers/anthropic/mod.rs:19) passes the base64 image bytes through (:137), which is what the second case records; mixdog-agent/src/compact/image.rs:71 `target_dimensions` is image compaction, a different contract"
+    ],
     "missingOnO1": [
-      "computerCaptureSize (fit to 1280 x 1568 and the 28 / 32 px patch budgets, error capture_geometry_invalid): not in the crates",
-      "preparation of an already bound computer frame without rescale: target_dimensions is the Anthropic image box of compaction, a different contract"
+      "computerCaptureSize (fit to 1280 x 1568 and the 28 / 32 px patch budgets, error capture_geometry_invalid): not in the crates; owner of the new code: mixdog-ai (the capture frame is bound before provider preparation)",
+      "a public way to run the Anthropic message lowering on a message list with an image part (prepareAnthropicImages)"
     ],
     "normalised": {},
     "protocolMethods": [],
-    "rustTargets": [
-      {
-        "line": 71,
-        "name": "target_dimensions",
-        "path": "native/core/crates/mixdog-agent/src/compact/image.rs"
-      }
-    ],
+    "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "capture-size-cases",
