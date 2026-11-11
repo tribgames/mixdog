@@ -101,7 +101,7 @@ await set.run('a phone page reveals at most 512 rows a request, whatever limit i
     held = snapshot.items.length;
     counts.push(held);
   }
-  return { rows: 2_000, counts, revealed, finalHeld: reader.held, wireBytes: reader.wires.map((w) => w.bytes) };
+  return { rows: 2_000, counts, revealed, finalHeld: reader.held, wires: reader.wires };
 });
 await set.run('an oversized newest tool row goes with its outputs cut to fit, readable whole through Show full output', () => {
   const members = Array.from({ length: 40 }, (_, n) => ({ id: `m${n}`, name: 'read', result: 'r'.repeat(8_000) }));
