@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 22503,
+      "bytes": 22597,
       "path": "golden.json",
-      "sha256": "993321391bb5674c30da3c4dc23fd198e6c43b5316819f34ebfbb8c0f3e76518"
+      "sha256": "128ea06c9759d03b02ed2a2eb664c33202432aa62be66dbd7e44e8e8d778810b"
     }
   ],
   "inputs": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-capture-size-cases.mjs",
-  "recorderSha256": "34fdf6097213b8d8eeb5eb299424b649f2ccf1a491916a8fd51503ca465c5de2",
+  "recorderSha256": "9e6e4a04d439361cd06775f7aa0f3f4a9662a7d91b3a9b8904a78a6d97eee13e",
   "replay": {
     "compare": "mixdog-computer capture size fit: compare each fitted size and the geometry error; the provider preparation case compares the prepared messages whole (image bytes included) and the metadata of the image sent",
     "entry": "Drive these public items on o1: mixdog-agent/src/compact/image.rs:71 target_dimensions.",
@@ -83,6 +83,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "capture-size-cases",
-  "totalBytes": 22503,
+  "totalBytes": 22597,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

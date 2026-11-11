@@ -14,7 +14,7 @@ const { prepareAnthropicImages } = await set.load('src/runtime/agent/orchestrato
 await set.run('captures fit both encoder budgets before their coordinate frame is registered', () => {
   const screens = [[1275, 2274], [2560, 1440], [3840, 2160], [1080, 3840], [800, 600], [1, 3000], [1280, 720]];
   let geometry;
-  try { computerCaptureSize(0, 100); geometry = { returned: true }; } catch (e) { geometry = { name: e?.name ?? null, message: String(e?.message ?? e) }; }
+  try { computerCaptureSize(0, 100); geometry = { returned: true }; } catch (e) { geometry = { thrown: e }; }
   return { fits: screens.map(([width, height]) => ({ width, height, image: computerCaptureSize(width, height) })), invalidGeometry: { width: 0, height: 100, ...geometry } };
 });
 await set.run('provider preparation does not rescale an already bound computer frame', async () => {
