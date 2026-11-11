@@ -125,10 +125,15 @@ fn as_node(got: Map<String, Value>, node: &Value) -> Value {
         .collect()
 }
 
+/// Until the PC has been asked `n` times; each ask is an event (`asking`). The deadline is the read's own one-second
+/// budget on the paused clock, so the product's retry timer (which the clock reaches first) still runs.
 async fn asked(pc: &Pc, n: usize) {
-    while pc.asked.load(Ordering::SeqCst) < n {
-        pc.asking.notified().await;
-    }
+    let each = async {
+        while pc.asked.load(Ordering::SeqCst) < n {
+            pc.asking.notified().await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(1), each).await.unwrap_or_else(|_| panic!("the server's ask number {n} did not come"));
 }
 
 /// Case 9, the server's part: a read before any PC is connected waits for one (inside Node's `waitMs: 2000`; the

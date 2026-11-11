@@ -77,6 +77,13 @@ impl ProviderAdapter for VersionedAdapter {
     fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }
+    // The wrapped class declares how it takes documents (Grok lowers a PDF to text).
+    fn native_pdf(&self) -> bool {
+        self.inner.native_pdf()
+    }
+    fn native_documents(&self) -> Option<bool> {
+        self.inner.native_documents()
+    }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.versions.warm(self.dialect).await;

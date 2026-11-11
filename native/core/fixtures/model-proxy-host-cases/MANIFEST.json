@@ -139,11 +139,13 @@
       "19 maxRequestBytes": "Node's 200-byte cap was the test host's option; the typed bound is Limits::max_inbound_frame_bytes, checked by decode_inbound_text",
       "21/22 waitMs": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller",
       "23 long + short wait": "no per-read budget exists, so two unforced reads join one request (1, not Node's 2 more)",
-      "24/28 mixdog-local": "the Rust registry never builds mixdog-local; its rows are ignored in the replay"
+      "24/28 mixdog-local": "the Rust registry never builds mixdog-local (mixdog-ai registry/builder.rs:1286: built per turn from the managed runtime's endpoint); its rows are removed from case 24's input and answer, and case 28's localTraits is left unreplayed",
+      "24 developer options": "Node's recorder registry reads no Developer options and builds mimo-oauth, cursor-oauth, antigravity-oauth; the core gates them off (mixdog-ai service/admin_models.rs:445 provider_available). The test asserts Node's entries enabled and the core's exact gated entry, then compares the rest whole"
     },
     "open": {
       "12": "only the requested provider's credential is read on demand: not yet replayed through a send on the real registry",
-      "14": "a proxied side request's own transport scope: the typed ProxyOptions carries no scope flag (model_proxy.rs options_in sets transport_scope None), so the PC cannot fork and dispose one per side request"
+      "14": "a proxied side request's own transport scope: the typed ProxyOptions carries no scope flag (model_proxy.rs options_in sets transport_scope None), so the PC cannot fork and dispose one per side request",
+      "24 custom anthropic inputExcludesCache": "Node true (AnthropicProvider static), the core false: input_excludes_cache decides by provider name (mixdog-ai registry/accounted.rs:131), shared with accounting and the session books; asserted apart in the test"
     }
   },
   "set": "model-proxy-host-cases",
