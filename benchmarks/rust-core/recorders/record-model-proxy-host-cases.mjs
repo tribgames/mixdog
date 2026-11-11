@@ -10,7 +10,7 @@
 //        benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a with node_modules>
 import { FIXED_NOW, openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
-import { realDeadline, realTimers, virtualTimers } from './lib/virtual-timers.mjs';
+import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
 
 const scriptedUuids = scriptUuids();
 const set = openSet('model-proxy-host-cases', import.meta.url);
@@ -26,6 +26,8 @@ const { ModelProxyProvider, _resetModelProxyProviderConfigForTest, loadModelProx
 
 const DEADLINE_MS = 10_000;
 const disposers = [];
+/** Every message that crosses the JSON hop between the PC host and the daemon channel, as the text that crossed (the hop stands for the session connection: JSON over HTTP). */
+let wireLog = [];
 const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
 /** The event that ends a step, with a deadline on the real clock (the clock the code under test sees is virtual). */
 const settled = (label, promise, limitMs = DEADLINE_MS) => realDeadline(label, promise, limitMs);
@@ -37,15 +39,20 @@ function connect(runtime, { intercept = null, channel = new ModelProxyChannel(),
     invoke: async (operation, args) => {
       operations.push(operation);
       await intercept?.(operation);
-      const wireArgs = JSON.parse(JSON.stringify(args));
-      return JSON.parse(JSON.stringify((await channel.handleOperation(operation, wireArgs)) ?? null));
+      const argsText = JSON.stringify(args);
+      wireLog.push({ direction: 'pc->daemon', operation, text: argsText });
+      const replyText = JSON.stringify((await channel.handleOperation(operation, JSON.parse(argsText))) ?? null);
+      wireLog.push({ direction: 'daemon->pc', operation, text: replyText });
+      return JSON.parse(replyText);
     },
     loadRuntime: async () => runtime,
     onCallSettled: (event) => { settledCalls.push(event); for (const w of settledWaiters.splice(0)) { if (settledCalls.length >= w.count) w.resolve(settledCalls); else settledWaiters.push(w); } },
     ...hostOptions,
   });
   const detach = channel.attachPublisher((snapshot) => {
-    const value = JSON.parse(JSON.stringify(snapshot));
+    const text = JSON.stringify(snapshot);
+    wireLog.push({ direction: 'daemon->pc event', operation: MODEL_PROXY_REQUEST_EVENT, text });
+    const value = JSON.parse(text);
     setImmediate(() => host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, value));
   });
   disposers.push(() => { detach(); host.dispose(); });
@@ -78,28 +85,20 @@ function pcModules(available, keys = {}) {
 }
 const send = (channel, name, args = {}) => new ModelProxyProvider(name, {}, channel).send(args.messages ?? [], args.model ?? 'gpt', args.tools, args.options ?? {});
 const providerConfigOf = (channel) => channel.request({ provider: '', method: 'providerConfig' });
-/** Drives the virtual clock for a promise that waits on timers: to the soonest pending timer, then until the next timer is armed or the promise settles. */
-async function driven(virtual, label, promise) {
-  let finished = false; let outcome;
-  const done = promise.then((value) => { finished = true; outcome = { value }; }, (error) => { finished = true; outcome = { error }; });
-  while (!finished) {
-    // Quiescence barrier: the clock moves only once every immediate (the connection hops) and every promise chain has run to its wait on a timer.
-    await settled(`: the connection hops to finish`, virtual.idle());
-    await new Promise((resolve) => realTimers.setImmediate(resolve));
-    if (finished) break;
-    const pending = virtual.pending();
-    if (!pending.length) { await settled(`${label}: a timer to be armed`, Promise.race([done, virtual.nextArmed()])); continue; }
-    virtual.advance(Math.max(0, Math.min(...pending.map((p) => p.dueMs)) - virtual.elapsed()));
-    await settled(`${label}: the next step after the clock advanced`, Promise.race([done, virtual.nextArmed()]));
+/** Waits for the timers the step is known to arm (each the event that says the code is now waiting on it), advances the virtual clock by each, and waits for the promise. */
+async function driven(virtual, label, promise, timersMs) {
+  for (const ms of timersMs) {
+    const from = virtual.armed.length;
+    await settled(`${label}: the ${ms} ms timer to be armed`, virtual.whenArmedAfter(from, (t) => t.api === 'setTimeout' && t.ms === ms));
+    virtual.advance(ms);
   }
-  if ('error' in outcome) throw outcome.error;
-  return outcome.value;
-}
-async function run(name, fn, extra) {
+  return settled(`${label}: the promise to settle`, promise);
+}async function run(name, fn, extra) {
   await set.run(name, async () => {
     const virtual = virtualTimers();
+    wireLog = [];
     Date.now = () => FIXED_NOW + virtual.elapsed(); // the daemon side reads Date.now for its deadlines: it follows the virtual clock
-    try { const observed = await fn(virtual); return { ...observed, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); virtual.restore(); Date.now = () => FIXED_NOW; }
+    try { const observed = await fn(virtual); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); _resetModelProxyProviderConfigForTest(); virtual.restore(); Date.now = () => FIXED_NOW; }
   }, extra);
 }
 
@@ -161,7 +160,7 @@ await run('the PC runs the call with its own provider and streams every callback
   const calls = [];
   const provider = {
     async send(messages, model, tools, options) {
-      calls.push({ messages, model, tools, options: Object.keys(options).sort() });
+      calls.push({ messages, model, tools, options: Object.keys(options) });
       options.onStageChange('streaming'); options.onTextDelta('Hel'); options.onTextDelta('lo');
       const acked = await options.onTextReset({ chars: 5 });
       options.onTextDelta(acked === true ? 'again' : 'unacked');
@@ -193,7 +192,7 @@ await run('the PC serves only the named provider and the allowed methods', async
   const unavailable = await rejected(new ModelProxyProvider('gemini', {}, channel).send([], 'g', undefined, {}));
   const forget = await rejected(channel.request({ provider: 'openai', method: 'forgetCredentials' }));
   const proxied = new ModelProxyProvider('openai', {}, channel);
-  return { unavailable, forget, models: await proxied.listModels(), cachedA: proxied.getCachedModelInfo('model-a'), cachedB: proxied.getCachedModelInfo('model-b'), providerConfig: await providerConfigOf(channel), listCalls: listed.length };
+  return { unavailable, forget, models: await proxied.listModels(), cachedA: proxied.getCachedModelInfo('model-a'), cachedB: proxied.getCachedModelInfo('model-b'), providerConfig: await providerConfigOf(channel), listCalls: listed };
 });
 await run('the PC reports its model-specific first-response budget through the catalog and provider config', async () => {
   const argon = { transportMs: 577_000, semanticMs: 1_147_000 };
@@ -269,7 +268,7 @@ await run('cold start: the daemon waits for a PC that connects late and loads it
 await run('the daemon retries an unready PC answer instead of reading it as "all disabled"', async (virtual) => {
   let asked = 0;
   const { channel } = connect(fakeRuntime({}, { providerConfig: async () => (++asked === 1 ? { providers: {}, ready: false } : { providers: { openai: { enabled: true, modelProxy: {} } }, ready: true }) }));
-  const config = await driven(virtual, 'the provider config', loadModelProxyProviderConfig({ channel, waitMs: 2_000 }));
+  const config = await driven(virtual, 'the provider config', loadModelProxyProviderConfig({ channel, waitMs: 2_000 }), [250]);
   return { config, asked };
 });
 await run('a loaded PC registry with nothing enabled is an answer, not a wait', async () => {
@@ -281,7 +280,7 @@ await run("only the requested provider's credential is read, on demand", async (
   const modules = pcModules({ openai: { enabled: true }, anthropic: { enabled: true } }, { openai: 'pc-openai-key', anthropic: 'pc-anthropic-key' });
   const { channel } = connect(createModelProxyRuntime(modules));
   const result = await send(channel, 'openai');
-  return { result, keyReads: modules.keyReads, anthropicKeyInLastInit: modules.inits.at(-1).anthropic.apiKey ?? null };
+  return { result, keyReads: modules.keyReads, anthropicKeyInLastInit: modules.inits.at(-1).anthropic.apiKey };
 });
 await run('server send options are reduced to the allowlist', async () => {
   let seen = null;
@@ -289,7 +288,7 @@ await run('server send options are reduced to the allowlist', async () => {
   const { channel } = connect(fakeRuntime({ openai: provider }));
   const options = { sessionId: 's1', temperature: 0.2, baseURL: 'http://attacker.example', requestHeaders: { authorization: 'Bearer x' }, extraBody: { stolen: true }, codexInstallationId: 'pc-identity', toolExecutionSessionId: 'daemon-session', _providerSeam: true };
   await send(channel, 'openai', { options });
-  return { options, seenKeys: Object.keys(seen).sort(), signalIsAbortSignal: seen.signal instanceof AbortSignal, toolExecutionSessionId: seen.toolExecutionSessionId, sessionId: seen.sessionId, temperature: seen.temperature };
+  return { options, seenKeys: Object.keys(seen), signal: { class: seen.signal?.constructor?.name, aborted: seen.signal?.aborted }, toolExecutionSessionId: seen.toolExecutionSessionId, sessionId: seen.sessionId, temperature: seen.temperature };
 });
 await run('a proxied side request gets its own transport scope on the PC, disposed when the request ends', async () => {
   const closed = []; const previousHook = globalThis.__mixdogCloseProviderConnectionsForSession;
@@ -372,10 +371,9 @@ await run('a call is claimed and run while another is still running: there is no
   await settled('the first call to start', provider.started);
   provider.send = async () => ({ content: 'second' });
   const second = await settled('the second call', new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {}));
-  const claims = operations.filter((operation) => operation === 'modelProxyClaim').length;
   const runningAfterSecond = host.running;
   firstAbort.abort(new Error('done'));
-  return { second, claims, runningAfterSecond };
+  return { second, operations, runningAfterSecond };
 });
 await run('a call payload over the request cap is refused before any provider runs', async () => {
   let sent = false;
@@ -391,11 +389,11 @@ await run('the last disabled or removed provider is not advertised even when the
   modules.initProviders = async (config) => { if (!Object.values(config).some((entry) => entry.enabled === true)) throw Object.assign(new Error('all disabled'), { code: 'PROVIDERS_NONE_ENABLED' }); return init(config); };
   const runtime = createModelProxyRuntime(modules);
   const log = [];
-  log.push({ step: 'enabled', enabled: (await runtime.providerConfig()).providers.openai.enabled });
+  log.push({ step: 'enabled', config: await runtime.providerConfig() });
   available.openai.enabled = false;
-  log.push({ step: 'disabled', enabled: (await runtime.providerConfig()).providers.openai.enabled, registryKeepsInstance: modules.live.has('openai'), provider: (await runtime.provider('openai')) === undefined ? 'undefined' : 'present' });
+  log.push({ step: 'disabled', config: await runtime.providerConfig(), registryKeepsInstance: modules.live.has('openai'), provider: (await runtime.provider('openai')) === undefined ? 'undefined' : 'present' });
   delete available.openai;
-  log.push({ step: 'removed', enabled: (await runtime.providerConfig()).providers.openai.enabled, provider: (await runtime.provider('openai')) === undefined ? 'undefined' : 'present' });
+  log.push({ step: 'removed', config: await runtime.providerConfig(), provider: (await runtime.provider('openai')) === undefined ? 'undefined' : 'present' });
   return { log, keyReads: modules.keyReads };
 });
 for (const claimed of [false, true]) {
@@ -404,8 +402,8 @@ for (const claimed of [false, true]) {
     let requestId;
     const detach = channel.attachPublisher((snapshot) => { for (const { id } of snapshot.requests) { requestId = id; if (claimed) channel.handleOperation(MODEL_PROXY_OPERATIONS.claim, [id]); } });
     disposers.push(detach);
-    const outcome = await rejected(driven(virtual, 'the provider config deadline', loadModelProxyProviderConfig({ channel, waitMs: 30 })));
-    return { claimed, waitMs: 30, outcome, requestPublished: Boolean(requestId) };
+    const outcome = await rejected(driven(virtual, 'the provider config deadline', loadModelProxyProviderConfig({ channel, waitMs: 30 }), [30]));
+    return { claimed, waitMs: 30, outcome, requestId };
   });
 }
 await run('forced and short-budget reads do not join an older request or let it overwrite the fresh cache', async () => {
@@ -415,10 +413,10 @@ await run('forced and short-budget reads do not join an older request or let it 
   const fresh = loadModelProxyProviderConfig({ channel, force: true });
   const log = [{ step: 'old + forced', requestsSent: replies.length }];
   replies[1]({ ready: true, providers: { gemini: { enabled: true } } });
-  log.push({ step: 'forced answered', gemini: (await fresh).gemini.enabled });
+  log.push({ step: 'forced answered', config: await fresh });
   replies[0]({ ready: true, providers: { gemini: { enabled: false } } });
   await old;
-  log.push({ step: 'old answered late, cache read', gemini: (await loadModelProxyProviderConfig({ channel })).gemini.enabled });
+  log.push({ step: 'old answered late, cache read', config: await loadModelProxyProviderConfig({ channel }) });
   _resetModelProxyProviderConfigForTest();
   const long = loadModelProxyProviderConfig({ channel, waitMs: 15_000 });
   const short = loadModelProxyProviderConfig({ channel, waitMs: 1_000 });
@@ -441,9 +439,9 @@ await run('all built-in provider families and custom protocols use the same PC c
   for (const name of Object.keys(available)) {
     clock += 60_000;
     const proxy = new ModelProxyProvider(name, {}, channel);
-    perProvider.push({ name, enabled: advertised.providers[name].enabled, models: await proxy.listModels(), content: (await proxy.send([], `${name}-model`, [], {})).content });
+    perProvider.push({ name, advertised: advertised.providers[name], models: await proxy.listModels(), sendResult: await proxy.send([], `${name}-model`, [], {}) });
   }
-  return { available, advertisedNames: Object.keys(advertised.providers).sort(), perProvider };
+  return { available, advertised, perProvider };
 });
 await run('proxy readiness distinguishes missing credentials, transient probes, and explicit disables', async () => {
   const available = { 'openai-oauth': { enabled: true } };
@@ -486,7 +484,7 @@ await run('custom environment credentials drive proxy readiness without a stored
     delete process.env[variable];
     modules.probeAuth = () => 'present';
     const after = await runtime.providerConfig();
-    return { variable, available, firstAdvertised: first.providers[name], keyValueInConfig: JSON.stringify(first).includes('environment-key-one'), sendWithKeyOne: one, sendWithKeyTwo: two, afterUnset: after.providers[name], providerAfterUnset: (await runtime.provider(name)) === undefined ? 'undefined' : 'present', keyReads: modules.keyReads };
+    return { variable, available, firstAdvertised: first.providers[name], sendWithKeyOne: one, sendWithKeyTwo: two, afterUnset: after.providers[name], providerAfterUnset: (await runtime.provider(name)) === undefined ? 'undefined' : 'present', keyReads: modules.keyReads };
   } finally { if (previous === undefined) delete process.env[variable]; else process.env[variable] = previous; }
 });
 await run('an unreadable credential with a live adapter is advertised on the first read, not only later ones', async () => {
@@ -518,7 +516,7 @@ await run('an advertised custom provider name is trimmed, redacted and capped; e
   };
   const { channel } = connect(fakeRuntime({}, { providerConfig: async () => ({ ready: true, providers }) }), { isProviderAllowed: (name) => name !== 'custom-blocked' });
   const advertised = (await providerConfigOf(channel)).providers;
-  return { configured: providers, blocked: 'custom-blocked', advertised, advertisedNameLengths: Object.fromEntries(Object.entries(advertised).map(([k, v]) => [k, typeof v.name === 'string' ? v.name.length : null])), blockedNameLeaked: JSON.stringify(advertised).includes('Blocked gateway') };
+  return { configured: providers, blocked: 'custom-blocked', advertised };
 });
 await run('proxy credential presence follows the registry OAuth set and resolveProviderApiKey precedence', async () => {
   const variables = ['MIXDOG_PROXY_PROBE_ENV_TEST', 'MIXDOG_AGENT_PROXY-PROBE_APIKEY', 'OPENAI_API_KEY'];
@@ -529,7 +527,7 @@ await run('proxy credential presence follows the registry OAuth set and resolveP
     const probe = modelProxyCredentialProbe({ OAUTH_PROVIDER_NAMES, oauthCredentialProbeState: (name) => { oauthReads.push(name); return 'unreadable'; }, hasProviderApiKey });
     const oauth = [probe('cursor-oauth', {}), probe('proxy-probe-oauth', {})];
     const cases = [['proxy-probe', { apiKey: 'config-file-key' }], ['proxy-probe', { apiKeyEnv: 'MIXDOG_PROXY_PROBE_ENV_TEST' }], ['proxy-probe', { apiKeyEnv: 'MIXDOG_PROXY_PROBE_ENV_TEST', apiKey: 'ignored-for-env-routes' }], ['proxy-probe', {}], ['custom-proxy-probe', { type: 'custom', auth: 'key', apiKeyEnv: 'MIXDOG_PROXY_PROBE_ENV_TEST' }]];
-    const check = (step) => ({ step, env: Object.fromEntries(variables.map((n) => [n, process.env[n] ?? null])), results: cases.map(([name, config]) => ({ name, config, probe: probe(name, config), resolveProviderApiKeyFound: Boolean(resolveProviderApiKey(name, config)) })) });
+    const check = (step) => ({ step, env: Object.fromEntries(variables.map((n) => [n, process.env[n]])), results: cases.map(([name, config]) => ({ name, config, probe: probe(name, config), resolvedApiKey: resolveProviderApiKey(name, config) })) });
     const log = [check('no environment')];
     process.env.MIXDOG_PROXY_PROBE_ENV_TEST = 'from-env';
     process.env['MIXDOG_AGENT_PROXY-PROBE_APIKEY'] = 'from-mixdog-env';
@@ -544,7 +542,7 @@ await run('proxy credential presence follows the registry OAuth set and resolveP
 });
 
 await set.finish({
-  entry: {
+  entry: { hops: "The PC host and the daemon channel are joined, as in the Node test, by a JSON hop standing for the desktop session connection (JSON over HTTP). Every message that crosses it is recorded as the text that crossed, in order, under each case's `wire` (host->daemon operation + args text, daemon->host reply text, daemon->host request-event text); the host and the channel receive what JSON.parse of that text gives, so nothing passes that JSON changed unrecorded.",
     runs: 'apps/desktop/src/main/model-proxy-host.ts (createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe) over the real ModelProxyChannel, ModelProxyProvider and loadModelProxyProviderConfig of the daemon side, joined through a JSON hop as the session connection does; resolveWireRoute / pinSessionWireRoute; the real provider-api-key helpers',
     notRun: 'no real provider: the PC providers and registry modules are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock', scripted: scriptedUuids,
   },
