@@ -50,12 +50,13 @@ pub struct LiveContextWorld {
 }
 
 /// The rows of the transcript signature: each message's own stored row (`message_of` keeps it), as
-/// the session's messages carry them in Node.
+/// the session's messages carry them in Node. A message no row was read for (the system prompt's blocks, built from
+/// the header) is its fresh row, as Node's session holds its leading system messages.
 pub(super) struct StoredBodies;
 
 impl MessageRows for StoredBodies {
     fn row(&self, message: &mixdog_agent::message::AgentMessage) -> Value {
-        message.stored.as_ref().map_or(Value::Null, |row| Value::Object((**row).clone()))
+        message.stored.as_ref().map_or_else(|| super::message_row::row_of(message), |row| Value::Object((**row).clone()))
     }
 }
 
@@ -407,24 +408,67 @@ mod tests {
         assert_eq!(host.context_status(Some(ThreadId::from("absent".to_owned())), None).await.expect("status"), Value::Null);
     }
 
-    /// The Context inspector's calls answer what Node's live gauge answered (`fixtures/context-inspection`, recorded by
-    /// `record-context-inspection.mjs`): per case, every call on one status host in the order made (the plain status, the
-    /// list, a preview of each listed entry, an entry never listed, a revision not the list's, the list again).
-    #[tokio::test]
-    async fn the_inspector_calls_answer_what_node_answered() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-inspection/golden.json")).expect("golden");
-        let mut compared = 0;
-        for case in golden["cases"].as_array().expect("cases") {
-            let name = case["name"].as_str().expect("name");
-            let host = LiveContextStatus::new(Arc::new(world(case)));
-            for (at, call) in case["calls"].as_array().expect("calls").iter().enumerate() {
-                let options = Some(call["options"].clone()).filter(|o| !o.is_null());
-                let answer = host.context_status(Some(ThreadId::from(name.to_owned())), options).await.expect("status");
-                assert_eq!(answer, call["status"], "{name}: call {at} {}", call["options"]);
-                compared += 1;
-            }
+    /// The route the recorded runtime held (`rt.route`), whose window the gauge reads.
+    struct RecordedRoute(Route);
+    impl LiveRoute for RecordedRoute {
+        fn route(&self, _: &ThreadId) -> Route {
+            self.0.clone()
         }
-        assert_eq!(compared, 196);
+        fn adopt_held(&self, _: &ThreadId, _: &Route) {}
+    }
+
+    /// The Context inspector's requests (`fixtures/context-inspection`, `record-context-inspection.mjs`): Node's session runtime
+    /// built the session by a real turn against a scripted provider and answered every call through `contextStatusSettled`, the
+    /// boundary the desktop's request reaches (the list, a preview of each listed entry against its revision, an entry never
+    /// listed, the revision of a list read before the session's second turn, a revision no list had, the list again). Node's session store is migrated and opened through the real store, thread
+    /// directory and route session, and each recorded request is sent to the core as the desktop sends it
+    /// (`thread/contextStatus {threadId, options}`). What stands in: the route the runtime held and its tool mode. Each answer
+    /// is Node's, whole.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_inspectors_requests_over_a_session_built_by_real_turns_answer_what_node_answered() {
+        use mixdog_core_api::service::DomainService as _;
+        use mixdog_core_session::session::route_session::SessionRouteAdapter;
+        use mixdog_core_session::session::thread_context::CONTEXT_STATUS;
+        use mixdog_core_session::session::thread_context::ThreadContextService;
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/context-inspection");
+        let golden: Value = serde_json::from_slice(&std::fs::read(fixture.join("golden.json")).expect("golden")).expect("golden json");
+        let (_dir, roots) = crate::run_host::roster_rows_tests::migrated_from(&fixture).await;
+        let (_index, threads) = crate::run_host::roster_rows_tests::opened(&roots).await;
+        let rig = mixdog_core_session::session::testing::Rig::new();
+        let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(threads))));
+        let state = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+        let change = Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
+        let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), state.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
+        let calls = golden["calls"].as_array().expect("calls");
+        let world = LiveContextWorld {
+            threads: state.clone(),
+            messages: state,
+            routes: Arc::new(RecordedRoute(golden["route"].as_object().cloned().expect("route"))),
+            session: adapter,
+            host: Arc::new(Mode(calls[0]["status"]["toolMode"].as_str().expect("mode").to_owned())),
+            lowering: Arc::new(|_, _| (Arc::new(TextOnly), Arc::new(TextOnly))),
+        };
+        let service = ThreadContextService::new(Arc::new(LiveContextStatus::new(Arc::new(world))));
+        let thread = golden["sessionId"].as_str().expect("session id");
+        for (at, call) in calls.iter().enumerate() {
+            let req = mixdog_core_api::call::CoreRequest {
+                method: mixdog_core_api::ids::Method(CONTEXT_STATUS),
+                params: json!({ "threadId": thread, "options": call["options"] }),
+                op: None,
+                ctx: mixdog_core_api::call::CallContext::internal("desktop"),
+            };
+            let mixdog_core_api::call::Reply::Value(answer) = service.call(req).await.expect("thread/contextStatus") else { panic!("thread/contextStatus answers a value") };
+            let mut diff = Vec::new();
+            differences(&answer, &call["status"], "$", &mut diff);
+            assert!(diff.is_empty(), "call {at} {}: {diff:#?}", call["options"]);
+        }
+        let listed = calls[0]["status"]["inspection"]["revision"].clone();
+        assert!(
+            calls.iter().any(|call| call["options"]["revision"].as_str().is_some_and(|r| r != "not-a-revision") && call["options"]["revision"] != listed),
+            "the revision of an earlier list is asked"
+        );
+        assert!(calls.iter().any(|call| call["options"]["revision"] == "not-a-revision"), "a revision no list had is asked");
+        assert!(calls.iter().any(|call| call["options"]["entryId"] == "message:999"), "an entry never listed is asked");
     }
 
     /// The status counts the request's messages as Node's `session.messages` hold them: the header's system blocks (the ones
