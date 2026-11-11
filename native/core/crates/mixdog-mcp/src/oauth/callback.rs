@@ -221,8 +221,8 @@ pub mod seam {
 
     static CONTROLLED: AtomicBool = AtomicBool::new(false);
 
-    /// From now on, in this process, the flush bound runs on [`CLOCK`], the login deadline on [`DEADLINE`] (or
-    /// `LOGIN_DEADLINE_MS`), and the listener's lifecycle is recorded in [`EVENTS`].
+    /// From now on, in this process, the flush bound runs on [`CLOCK`], the login deadline on [`DEADLINE`], and the
+    /// listener's lifecycle is recorded in [`EVENTS`].
     pub fn take_control() {
         CONTROLLED.store(true, Ordering::SeqCst);
     }
@@ -266,7 +266,8 @@ pub mod seam {
         }
     }
 
-    /// The controlled clock of the 1 s bound of a page flush: it passes only when the test advances it.
+    /// The controlled clock of the 1 s bound of a page flush and of [`super::HELD_PAGE_DELAY_MS`]: it passes only when the
+    /// test advances it.
     pub struct Clock {
         now_ms: AtomicU64,
         notify: Notify,
@@ -301,7 +302,7 @@ pub mod seam {
     }
 
     pub static CLOCK: Clock = Clock::new();
-    /// The login deadline fires when the test fires this (unless `LOGIN_DEADLINE_MS` is set).
+    /// The login deadline fires when the test fires this.
     pub static DEADLINE: Tick = Tick::new();
     /// The next held page waits, before it is written, until `PAGE_RELEASE` fires; `PAGE_HELD` fires when it waits.
     pub static HOLD_NEXT_PAGE: AtomicBool = AtomicBool::new(false);
@@ -330,9 +331,9 @@ fn event(_name: &'static str) {
     }
 }
 
-/// Test seam: how long the next held page waits before it is written, so a request can land in the
-/// window between the login's outcome and the flush of its page; `HELD_PAGE_DELAYING` is notified
-/// when that wait starts.
+/// Test seam: how long, on [`seam::CLOCK`], the next held page waits before it is written, so a request can land in the
+/// window between the login's outcome and the flush of its page; `HELD_PAGE_DELAYING` is notified when that wait starts,
+/// and the page goes on once the test advanced the clock by as much.
 #[cfg(feature = "test-support")]
 pub static HELD_PAGE_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 #[cfg(feature = "test-support")]
@@ -344,11 +345,6 @@ pub static HELD_PAGE_DELAYING: tokio::sync::Notify = tokio::sync::Notify::const_
 pub static LISTENERS_CLOSED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[cfg(feature = "test-support")]
 pub static LISTENER_CLOSED: tokio::sync::Notify = tokio::sync::Notify::const_new();
-
-/// Test seam: the login deadline in milliseconds for the next logins (0: Node's five minutes), so a timeout can be
-/// driven through the real abort path.
-#[cfg(feature = "test-support")]
-pub static LOGIN_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The listener's handle: stops it from accepting and destroys the connections it owns.
 #[derive(Clone)]
@@ -529,8 +525,9 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         }
         let delay = HELD_PAGE_DELAY_MS.swap(0, Ordering::SeqCst);
         if delay > 0 {
+            let until = seam::CLOCK.now() + delay;
             HELD_PAGE_DELAYING.notify_one();
-            tokio::time::sleep(Duration::from_millis(delay)).await;
+            seam::CLOCK.reached(until).await;
         }
     }
     match outcome {
