@@ -1,5 +1,5 @@
 {
-  "cases": 5,
+  "cases": 6,
   "command": "node benchmarks/rust-core/recorders/record-quiet-progress-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the pool listing itself: the rows and the entry lookup are the test's",
@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6317,
+      "bytes": 21821,
       "path": "golden.json",
-      "sha256": "13caafbc3a4175492795c1a64ecb56855dfae84b2a229c736f707898ac561f9b"
+      "sha256": "6b27820377665a30a010002eaea1563868df468f6263289e4771a380dc9dfae8"
     }
   ],
   "inputs": [
@@ -42,6 +42,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
       "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/virtual-timers.mjs",
+      "sha256": "3e1301689dcce08b5ceaf1a0a7c0d0e6b29e6cf26b0c2eba10b58cfcd38ccb52"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,12 +71,15 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-quiet-progress-cases.mjs",
-  "recorderSha256": "3789c071e6397cb415fe250a250e4785274313466e838485d9e0a41f840adec5",
+  "recorderSha256": "6d7f950145364b7412f2f5185d90552de8664b71fdbd2ed3db7e0a9277473ecb",
   "replay": {
-    "compare": "Cases 0-4 in mixdog-core-agents agents/pool_list_quiet_replay.rs: each recorded input fed to the core, the core's values written to src/tui/quiet-progress-core.json; src/tui/quiet-progress-replay.test.mjs feeds the core's quiet states to buildSpinnerMeta and compares each case whole with this recording (one chain: recorded input -> core -> client -> recorded value).",
+    "compare": "Cases 0-4 in mixdog-core-agents agents/pool_list_quiet_replay.rs: each recorded input fed to the core, the core's values written to src/tui/quiet-progress-core.json (with the golden's sha256; the Rust test fails when the file differs from what the core gives); src/tui/quiet-progress-replay.test.mjs refuses a file of another golden, feeds the core's quiet states to buildSpinnerMeta and compares each case whole with this recording (one chain: recorded input -> core -> client -> recorded value). Case 5 in mixdog-core run_host/quiet_watch.rs (tests): the core's QuietWatch runs on a virtual clock moved only by timers.advances, reads the recorded livenessScript, and its reads, publications and stop are compared whole.",
     "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (list (pool_list.rs:624) returns the pool rows decorated with progressAt, progressStage (model_thinking while a sent request awaits its headers), progressTool and stallWarnMs from the private with_progress (:785); re-exported by agents/mod.rs:50); mixdog-agent/src/agent_tool/watchdog.rs:123 stall_warn_ms.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [],
+    "notCompared": {
+      "case 5 timers.armed, timers.firedCount": "Node's one setInterval and its firings: the format of its timer. The core arms one wait per poll; what the polls did (reads, publications, nothing left armed) is compared whole"
+    },
     "protocolMethods": [],
     "rustTargets": [
       {
@@ -87,9 +94,10 @@
         "path": "native/core/crates/mixdog-agent/src/agent_tool/watchdog.rs"
       }
     ],
-    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
+    "timers": "case 5: timers.advances are the only movements of the clock"
   },
   "set": "quiet-progress-cases",
-  "totalBytes": 6317,
+  "totalBytes": 21821,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

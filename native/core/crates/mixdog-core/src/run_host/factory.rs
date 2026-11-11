@@ -1116,7 +1116,7 @@ async fn drive(
     // The quiet-time cue of a turn a person watches (`startQuietWatch` in the lead turn, `turn.mjs:781`), against the lead's warn point.
     let quiet_watch = (!unattended).then(|| {
         let warn_ms = mixdog_agent::agent_tool::watchdog::stall_warn_ms(AgentKind { name: Some("lead"), ..AgentKind::default() }, &|name: &str| std::env::var(name).ok());
-        QuietWatch::start(quiet_changes, port.clone(), clock.clone(), warn_ms as f64)
+        QuietWatch::start(quiet_changes, port.clone(), clock.clone(), Arc::new(TimerWait), warn_ms as f64)
     });
     let (shown_tx, mut shown_rx) = mpsc::unbounded_channel::<Shown>();
     let shown_port = port.clone();
