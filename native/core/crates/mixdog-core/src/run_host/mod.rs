@@ -31,6 +31,7 @@ pub mod tool_surface;
 pub mod mcp_fold;
 pub mod rearm;
 pub mod manual_compaction;
+pub mod prompt_intake;
 pub mod route_surface;
 pub mod resume_tools;
 pub mod session_tools;

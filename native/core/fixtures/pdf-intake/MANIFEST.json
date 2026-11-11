@@ -1,0 +1,92 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-pdf-intake.mjs --tree <b6f10295a export with node_modules>",
+  "fileCount": 8,
+  "files": [
+    {
+      "bytes": 261,
+      "path": "damaged.json",
+      "sha256": "dde345c8c9e1776185121dc0eb1c92dea9990d61cec571fca4b17a302e889083"
+    },
+    {
+      "bytes": 1058,
+      "path": "encrypted.json",
+      "sha256": "521fdd4cd454826509fbf8aa2307f03e72dc333f6dd273451138c6977b0a1da5"
+    },
+    {
+      "bytes": 60395,
+      "path": "pages-100.json",
+      "sha256": "59c045af0e61e4dbdee9ffc6c7a09835d43ccc95af154bd7ce9e3799bd9f6289"
+    },
+    {
+      "bytes": 60998,
+      "path": "pages-101-text.json",
+      "sha256": "34ff0e9b79ac905a6941f912b8fe2ecef188891209e8b422f569133a7258cff4"
+    },
+    {
+      "bytes": 60735,
+      "path": "pages-101.json",
+      "sha256": "c3f70f4e6484783737efceaad09a411890a41d04f65ef43c1d7b2fd160878e96"
+    },
+    {
+      "bytes": 3079,
+      "path": "scanned-text-only.json",
+      "sha256": "a22409f0e213ce8e1cf726916041b86812834a460e726f557c701cd62c397a9a"
+    },
+    {
+      "bytes": 2243,
+      "path": "size-at-limit.json",
+      "sha256": "555e43121ecdec6a27fe8be734b24f771c498dadba0bc2e593ad7fead8816683"
+    },
+    {
+      "bytes": 1966,
+      "path": "size-over-limit.json",
+      "sha256": "0529ede620cd8d3db35f91b7345e64851409162033c61d1d44815e9bc36cf478"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-pdf-intake.mjs",
+  "recorderSha256": "04e0b6b16f961eadae3bb18017a6695686b1d27eb1bde594236a4d6c05557eaa",
+  "scenarios": [
+    "size-at-limit",
+    "size-over-limit",
+    "pages-100",
+    "pages-101",
+    "pages-101-text",
+    "encrypted",
+    "damaged",
+    "scanned-text-only"
+  ],
+  "set": "pdf-intake",
+  "totalBytes": 190735
+}

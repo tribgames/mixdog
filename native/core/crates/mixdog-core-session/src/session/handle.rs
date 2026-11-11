@@ -250,6 +250,10 @@ impl SessionHandle {
         let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
+        // The attachments' intake comes first: a refused message claims nothing (`submitAdmitted` throws before
+        // `claimStagedOriginals`), and the refusal is the submit's answer.
+        let provider = self.header_snapshot().get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
+        self.deps.prompt_intake.admit(&self.id, &provider, &req.params).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
         let named = super::staged_originals::named_originals(&req.params);
         if !named.is_empty() {
             let originals = self.deps.staged_originals.clone();
