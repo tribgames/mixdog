@@ -435,10 +435,9 @@ async fn a_supervisor_step_runs_once_on_the_maintainer_route() {
         "routeCalls": routes.calls.lock().unwrap().clone(),
         "sent": sent.clone(),
         "sendCount": sent.len(),
-        "log": logged.lock().unwrap().iter().take(2).map(|line| without_elapsed(line)).collect::<Vec<_>>(),
+        "log": logged.lock().unwrap().iter().map(|line| without_elapsed(line)).collect::<Vec<_>>(),
         "unrouted": unrouted.as_ref().map_or(Value::Null, decision_json),
     });
-    assert_eq!(logged.lock().unwrap().len(), 2, "one log line per step that reached the model");
     assert_eq!(with_undefined(got), *want, "{name}");
 }
 
@@ -629,9 +628,14 @@ fn rows_since_the_cursor_leave_out_the_members_own_words() {
             ])
         })
         .collect();
+    // record-agent-room-cases.mjs:353-357: `rows` is what the first call is fed, `longer` what the third is.
+    let fed = |index: usize| match &calls[index] {
+        Exact::Object(fields) => fields[0].1.clone(),
+        other => panic!("call {index}: {other:?}"),
+    };
     let got = Exact::Object(vec![
-        ("rows".into(), want.get("rows").clone()),
-        ("longer".into(), want.get("longer").clone()),
+        ("rows".into(), fed(0)),
+        ("longer".into(), fed(2)),
         ("calls".into(), Exact::Array(calls)),
     ]);
     assert_eq!(got, *want, "{name}");
