@@ -1,7 +1,7 @@
 {
   "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-session.mjs --tree <tree> --patch node-fix-helper-stale-socket.patch)",
   "common": "benchmarks/rust-core/recorders/lib/common.mjs",
-  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "commonSha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096",
   "fileCount": 1,
   "files": [
     {
@@ -44,7 +44,7 @@
   "libSha256": "2773fb248d6b5f2f60686f18c6fece766ebb8e4de65db58b3f728be860216fb5",
   "node": "v22.20.0",
   "product": {
-    "appsSha256": "18993e38af8ff30e2c3db944433187c7c9ab55f9ab560239caddd40ac6dcaf8a",
+    "appsSha256": "8059ee7b64965104dc76b62aee205144ddcef8382a7d44de8f66e85b1e48958c",
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
