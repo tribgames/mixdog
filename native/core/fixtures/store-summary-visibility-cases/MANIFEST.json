@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 32984,
+      "bytes": 53697,
       "path": "golden.json",
-      "sha256": "07b2c22589711b89ece439734cc927660e646639ab74384e99aefb8a0472eee6"
+      "sha256": "399b3b2db8c85b4d59b79b05d57fbc3267fe9ebf495ae1c43535516152a3f45b"
     }
   ],
   "inputs": [
@@ -65,7 +65,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-summary-visibility-cases.mjs",
-  "recorderSha256": "94cf4312c051b5b24693069fd081089f3e30bb9bf16e706c682be04d52706570",
+  "recorderSha256": "38063103cfcd051fb36d9b782c8d0fd35aa2c62a7ccf2823ff48b9eea1b567e5",
   "replay": {
     "compare": "mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages",
     "entry": "Drive these public items on o1: mixdog-store/src/summary.rs:78 is_root_lead_session; mixdog-store/src/summary.rs:88 session_visibility; mixdog-store/src/sqlite/lead.rs:65 is_lead_visible_row; mixdog-store/src/sqlite/lead.rs:120 lead_page_of.",
@@ -99,6 +99,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "store-summary-visibility-cases",
-  "totalBytes": 32984,
+  "totalBytes": 53697,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
