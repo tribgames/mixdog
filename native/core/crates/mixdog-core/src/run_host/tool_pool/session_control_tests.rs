@@ -10,6 +10,8 @@ use mixdog_store::sqlite::lead::decode_catalog_cursor;
 use mixdog_store::sqlite::lead::encode_catalog_cursor;
 use mixdog_tools::orch::session::SessionTool;
 
+use super::super::session_bots::BotSources;
+use super::super::session_bots::LateBotSources;
 use super::super::session_control::ListedRow;
 use super::super::session_control::ListingPage;
 use super::super::session_control::LiveSources;
@@ -76,6 +78,39 @@ impl SessionListing for Fixture {
     }
 }
 
+/// What bot status reads besides the catalog, as Node's recorder stood it in (the scenario's
+/// `bots`): the bots, watches, held requests and routines (or the automation store's failure)
+/// as given, the approval cards of `approvals`, Mixy's name and the clock.
+struct BotRecords(Value);
+
+#[async_trait]
+impl BotSources for BotRecords {
+    async fn bots(&self) -> Result<Vec<Value>, String> {
+        Ok(self.0["list"].as_array().expect("bots").clone())
+    }
+    async fn task_watches(&self) -> Result<Vec<Value>, String> {
+        Ok(self.0["watches"].as_array().expect("watches").clone())
+    }
+    async fn held(&self) -> Result<Vec<Value>, String> {
+        Ok(self.0["held"].as_array().expect("held").clone())
+    }
+    async fn routines(&self) -> Result<Vec<Value>, String> {
+        match self.0["routinesError"].as_str() {
+            Some(error) => Err(error.to_owned()),
+            None => Ok(self.0["routines"].as_array().expect("routines").clone()),
+        }
+    }
+    async fn mixy_name(&self) -> Result<String, String> {
+        Ok(self.0["mixy"].as_str().expect("mixy").to_owned())
+    }
+    fn awaiting_approval(&self, session_id: &str) -> bool {
+        self.0["approvals"].as_array().expect("approvals").iter().any(|id| id == session_id)
+    }
+    fn now_ms(&self) -> i64 {
+        self.0["now"].as_i64().expect("now")
+    }
+}
+
 /// The scenario's transcripts as the session directory's items (each Node row through the
 /// store's own row conversion), answered newest first in pages as `thread/items/list` does.
 /// The compactions scheduled through it are kept, in order (`pendingCompactSessionIds`).
@@ -114,17 +149,24 @@ impl ThreadRequests for Transcripts {
 
 /// The real `SessionTool` over the real port, for `caller` and the sessions `known`, reading the
 /// catalog from `listing` and transcripts through `requests`.
-fn session_tool(caller: Map<String, Value>, known: &[String], bots: &[&'static str], listing: Arc<dyn SessionListing>, requests: Arc<dyn ThreadRequests>) -> SessionTool {
+fn session_tool(caller: Map<String, Value>, known: &[String], bots: &[&'static str], listing: Arc<dyn SessionListing>, requests: Arc<dyn ThreadRequests>, bot_sources: Arc<dyn BotSources>) -> SessionTool {
     let threads = Arc::new(Threads::default());
     threads.0.lock().expect("threads").insert(caller["id"].as_str().expect("caller id").to_owned(), caller);
     for id in known {
         threads.0.lock().expect("threads").entry(id.clone()).or_insert_with(|| Map::from_iter([("id".to_owned(), json!(id))]));
     }
-    tool_over(threads, bots, listing, requests, Arc::default())
+    tool_over(threads, bots, listing, requests, Arc::default(), bot_sources)
 }
 
 /// The real `SessionTool` over the real port, its threads read and patched through `threads`.
-fn tool_over(threads: Arc<dyn ThreadState>, bots: &[&'static str], listing: Arc<dyn SessionListing>, requests: Arc<dyn ThreadRequests>, send: Arc<super::super::session_send::LateSend>) -> SessionTool {
+fn tool_over(
+    threads: Arc<dyn ThreadState>,
+    bots: &[&'static str],
+    listing: Arc<dyn SessionListing>,
+    requests: Arc<dyn ThreadRequests>,
+    send: Arc<super::super::session_send::LateSend>,
+    bot_sources: Arc<dyn BotSources>,
+) -> SessionTool {
     let callers = || Arc::new(ThreadCallers::new(threads.clone(), HeartbeatSessions::new(), UnattendedRunRegistry::new(Arc::new(NoStamps))));
     let port = DirectorySessionPort::new(SessionPortParts {
         callers: callers(),
@@ -137,6 +179,7 @@ fn tool_over(threads: Arc<dyn ThreadState>, bots: &[&'static str], listing: Arc<
         suggestions: Arc::new(Suggested::default()),
         listing,
         send,
+        bot_sources,
         io: mixdog_rt::testing::tokens().interactive_io,
     });
     SessionTool::new(Arc::new(port), callers())
@@ -168,7 +211,11 @@ async fn answer(scenario: &Value, bots: &[&'static str]) -> (bool, String, Vec<S
     let known: Vec<String> = transcripts.keys().cloned().collect();
     let listing: Arc<dyn SessionListing> = if scenario["noService"] == true { Arc::new(super::super::session_control::LateListing::default()) } else { Arc::new(Fixture::of(scenario)) };
     let requests = Arc::new(Transcripts(transcripts, Mutex::default()));
-    let tool = session_tool(caller, &known, bots, listing, requests.clone());
+    let bot_sources: Arc<dyn BotSources> = match scenario.get("bots") {
+        Some(data) => Arc::new(BotRecords(data.clone())),
+        None => Arc::new(LateBotSources::default()),
+    };
+    let tool = session_tool(caller, &known, bots, listing, requests.clone(), bot_sources);
     let (ok, text) = call_on(&tool, &caller_id, surface, scenario["args"].clone()).await;
     let scheduled = requests.1.lock().expect("scheduled").clone();
     (ok, text, scheduled)
@@ -225,7 +272,7 @@ async fn session_fork_answers_as_node() {
             *rig.compaction.heir_rows.lock().expect("rows") = Some(compactor["rows"].as_array().expect("rows").clone());
         }
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
-        let tool = tool_over(threads, &[], Arc::new(Fixture::default()), directory.clone(), Arc::default());
+        let tool = tool_over(threads, &[], Arc::new(Fixture::default()), directory.clone(), Arc::default(), Arc::new(LateBotSources::default()));
         let caller_id = scenario["callerSessionId"].as_str().unwrap_or(source.as_str()).to_owned();
         let surface = if scenario["callerSessionId"].is_string() { SurfaceKind::Agent } else { SurfaceKind::Lead };
         let (ok, mut text) = call_on(&tool, &caller_id, surface, scenario["args"].clone()).await;
@@ -599,7 +646,7 @@ async fn replay_sends(prefix: &str) {
         .expect("bind");
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
         let bots: Vec<&'static str> = golden["bots"].as_array().expect("bots").iter().map(|b| &*b["id"].as_str().expect("bot id").to_owned().leak()).collect();
-        let tool = tool_over(threads, &bots, Arc::new(Fixture::default()), directory.clone(), late);
+        let tool = tool_over(threads, &bots, Arc::new(Fixture::default()), directory.clone(), late, Arc::new(LateBotSources::default()));
         let expected = &scenario["expected"];
         let recorded = &expected["send"];
         // Each submitted turn is watched to its end before its rows are read (a created session from its creation).
@@ -695,6 +742,13 @@ async fn session_read_answers_as_node() {
     replay("read-").await;
 }
 
+/// `session action=bots` over the scenario's catalog and [`BotRecords`]: the overview, one bot's
+/// detail, each scope and each refusal are Node's, byte for byte.
+#[tokio::test]
+async fn session_bots_answers_as_node() {
+    replay("bots-").await;
+}
+
 /// A session of `rows` assistant rows (`r<i>` / `row <i>`, as the recorder generates them), paged newest first as `thread/items/list` pages; counts
 /// the rows it hands out, and holds its first page until `release` is notified.
 struct LongSession {
@@ -739,7 +793,7 @@ async fn a_read_of_a_long_session_pages_its_window_and_holds_nothing_other_calls
     let long = Arc::new(LongSession { rows, served: Default::default(), release: tokio::sync::Notify::new() });
     let caller = scenario["caller"].as_object().expect("caller").clone();
     let caller_id = caller["id"].as_str().expect("caller id").to_owned();
-    let tool = session_tool(caller, &["sess_long".to_owned()], &[], Arc::new(Fixture::of(&scenario)), long.clone());
+    let tool = session_tool(caller, &["sess_long".to_owned()], &[], Arc::new(Fixture::of(&scenario)), long.clone(), Arc::new(LateBotSources::default()));
     let read = call(&tool, &caller_id, args.clone());
     let list_then_release = async {
         let listed = call(&tool, &caller_id, json!({ "action": "list", "limit": 1 })).await;

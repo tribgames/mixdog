@@ -37,7 +37,7 @@ use serde_json::json;
 pub type Row = Map<String, Value>;
 
 /// `TOOL_OUTPUT_PAGE_BYTES` and `TOOL_OUTPUT_TAIL_BYTES` (`tool-output-budget.mjs`).
-const PAGE_BYTES: usize = 8 * 1024;
+pub(super) const PAGE_BYTES: usize = 8 * 1024;
 const TAIL_BYTES: usize = 12 * 1024;
 /// `SESSION_TITLE_LIMIT`, `LIST_PREVIEW_LIMIT`, `MESSAGE_TEXT_LIMIT`.
 const TITLE_LIMIT: usize = 160;
@@ -221,12 +221,12 @@ fn truncate_tool_text(text: &str, max: usize) -> String {
 }
 
 /// `quotedText(value, max)` (`bot-status.mjs`): one line, tag-shaped text escaped, bounded.
-fn quoted_text(text: &str, max: usize) -> String {
+pub(super) fn quoted_text(text: &str, max: usize) -> String {
     let text = escape_harness_tags(mixdog_js::js_trim(&collapse_space(text)));
     if utf16_len(&text) > max { format!("{}…", mixdog_js::js_trim_end(&slice_utf16(&text, max.saturating_sub(1)))) } else { text }
 }
 
-fn output_bytes(value: &Value) -> usize {
+pub(super) fn output_bytes(value: &Value) -> usize {
     serde_json::to_vec(value).expect("JSON values serialize").len()
 }
 
@@ -280,18 +280,18 @@ fn keeps(args: &Value, listed: &ListedRow) -> bool {
     (args.get("include_agents") == Some(&Value::Bool(true)) || !agent_only) && (args.get("include_archived") == Some(&Value::Bool(true)) || !listed.archived)
 }
 
-struct Scan {
-    rows: Vec<ListedRow>,
-    next_cursor: Option<String>,
+pub(super) struct Scan {
+    pub(super) rows: Vec<ListedRow>,
+    pub(super) next_cursor: Option<String>,
 }
 
 /// `scanCatalog(service, keep, { cursor, want, maxRows })`.
-async fn scan_catalog(listing: &dyn SessionListing, keep: impl Fn(&ListedRow) -> bool, cursor: Option<String>, want: usize) -> Result<Scan, String> {
+pub(super) async fn scan_catalog(listing: &dyn SessionListing, keep: impl Fn(&ListedRow) -> bool, cursor: Option<String>, want: usize, max_rows: usize) -> Result<Scan, String> {
     let mut rows = Vec::new();
     let mut scanned = 0;
     let mut next = cursor;
     loop {
-        let page = listing.page(SCAN_PAGE.min(LIST_SCAN_ROWS - scanned), next.as_deref()).await?;
+        let page = listing.page(SCAN_PAGE.min(max_rows - scanned), next.as_deref()).await?;
         next = if page.rows.is_empty() { None } else { page.next_cursor };
         let count = page.rows.len();
         for (index, listed) in page.rows.into_iter().enumerate() {
@@ -306,14 +306,14 @@ async fn scan_catalog(listing: &dyn SessionListing, keep: impl Fn(&ListedRow) ->
                 return Ok(Scan { rows, next_cursor: more.then_some(cursor) });
             }
         }
-        if next.is_none() || scanned >= LIST_SCAN_ROWS {
+        if next.is_none() || scanned >= max_rows {
             return Ok(Scan { rows, next_cursor: next });
         }
     }
 }
 
 /// `sessionBotOf(row)`.
-fn bot_of(row: &Row) -> String {
+pub(super) fn bot_of(row: &Row) -> String {
     CatalogRow { id: string_of(row, "id"), source_name: string_of(row, "sourceName"), ..CatalogRow::default() }.bot()
 }
 
@@ -393,7 +393,7 @@ pub async fn list(listing: &dyn SessionListing, args: &Value, own: Option<&str>,
     let pinned_ids: HashSet<String> = pinned.iter().map(|listed| string_of(&listed.row, "id")).collect();
     let want = limit - pinned.len();
     let scan = if want > 0 {
-        scan_catalog(listing, |listed| !pinned_ids.contains(&string_of(&listed.row, "id")) && keeps(args, listed), cursor, want).await?
+        scan_catalog(listing, |listed| !pinned_ids.contains(&string_of(&listed.row, "id")) && keeps(args, listed), cursor, want, LIST_SCAN_ROWS).await?
     } else {
         Scan { rows: Vec::new(), next_cursor: Some(top_cursor()) }
     };
@@ -675,6 +675,10 @@ impl StoreListing {
         }
         if live.agent_working == Some(true) {
             row.insert("agentWorking".into(), json!(true));
+        }
+        // `withApprovalWaits`: the bots whose sent work runs there (`session bots` reads it).
+        if let Some(bots) = live.handed_by {
+            row.insert("handedBy".into(), json!(bots));
         }
         ListedRow { row, archived: lead.archived }
     }
