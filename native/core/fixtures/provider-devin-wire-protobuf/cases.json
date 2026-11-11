@@ -1,6 +1,7 @@
 {
   "set": "provider-devin-wire-protobuf",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "get-user-jwt-response",
@@ -324,7 +325,10 @@
             "op": "decode",
             "type": "CompletionConfiguration",
             "value": {
-              "maxTokens": "64000n",
+              "maxTokens": {
+                "$exact": "bigint",
+                "value": "64000"
+              },
               "temperature": 1,
               "topP": 0.5,
               "stopPatterns": [
@@ -359,7 +363,10 @@
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "inputTokens": "300n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "300"
+              }
             }
           }
         ]
@@ -384,7 +391,10 @@
             "type": "CompletionConfiguration",
             "hex": "1080f40329000000000000f03f41000000000000e03f4a0178",
             "value": {
-              "maxTokens": "64000n",
+              "maxTokens": {
+                "$exact": "bigint",
+                "value": "64000"
+              },
               "temperature": 1,
               "topP": 0.5,
               "stopPatterns": [
@@ -420,7 +430,10 @@
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "inputTokens": "300n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "300"
+              }
             },
             "hex": "10ac02"
           }
@@ -447,8 +460,14 @@
                 }
               ],
               "usage": {
-                "inputTokens": "5n",
-                "outputTokens": "7n"
+                "inputTokens": {
+                  "$exact": "bigint",
+                  "value": "5"
+                },
+                "outputTokens": {
+                  "$exact": "bigint",
+                  "value": "7"
+                }
               },
               "deltaThinking": "t",
               "actualModelUid": "",
@@ -457,7 +476,9 @@
                   "no": 99,
                   "wireType": 0,
                   "data": {
-                    "bytesHex": "01"
+                    "$exact": "bytes",
+                    "type": "Uint8Array",
+                    "base64": "AQ=="
                   }
                 }
               ]
@@ -484,8 +505,14 @@
                 }
               ],
               "usage": {
-                "inputTokens": "5n",
-                "outputTokens": "7n"
+                "inputTokens": {
+                  "$exact": "bigint",
+                  "value": "5"
+                },
+                "outputTokens": {
+                  "$exact": "bigint",
+                  "value": "7"
+                }
               },
               "deltaThinking": "t",
               "actualModelUid": "",
@@ -494,7 +521,9 @@
                   "no": 99,
                   "wireType": 0,
                   "data": {
-                    "bytesHex": "01"
+                    "$exact": "bytes",
+                    "type": "Uint8Array",
+                    "base64": "AQ=="
                   }
                 }
               ]
@@ -611,14 +640,20 @@
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "inputTokens": "9007199254740993n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "9007199254740993"
+              }
             }
           },
           {
             "op": "decode",
             "type": "ModelUsageStats",
             "value": {
-              "inputTokens": "9007199254740993n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "9007199254740993"
+              }
             },
             "hex": "108180808080808010"
           },
@@ -626,14 +661,20 @@
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "outputTokens": "18446744073709551615n"
+              "outputTokens": {
+                "$exact": "bigint",
+                "value": "18446744073709551615"
+              }
             }
           },
           {
             "op": "decode",
             "type": "ModelUsageStats",
             "value": {
-              "outputTokens": "18446744073709551615n"
+              "outputTokens": {
+                "$exact": "bigint",
+                "value": "18446744073709551615"
+              }
             },
             "hex": "18ffffffffffffffffff01"
           },
@@ -648,7 +689,10 @@
             "op": "encode",
             "type": "GetChatMessageResponse",
             "value": {
-              "committedQuotaCostBasisPoints": "-1n"
+              "committedQuotaCostBasisPoints": {
+                "$exact": "bigint",
+                "value": "-1"
+              }
             }
           },
           {
@@ -662,7 +706,10 @@
             "op": "decode",
             "type": "GetChatMessageResponse",
             "value": {
-              "committedQuotaCostBasisPoints": "-1n"
+              "committedQuotaCostBasisPoints": {
+                "$exact": "bigint",
+                "value": "-1"
+              }
             },
             "hex": "d001ffffffffffffffffff01"
           },
@@ -670,7 +717,10 @@
             "op": "encode",
             "type": "GetChatMessageResponse",
             "value": {
-              "committedOverageCostCents": "0n"
+              "committedOverageCostCents": {
+                "$exact": "bigint",
+                "value": "0"
+              }
             }
           },
           {
@@ -689,7 +739,10 @@
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "inputTokens": "9007199254740993n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "9007199254740993"
+              }
             },
             "hex": "108180808080808010"
           },
@@ -698,14 +751,20 @@
             "type": "ModelUsageStats",
             "hex": "108180808080808010",
             "value": {
-              "inputTokens": "9007199254740993n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "9007199254740993"
+              }
             }
           },
           {
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "outputTokens": "18446744073709551615n"
+              "outputTokens": {
+                "$exact": "bigint",
+                "value": "18446744073709551615"
+              }
             },
             "hex": "18ffffffffffffffffff01"
           },
@@ -714,7 +773,10 @@
             "type": "ModelUsageStats",
             "hex": "18ffffffffffffffffff01",
             "value": {
-              "outputTokens": "18446744073709551615n"
+              "outputTokens": {
+                "$exact": "bigint",
+                "value": "18446744073709551615"
+              }
             }
           },
           {
@@ -729,7 +791,10 @@
             "op": "encode",
             "type": "GetChatMessageResponse",
             "value": {
-              "committedQuotaCostBasisPoints": "-1n"
+              "committedQuotaCostBasisPoints": {
+                "$exact": "bigint",
+                "value": "-1"
+              }
             },
             "hex": "d001ffffffffffffffffff01"
           },
@@ -746,14 +811,20 @@
             "type": "GetChatMessageResponse",
             "hex": "d001ffffffffffffffffff01",
             "value": {
-              "committedQuotaCostBasisPoints": "-1n"
+              "committedQuotaCostBasisPoints": {
+                "$exact": "bigint",
+                "value": "-1"
+              }
             }
           },
           {
             "op": "encode",
             "type": "GetChatMessageResponse",
             "value": {
-              "committedOverageCostCents": "0n"
+              "committedOverageCostCents": {
+                "$exact": "bigint",
+                "value": "0"
+              }
             },
             "hex": "d80100"
           },
@@ -835,7 +906,10 @@
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "inputTokens": "-1n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "-1"
+              }
             }
           },
           {
@@ -856,7 +930,10 @@
             "op": "encode",
             "type": "ClientModelConfig",
             "value": {
-              "maxTokens": "5n"
+              "maxTokens": {
+                "$exact": "bigint",
+                "value": "5"
+              }
             }
           },
           {
@@ -926,8 +1003,10 @@
             "type": "ChatMessagePrompt",
             "hex": "20808080808001",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf 32-bit varint"
+              "message": "Invalid Devin protobuf 32-bit varint",
+              "props": {}
             }
           },
           {
@@ -953,19 +1032,26 @@
               "numTokens": -1
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf uint32 value: negative"
+              "message": "Invalid Devin protobuf uint32 value: negative",
+              "props": {}
             }
           },
           {
             "op": "encode",
             "type": "ModelUsageStats",
             "value": {
-              "inputTokens": "-1n"
+              "inputTokens": {
+                "$exact": "bigint",
+                "value": "-1"
+              }
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf uint64 value: negative"
+              "message": "Invalid Devin protobuf uint64 value: negative",
+              "props": {}
             }
           },
           {
@@ -975,8 +1061,10 @@
               "seed": "-2"
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf uint64 value: negative"
+              "message": "Invalid Devin protobuf uint64 value: negative",
+              "props": {}
             }
           },
           {
@@ -986,19 +1074,26 @@
               "maxTokens": 1.5
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf int32 value: number"
+              "message": "Invalid Devin protobuf int32 value: number",
+              "props": {}
             }
           },
           {
             "op": "encode",
             "type": "ClientModelConfig",
             "value": {
-              "maxTokens": "5n"
+              "maxTokens": {
+                "$exact": "bigint",
+                "value": "5"
+              }
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf int32 value: bigint"
+              "message": "Invalid Devin protobuf int32 value: bigint",
+              "props": {}
             }
           },
           {
@@ -1008,8 +1103,10 @@
               "requestType": "5"
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf enum value: string"
+              "message": "Invalid Devin protobuf enum value: string",
+              "props": {}
             }
           },
           {
@@ -1019,8 +1116,10 @@
               "inputTokens": 1.5
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf uint64 value: number"
+              "message": "Invalid Devin protobuf uint64 value: number",
+              "props": {}
             }
           },
           {
@@ -1030,8 +1129,10 @@
               "inputTokens": "x"
             },
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf uint64 value: string"
+              "message": "Invalid Devin protobuf uint64 value: string",
+              "props": {}
             }
           },
           {
@@ -1039,8 +1140,10 @@
             "type": "ModelUsageStats",
             "hex": "10ffffffffffffffffffff01",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf varint"
+              "message": "Invalid Devin protobuf varint",
+              "props": {}
             }
           }
         ]
@@ -1105,8 +1208,10 @@
             "type": "GetUserJwtResponse",
             "hex": "0801",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf wire type 0 for userJwt"
+              "message": "Invalid Devin protobuf wire type 0 for userJwt",
+              "props": {}
             }
           },
           {
@@ -1114,8 +1219,10 @@
             "type": "GetUserJwtResponse",
             "hex": "0a0561",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Truncated Devin protobuf field"
+              "message": "Truncated Devin protobuf field",
+              "props": {}
             }
           },
           {
@@ -1123,13 +1230,17 @@
             "type": "GetUserJwtResponse",
             "hex": "0a01ff",
             "error": {
+              "$exact": "error",
               "name": "Error",
               "message": "Invalid Devin protobuf UTF-8 string",
               "cause": {
+                "$exact": "error",
                 "name": "TypeError",
                 "message": "The encoded data was not valid for encoding utf-8",
-                "code": "ERR_ENCODING_INVALID_ENCODED_DATA"
-              }
+                "code": "ERR_ENCODING_INVALID_ENCODED_DATA",
+                "props": {}
+              },
+              "props": {}
             }
           },
           {
@@ -1137,8 +1248,10 @@
             "type": "GetUserJwtResponse",
             "hex": "0a80",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Truncated Devin protobuf varint"
+              "message": "Truncated Devin protobuf varint",
+              "props": {}
             }
           },
           {
@@ -1146,8 +1259,10 @@
             "type": "GetUserJwtResponse",
             "hex": "0b",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf wire type 3 for userJwt"
+              "message": "Invalid Devin protobuf wire type 3 for userJwt",
+              "props": {}
             }
           },
           {
@@ -1155,8 +1270,10 @@
             "type": "GetUserJwtResponse",
             "hex": "0001",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf field number 0"
+              "message": "Invalid Devin protobuf field number 0",
+              "props": {}
             }
           },
           {
@@ -1164,8 +1281,10 @@
             "type": "ModelDimension",
             "hex": "1000",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Invalid Devin protobuf wire type 0 for value"
+              "message": "Invalid Devin protobuf wire type 0 for value",
+              "props": {}
             }
           },
           {
@@ -1173,8 +1292,10 @@
             "type": "CompletionConfiguration",
             "hex": "290000",
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Truncated Devin protobuf field"
+              "message": "Truncated Devin protobuf field",
+              "props": {}
             }
           },
           {
@@ -1182,8 +1303,10 @@
             "type": "NoSuchMessage",
             "value": {},
             "error": {
+              "$exact": "error",
               "name": "Error",
-              "message": "Unknown Devin protobuf message: NoSuchMessage"
+              "message": "Unknown Devin protobuf message: NoSuchMessage",
+              "props": {}
             }
           }
         ]
@@ -1260,44 +1383,960 @@
         "steps": [
           {
             "op": "schema",
-            "getChatMessageRequest": [
-              "metadata",
-              "prompt",
-              "chatMessagePrompts",
-              "requestType",
-              "configuration",
-              "tools",
-              "disableParallelToolCalls",
-              "toolChoice",
-              "systemPromptCacheOptions",
-              "chatModelName",
-              "cascadeId",
-              "promptId",
-              "plannerMode",
-              "chatModelUid",
-              "executionId",
-              "modelAssignmentJwt"
-            ],
-            "chatMessagePrompt": [
-              "messageId",
-              "source",
-              "prompt",
-              "numTokens",
-              "safeForCodeTelemetry",
-              "toolCalls",
-              "toolCallId",
-              "promptCacheOptions",
-              "toolResultIsError",
-              "images",
-              "thinking",
-              "signature",
-              "thinkingRedacted",
-              "outputId",
-              "thinkingId",
-              "geminiThoughtSignature",
-              "signatureType",
-              "phase"
-            ],
+            "schemas": {
+              "Metadata": {
+                "1": {
+                  "name": "ideName",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "extensionVersion",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "apiKey",
+                  "no": 3,
+                  "type": "string"
+                },
+                "4": {
+                  "name": "locale",
+                  "no": 4,
+                  "type": "string"
+                },
+                "5": {
+                  "name": "os",
+                  "no": 5,
+                  "type": "string"
+                },
+                "7": {
+                  "name": "ideVersion",
+                  "no": 7,
+                  "type": "string"
+                },
+                "9": {
+                  "name": "requestId",
+                  "no": 9,
+                  "type": "uint64"
+                },
+                "10": {
+                  "name": "sessionId",
+                  "no": 10,
+                  "type": "string"
+                },
+                "12": {
+                  "name": "extensionName",
+                  "no": 12,
+                  "type": "string"
+                },
+                "13": {
+                  "name": "userAgent",
+                  "no": 13,
+                  "type": "string"
+                },
+                "21": {
+                  "name": "userJwt",
+                  "no": 21,
+                  "type": "string"
+                },
+                "28": {
+                  "name": "ideType",
+                  "no": 28,
+                  "type": "string"
+                },
+                "30": {
+                  "name": "supportedModelDisplays",
+                  "no": 30,
+                  "type": "enum",
+                  "repeated": true,
+                  "enum": "DisplayOption"
+                }
+              },
+              "GetUserJwtRequest": {
+                "1": {
+                  "name": "metadata",
+                  "no": 1,
+                  "type": "Metadata"
+                }
+              },
+              "GetUserJwtResponse": {
+                "1": {
+                  "name": "userJwt",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "customApiServerUrl",
+                  "no": 2,
+                  "type": "string"
+                }
+              },
+              "GetCliModelConfigsRequest": {
+                "1": {
+                  "name": "metadata",
+                  "no": 1,
+                  "type": "Metadata"
+                }
+              },
+              "GetCliModelConfigsResponse": {
+                "1": {
+                  "name": "clientModelConfigs",
+                  "no": 1,
+                  "type": "ClientModelConfig",
+                  "repeated": true
+                },
+                "3": {
+                  "name": "defaultOverrideModelConfig",
+                  "no": 3,
+                  "type": "DefaultOverrideModelConfig"
+                }
+              },
+              "DefaultOverrideModelConfig": {
+                "2": {
+                  "name": "versionId",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "modelUid",
+                  "no": 3,
+                  "type": "string"
+                }
+              },
+              "ClientModelConfig": {
+                "1": {
+                  "name": "label",
+                  "no": 1,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "creditMultiplier",
+                  "no": 3,
+                  "type": "float"
+                },
+                "4": {
+                  "name": "disabled",
+                  "no": 4,
+                  "type": "bool"
+                },
+                "5": {
+                  "name": "supportsImages",
+                  "no": 5,
+                  "type": "bool"
+                },
+                "7": {
+                  "name": "isPremium",
+                  "no": 7,
+                  "type": "bool"
+                },
+                "9": {
+                  "name": "isBeta",
+                  "no": 9,
+                  "type": "bool"
+                },
+                "11": {
+                  "name": "isRecommended",
+                  "no": 11,
+                  "type": "bool"
+                },
+                "14": {
+                  "name": "apiProvider",
+                  "no": 14,
+                  "type": "enum",
+                  "enum": "APIProvider"
+                },
+                "15": {
+                  "name": "isNew",
+                  "no": 15,
+                  "type": "bool"
+                },
+                "18": {
+                  "name": "maxTokens",
+                  "no": 18,
+                  "type": "int32"
+                },
+                "20": {
+                  "name": "isCapacityLimited",
+                  "no": 20,
+                  "type": "bool"
+                },
+                "22": {
+                  "name": "modelUid",
+                  "no": 22,
+                  "type": "string"
+                },
+                "23": {
+                  "name": "modelInfo",
+                  "no": 23,
+                  "type": "ModelInfo"
+                },
+                "27": {
+                  "name": "description",
+                  "no": 27,
+                  "type": "string",
+                  "presence": true
+                },
+                "30": {
+                  "name": "modelFamilyMetadata",
+                  "no": 30,
+                  "type": "ModelFamilyMetadata"
+                },
+                "31": {
+                  "name": "isDefaultModelInFamily",
+                  "no": 31,
+                  "type": "bool"
+                },
+                "32": {
+                  "name": "modelDimensions",
+                  "no": 32,
+                  "type": "ModelDimension",
+                  "repeated": true
+                },
+                "33": {
+                  "name": "disabledReason",
+                  "no": 33,
+                  "type": "ModelDisabledReason"
+                }
+              },
+              "ModelInfo": {
+                "4": {
+                  "name": "maxTokens",
+                  "no": 4,
+                  "type": "int32"
+                },
+                "6": {
+                  "name": "modelFeatures",
+                  "no": 6,
+                  "type": "ModelFeatures"
+                },
+                "7": {
+                  "name": "apiProvider",
+                  "no": 7,
+                  "type": "enum",
+                  "enum": "APIProvider"
+                },
+                "8": {
+                  "name": "modelName",
+                  "no": 8,
+                  "type": "string"
+                },
+                "12": {
+                  "name": "chatModelName",
+                  "no": 12,
+                  "type": "string"
+                },
+                "13": {
+                  "name": "maxOutputTokens",
+                  "no": 13,
+                  "type": "int32"
+                },
+                "17": {
+                  "name": "modelUid",
+                  "no": 17,
+                  "type": "string"
+                },
+                "20": {
+                  "name": "harnessUids",
+                  "no": 20,
+                  "type": "string",
+                  "repeated": true
+                },
+                "22": {
+                  "name": "displayOption",
+                  "no": 22,
+                  "type": "enum",
+                  "enum": "DisplayOption"
+                },
+                "23": {
+                  "name": "modelFamilyUid",
+                  "no": 23,
+                  "type": "string"
+                },
+                "25": {
+                  "name": "isModelRouter",
+                  "no": 25,
+                  "type": "bool"
+                }
+              },
+              "ModelFeatures": {
+                "11": {
+                  "name": "supportsImages",
+                  "no": 11,
+                  "type": "bool"
+                },
+                "12": {
+                  "name": "supportsToolCalls",
+                  "no": 12,
+                  "type": "bool"
+                },
+                "15": {
+                  "name": "supportsThinking",
+                  "no": 15,
+                  "type": "bool"
+                },
+                "21": {
+                  "name": "supportsParallelToolCalls",
+                  "no": 21,
+                  "type": "bool"
+                },
+                "24": {
+                  "name": "interleaveThinking",
+                  "no": 24,
+                  "type": "bool"
+                },
+                "25": {
+                  "name": "preserveThinking",
+                  "no": 25,
+                  "type": "bool"
+                }
+              },
+              "ModelDimension": {
+                "1": {
+                  "name": "label",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "value",
+                  "no": 2,
+                  "type": "float"
+                },
+                "3": {
+                  "name": "denominator",
+                  "no": 3,
+                  "type": "string"
+                },
+                "6": {
+                  "name": "kind",
+                  "no": 6,
+                  "type": "enum",
+                  "enum": "ModelDimensionKind"
+                },
+                "7": {
+                  "name": "info",
+                  "no": 7,
+                  "type": "string",
+                  "presence": true
+                }
+              },
+              "ModelFamilyMetadata": {
+                "1": {
+                  "name": "modelFamilyLabel",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "entries",
+                  "no": 2,
+                  "type": "ModelFamilyMetadataEntry",
+                  "repeated": true
+                },
+                "3": {
+                  "name": "isDefaultModelInFamily",
+                  "no": 3,
+                  "type": "bool"
+                }
+              },
+              "ModelFamilyMetadataEntry": {
+                "1": {
+                  "name": "key",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "value",
+                  "no": 2,
+                  "type": "ModelFamilyMetadataValue"
+                }
+              },
+              "ModelFamilyMetadataValue": {
+                "1": {
+                  "name": "order",
+                  "no": 1,
+                  "type": "int32"
+                },
+                "2": {
+                  "name": "name",
+                  "no": 2,
+                  "type": "string"
+                }
+              },
+              "ModelDisabledReason": {
+                "1": {
+                  "name": "shortReason",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "description",
+                  "no": 2,
+                  "type": "string",
+                  "presence": true
+                }
+              },
+              "AssignModelRequest": {
+                "1": {
+                  "name": "metadata",
+                  "no": 1,
+                  "type": "Metadata"
+                },
+                "2": {
+                  "name": "modelRouterUid",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "cascadeId",
+                  "no": 3,
+                  "type": "string"
+                },
+                "5": {
+                  "name": "chatMessagePrompt",
+                  "no": 5,
+                  "type": "ChatMessagePrompt"
+                }
+              },
+              "AssignModelResponse": {
+                "1": {
+                  "name": "assignment",
+                  "no": 1,
+                  "type": "ModelAssignment"
+                }
+              },
+              "ModelAssignment": {
+                "1": {
+                  "name": "assignmentJwt",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "modelUid",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "harnessUids",
+                  "no": 3,
+                  "type": "string",
+                  "repeated": true
+                }
+              },
+              "GetChatMessageRequest": {
+                "1": {
+                  "name": "metadata",
+                  "no": 1,
+                  "type": "Metadata"
+                },
+                "2": {
+                  "name": "prompt",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "chatMessagePrompts",
+                  "no": 3,
+                  "type": "ChatMessagePrompt",
+                  "repeated": true
+                },
+                "7": {
+                  "name": "requestType",
+                  "no": 7,
+                  "type": "enum",
+                  "enum": "ChatMessageRequestType"
+                },
+                "8": {
+                  "name": "configuration",
+                  "no": 8,
+                  "type": "CompletionConfiguration"
+                },
+                "10": {
+                  "name": "tools",
+                  "no": 10,
+                  "type": "ChatToolDefinition",
+                  "repeated": true
+                },
+                "11": {
+                  "name": "disableParallelToolCalls",
+                  "no": 11,
+                  "type": "bool"
+                },
+                "12": {
+                  "name": "toolChoice",
+                  "no": 12,
+                  "type": "ChatToolChoice"
+                },
+                "13": {
+                  "name": "systemPromptCacheOptions",
+                  "no": 13,
+                  "type": "PromptCacheOptions"
+                },
+                "14": {
+                  "name": "chatModelName",
+                  "no": 14,
+                  "type": "string"
+                },
+                "16": {
+                  "name": "cascadeId",
+                  "no": 16,
+                  "type": "string"
+                },
+                "17": {
+                  "name": "promptId",
+                  "no": 17,
+                  "type": "string"
+                },
+                "20": {
+                  "name": "plannerMode",
+                  "no": 20,
+                  "type": "enum",
+                  "enum": "ConversationalPlannerMode"
+                },
+                "21": {
+                  "name": "chatModelUid",
+                  "no": 21,
+                  "type": "string"
+                },
+                "22": {
+                  "name": "executionId",
+                  "no": 22,
+                  "type": "string"
+                },
+                "26": {
+                  "name": "modelAssignmentJwt",
+                  "no": 26,
+                  "type": "string",
+                  "presence": true
+                }
+              },
+              "ChatMessagePrompt": {
+                "1": {
+                  "name": "messageId",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "source",
+                  "no": 2,
+                  "type": "enum",
+                  "enum": "ChatMessageSource"
+                },
+                "3": {
+                  "name": "prompt",
+                  "no": 3,
+                  "type": "string"
+                },
+                "4": {
+                  "name": "numTokens",
+                  "no": 4,
+                  "type": "uint32"
+                },
+                "5": {
+                  "name": "safeForCodeTelemetry",
+                  "no": 5,
+                  "type": "bool"
+                },
+                "6": {
+                  "name": "toolCalls",
+                  "no": 6,
+                  "type": "ChatToolCall",
+                  "repeated": true
+                },
+                "7": {
+                  "name": "toolCallId",
+                  "no": 7,
+                  "type": "string"
+                },
+                "8": {
+                  "name": "promptCacheOptions",
+                  "no": 8,
+                  "type": "PromptCacheOptions"
+                },
+                "9": {
+                  "name": "toolResultIsError",
+                  "no": 9,
+                  "type": "bool"
+                },
+                "10": {
+                  "name": "images",
+                  "no": 10,
+                  "type": "ImageData",
+                  "repeated": true
+                },
+                "11": {
+                  "name": "thinking",
+                  "no": 11,
+                  "type": "string"
+                },
+                "12": {
+                  "name": "signature",
+                  "no": 12,
+                  "type": "string"
+                },
+                "13": {
+                  "name": "thinkingRedacted",
+                  "no": 13,
+                  "type": "bool"
+                },
+                "15": {
+                  "name": "outputId",
+                  "no": 15,
+                  "type": "string"
+                },
+                "16": {
+                  "name": "thinkingId",
+                  "no": 16,
+                  "type": "string"
+                },
+                "17": {
+                  "name": "geminiThoughtSignature",
+                  "no": 17,
+                  "type": "bytes"
+                },
+                "18": {
+                  "name": "signatureType",
+                  "no": 18,
+                  "type": "string"
+                },
+                "19": {
+                  "name": "phase",
+                  "no": 19,
+                  "type": "string"
+                }
+              },
+              "ChatToolCall": {
+                "1": {
+                  "name": "id",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "name",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "argumentsJson",
+                  "no": 3,
+                  "type": "string"
+                },
+                "4": {
+                  "name": "invalidJsonStr",
+                  "no": 4,
+                  "type": "string"
+                },
+                "5": {
+                  "name": "invalidJsonErr",
+                  "no": 5,
+                  "type": "string"
+                },
+                "6": {
+                  "name": "isCustomToolCall",
+                  "no": 6,
+                  "type": "bool"
+                }
+              },
+              "ChatToolChoice": {
+                "1": {
+                  "name": "optionName",
+                  "no": 1,
+                  "type": "string",
+                  "presence": true
+                },
+                "2": {
+                  "name": "toolName",
+                  "no": 2,
+                  "type": "string",
+                  "presence": true
+                }
+              },
+              "ChatToolDefinition": {
+                "1": {
+                  "name": "name",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "description",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "jsonSchemaString",
+                  "no": 3,
+                  "type": "string"
+                },
+                "6": {
+                  "name": "serverName",
+                  "no": 6,
+                  "type": "string"
+                },
+                "7": {
+                  "name": "readOnlyHint",
+                  "no": 7,
+                  "type": "bool",
+                  "presence": true
+                },
+                "12": {
+                  "name": "strict",
+                  "no": 12,
+                  "type": "bool"
+                }
+              },
+              "ImageData": {
+                "1": {
+                  "name": "base64Data",
+                  "no": 1,
+                  "type": "string"
+                },
+                "2": {
+                  "name": "mimeType",
+                  "no": 2,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "caption",
+                  "no": 3,
+                  "type": "string"
+                }
+              },
+              "PromptCacheOptions": {
+                "1": {
+                  "name": "type",
+                  "no": 1,
+                  "type": "enum",
+                  "enum": "CacheControlType"
+                }
+              },
+              "CompletionConfiguration": {
+                "1": {
+                  "name": "numCompletions",
+                  "no": 1,
+                  "type": "uint64"
+                },
+                "2": {
+                  "name": "maxTokens",
+                  "no": 2,
+                  "type": "uint64"
+                },
+                "3": {
+                  "name": "maxNewlines",
+                  "no": 3,
+                  "type": "uint64"
+                },
+                "4": {
+                  "name": "minLogProbability",
+                  "no": 4,
+                  "type": "double"
+                },
+                "5": {
+                  "name": "temperature",
+                  "no": 5,
+                  "type": "double"
+                },
+                "6": {
+                  "name": "firstTemperature",
+                  "no": 6,
+                  "type": "double"
+                },
+                "7": {
+                  "name": "topK",
+                  "no": 7,
+                  "type": "uint64"
+                },
+                "8": {
+                  "name": "topP",
+                  "no": 8,
+                  "type": "double"
+                },
+                "9": {
+                  "name": "stopPatterns",
+                  "no": 9,
+                  "type": "string",
+                  "repeated": true
+                },
+                "10": {
+                  "name": "seed",
+                  "no": 10,
+                  "type": "uint64"
+                },
+                "17": {
+                  "name": "serviceTier",
+                  "no": 17,
+                  "type": "string"
+                }
+              },
+              "GetChatMessageResponse": {
+                "1": {
+                  "name": "messageId",
+                  "no": 1,
+                  "type": "string"
+                },
+                "3": {
+                  "name": "deltaText",
+                  "no": 3,
+                  "type": "string"
+                },
+                "4": {
+                  "name": "deltaTokens",
+                  "no": 4,
+                  "type": "uint32"
+                },
+                "5": {
+                  "name": "stopReason",
+                  "no": 5,
+                  "type": "enum",
+                  "enum": "StopReason"
+                },
+                "6": {
+                  "name": "deltaToolCalls",
+                  "no": 6,
+                  "type": "ChatToolCall",
+                  "repeated": true
+                },
+                "7": {
+                  "name": "usage",
+                  "no": 7,
+                  "type": "ModelUsageStats"
+                },
+                "8": {
+                  "name": "redact",
+                  "no": 8,
+                  "type": "bool"
+                },
+                "9": {
+                  "name": "deltaThinking",
+                  "no": 9,
+                  "type": "string"
+                },
+                "10": {
+                  "name": "deltaSignature",
+                  "no": 10,
+                  "type": "string"
+                },
+                "11": {
+                  "name": "thinkingRedacted",
+                  "no": 11,
+                  "type": "bool"
+                },
+                "12": {
+                  "name": "latency",
+                  "no": 12,
+                  "type": "double"
+                },
+                "14": {
+                  "name": "creditCost",
+                  "no": 14,
+                  "type": "int32"
+                },
+                "15": {
+                  "name": "outputId",
+                  "no": 15,
+                  "type": "string"
+                },
+                "16": {
+                  "name": "thinkingId",
+                  "no": 16,
+                  "type": "string"
+                },
+                "17": {
+                  "name": "requestId",
+                  "no": 17,
+                  "type": "string"
+                },
+                "18": {
+                  "name": "committedCreditCost",
+                  "no": 18,
+                  "type": "int32"
+                },
+                "20": {
+                  "name": "geminiThoughtSignature",
+                  "no": 20,
+                  "type": "bytes"
+                },
+                "21": {
+                  "name": "deltaSignatureType",
+                  "no": 21,
+                  "type": "string"
+                },
+                "22": {
+                  "name": "committedAcuCost",
+                  "no": 22,
+                  "type": "double"
+                },
+                "23": {
+                  "name": "actualModelUid",
+                  "no": 23,
+                  "type": "string",
+                  "presence": true
+                },
+                "25": {
+                  "name": "phase",
+                  "no": 25,
+                  "type": "string"
+                },
+                "26": {
+                  "name": "committedQuotaCostBasisPoints",
+                  "no": 26,
+                  "type": "int64",
+                  "presence": true
+                },
+                "27": {
+                  "name": "committedOverageCostCents",
+                  "no": 27,
+                  "type": "int64",
+                  "presence": true
+                }
+              },
+              "ModelUsageStats": {
+                "2": {
+                  "name": "inputTokens",
+                  "no": 2,
+                  "type": "uint64"
+                },
+                "3": {
+                  "name": "outputTokens",
+                  "no": 3,
+                  "type": "uint64"
+                },
+                "4": {
+                  "name": "cacheWriteTokens",
+                  "no": 4,
+                  "type": "uint64"
+                },
+                "5": {
+                  "name": "cacheReadTokens",
+                  "no": 5,
+                  "type": "uint64"
+                },
+                "6": {
+                  "name": "apiProvider",
+                  "no": 6,
+                  "type": "enum",
+                  "enum": "APIProvider"
+                },
+                "7": {
+                  "name": "messageId",
+                  "no": 7,
+                  "type": "string"
+                },
+                "9": {
+                  "name": "modelUid",
+                  "no": 9,
+                  "type": "string"
+                },
+                "10": {
+                  "name": "billingModelUid",
+                  "no": 10,
+                  "type": "string"
+                },
+                "11": {
+                  "name": "requestedModelUid",
+                  "no": 11,
+                  "type": "string"
+                }
+              }
+            },
             "field21": "chatModelUid",
             "promptField2Enum": "ChatMessageSource"
           }

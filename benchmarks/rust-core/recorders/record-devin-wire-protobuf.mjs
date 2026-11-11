@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-devin-wire-protobuf',
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs encodeDevinMessage(type, value), decodeDevinMessage(type, bytes), DEVIN_ENUMS, DEVIN_SCHEMAS. Not run: a Devin endpoint.',
-  replay: 'mixdog-ai providers::connect pb.rs (:156-285) and devin request/decoder: for each `steps[*]` entry run `op` ("encode": value -> hex, "decode": hex -> value, "schema": field-name table) and compare `hex` / `value` / `error.message` whole. Rows in `input.values` carrying "<n>n" strings are 64-bit integers.',
+  compare: 'mixdog-ai providers::connect pb.rs (:156-285) and devin request/decoder: for each `steps[*]` entry run `op` ("encode": value -> hex, "decode": hex -> value, "schema": field-name table) and compare `hex` / `value` / `error.message` whole. Rows in `input.values` carrying "<n>n" strings are 64-bit integers.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const { DEVIN_ENUMS, DEVIN_SCHEMAS, decodeDevinMessage, encodeDevinMessage } = await rec.P('agent/orchestrator/providers/devin-wire-protobuf.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs';
@@ -77,6 +78,6 @@ await row('assign-model-router-fields', 183, [
   enc('AssignModelRequest', { modelRouterUid: 'adaptive', cascadeId: 'c', chatMessagePrompt: { source: 1 } }), dec('AssignModelResponse', '0a09 0a016a 12016d 1a0168'),
 ]);
 await rec.run('schema-table-field-names', `${SRC}:195`, {}, () => ({
-  steps: [{ op: 'schema', getChatMessageRequest: Object.values(DEVIN_SCHEMAS.GetChatMessageRequest).map((f) => f.name), chatMessagePrompt: Object.values(DEVIN_SCHEMAS.ChatMessagePrompt).map((f) => f.name), field21: DEVIN_SCHEMAS.GetChatMessageRequest[21].name, promptField2Enum: DEVIN_SCHEMAS.ChatMessagePrompt[2].enum }],
+  steps: [{ op: 'schema', schemas: DEVIN_SCHEMAS, field21: DEVIN_SCHEMAS.GetChatMessageRequest[21].name, promptField2Enum: DEVIN_SCHEMAS.ChatMessagePrompt[2].enum }],
 }));
 await rec.finish();
