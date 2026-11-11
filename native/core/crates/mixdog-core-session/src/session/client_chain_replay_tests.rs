@@ -214,7 +214,8 @@ async fn run(script: &str) -> Vec<Value> {
         .expect("node runs");
     let mut stdin = child.stdin.take().expect("stdin");
     let mut lines = tokio::io::BufReader::new(child.stdout.take().expect("stdout")).lines();
-    while let Some(line) = lines.next_line().await.expect("the script's output") {
+    // Each line the script owes has one deadline: a script that stops writing fails the test naming what it was waiting for.
+    while let Some(line) = super::testing::awaiting(|| format!("the next line of {script}'s output"), lines.next_line()).await.expect("the script's output") {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             eprintln!("{line}");
             continue;

@@ -43,11 +43,8 @@ async function threadOf(rows) {
   return threadId;
 }
 const message = (row) => ({ role: 'user', content: row.text, meta: { transcript: { clientSubmissionId: row.id, ...(row.device ? { device: row.device } : {}) } } });
-// Posted 50 rows at a time: one post's rows are committed as one plan, and a plan over the thread's durability window (64
-// records) fails the thread `StorageIndeterminate` (actor.rs `pump`), so 2000 rows in one post never land.
-const append = async (threadId, rows) => {
-  for (let at = 0; at < rows.length; at += 50) await core.call('append', { threadId, messages: rows.slice(at, at + 50).map(message) });
-};
+// All rows in one post, as the recording stored them.
+const append = (threadId, rows) => core.call('append', { threadId, messages: rows.map(message) });
 
 let connections = 0;
 /** A phone following `threadId` on its own connection: it shows the fold's state through its transcript window. */
