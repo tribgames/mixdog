@@ -2,7 +2,8 @@
 
 Each lane of `k1-lanes.mjs` against the Node step it replaces (Node at `b6f10295a`, `D:\mixdog-build\tmp\b6f-tree`).
 This is the work list for closing the lanes: each weaker lane's section lists every Node assertion without a full Rust
-counterpart.
+counterpart. The walk was done on the tree after the o1 `6bf0a5bbf` merge, which added the gateway replays in
+`mixdog-ai` `registry/gateway_replay.rs`.
 
 Status per Node assertion: **none** means no Rust test proves it. **partial** means a Rust test proves part of it; the
 row says what is left. Assertions that are proven are not listed, apart from the "equal" lines. The **owner** is the
@@ -18,7 +19,7 @@ as the owner. "outside lane" marks a Rust test that proves the row but that the 
 | shell-direct-exe | equal (one line below) | 0 | 0 |
 | advisory-lock | weaker by one assertion | 1 | 0 |
 | patch-bytes | weaker | 7 | 0 |
-| provider-contract | weaker | 78 | 89 |
+| provider-contract | weaker | 76 | 91 |
 | daemon-bootstrap | weaker: the inline-host test file | 8 | 2 |
 | native-assets | weaker: npm staging | 1 | 3 |
 | compact | equal (one line below) | 0 | 0 |
@@ -88,7 +89,7 @@ recordings under `native/core/fixtures/` unless a row says otherwise. Node's str
 (`providers/anthropic/decoder.rs:215-243`, `accounts/rotation.rs:798`) and decides retries in `retry/decider.rs` and
 `retry/classify.rs`. A row that needs that record would be owned by those files.
 
-### `provider-contract-test.mjs` (38 tests: 1 proven, 20 partial, 17 none)
+### `provider-contract-test.mjs` (38 tests: 1 proven, 21 partial, 16 none)
 
 Proven: `:457` (Grok output ceiling) by `providers/grok/listing_tests.rs` `an_enriched_row_loses_its_output_limit_and_follows_its_ladder`.
 
@@ -115,24 +116,24 @@ Proven: `:457` (Grok output ceiling) by `providers/grok/listing_tests.rs` `an_en
 | `:783` | Codex usage reads the backend-api endpoints and keeps an embedded reset credit | partial: `service/oauth_usage/tests.rs` (`:122`); left: the embedded credit | `service/oauth_usage.rs` | — |
 | `:833` | Cursor account usage reaches the usage dashboard through the OAuth cache | none | `service/oauth_usage.rs`, `service/usage_cursor.rs` | `cursor-usage/` (normalisation only) |
 | `:895` | provider auth waits for the keychain before consuming a Codex reset | none | `service/oauth_usage.rs` | — |
-| `:911` | vendor preset defaults and OpenCode Go protocol routes are pinned | partial: `providers/compat/tests.rs` `catalog_and_roster_inputs_route_as_nodes_adapters_do`; left: the preset defaults, base URLs and the Go model classification | `providers/compat/profile.rs` | — |
+| `:911` | vendor preset defaults and OpenCode Go protocol routes are pinned | partial: `providers/compat/tests.rs` `catalog_and_roster_inputs_route_as_nodes_adapters_do`. o1's `registry/gateway_replay.rs` `opencode_go_*_sends_on_*` compare whole each request (origin, path, headers, body) with Node's for the GPT, MiniMax, Gemini and other routes. Left: the preset defaults never sent in a recorded request | `providers/compat/profile.rs` | `provider-gateways/opencode-go-*.json` |
 | `:936` | provider-specific thinking fields (DeepSeek `thinking`) do not leak onto other compat contracts | partial: `effort_reaches_the_body_by_dialect_not_by_provider_name`; left: the absence on the other contracts | `providers/compat/chat/options.rs` | `mixdog-ai/fixtures/effort` |
-| `:971` | OpenRouter: the unified reasoning body, and the cost it reports (a negative cost gives none) | partial: `effort_reaches_the_body_by_dialect_not_by_provider_name`, `billed_cost_is_read_from_the_dialect_field`; left: the negative cost | `providers/compat/chat/options.rs` | `mixdog-ai/fixtures/effort` |
+| `:971` | OpenRouter: the unified reasoning body, and the cost it reports (a negative cost gives none) | partial: `effort_reaches_the_body_by_dialect_not_by_provider_name`, `billed_cost_is_read_from_the_dialect_field`, and `gateway_replay.rs` `openrouter_*` (whole request bodies); left: the negative cost | `providers/compat/chat/options.rs` | `mixdog-ai/fixtures/effort`, `provider-gateways/openrouter-*.json` |
 | `:987` | xAI sends `reasoning_effort` only for the families that accept it | partial: the same effort test; left: omission for grok-3 and grok-4 | `providers/compat/chat/options.rs` | `mixdog-ai/fixtures/effort` |
 | `:1012` | DeepSeek `reasoning_content` is replayed when asked | partial: `reasoning_text_is_kept_and_replayed_under_the_key_it_arrived_on`; left: the xAI replay | `providers/compat/chat/encode.rs` | — |
 | `:1031` | OpenRouter `reasoning_details` round-trip on assistant tool turns | none | `providers/compat/chat/encode.rs` | — |
 | `:1051` | the LM Studio reasoning alias is kept apart from the answer text | none | `providers/compat/chat/decode.rs` | — |
 | `:1072` | the compat stream accumulates OpenRouter `reasoning_details` beside tool calls | none | `providers/compat/chat/decode.rs` | — |
 | `:1121` | API-key auth retries a typed 401 once; a text-only 401 and a 403 never reload | partial: `tests/it/openai_adapter.rs` `a_401_reloads_the_credential_once_and_replays`, `a_401_that_survives_the_reload_asks_for_a_new_login`; left: the text-only 401 and the 403 | `providers/compat/adapter.rs` | — |
-| `:1181` | OpenCode Go normalises both route families to inclusive usage | none | `providers/compat/profile.rs` | — |
-| `:1244` | OpenCode Go's Anthropic delegation traces additive inner usage before inclusive normalisation | none | `providers/compat` | — |
+| `:1181` | OpenCode Go normalises both route families to inclusive usage | partial: `gateway_replay.rs` `opencode_go_*` compare each result's input and output tokens with Node's; left: a recorded answer with cached tokens, which would tell inclusive from additive | `providers/compat/profile.rs` | `provider-gateways/opencode-go-*.json` |
+| `:1244` | OpenCode Go's Anthropic delegation traces additive inner usage before inclusive normalisation | none (the replays do not compare the usage trace) | `providers/compat` | `provider-gateways/opencode-go-messages.json` (answer only) |
 | `:1354` | constructing Grok OAuth prewarms only through the injected seam | none | `providers/grok/auth.rs` | — |
 | `:1365` | the Grok OAuth HTTP Responses path is hermetic (no global fetch, its headers, `store: false`) | none | `providers/grok/mod.rs` | — |
-| `:1434` | xAI Responses defaults to HTTP; WebSocket only on explicit opt-in | partial: `tests/it/openai_profiles.rs` `xai_profiles_match_the_http_and_websocket_heads`; left: the default and the opt-in | `providers/compat/profile.rs` | — |
+| `:1434` | xAI Responses defaults to HTTP; WebSocket only on explicit opt-in | partial: `tests/it/openai_profiles.rs` `xai_profiles_match_the_http_and_websocket_heads`, and `gateway_replay.rs` `xai_sends_on_responses` (the default send is Node's HTTP request); left: WebSocket only on opt-in | `providers/compat/profile.rs` | `provider-gateways/xai-responses.json` |
 | `:1445` | per provider, `response.failed`/`error` keep their typed status and never synthesise one | none | `retry/classify.rs` | `mixdog-ai/fixtures/error-text/cases.json` (text only) |
 | `:1486` | Grok OAuth does not refresh or replay a 401 after a visible tool dispatch | none | `providers/grok/mod.rs` | — |
 
-### `provider-stream-outcome-test.mjs` (78 tests: 0 proven, 40 partial, 38 none)
+### `provider-stream-outcome-test.mjs` (78 tests: 0 proven, 41 partial, 37 none)
 
 Anthropic tests cited below are in `providers/anthropic/tests.rs`.
 
@@ -155,7 +156,7 @@ Anthropic tests cited below are in `providers/anthropic/tests.rs`.
 | `:338` | midstream WS: a clean pre-output failure still classifies and retries | none | `broker/send.rs` | — |
 | `:366` | the midstream SSE gate mirrors the WS gate | none | `broker/send.rs` | — |
 | `:385` | replay-unsafe outcomes never switch transport | none | `retry/decider.rs` | — |
-| `:411` | `withRetry` never replays a request whose outcome is not replay-safe | none (`retry/decider.rs` has the gate; no test) | `retry/decider.rs` | — |
+| `:411` | `withRetry` never replays a request whose outcome is not replay-safe | partial: `registry/gateway_replay.rs` `a_refusal_after_output_started_is_never_resent` (key-pool switch only); left: the `retry/decider.rs` gate | `retry/decider.rs` | `provider-gateways/custom-keys-after-output.json` |
 | `:431` | a clean transient continuation still retries | partial: `tests/it/retry.rs` `terminal_and_edge_statuses_surface_even_when_transient`, `repeated_overload_falls_back_or_ends_the_send`; left: the retry count | `retry/decider.rs` | — |
 | `:456` | retry exhaustion is provider-terminal; a one-shot failure is not | partial: `repeated_overload_falls_back_or_ends_the_send`; left: the provider-terminal mark | `retry/decider.rs` | — |
 | `:495` | a nested provider-terminal failure is never retried again | none | `retry/decider.rs` | — |
