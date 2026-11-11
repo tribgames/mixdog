@@ -249,6 +249,7 @@ impl ProviderAdapter for AccountedAdapter {
                 open: Some(Open { accounting, usage: None, served: None }),
                 group,
                 now: Arc::clone(&self.deps.now),
+                settling: Arc::default(),
             })),
             Err(error) => {
                 fail(accounting, group, error.clone()).await;
@@ -304,6 +305,8 @@ struct AccountedStream {
     open: Option<Open>,
     group: Option<(String, Groups)>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    /// Set while the completed row is written ([`ModelStream::settling`]).
+    settling: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[async_trait]
@@ -330,7 +333,9 @@ impl ModelStream for AccountedStream {
                     stream_ended_at: (self.now)(),
                     ..Completed::default()
                 };
+                self.settling.store(true, std::sync::atomic::Ordering::Release);
                 let recorded = open.accounting.finish(Outcome::Completed(done)).await;
+                self.settling.store(false, std::sync::atomic::Ordering::Release);
                 Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms: recorded.request_ms.or(request_ms) }))
             }
             Some(Ok(event)) => Some(Ok(event)),
@@ -351,6 +356,10 @@ impl ModelStream for AccountedStream {
 
     fn delivery(&self) -> DeliveryState {
         self.inner.delivery()
+    }
+
+    fn settling(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> {
+        Some(Arc::clone(&self.settling))
     }
 }
 

@@ -79,6 +79,9 @@ enum Step {
     Hang,
     /// The stream goes on once the count reaches the number: a response still streaming while the calls it handed over run.
     Until(tokio::sync::watch::Receiver<usize>, usize, &'static str),
+    /// The stream works on what it already received (`ModelStream::settling`, the ledger's write) until the count reaches the
+    /// number or the time passes.
+    Settling(tokio::sync::watch::Receiver<usize>, usize, Duration),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -87,7 +90,7 @@ enum Attempt {
     Reject(ProviderError),
 }
 
-struct ScriptedStream(VecDeque<Step>);
+struct ScriptedStream(VecDeque<Step>, Arc<std::sync::atomic::AtomicBool>);
 
 #[async_trait]
 impl ModelStream for ScriptedStream {
@@ -103,12 +106,22 @@ impl ModelStream for ScriptedStream {
                     assert!(reached.is_ok(), "the stream waited 30 s for {what}");
                     continue;
                 }
+                Some(Step::Settling(mut count, at, most)) => {
+                    self.1.store(true, std::sync::atomic::Ordering::Release);
+                    let _ = tokio::time::timeout(most, count.wait_for(|n| *n >= at)).await;
+                    self.1.store(false, std::sync::atomic::Ordering::Release);
+                    continue;
+                }
             };
         }
     }
 
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
+    }
+
+    fn settling(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> {
+        Some(Arc::clone(&self.1))
     }
 }
 
@@ -173,7 +186,7 @@ impl ProviderAdapter for Scripted {
     ) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.requests.lock().unwrap().push(request);
         match self.script.lock().unwrap().pop_front() {
-            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into()))),
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), Arc::default()))),
             Some(Attempt::Reject(error)) => Err(error),
             None => panic!("provider script exhausted"),
         }
@@ -526,6 +539,29 @@ async fn an_edit_behind_an_ambiguous_streamed_edit_runs_before_the_group_retry()
     finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
     let runs = file.runs.lock().unwrap().clone();
     let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
+}
+
+/// A response whose bytes all arrived is not waiting for the wire while the ledger writes its completed row: an ambiguous
+/// streamed edit that settles meanwhile is acted on once the batch is at it, so its group retry runs before the edit behind
+/// it, as in the recorded case (`agent-trace-run` scenario 2). The stream gives the edit behind it half a second to run.
+#[tokio::test]
+async fn an_ambiguous_edit_settling_while_the_ledger_writes_finds_the_batch_at_it() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "ledger.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Settling(file.ended.subscribe(), 2, Duration::from_millis(500)),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
     assert_eq!(runs, want);
     assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
 }

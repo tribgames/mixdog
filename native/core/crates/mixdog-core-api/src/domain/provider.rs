@@ -1066,6 +1066,12 @@ pub struct FirstResponseBudget {
 pub trait ModelStream: Send {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>>;
     fn delivery(&self) -> DeliveryState;
+    /// Set while a pending `next` works on what the wire already delivered (the usage ledger writing the completed row
+    /// before it releases the terminal event) instead of waiting for more of it. `None`: a pending `next` always waits
+    /// for the wire. Taken once, before the stream is polled.
+    fn settling(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> {
+        None
+    }
 }
 
 #[async_trait]
