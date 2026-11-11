@@ -2,7 +2,7 @@
   "command": "node benchmarks/rust-core/recorders/record-session-restart-prefix.mjs --tree <tree>",
   "entry": "Spawned the patched copy of the tree's src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs (the test's own scenario script, minus its 300 ms sleep: see patch) with node --import lib/determinism-preload.mjs as real child processes: phases idle/killtool/killrequest then resume, each on a fresh MIXDOG_DATA_DIR, killing the kill phases on the READY line (SIGKILL). Inside: real session-lifecycle createSession, ask-session askSession, turn-checkpoint, cache-warm request rebuild, anthropic-oauth buildRequestBody and anthropic-prefix-trace with a scripted provider (the fixture's fake send). The recorder waits on the READY line / the child's exit with a 120 s deadline per phase.",
   "exclusions": [
-    "the OS temp dir (os.tmpdir(), separators as Node produced them) -> <TMP>, in string values of system[*].text of every recorded request body and of input.environment only (the system prompt's cwd/scratch/git lines name the fixed rec-restart-prefix dir under it); a replay injects input.environment with <TMP> replaced by its own temp dir. Otherwise no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat",
+    "this machine's roots (the OS temp dir -> <TMP>, the checkout process.cwd() -> <CWD>, the user home -> <HOME>; every spelling found, text after the root and its separators kept: lib/tmp-mark.mjs), in string values of system[*].text of every recorded request body and of input.environment only (the system prompt's cwd/scratch/git lines name the fixed rec-restart-prefix dir under it); a replay injects input.environment with <TMP> replaced by its own temp dir. Otherwise no value of the requests is normalised. The child processes run with crypto.randomUUID/randomBytes as counters, Date.now() = 1700000000000 and process.pid = 4242 (lib/determinism-preload.mjs), so session ids, scratch directory names and stamps repeat",
     "the system prompt's environment block (cwd under the fixed base dir in the OS temp dir, shell tools present/absent on PATH, git state, cwd entries) is the recording machine's: it is recorded as it was, and extracted whole into each case's input.environment for the replay to inject verbatim",
     "GLOBALS PATCHED by installDeterminism(): crypto.randomUUID, crypto.randomBytes (no-callback form), Date.now, performance.now, process.pid, process.ppid, process.kill (signal 0 of the fixed pid only). The child-process preloads (lib/determinism-preload.mjs, determinism-preload-other-process.mjs) patch crypto.randomUUID, crypto.randomBytes, Date.now and process.pid only (pid 4242, the second process 4243); they leave process.kill, performance.now and process.ppid alone",
     "BRANCH process.pid liveness (isPidAlive / process.kill(pid, 0): src/runtime/shared/pid-liveness.mjs, ~54 files: daemon discovery in session-client, writer and process locks): the fixed pid is answered alive by the process.kill hook in the recording process; a child process preloaded with the fixed pid has no such hook, so it would judge the parent's pid dead and could steal a lock the parent held: no recorded flow has a lock held across processes (restart-prefix phases run one after the other, the lifecycle parent holds nothing while its child runs)",
@@ -47,22 +47,22 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
-      "sha256": "c1bbfee8dc62b4cc2984df099617e111b33ad510236b6f614da643ae88686b6a"
+      "sha256": "f4bd4f5cdbf9f181548ab6a7d639caa33206e9c587aa734bdb48a0a539c06cf5"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/tmp-mark.mjs",
-      "sha256": "8334dff58ba82de81a53d40dec6d01e375f3733904968c148d8c47579645b4ba"
+      "sha256": "5a1bc2a993be16a1919a82639f5f10144f4a9fd529227651dcc68eaa51a9e9c4"
     },
     {
       "path": "benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch",
-      "sha256": "6a7973fcc69819526c40c8cdb350b3f88162c08295bd591b11257717ae16680c"
+      "sha256": "7a69ae7e16ca79a691a443419824ebafe4f5c0f9e45930ab746361fe075592fa"
     }
   ],
   "nodeVersion": "v22.20.0",
   "patch": {
     "applied": "to a temporary copy of the tree's src (restart-prefix-parity.fixture.mjs only)",
     "file": "benchmarks/rust-core/recorders/patches/node-fix-restart-prefix-settle.patch",
-    "fixes": "The scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY. The sleep guarded nothing: the turn checkpoint header (an \"open\" op) and every journal append are ops of the one write lane (turn-checkpoint-journal.mjs _journalWrites) that settleTurnJournalWrites waits on until nothing is queued and nothing is writing, i.e. the header and journal files are written (ask-turn-execute.mjs also awaits checkpoint.landed() before a request is sent); the first settle already returns only then, and nothing enqueues after it because the process is parked in the hook. So the single settle (checked: it must return true) gives the same durability. New Node test restart-prefix-settle.test.mjs asserts, at READY, header and journal on disk and whole, and that the fixture arms no timer of 100 ms or more itself: it fails on the unpatched fixture (a 300 ms timer) and passes with the patch"
+    "fixes": "The scenario script slept 300 ms between two settleTurnCheckpointWrites calls before printing READY. The sleep stood for the journal appends of the stopped turn having landed, but settleTurnJournalWrites only says the write lane is idle, which a FAILED write also leaves, so neither the sleep nor the settle shows the record is on disk. The fixture now waits for the thing itself: the record the turn stops at (killtool: the assistant message calling call_3 and phase tools; killrequest: the tool result of call_2 and phase streaming) readable back through readTurnCheckpointHeader + replayTurnJournal from the header and journal files, polled every 5 ms with a 30 s deadline, failing with the write error when the one-time stderr warning of _warnJournalOnce (turn-checkpoint-journal.mjs) reports a failed write. Node gives no completion for an append (appendJournalLines only queues it; _pumpJournal settles only the open op, which has no handle the fixture can reach), so the file is read back; the appends are not fsynced (Node durability, untouched). New Node test restart-prefix-ready.test.mjs (in the patch): READY comes with the record readable; with the journal append made to fail (journal op gate) READY is never announced and the child fails with the write error: the unpatched fixture announces READY with no record on disk and fails it"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -81,7 +81,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-restart-prefix.mjs",
-  "recorderSha256": "9f261c865a3593bfbecef4a82535a2fbe65a4511749e54ddf2a1e8843e6f36cc",
+  "recorderSha256": "aa7a2fb566d4daf9daf2f541c47ee42eb5925c7e4eac4f98b232d02bef5a4556",
   "replay": "The Rust core's restart path is the thread/resume + turn/start protocol (native/core/crates/mixdog-app-protocol methods.rs: thread/resume, turn/start, turn/interrupt) over mixdog-core-session recovery and the Anthropic request builder (mixdog-ai, the anthropic-oauth request body); the cache warmer is native/core/crates/mixdog-ai warmer (chain_tests.rs op rearm). Replay each scenario with the scripted provider steps (the script of the fixture: toolStep/textStep), restart the core at the recorded point (idle, in a tool run, request on the wire), and compare every request body block for block (\bodies), the prefix changes, the re-armed warmBody (null when killed mid-turn) and comparisons (derived by the test's own block walk). \u001bnvironment is an input: the system prompt's machine-derived environment text (cwd, shell tools, git state, cwd entries) as the recording machine produced it; the replay injects that text verbatim into the system prompt instead of computing its own.",
   "set": "session-restart-prefix",
   "testFile": "src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs",

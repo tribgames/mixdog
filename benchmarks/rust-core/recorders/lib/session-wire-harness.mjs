@@ -15,6 +15,7 @@ import module from 'node:module';
 import net from 'node:net';
 import { join } from 'node:path';
 import { exact } from './exact.mjs';
+import { markMachineText } from './tmp-mark.mjs';
 
 export const DEADLINE_MS = 10_000;
 // The real timers, taken at import: a deadline keeps running when a recorder fakes the global setTimeout.
@@ -222,8 +223,16 @@ export async function startWireTap(targetPort) {
   const strip = (message) => {
     if (!message) return message;
     const { sse: _pending, ...rest } = message;
-    // Declared normalisation at two header paths: `Host` carries the tap's ephemeral port; `Date` is the server's wall clock.
-    return { ...rest, headers: message.headers.map(([name, value]) => [name, name.toLowerCase() === 'host' ? value.replace(/:\d+$/, ':<port>') : name.toLowerCase() === 'date' ? '<date>' : value]) };
+    // Declared normalisation: the `Host` header's ephemeral port -> <port>; `Date` -> <date>; and this machine's roots
+    // (checkout, temp dir, home: lib/tmp-mark.mjs) -> <CWD>/<TMP>/<HOME> in startLine, header values, body and frames.
+    // Content-Length stays the one Node sent: `rewrites` {label: {originalLength, count}} says what each label stands for.
+    const rewrites = {};
+    const mark = (text) => { const done = markMachineText(text); for (const [label, hit] of Object.entries(done.rewrites)) { const have = rewrites[label]; rewrites[label] = have ? { originalLength: hit.originalLength, count: have.count + hit.count } : hit; } return done.text; };
+    const out = { ...rest, startLine: mark(rest.startLine), headers: message.headers.map(([name, value]) => [name, name.toLowerCase() === 'host' ? value.replace(/:\d+$/, ':<port>') : name.toLowerCase() === 'date' ? '<date>' : mark(value)]) };
+    if (typeof rest.body === 'string') out.body = mark(rest.body);
+    if (Array.isArray(rest.frames)) out.frames = rest.frames.map((frame) => (typeof frame === 'string' ? mark(frame) : frame));
+    if (Object.keys(rewrites).length) out.rewrites = rewrites;
+    return out;
   };
   // Resolves when every request seen so far has its response head (or its connection closed): a snapshot never holds a
   // response still in flight. An event wait with a deadline.
