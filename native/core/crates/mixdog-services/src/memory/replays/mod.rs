@@ -7,6 +7,7 @@ mod chunk_quality_handoff;
 mod hybrid_sql_exact;
 mod light_ko_morph;
 mod model_config;
+mod model_files;
 mod pg;
 mod project_id;
 mod query_handlers;
