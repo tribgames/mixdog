@@ -33,6 +33,8 @@ pub mod signals;
 pub mod status_rows;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod stale_node_cases;
 
 pub use self::sessions::AgentOwnerTeardown;
 pub use self::sessions::AgentSessions;
