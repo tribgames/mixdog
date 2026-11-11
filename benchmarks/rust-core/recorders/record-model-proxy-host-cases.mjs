@@ -71,6 +71,38 @@ function hangingProvider() {
   const stopped = Promise.withResolvers();
   return { started: started.promise, stopped: stopped.promise, send(_m, _model, _t, options) { started.resolve(); return new Promise((_resolve, reject) => { options.signal.addEventListener('abort', () => { stopped.resolve(options.signal.reason); reject(options.signal.reason); }); }); } };
 }
+// The class the PC's registry builds for a name (registry.mjs PROVIDER_MODULES, the OpenAI-compatible presets and
+// custom-provider.mjs createCustomProvider), so a live provider advertises what Node's real adapter declares
+// (`static inputExcludesCache`, `nativePdf`, `consumesReadWindows`, `takesImages`, `firstResponseBudget`). Only `send`
+// is scripted: no network.
+const PROVIDER_MODULES = {
+  anthropic: ['anthropic.mjs', 'AnthropicProvider'], gemini: ['gemini.mjs', 'GeminiProvider'], 'vertex-ai': ['vertex-ai.mjs', 'VertexAIProvider'],
+  'openai-oauth': ['openai-oauth.mjs', 'OpenAIOAuthProvider'], 'anthropic-oauth': ['anthropic-oauth.mjs', 'AnthropicOAuthProvider'],
+  'grok-oauth': ['grok-oauth.mjs', 'GrokOAuthProvider'], 'muse-code-oauth': ['muse-code-oauth.mjs', 'MuseCodeOAuthProvider'],
+  'command-code-oauth': ['command-code-oauth.mjs', 'CommandCodeOAuthProvider'], 'mimo-oauth': ['mimo-oauth.mjs', 'MimoOAuthProvider'],
+  'cursor-oauth': ['cursor.mjs', 'CursorOAuthProvider'], 'devin-oauth': ['devin.mjs', 'DevinOAuthProvider'],
+  'antigravity-oauth': ['antigravity-oauth.mjs', 'AntigravityOAuthProvider'], 'cursor-api': ['cursor.mjs', 'CursorApiProvider'],
+  openai: ['openai-ws.mjs', 'OpenAIDirectProvider'], 'mixdog-local': ['mixdog-local.mjs', 'MixdogLocalProvider'],
+  'opencode-go-oauth': ['opencode-go-oauth.mjs', 'OpenCodeGoOAuthProvider'], openrouter: ['openrouter.mjs', 'OpenRouterProvider'], deepseek: ['deepseek.mjs', 'DeepSeekProvider'],
+};
+const P = `${R}agent/orchestrator/providers/`;
+const { OPENAI_COMPAT_PRESETS } = await set.load(`${P}openai-compat-presets.mjs`);
+async function realInstance(name, entry) {
+  if (entry.type === 'custom' && name.startsWith('custom-')) {
+    const { createCustomProvider } = await set.load(`${P}custom-provider.mjs`);
+    return createCustomProvider(name, entry);
+  }
+  if (Object.hasOwn(PROVIDER_MODULES, name)) {
+    const [file, exported] = PROVIDER_MODULES[name];
+    const Ctor = (await set.load(`${P}${file}`))[exported];
+    return new Ctor(entry);
+  }
+  if (Object.hasOwn(OPENAI_COMPAT_PRESETS, name)) {
+    const { OpenAICompatProvider } = await set.load(`${P}openai-compat.mjs`);
+    return new OpenAICompatProvider(name, entry);
+  }
+  throw new RecorderError(`no provider class for ${name}`);
+}
 function pcModules(available, keys = {}) {
   const live = new Map();
   const keyReads = [];
@@ -83,7 +115,14 @@ function pcModules(available, keys = {}) {
       live.clear();
       const enabled = Object.entries(config).filter(([, entry]) => entry.enabled === true);
       if (!enabled.length) throw Object.assign(new Error('all providers disabled in config'), { code: 'PROVIDERS_NONE_ENABLED' });
-      for (const [name, entry] of enabled) live.set(name, { send: async () => ({ content: `${name}:${entry.apiKey ?? 'no-key'}` }) });
+      for (const [name, entry] of enabled) {
+        // registry.mjs initProviders: a custom provider whose config does not build is skipped, the rest build.
+        const custom = entry.type === 'custom' && name.startsWith('custom-');
+        const instance = await realInstance(name, entry).catch((error) => { if (custom) return null; throw error; });
+        if (!instance) continue;
+        instance.send = async () => ({ content: `${name}:${entry.apiKey ?? 'no-key'}` });
+        live.set(name, instance);
+      }
     },
     getProvider: (name) => live.get(name), getAllProviders: () => live,
     readApiKey: async (name) => { keyReads.push(name); return keys[name] ?? null; },
@@ -435,9 +474,10 @@ await run('forced and short-budget reads do not join an older request or let it 
   return { log };
 });
 await run('all built-in provider families and custom protocols use the same PC catalog and send path', async () => {
-  const names = ['openai', 'anthropic', 'gemini', 'deepseek', 'xai', 'opencode-go', 'openrouter', 'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth', 'mimo-oauth', 'cursor-oauth', 'antigravity-oauth', 'mixdog-local'];
+  // `opencode-go-oauth`, the family's registered name: b6f's registry builds no `opencode-go` (registry.mjs:222).
+  const names = ['openai', 'anthropic', 'gemini', 'deepseek', 'xai', 'opencode-go-oauth', 'openrouter', 'openai-oauth', 'anthropic-oauth', 'grok-oauth', 'muse-code-oauth', 'command-code-oauth', 'mimo-oauth', 'cursor-oauth', 'antigravity-oauth', 'mixdog-local'];
   const custom = ['openai-chat', 'openai-responses', 'anthropic'].flatMap((protocol, i) => ['key', 'none'].map((auth, j) => ({ id: `custom-00000000-0000-4000-8000-0000000000${i}${j}`, protocol, auth })));
-  const available = Object.fromEntries([...names.map((id) => [id, { enabled: true }]), ...custom.map(({ id, ...config }) => [id, { ...config, type: 'custom', enabled: true }])]);
+  const available = Object.fromEntries([...names.map((id) => [id, { enabled: true }]), ...custom.map(({ id, ...config }) => [id, { ...config, type: 'custom', enabled: true, name: id, baseURL: 'https://gateway.example/v1' }])]);
   const modules = pcModules(available);
   const init = modules.initProviders;
   modules.initProviders = async (config) => { await init(config); for (const [name, provider] of modules.live) provider.listModels = async () => [{ id: `${name}-model` }]; };
@@ -477,11 +517,11 @@ await run('custom environment credentials drive proxy readiness without a stored
   const previous = process.env[variable];
   try {
     const name = 'custom-proxy-env';
-    const available = { [name]: { type: 'custom', auth: 'key', enabled: true, apiKeyEnv: variable } };
+    const available = { [name]: { type: 'custom', auth: 'key', protocol: 'openai-chat', enabled: true, name: 'Env gateway', baseURL: 'https://gateway.example/v1', apiKeyEnv: variable } };
     const modules = pcModules(available, { [name]: 'stored-key-must-not-be-used' });
     modules.probeAuth = () => 'absent';
     const init = modules.initProviders;
-    modules.initProviders = async (config) => { await init(config); modules.live.set(name, { send: async () => ({ content: resolveProviderApiKey(name, config[name]) }) }); };
+    modules.initProviders = async (config) => { await init(config); const instance = modules.live.get(name); if (instance) instance.send = async () => ({ content: resolveProviderApiKey(name, config[name]) }); };
     const runtime = createModelProxyRuntime(modules);
     const { channel } = connect(runtime);
     process.env[variable] = 'environment-key-one';
@@ -505,8 +545,6 @@ await run('an unreadable credential with a live adapter is advertised on the fir
 });
 await run("a text-only adapter's image trait is advertised, so a remote read sends it OCR text", async () => {
   const modules = pcModules({ 'mixdog-local': { enabled: true }, openai: { enabled: true } });
-  const initProviders = modules.initProviders;
-  modules.initProviders = async (config) => { await initProviders(config); Object.assign(modules.live.get('mixdog-local'), { nativePdf: false, takesImages: false }); };
   const { channel } = connect(createModelProxyRuntime(modules));
   const { providers } = await providerConfigOf(channel);
   return { localTraits: providers['mixdog-local'].modelProxy, openaiTraits: providers.openai.modelProxy };
@@ -554,7 +592,7 @@ await set.finish({
   entry: { standIns: { AbortSignal: 'an AbortSignal is stored as { aborted, reason } (reason through exact); a function inside provider options is stored as { function: <name> }' },
     hops: "The PC host and the daemon channel are joined, as in the Node test, by a JSON hop standing for the desktop session connection (JSON over HTTP). Every message that crosses it is recorded as the text that crossed, in order, under each case's `wire` (host->daemon operation + args text, daemon->host reply text, daemon->host request-event text); the host and the channel receive what JSON.parse of that text gives, so nothing passes that JSON changed unrecorded.",
     runs: 'apps/desktop/src/main/model-proxy-host.ts (createModelProxyHost, createModelProxyRuntime, modelProxyCredentialProbe) over the real ModelProxyChannel, ModelProxyProvider and loadModelProxyProviderConfig of the daemon side, joined through a JSON hop as the session connection does; resolveWireRoute / pinSessionWireRoute; the real provider-api-key helpers',
-    notRun: 'no real provider: the PC providers and registry modules are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock', scripted: scriptedUuids,
+    notRun: 'no provider request: a live PC provider is an instance of the class Node\'s registry builds for its name (realInstance: what it advertises is the class\'s own) with a scripted `send`; the registry module, and the providers of the cases that script a whole provider, are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock', scripted: scriptedUuids,
   },
   replay: {
     entry: 'mixdog-core run_host/model_proxy_pc.rs and mixdog-core-domains ai_admin/model_proxy.rs: drive the proxy channel and the PC host with the recorded scripted providers/registry and compare each case\'s observed fields whole',
