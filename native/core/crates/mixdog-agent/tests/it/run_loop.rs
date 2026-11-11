@@ -2352,11 +2352,30 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
         row
     };
     let sent = |h: &Harness| -> Vec<JsonValue> {
-        h.provider
-            .requests()
-            .iter()
-            .map(|r| r.messages.iter().filter(|m| m.role != Role::System).map(sent_row).collect())
-            .collect()
+        h.provider.requests().iter().map(|r| r.messages.iter().map(sent_row).collect()).collect()
+    };
+    // A recorded value whole (`lib/exact.mjs`): plain JSON, an object's keys compared as a set.
+    let whole = |v: &JsonValue| mixdog_testkit::exact::Exact::decode(v).and_then(|e| e.to_plain()).expect("a plain recorded value");
+    // The error the turn ended with as Node's loop throws it (the provider's own error): name, message, status, code.
+    // Its `streamOutcome` is the loop's record of the stream for its own retry decision, held by the core as the
+    // error's delivery state; it reaches no user or model.
+    let error_row = |error: &mixdog_agent::AgentError| match error {
+        mixdog_agent::AgentError::Provider(e) => {
+            let mut props = json!({ "httpStatus": e.status });
+            if let Some(code) = &e.code {
+                props["code"] = json!(code);
+            }
+            json!({ "name": "Error", "message": e.message, "props": props })
+        }
+        other => panic!("{other:?}"),
+    };
+    let node_error = |v: &JsonValue| {
+        let mut props = v["props"].clone();
+        props.as_object_mut().expect("props").remove("streamOutcome");
+        if let Some(code) = v.get("code") {
+            props["code"] = code.clone();
+        }
+        json!({ "name": v["name"], "message": v["message"], "props": props })
     };
     let attempt_of = |step: &JsonValue| match (&step["error"], &step["reply"]) {
         (JsonValue::Object(e), _) => {
@@ -2376,21 +2395,27 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
         let messages: Vec<AgentMessage> = case["messages"].as_array().expect("messages").iter().map(message_of).collect();
         let first = &case["first"];
         let h = Harness::new(case["script"].as_array().expect("script").iter().map(attempt_of).collect());
-        let (result, mut transcript) = match h.run(config(), vec![], messages).run().await {
-            Ok(output) => (Some(output.response.content), output.transcript),
-            Err(failure) => (None, failure.transcript),
+        let (result, error, mut transcript) = match h.run(config(), vec![], messages).run().await {
+            Ok(output) => (Some(output.response.content), JsonValue::Null, output.transcript),
+            Err(failure) => (None, error_row(&failure.error), failure.transcript),
         };
-        assert_eq!(JsonValue::Array(sent(&h)), first["sends"], "{name}: what the provider was sent");
+        let recorded_sends: Vec<JsonValue> = first["sends"].as_array().expect("sends").iter().map(whole).collect();
+        assert_eq!(sent(&h), recorded_sends, "{name}: what the provider was sent");
         assert_eq!(result.as_deref(), first["result"].as_str(), "{name}: how the turn ended");
-        let kept: Vec<JsonValue> =
-            transcript.iter().map(|m| json!({ "role": format!("{:?}", m.role()).to_lowercase(), "content": content_row(&m.message.content) })).collect();
-        assert_eq!(JsonValue::Array(kept), first["transcript"], "{name}: the transcript the turn left");
+        let recorded_error = if first["error"].is_null() { JsonValue::Null } else { node_error(&first["error"]) };
+        assert_eq!(error, recorded_error, "{name}: the error the turn ended with");
+        let kept: Vec<JsonValue> = transcript.iter().map(|m| sent_row(&m.message)).collect();
+        assert_eq!(JsonValue::Array(kept), whole(&first["transcript"]), "{name}: the transcript the turn left");
 
         transcript.push(AgentMessage::user("next turn"));
         let next = Harness::new(vec![turn(vec![text("still usable"), done(StopReason::EndTurn)])]);
         let output = finish(next.run(config(), vec![], transcript)).await;
         assert_eq!(output.response.content, case["next"]["result"].as_str().expect("next result"), "{name}");
-        assert_eq!(JsonValue::Array(sent(&next)), case["next"]["sends"], "{name}: the next turn's request");
+        let next_sends: Vec<JsonValue> = case["next"]["sends"].as_array().expect("sends").iter().map(whole).collect();
+        assert_eq!(sent(&next), next_sends, "{name}: the next turn's request");
+        assert_eq!(case["next"]["error"], JsonValue::Null, "{name}: the next turn ended");
+        let next_kept: Vec<JsonValue> = output.transcript.iter().map(|m| sent_row(&m.message)).collect();
+        assert_eq!(JsonValue::Array(next_kept), whole(&case["next"]["transcript"]), "{name}: the transcript the next turn left");
     }
 }
 

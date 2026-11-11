@@ -678,7 +678,39 @@
           ]
         ],
         "result": null,
-        "error": "Invalid request: the field temperature is out of range.",
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Invalid request: the field temperature is out of range.",
+          "props": {
+            "httpStatus": 400,
+            "streamOutcome": {
+              "version": 1,
+              "provider": null,
+              "transport": "unknown",
+              "terminalObserved": false,
+              "continuation": false,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
         "transcript": [
           {
             "role": "user",
@@ -808,6 +840,7 @@
             },
             {
               "role": "tool",
+              "toolCallId": "call_1",
               "content": [
                 {
                   "type": "text",
@@ -818,8 +851,7 @@
                   "attachmentRef": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
                   "mimeType": "image/png"
                 }
-              ],
-              "toolCallId": "call_1"
+              ]
             }
           ],
           [
@@ -840,6 +872,7 @@
             },
             {
               "role": "tool",
+              "toolCallId": "call_1",
               "content": [
                 {
                   "type": "text",
@@ -849,8 +882,7 @@
                   "type": "text",
                   "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
                 }
-              ],
-              "toolCallId": "call_1"
+              ]
             }
           ]
         ],
@@ -863,10 +895,18 @@
           },
           {
             "role": "assistant",
-            "content": ""
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
           },
           {
             "role": "tool",
+            "toolCallId": "call_1",
             "content": [
               {
                 "type": "text",
@@ -900,6 +940,7 @@
             },
             {
               "role": "tool",
+              "toolCallId": "call_1",
               "content": [
                 {
                   "type": "text",
@@ -909,8 +950,7 @@
                   "type": "text",
                   "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
                 }
-              ],
-              "toolCallId": "call_1"
+              ]
             },
             {
               "role": "user",
@@ -927,10 +967,18 @@
           },
           {
             "role": "assistant",
-            "content": ""
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "read",
+                "arguments": {}
+              }
+            ]
           },
           {
             "role": "tool",
+            "toolCallId": "call_1",
             "content": [
               {
                 "type": "text",
