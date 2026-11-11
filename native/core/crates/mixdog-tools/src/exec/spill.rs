@@ -84,12 +84,8 @@ pub async fn sweep_expired(lane: MaintenanceIo, cancel: &CancellationToken, dir:
             Err(error) => error.kind() == std::io::ErrorKind::NotFound,
         };
         let names: Vec<String> = std::fs::read_dir(&dir)?.flatten().filter_map(|e| e.file_name().into_string().ok()).collect();
-        let mut unowned = 0;
+        let unowned = unowned_logs(&names);
         for name in &names {
-            let id = [STDOUT_SUFFIX, STDERR_SUFFIX].iter().find_map(|suffix| name.strip_suffix(suffix));
-            if id.is_some_and(|id| !names.iter().any(|other| other.strip_suffix(OWNER_SUFFIX) == Some(id))) {
-                unowned += 1;
-            }
             let Some(id) = name.strip_suffix(OWNER_SUFFIX) else { continue };
             let owner = dir.join(name);
             let finished = std::fs::read(&owner)
@@ -112,6 +108,38 @@ pub async fn sweep_expired(lane: MaintenanceIo, cancel: &CancellationToken, dir:
         return 0;
     };
     handle.await.ok().and_then(Result::ok).unwrap_or(0)
+}
+
+/// How many of a directory's `names` are named like a job's log but have no ownership record beside them, the records
+/// indexed once.
+fn unowned_logs(names: &[String]) -> usize {
+    let owned: std::collections::HashSet<&str> = names.iter().filter_map(|name| name.strip_suffix(OWNER_SUFFIX)).collect();
+    names
+        .iter()
+        .filter_map(|name| [STDOUT_SUFFIX, STDERR_SUFFIX].iter().find_map(|suffix| name.strip_suffix(suffix)))
+        .filter(|id| !owned.contains(id))
+        .count()
+}
+
+#[cfg(test)]
+mod tests {
+    /// Counting the logs without an ownership record looks each one up once: 20,000 jobs' names (half of them owned)
+    /// take milliseconds, where searching every name for each log takes 2 × 10^9 comparisons.
+    #[test]
+    fn unowned_logs_are_counted_in_one_pass_over_the_names() {
+        let mut names = Vec::new();
+        for job in 0..20_000 {
+            names.push(format!("task-{job}.stdout.log"));
+            names.push(format!("task-{job}.stderr.log"));
+            if job % 2 == 0 {
+                names.push(format!("task-{job}.owner.json"));
+            }
+        }
+        names.push("notes.txt".to_owned());
+        let start = std::time::Instant::now();
+        assert_eq!(super::unowned_logs(&names), 20_000);
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "took {:?}", start.elapsed());
+    }
 }
 
 /// Holds the log sweep of one directory until released, so a test can show the command does not wait for it.
