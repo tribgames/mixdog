@@ -2,6 +2,12 @@
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-openai-compat-responses-boundaries.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "mixdog-ai providers::openai effort_retry.rs:22 and adapter.rs:756-761 (K1: tested for the OpenAI route, not the compat/custom Responses route), custom/reasoning.rs:149: feed each row's `input` (callbacks fired, flags, abort, replies) and compare `result` (attempts, received callbacks in order, thrown error identity flags, capability mode before/after) and `requests` in order.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
   "entry": "effort-configuration.mjs withEffortConfigurationFallback / effortConfigurationMode / prepareTurnEffortConfiguration, openai-compat-responses.mjs sendCompatResponses on a provider object (as the test builds it) with a scripted `client.responses.create` or the real `openai` SDK client (from the tree) whose fetch is the scripted endpoint; shared/stream-progress.mjs isVisibleStreamProgress.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
@@ -11,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 186850,
+      "bytes": 213801,
       "path": "cases.json",
-      "sha256": "de10f4f061c496968686c04ae0ba79b0bcc46c2f17cced514a357ed52dab5a9f"
+      "sha256": "0b2c3ba949d4d90e72ee7394c82294cc381ba748afed17605899da8f37e22565"
     }
   ],
   "inputs": [
@@ -35,7 +41,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "7af794122bfbb318bc6e920e13f654f5596962f285d5e574e233a7a6163ee979"
+      "sha256": "63adcb5d76e695bb42da73234cd5758961bf40d8e5833c7edf636b6d4c1ef6e0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -63,17 +73,6 @@
     "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
   },
   "set": "provider-compat-responses-boundaries",
-  "totalBytes": 186850,
-  "valueTags": {
-    "{\"$bigint\":\"<digits>\"}": "bigint",
-    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
-    "{\"$cycle\":true}": "a reference back to an ancestor object",
-    "{\"$date\":\"<ISO>\"}": "Date",
-    "{\"$function\":\"<name>\"}": "a function",
-    "{\"$map\":[[k,v]...]}": "Map, insertion order",
-    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
-    "{\"$set\":[v...]}": "Set, insertion order",
-    "{\"$symbol\":\"<text>\"}": "a symbol",
-    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
-  }
+  "totalBytes": 213801,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
