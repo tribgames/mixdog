@@ -16,7 +16,7 @@
 // grants). Node's `revokeAll` is the relay handle's close (remote-relay.ts:652); the core's is remote access switched off, which ends every
 // phone connection this replay holds, so here the recording's `revokeAll` is played as the unpair of each device of the scenario (the
 // close itself is replayed over the relay by the daemon's `switching_remote_access_off_ends_every_download_of_the_phones`).
-import { spawn, spawnSync } from 'node:child_process';
+import { endCore, spawnCore } from './core-stop.mjs';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, truncateSync, watch, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -47,31 +47,6 @@ const within = (promise, what, ms = 60_000) =>
     );
   });
 
-/** Ends a process and everything it started; a process that is already gone is fine, any other failure is an error. */
-const killTree = (child) => {
-  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 30_000 });
-  if (ended.error || (ended.status !== 0 && ended.status !== 128)) throw new Error(`could not end the core (pid ${child.pid}): ${ended.error?.message ?? `taskkill exited ${ended.status}`}`);
-};
-
-/** Ends every process still running on `folder` and waits (30 s) for each to exit. The core's Postgres postmaster outlives the core, as in
- *  Node (`pg_ctl start` is not waited for, so it is not in the core's tree), and it, its backends and the shell `pg_ctl` started it under
- *  hold `<profile>/pg.log` open: the folder cannot be removed before they are gone. */
-const endLeftovers = (folder) => {
-  const script = [
-    '$all = @(Get-CimInstance Win32_Process)',
-    '$ids = @($all | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($env:REPLAY_FOLDER, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { [int]$_.ProcessId })',
-    'do { $count = $ids.Count; $ids = @(@($ids) + @($all | Where-Object { $ids -contains [int]$_.ParentProcessId } | ForEach-Object { [int]$_.ProcessId }) | Sort-Object -Unique) } while ($ids.Count -ne $count)',
-    '$procs = @($ids | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })',
-    'if ($procs.Count) { $procs | Stop-Process -Force -ErrorAction SilentlyContinue; $procs | Wait-Process -Timeout 30 -ErrorAction Stop }',
-  ].join('\n');
-  const ended = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-    env: { ...process.env, REPLAY_FOLDER: folder },
-    encoding: 'utf8',
-    timeout: 60_000,
-    windowsHide: true,
-  });
-  if (ended.error || ended.status !== 0) throw new Error(`could not end the processes left on ${folder}: ${ended.error?.message ?? ended.stderr.trim()}`);
-};
 
 /** The core, started on a data dir of its own with the relay it dials and the folder it talks to this replay through; up when it has
  *  written its discovery file and the controls' first answer (a core built without them never writes one). */
@@ -95,7 +70,7 @@ async function startCore(exe, root, relayPort, talk) {
   const manifest = join(exe, '..', 'js-runtime.json');
   if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify({ program: process.execPath, packageRoot: REPO_ROOT }));
   const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
-  const child = spawn(exe, ['serve'], { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+  const { child, job } = await spawnCore(exe, ['serve'], { env });
   let stderr = '';
   child.stderr.on('data', (chunk) => (stderr += chunk));
   const file = join(root, 'runtime', 'daemon.json');
@@ -103,7 +78,7 @@ async function startCore(exe, root, relayPort, talk) {
     if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
     if (talk.read('held') === null) return undefined;
     try {
-      return { child, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(root, 'data') };
+      return { exe, child, job, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(root, 'data') };
     } catch {
       return undefined;
     }
@@ -112,7 +87,7 @@ async function startCore(exe, root, relayPort, talk) {
   try {
     return await talk.waitFor('the core to write its discovery file and the replay controls\' first answer (is mixdogd built with mixdog-workspace/replay-controls?)', up, 120_000, [join(root, 'runtime')]);
   } catch (error) {
-    killTree(child);
+    await endCore({ exe, child, job, env }).catch((left) => console.error(left.message));
     throw error;
   }
 }
@@ -650,22 +625,17 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       problems.push(...unexpected.map((line) => `${label} ${line}`));
     }
   } finally {
-    // The core is ended first and its exit awaited, then the relay closed, then what it left running on the work folder (its Postgres) ended
-    // and awaited, then the folder removed once: a failure of any is an error.
+    // The core and its PostgreSQL are ended first and their exit awaited, then the relay closed, then the work folder removed once: a failure of
+    // any is an error.
     const failures = [];
     for (const client of clients) client.close?.();
     try {
-      if (core) {
-        const gone = new Promise((resolve) => (core.child.exitCode === null ? core.child.once('exit', resolve) : resolve()));
-        killTree(core.child);
-        await within(gone, 'the core to exit', 30_000);
-      }
+      if (core) await endCore(core);
     } catch (error) {
       failures.push(error);
     }
     relay?.close();
     try {
-      endLeftovers(WORLDS);
       rmSync(WORLDS, { recursive: true, force: true });
     } catch (error) {
       failures.push(error);

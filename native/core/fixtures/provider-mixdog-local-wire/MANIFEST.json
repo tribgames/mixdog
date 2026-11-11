@@ -1,0 +1,125 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-mixdog-local-wire.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::local (local/mod.rs:109-132) and mixdog-services local_provider provider.rs:231-233: compare, in order, the GPU query (the EXEC request: argv and the stand-in answer), the launch (argv, cwd, CUDA_VISIBLE_DEVICES), the requests the stand-in received (health, props, chat: body incl. the single merged system message and tool_call_id), the results, the dispatched calls and the signal-free cancellation; a pre-cancelled send never queries the GPU nor starts a server.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "mixdog-local-wire.mjs toLocalProviderMessages(history); mixdog-local.mjs new MixdogLocalProvider({}).send(messages, <registered model id>, tools, { signal, onToolCall }) with the product's own ensureLocalProviderServer (local-provider/server.mjs): the runtime folder <data>/local-provider/runtime/b10621 holds a stand-in llama-server.exe (a native launcher, standins/launcher.cs, running standins/standin.mjs) and <data>/local-provider/models a 64-byte weights file registered through registerLocalModel; the hardware query runs the stand-in nvidia-smi.exe first on PATH (its fixed answer is the case input `nvidiaSmi`). The product spawns the stand-in with the real command line; its argv, working directory, CUDA_VISIBLE_DEVICES and every request it receives (health check, /props, chat) are the recorded launches and requests (the OpenAI SDK sends real HTTP to it; it answers 400 if a system message is not first). Not run here: Apple Silicon (a darwin host: native sysctl and the machine's own RAM and CPU name decide the GPU and its launch arguments).",
+  "exclusions": [
+    "launches and requests of the stand-in llama-server (the case result `launches` and the row `requests`): the loopback port (random) is written as <port> in argv after --port, in the Host header and in origin; the API key (random, 32 bytes hex, minted by the product per start) is written as <api-key> in argv after --api-key and in the Authorization header, with the stand-in's own check `authorized` (the bearer key it was started with matched) recorded beside it; the data directory is written as <data> in argv (--model) and cwd, with forward slashes; every other argument and header is recorded and compared as it arrived",
+    "the stand-in answers the health check once per start: the product polls /health until the first answer, a refused connection never reaches the stand-in, so the one health request it received is the whole health record",
+    "Apple Silicon is not recorded: the launch arguments on that platform (GPU uuid MTL0, memory from the host's RAM and CPU name via native os calls) depend on the host; the NVIDIA kinds (none via failing query, none via empty listing, insufficient free memory, one GPU, two GPUs) are recorded",
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 41278,
+      "path": "cases.json",
+      "sha256": "ad5d8734e509c4355196a6ef1f30c5ea6b62d6659eafd472f8aa2d43866ee2e0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/standins/launcher.cs",
+      "sha256": "89e20bea76f41cfe408db365020c946bc1e65bf80798ebe85e388b064f74f82d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/standins/standin.mjs",
+      "sha256": "2869e0d3e79f1e9f63448a3214850c07e8dec8d028a9e3d82264e55bada0fadf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "instructions-merge",
+      "level": "pure",
+      "rust": "none in o1: local/mod.rs:64 merge_instructions(&mut Value) takes the lowered request body, not the history (roles developer / content arrays) this case feeds"
+    },
+    {
+      "id": "streamed-tool-call-single-system",
+      "level": "wire"
+    },
+    {
+      "id": "two-gpus-most-free-memory-selected",
+      "level": "wire"
+    },
+    {
+      "id": "no-gpu-query-fails",
+      "level": "wire"
+    },
+    {
+      "id": "no-gpu-empty-listing",
+      "level": "wire"
+    },
+    {
+      "id": "gpu-without-free-memory",
+      "level": "wire"
+    },
+    {
+      "id": "cancelled-send-starts-no-server",
+      "level": "pure",
+      "rust": "none in o1: no public function takes a send cancelled before the request slot and returns that no query ran and no server started"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-mixdog-local-wire.mjs",
+  "recorderSha256": "51659abb0292160c2fa6ed94f5ae3e2afed23d8313575533f6dad4ecf4b024ac",
+  "replay": "none in o1 for the whole send: mixdog-ai providers::local (local/mod.rs:109 adapter(), :86 LocalRewriter, :64 pub merge_instructions(&mut Value)) takes the lowered request body, not the history Node's toLocalProviderMessages takes, and the server start / GPU query / launch (mixdog_services::local_provider) has no public function of the recorded input and output. Replay at wire level: a stand-in llama-server process and a stand-in nvidia-smi first on PATH, fed the recorded answers, then compare the EXEC and HTTP exchanges in order and the launches.",
+  "replayExclusions": {
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
+  },
+  "set": "provider-mixdog-local-wire",
+  "totalBytes": 41278,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}
