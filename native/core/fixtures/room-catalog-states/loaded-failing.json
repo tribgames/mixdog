@@ -7,7 +7,7 @@
     "reset"
   ],
   "resetRefresh": "in-io",
-  "taskWorkspace": "C:\\mixdog-build\\tmp\\room-catalog-loaded-failing\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",

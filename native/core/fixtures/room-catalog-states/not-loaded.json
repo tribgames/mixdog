@@ -5,7 +5,7 @@
     "create",
     "update"
   ],
-  "taskWorkspace": "C:\\mixdog-build\\tmp\\room-catalog-not-loaded\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -38,7 +38,7 @@
               "updatedAt": 1780819751000,
               "activityAt": 1780819751000,
               "messageCount": 0,
-              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-not-loaded\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
@@ -90,7 +90,7 @@
               "updatedAt": 1780819751000,
               "activityAt": 1780819751000,
               "messageCount": 0,
-              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-not-loaded\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",

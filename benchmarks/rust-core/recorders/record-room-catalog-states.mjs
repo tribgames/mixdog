@@ -16,15 +16,16 @@
 // origin. The one injected fault is the daemon's answer to `session.list` (the host's listing) in the failing scenarios.
 //
 //   (cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs \
-//        <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --harness <real-turn-harness dir> [--only <scenario>]
+//        <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree with node-patches/node-fix-room-post-behind-detach.patch applied> --patch <that file> --harness <real-turn-harness dir> [--only <scenario>]
 // Output: native/core/fixtures/room-catalog-states/{<scenario>.json,MANIFEST.json}
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import crypto from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, REPO_ROOT, exactProductIdentity, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, nodeTreeIdentity, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
+import { normalisePaths } from './lib/normalise-paths.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 import { RecorderError } from './lib/recorder-error.mjs';
 
@@ -33,7 +34,9 @@ const args = parseArgs();
 const tree = resolveTree(args);
 const harness = args.get('harness');
 if (!harness) throw new Error('--harness <real-turn-harness dir> is required (its lib/env.mjs, lib/deadline.mjs are pinned in the manifest)');
-const identity = exactProductIdentity(tree, COMMIT);
+const identity = nodeTreeIdentity(args, tree, COMMIT);
+if (!identity.patch) throw new Error('record from the export with --patch benchmarks/rust-core/recorders/node-patches/node-fix-room-post-behind-detach.patch');
+const ENV_FOLDER = '<env>';
 const out = join(FIXTURES_ROOT, 'room-catalog-states');
 const PINNED = ['env.mjs', 'deadline.mjs', 'scenarios.mjs'];
 const DIFFERENCES = 'benchmarks/rust-core/recorders/room-catalog-core-differences.json';
@@ -177,7 +180,7 @@ const STARTUP = {
     'released-first':
       "the earlier host's connection is closed by its disposal and the recorder waits for the daemon's release of the room log's writer claim (its lock file in session-writer-locks gone, a fs.watch event) before the first load's member check is released: the post takes the claim again and its notice is written",
     'post-behind-detach':
-      "the earlier host's connection close is kept back (the disposal's close answers at once, the call made later); it is made before the first load's member check is released, and the daemon's detach of the room log (lifecycle-barriers.mjs:122: its record queued, the generation bumped) is held at its write's check of the log's json (fs/promises.stat on a stack through _jsonDiverged, session-log-writer.mjs:1198); the member check is then released and the post's save is admitted at the daemon behind the detach (store.mjs _admit publishes the room log live: observed through the daemon's subscribeLiveSessions); the detach goes on: the post's save is dropped by its generation fence (store.mjs _dropsAgainst), the post answers and writes nothing, the recovery logs nothing",
+      "the earlier host's connection close is kept back (the disposal's close answers at once, the call made later); it is made before the first load's member check is released, and the daemon's detach of the room log (lifecycle-barriers.mjs:122: its record queued, the generation bumped) is held at its write's check of the log's json (fs/promises.stat on a stack through _jsonDiverged, session-log-writer.mjs:1198); the member check is then released and the post's save is admitted at the daemon behind the detach (store.mjs _admit publishes the room log live: observed through the daemon's subscribeLiveSessions); the detach goes on: the post's save is dropped by its generation fence (store.mjs _dropsAgainst) and, with node-patches/node-fix-room-post-behind-detach.patch, the post fails with 'session <id> is not available' (agent-room-delivery.mjs saved): nothing is written, the recovery logs the failure (agent-rooms.ts:476)",
   },
   orders: {
     'recovery-first':
@@ -1115,7 +1118,10 @@ async function record(name) {
     // The host's task workspace, where a room log is made (`agent-rooms.ts:284`), as the host itself names it.
     const taskWorkspace = await deadline.race(host.taskWorkspace(), 'the task workspace');
     const { failing: _, ...shape } = scenario;
-    return { scenario: name, ...shape, taskWorkspace, bots, ...(spareBot ? { spareBot } : {}), botNames, room, steps };
+    // The scratch root is a link on some machines (`D:\mixdog-build\tmp` → `C:\mixdog-build\tmp`): the product answers with the resolved
+    // spelling, so both are replaced, and no machine path is in the recording.
+    const envPaths = [...new Set([envRoot, realpathSync.native(envRoot)])];
+    return normalisePaths({ scenario: name, ...shape, taskWorkspace, bots, ...(spareBot ? { spareBot } : {}), botNames, room, steps }, { replaceInText: envPaths.map((path) => [path, ENV_FOLDER]) }).doc;
   } finally {
     logEvents = null;
     roomSave = null;
@@ -1169,7 +1175,7 @@ if (!only) {
   writeSetManifest(out, {
     set: 'room-catalog-states',
     recorder: rel,
-    command: `(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/${rel} --tree <tree> --harness <real-turn-harness dir>`,
+    command: `(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/${rel} --tree <tree> --patch ${identity.patch.file} --harness <real-turn-harness dir>`,
     identity,
     extra: {
       exact: true,
@@ -1229,6 +1235,10 @@ if (!only) {
         paths: `every object with messageCount and cwd (a session summary), keys ${DAEMON_STAMPS.join(', ')}`,
         reason: 'stamped by the daemon process with its real clock, which nothing injects',
         how: 'CLOCK_BASE_MS + 1000 * order of first appearance of the distinct value in the scenario',
+      },
+      envFolder: {
+        replaced: `the scenario's environment folder (room-catalog-<scenario> under the scratch root) in every string, by ${ENV_FOLDER}, in the spelling the recorder names it and in its resolved spelling (the scratch root may be a link)`,
+        reason: 'a machine path in a golden; the replay compares the task workspace and the rows\' cwd with each other, not with a real folder',
       },
       // Fixed at the source, not normalised: the folder of each scenario, the clock and the ids the room service takes (see CLOCK_BASE_MS).
       fixedAtSource: {

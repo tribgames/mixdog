@@ -9,7 +9,7 @@
   "startup": "interrupted",
   "startupOrder": "recovery-first",
   "startupClaim": "post-behind-detach",
-  "taskWorkspace": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "taskWorkspace": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
   "bots": [
     "alpha",
     "beta",
@@ -70,7 +70,7 @@
               "updatedAt": 1780819751000,
               "activityAt": 1780819751000,
               "messageCount": 0,
-              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
@@ -114,6 +114,12 @@
           ]
         },
         {
+          "kind": "logged",
+          "parts": [
+            "[mixdog-rooms] room mq3i4vkg0000004a interrupted notice: Error: session sess_room_mq3i4vkg0000004a is not available"
+          ]
+        },
+        {
           "kind": "background-listing-started"
         },
         {
@@ -127,7 +133,7 @@
               "updatedAt": 1780819752000,
               "activityAt": 1780819752000,
               "messageCount": 0,
-              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
@@ -164,7 +170,7 @@
               "updatedAt": 1780819752000,
               "activityAt": 1780819752000,
               "messageCount": 0,
-              "cwd": "C:\\mixdog-build\\tmp\\room-catalog-startup-interrupted-post-behind-detach\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "cwd": "<env>\\home\\AppData\\Roaming\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "provider": "custom-harness",
