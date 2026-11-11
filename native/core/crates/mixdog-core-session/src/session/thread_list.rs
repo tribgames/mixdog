@@ -381,7 +381,8 @@ pub struct RoomSummaries {
     /// The index writes' notifications ([`Self::follow`]): a pass sends what it read only once every write it may have read is
     /// published.
     edges: std::sync::OnceLock<Arc<super::thread_edges::ThreadEdges>>,
-    /// The background listings started by [`Self::republish_catalog`] that have not ended (a test's step boundary).
+    /// The background listings started by [`Self::republish_catalog`], and the republishes of [`Self::republish`], that have not
+    /// ended (a test's step boundary).
     #[cfg(any(test, feature = "test-support"))]
     background: tokio::sync::watch::Sender<usize>,
     /// Told when a listing has its rows in hand, before it waits to publish them (see [`Self::listing_in_hand`]).
@@ -505,11 +506,31 @@ impl RoomSummaries {
         Ok(())
     }
 
-    /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
-    /// without waiting for it.
+    /// `deps.republishCatalog` as a room's exchange or post makes it (`session-host.ts:353-356`, `agent-room-exchange.ts:138`,
+    /// `agent-room-log.ts:71`), not awaited: with the catalog loaded (Node's `sessionCatalogLoaded`) a pass; before that a whole
+    /// listing, as Node's `void publishCatalogs()`, which marks the catalog loaded (`session-host.ts:807`); a failed one is dropped.
     pub fn republish(self: &Arc<Self>) {
         let this = self.clone();
-        tokio::spawn(async move { this.publish().await });
+        #[cfg(any(test, feature = "test-support"))]
+        let open = {
+            self.background.send_modify(|open| *open += 1);
+            Background(self.background.clone())
+        };
+        tokio::spawn(async move {
+            this.republish_now().await;
+            #[cfg(any(test, feature = "test-support"))]
+            drop(open);
+        });
+    }
+
+    /// [`Self::republish`] to its end, as the start-up's recovery awaits it (`agent-rooms.ts:479`): a pass, or before any listing
+    /// answered a whole listing.
+    pub async fn republish_now(&self) {
+        if self.list.catalog_loaded() {
+            self.publish().await;
+        } else {
+            self.publish_catalogs().await;
+        }
     }
 
     /// `deps.republish(roomSessionId)`: the room view of one room changed (a member started or
