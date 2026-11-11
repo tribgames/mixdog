@@ -22,18 +22,22 @@
   "clock": "Date.now() stands still at 1800000000000 for the whole run (lib/mc-record.mjs freezeClock); every sidecar's mtime is 1799996400000 (an hour older): the prune's ten-minute age gate reads both",
   "command": "node benchmarks/rust-core/recorders/record-offload-prune-order.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the patch> --patch benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch --base-tree <export of b6f10295a2f698afc85332467192de28500bd146>",
   "exclusions": {
-    "forks": "clear-fork, heir-fork, older-fork and unreadable-fork record the cleared session's directory and transcript; the fork's and the heir's transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
+    "clearedEnvironment": "after a clear the core's header holds the environment block written for the next request (sessionStartMetaInjected false); Node keeps it outside `messages` (resetSessionBp3Environment, session-crud.mjs) until that request, so the transcript compared after a clear leaves that block out",
+    "forks": "clear-fork, heir-fork, older-fork, unreadable-fork, linkless-fork, deleted-middle and copy-in-progress record the cleared session's directory and transcript; the fork's and the heirs' transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
+    "linklessFork": "linkless-fork's seed holds the shipped fork's id and stored transcript as the replay's input (the core's migration derives the fork's reference set from it); the fork itself is not compared",
     "olderForkHeir": "older-fork's seed holds the heir's source link and the conversation it carries (its non-system messages) as the replay's input; the heir's system prompt (composed for its own minted id) is left out, and its minted id is <HEIR>",
+    "referenceSets": "Node's stored reference sets (offload-sources.json in the data dir, and each record's offloadSources) are Node's format and not compared; the core holds the same sets in each session's header and its index: what they keep shows in the directories recorded",
     "roomLog": "room-row's seed holds the room log's stored messages as the replay's input; the room log itself is not compared",
     "sessionFiles": "the session store's own files (sessions/<id>.json, <id>.log.jsonl) are Node's format; the core's store writes its own record log, so their names and bytes are not compared: the stored transcript is, whole, as each store reads it back",
-    "summary": "the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere (compaction-commit)"
+    "summary": "the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere (compaction-commit)",
+    "systemMessageMeta": "the core holds a session's system prompt in its header's prompt blocks (as the migration stores Node's leading system messages), which carry no message meta: the `meta` (transcript messageId) Node's compaction stamps on its system message is not compared; its role, content and cache tier are"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2985588,
+      "bytes": 2992911,
       "path": "golden.json",
-      "sha256": "45a1dcb1679eb0969c4b2984d6930d60151024f528c50ae64f2e0bd0adfb76a5"
+      "sha256": "fee3c05ef6ff14a27411412be91db88bcdfd018b2ec0d940ebf104d7b33dd4ad"
     }
   ],
   "inputs": [
@@ -67,22 +71,22 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9140,
+    "files": 9141,
     "patch": {
       "file": "benchmarks/rust-core/recorders/patches/node-fix-prune-after-save.patch",
       "paths": [
-        "src/runtime/agent/orchestrator/session/manager.mjs",
         "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs",
         "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs",
         "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
         "src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs",
+        "src/runtime/agent/orchestrator/session/offload-sources.mjs",
+        "src/runtime/agent/orchestrator/session/store.mjs",
         "src/runtime/agent/orchestrator/session/store/listing.mjs",
         "src/runtime/agent/orchestrator/session/store/load-session.mjs",
         "src/runtime/agent/orchestrator/session/tool-result-offload.mjs",
-        "src/session-runtime/lifecycle/cold-heir.mjs",
         "src/session-runtime/lifecycle/inheritance.mjs"
       ],
-      "sha256": "be080602c5c1816842f89e05a4791d9f062a1668602297c541afd50bc811de34"
+      "sha256": "d1037866be3a90775f44a9cdae5d9f4757712134ce50824df1cb6ca7673e88d6"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -90,18 +94,18 @@
       "exact": false,
       "filesDifferingFromCommit": 10
     },
-    "srcSha256": "8d5cbdcd9afee6ed3e091a8810ce65975e08fa3914e7f54f618bcf962738fd0c",
+    "srcSha256": "ce5cb43206a27f5970506c6e5d1e8ecde7426a32653240ef733ca01d749f92bd",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-offload-prune-order.mjs",
-  "recorderSha256": "bb5c87d776d09e33b93d9419fa52e467041a15a2e0d1a3a91aa427661286e58e",
+  "recorderSha256": "79084c83d17d264a6108c380b560af6e8f40ae90fdc5d728bb7be0b4b3e666f1",
   "set": "offload-prune-order",
   "tests": [
     "src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs (added by the patch)",
     "src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs (pruneCompactedOffloads)",
     "src/runtime/agent/orchestrator/session/tool-result-offload.mjs (pruneOffloadSession)"
   ],
-  "totalBytes": 2985588
+  "totalBytes": 2992911
 }

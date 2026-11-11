@@ -46,6 +46,16 @@
 //                       and resumed: the heir, found in the session catalog, keeps `named`;
 //   unreadable-fork     as clear-fork; the fork's record is then made unreadable (its log overwritten) and the source
 //                       resumed: nothing is deleted; closed, the fork's log put back, resumed again;
+//   linkless-fork       as clear-fork, but the clear is made by Node as shipped (a child recorder process on the
+//                       `--base-tree`): the fork's record names no source and holds no reference set; the session is
+//                       resumed: the fork's set is what its transcript names (checked once), and it keeps `named`;
+//   deleted-middle      a new session inherits the conversation and a third inherits the second's; the second is
+//                       deleted, the source cleared without a fork, closed and resumed: the third keeps `named`;
+//   copy-in-progress    a new session inherits the conversation compacted for it; while the compaction runs the source
+//                       is cleared without a fork, closed and resumed (`after-copying-resume`: nothing deleted); the
+//                       copy is then stored, and the source closed and resumed again: the copy keeps `named`;
+//   system-named        a session (not compacted) whose system prompt names `named` and nothing else names `stray`:
+//                       resumed;
 //   room-row            a session (not compacted) whose transcript names `named` (a `stray` nothing names); a room
 //                       log's row (`appendRoomRows`, a member's speech) names `stray`; resumed: a room log is not a
 //                       copy of the conversation, `stray` goes.
@@ -76,9 +86,10 @@ const { recorderProvenance } = await import('./lib/provenance.mjs');
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
-// The older-fork child runs Node as shipped (the `--base-tree`, exactly the commit); every other run the patched tree.
+// The older-fork and linkless-fork children run Node as shipped (the `--base-tree`, exactly the commit); every other
+// run the patched tree.
 const child = args.get('child');
-if (!identity.patch && child !== 'older-fork') throw new Error('record from the tree with the prune-after-save patch (--patch)');
+if (!identity.patch && !['older-fork', 'linkless-fork'].includes(child)) throw new Error('record from the tree with the prune-after-save patch (--patch)');
 const baseTree = args.has('base-tree') ? resolve(args.get('base-tree')) : null;
 const baseIdentity = baseTree && !child ? nodeTreeIdentity(new Map(), baseTree, NODE_COMMIT) : null;
 
@@ -219,15 +230,16 @@ function point(at, seeded, { mtimes = false } = {}) {
   return { at, toolResults, transcript: storedTranscript(seeded) };
 }
 
-/** A stored session, not compacted: `sidecars` (role, content, mtime) and the transcript `messages(files)` names. */
-async function plainSession(tag, sidecars, messages) {
+/** A stored session, not compacted: `sidecars` (role, content, mtime), the transcript `messages(files)` names and the
+ *  record's `fields`. */
+async function plainSession(tag, sidecars, messages, fields = {}) {
   const sessionId = `sess_prune_order_${tag.replaceAll('-', '_')}`;
   const files = {};
   for (const { role, content, mtimeMs } of sidecars) {
     files[role] = persistToolResultArtifactSync({ sessionId, toolCallId: `call_${role}`, content }).path;
     utimesSync(files[role], mtimeMs / 1000, mtimeMs / 1000);
   }
-  await saveSessionAsync({ id: sessionId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: messages(files), tools: [], generation: 0, closed: false });
+  await saveSessionAsync({ id: sessionId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: messages(files), tools: [], generation: 0, closed: false, ...fields });
   const seeded = { sessionId, files, dir: join(dataDir, 'tool-results', sessionId) };
   return { ...seeded, seed: { sessionId, sidecars, transcript: storedTranscript(seeded) } };
 }
@@ -430,7 +442,7 @@ const SCENARIOS = {
     // Node as shipped seeds the session and makes its heir; this (patched) process clears, closes and resumes it. The
     // child writes the session summary index too: this process's writes to it land (and its lock is let go) first.
     await settleSessionSummaryIndex();
-    const made = olderFork();
+    const made = shippedChild('older-fork');
     seeded.seed = made.seed;
     if (!(await manager.clearSessionMessages(seeded.sessionId, { fork: false }))) throw new Error('not cleared');
     await settleRecorder(seeded.sessionId);
@@ -456,6 +468,66 @@ const SCENARIOS = {
     points.push({ ...(await resumed(seeded)), at: 'after-readable-resume' });
     return [{ changed: null, error: null }, points];
   },
+  'linkless-fork': async (seeded) => {
+    // Node as shipped seeds the session and clears it as an agent home's fresh start: its fork holds the conversation
+    // and nothing naming its source. This (patched) process resumes the cleared session.
+    await settleSessionSummaryIndex();
+    const made = shippedChild('linkless-fork');
+    seeded.seed = made.seed;
+    const points = [point('after-clear', seeded)];
+    points.push(await resumed(seeded));
+    return [{ changed: null, error: null }, points];
+  },
+  'deleted-middle': async (seeded) => {
+    // A new session inherits the conversation, a third inherits the second's; the second is deleted, and the source
+    // is cleared without a fork, closed and resumed: the third keeps `named`.
+    const provider = { name: 'anthropic', contextWindow: 128_000, send: async () => ({ content: 'no turn runs' }) };
+    const lifecycle = createLifecycleApi({ getSession: () => null, getRoute: () => ({ provider: 'anthropic', model: 'fake-model' }), mgr: manager, invalidateContextStatusCache() {}, saveSession() {} });
+    const { sessionId: middle } = await _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(seeded.sessionId));
+    await _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(middle));
+    await manager.deleteSession(middle);
+    if (loadSession(middle)) throw new Error('the middle copy was not deleted');
+    if (!(await manager.clearSessionMessages(seeded.sessionId, { fork: false }))) throw new Error('not cleared');
+    await settleRecorder(seeded.sessionId);
+    const points = [point('after-clear', seeded)];
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    points.push(await resumed(seeded));
+    return [{ changed: null, error: null }, points];
+  },
+  'copy-in-progress': async (seeded) => {
+    // A new session inherits the conversation compacted for it; while that compaction runs (the copy is made, not
+    // stored), the source is cleared without a fork, closed and resumed; then the copy is stored, and the source is
+    // closed and resumed again.
+    let reached;
+    const atCompaction = new Promise((resolve) => (reached = resolve));
+    let go;
+    const released = new Promise((resolve) => (go = resolve));
+    const compactConversation = async ({ messages }) => {
+      reached();
+      await released;
+      return { messages };
+    };
+    const provider = { name: 'anthropic', contextWindow: 128_000, send: async () => ({ content: 'no turn runs' }) };
+    const lifecycle = createLifecycleApi({ getSession: () => null, getRoute: () => ({ provider: 'anthropic', model: 'fake-model' }), mgr: manager, invalidateContextStatusCache() {}, saveSession() {}, compactConversation });
+    const inheriting = _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(seeded.sessionId, { compact: true }));
+    const points = [];
+    try {
+      await atCompaction;
+      if (!(await manager.clearSessionMessages(seeded.sessionId, { fork: false }))) throw new Error('not cleared');
+      await settleRecorder(seeded.sessionId);
+      points.push(point('after-clear', seeded));
+      if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+      points.push({ ...(await resumed(seeded)), at: 'after-copying-resume' });
+    } finally {
+      go();
+    }
+    const { sessionId: heirId } = await inheriting;
+    await settleRecorder(heirId);
+    if (!(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }))) throw new Error('not closed');
+    points.push(await resumed(seeded));
+    return [{ changed: null, error: null }, points];
+  },
+  'system-named': async (seeded) => [{ changed: null, error: null }, [await resumed(seeded)]],
   'room-row': async (seeded) => {
     // A room's log (`sess_room_<id>`, an ordinary session) takes a member's speech naming `stray`.
     const roomLog = 'sess_room_pruneorder';
@@ -483,7 +555,7 @@ const PLAIN = {
       ]
     ),
   ...Object.fromEntries(
-    ['clear-fork', 'heir-fork', 'owner-let-go', 'older-fork', 'unreadable-fork', 'room-row'].map((tag) => [
+    ['clear-fork', 'heir-fork', 'owner-let-go', 'older-fork', 'unreadable-fork', 'linkless-fork', 'deleted-middle', 'room-row'].map((tag) => [
       tag,
       () =>
         plainSession(
@@ -499,6 +571,33 @@ const PLAIN = {
         ),
     ])
   ),
+  'copy-in-progress': () =>
+    plainSession(
+      'copy-in-progress',
+      [
+        { role: 'named', content: 'named output of copy-in-progress', mtimeMs: SIDECAR_MTIME_MS },
+        { role: 'stray', content: 'stray output of copy-in-progress', mtimeMs: SIDECAR_MTIME_MS },
+      ],
+      (files) => [
+        { role: 'user', content: `the result is at ${files.named}` },
+        { role: 'assistant', content: 'noted' },
+      ],
+      // A boundary the heir's carry is compacted toward.
+      { contextWindow: 100_000, compactBoundaryTokens: 100_000 }
+    ),
+  'system-named': () =>
+    plainSession(
+      'system-named',
+      [
+        { role: 'named', content: 'named output of system-named', mtimeMs: SIDECAR_MTIME_MS },
+        { role: 'stray', content: 'stray output of system-named', mtimeMs: SIDECAR_MTIME_MS },
+      ],
+      (files) => [
+        { role: 'system', content: `the rules are at ${files.named}` },
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'noted' },
+      ]
+    ),
   'nothing-to-prune': () =>
     plainSession(
       'nothing-to-prune',
@@ -524,10 +623,10 @@ function stoppedChild(name) {
   return JSON.parse(run.stdout.trim().split('\n').at(-1));
 }
 
-/** Runs this recorder as the older-fork child: Node as shipped (`--base-tree`) on this data dir. */
-function olderFork() {
-  if (!baseTree) throw new Error('older-fork needs --base-tree <b6f10295a>');
-  const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', baseTree, '--child', 'older-fork', '--data', dataDir], {
+/** Runs this recorder as the child `name` on Node as shipped (`--base-tree`), on this data dir. */
+function shippedChild(name) {
+  if (!baseTree) throw new Error(`${name} needs --base-tree <b6f10295a>`);
+  const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', baseTree, '--child', name, '--data', dataDir], {
     encoding: 'utf8',
     timeout: 120_000,
     windowsHide: true,
@@ -551,6 +650,21 @@ if (child === 'older-fork') {
   drainSessionStore();
   await settleSessionSummaryIndex();
   console.log(JSON.stringify({ seed: JSON.parse(JSON.stringify({ ...seeded.seed, heir }).replaceAll(heirId, '<HEIR>')) }));
+  process.exit(0);
+}
+if (child === 'linkless-fork') {
+  // The fork of an agent home's fresh start, made by Node as shipped: a copy of the conversation whose record names no
+  // source (its fields are the source's, spread). The fork's transcript recorded is the conversation it holds.
+  const seeded = await PLAIN['linkless-fork']();
+  const forkId = `${seeded.sessionId}_archive`;
+  if (!(await manager.clearSessionMessages(seeded.sessionId, { archiveAs: forkId }))) throw new Error('not cleared');
+  await settleRecorder(forkId);
+  await settleRecorder(seeded.sessionId);
+  const fork = { sessionId: forkId, transcript: storedTranscript({ sessionId: forkId }) };
+  await settlePendingMessageWrites({ throwOnTimeout: true });
+  drainSessionStore();
+  await settleSessionSummaryIndex();
+  console.log(JSON.stringify({ seed: { ...seeded.seed, fork } }));
   process.exit(0);
 }
 if (child === 'process-stopped') {
@@ -586,7 +700,7 @@ for (const [name, scenario] of Object.entries(SCENARIOS)) {
   // A stopped process seeds its own session (`--child`).
   const seeded = ['process-stopped', 'saved-then-stopped'].includes(name)
     ? seededElsewhere(name)
-    : name === 'older-fork'
+    : ['older-fork', 'linkless-fork'].includes(name)
       ? plainElsewhere(name)
       : PLAIN[name]
         ? await PLAIN[name]()
@@ -629,10 +743,16 @@ writeSetManifest(stage, {
       sessionFiles: "the session store's own files (sessions/<id>.json, <id>.log.jsonl) are Node's format; the core's store writes its own record log, so their names and bytes are not compared: the stored transcript is, whole, as each store reads it back",
       summary: 'the summary is a scripted provider answer naming the kept sidecar; the compaction itself is recorded elsewhere (compaction-commit)',
       forks:
-        "clear-fork, heir-fork, older-fork and unreadable-fork record the cleared session's directory and transcript; the fork's and the heir's transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
+        "clear-fork, heir-fork, older-fork, unreadable-fork, linkless-fork, deleted-middle and copy-in-progress record the cleared session's directory and transcript; the fork's and the heirs' transcripts are not compared (the carry into them is recorded elsewhere): what they keep is the sidecar they name, which the cleared session's directory shows",
+      linklessFork: "linkless-fork's seed holds the shipped fork's id and stored transcript as the replay's input (the core's migration derives the fork's reference set from it); the fork itself is not compared",
+      referenceSets: "Node's stored reference sets (offload-sources.json in the data dir, and each record's offloadSources) are Node's format and not compared; the core holds the same sets in each session's header and its index: what they keep shows in the directories recorded",
       olderForkHeir:
         "older-fork's seed holds the heir's source link and the conversation it carries (its non-system messages) as the replay's input; the heir's system prompt (composed for its own minted id) is left out, and its minted id is <HEIR>",
       roomLog: "room-row's seed holds the room log's stored messages as the replay's input; the room log itself is not compared",
+      systemMessageMeta:
+        "the core holds a session's system prompt in its header's prompt blocks (as the migration stores Node's leading system messages), which carry no message meta: the `meta` (transcript messageId) Node's compaction stamps on its system message is not compared; its role, content and cache tier are",
+      clearedEnvironment:
+        "after a clear the core's header holds the environment block written for the next request (sessionStartMetaInjected false); Node keeps it outside `messages` (resetSessionBp3Environment, session-crud.mjs) until that request, so the transcript compared after a clear leaves that block out",
     },
   },
 });
