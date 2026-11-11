@@ -193,6 +193,9 @@ fn every_pure_case_replays_as_node_recorded_it() {
     ];
     let set = CaseSet::load(SET);
     assert_eq!(replays.map(|(id, _)| id.to_owned()).to_vec(), pure_ids(&set));
+    let pure = pure_ids(&set);
+    let wire: Vec<&str> = set.ids().into_iter().filter(|id| !pure.iter().any(|p| p == id)).collect();
+    set.not_replayed(&wire, "WIRE cases: group B's replay, not in this branch");
     for (id, replay) in replays {
         let case = set.case(id);
         assert_result(&set, case, &replay(case));

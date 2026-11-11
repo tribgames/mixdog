@@ -34,7 +34,8 @@ enum End {
 /// adapter of its recorded provider and compares the arrivals.
 async fn replay_requests(id: &str, entry: &str, end: End) {
     let set = CaseSet::load(SET);
-    let case = set.case(id);
+    let case = set.only(id, "each replayed case has its own test function in this file; the rest are group B's replay, not in this branch");
+    set.not_replayed(&[id], "this test compares the requests only; the outcome's replay is group B's, not in this branch");
     let endpoint = Endpoint::start().await;
     endpoint.serve(case);
     let home = tempfile::tempdir().expect("a home");

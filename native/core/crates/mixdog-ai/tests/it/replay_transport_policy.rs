@@ -214,6 +214,8 @@ fn every_pure_case_replays_as_node_recorded_it() {
     ];
     let set = CaseSet::load(SET);
     let pure = pure_ids(&set);
+    let others: Vec<&str> = set.ids().into_iter().filter(|id| !replays.iter().any(|(r, _)| r == id)).collect();
+    set.not_replayed(&others, "cases this PURE replay does not answer: group B's replay, not in this branch");
     for (id, replay) in replays {
         assert!(pure.contains(&id.to_owned()), "{id} is a PURE case of {SET}");
         let case = set.case(id);

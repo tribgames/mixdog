@@ -49,8 +49,9 @@ pub const ERROR_FIELDS: &[(&str, &str, &str)] = &[
     ("providerIncomplete", "ProviderError.finish_reason is set (the turn ended on a finish other than a clean stop)", "o/providers/retry-classification.mjs:163 o/session/send-with-recovery.mjs:541"),
     ("providerMetadata", "the text parts' metadata, carried in the attempt's StreamEvent::ReasoningReplay parts (none when the turn kept no parts)", "o/providers/gemini.mjs:159 o/providers/gemini.mjs:164 o/session/send-with-recovery.mjs:562 o/session/send-with-recovery.mjs:762"),
     ("providerRecoveryAttempts","unread", ""),
-    ("providerRecoveryExhausted", "observable: the retry stage events (StreamEvent::Notice / stages)", "o/providers/retry-executor.mjs:99"),
+    ("providerRecoveryExhausted", "SendError::Exhausted (a ladder ran out)", "o/providers/retry-executor.mjs:99"),
     ("providerRecoveryOwner", "unread", ""),
+    ("providerRecoveryTerminal", "SendError::Exhausted with no re-issue after it (the arrivals, compared whole, hold none)", "o/providers/retry-executor.mjs:106 o/providers/retry-classification.mjs:414"),
     ("providerWireError", "ProviderError.kind (an in-band error frame)", "o/providers/openai-compat-stream-common.mjs:19 o/providers/provider-error-kind.mjs:719 o/providers/retry-classification.mjs:585 o/providers/retry-classification.mjs:610"),
     ("quotaScope", "ProviderError.quota_scope", "o/providers/antigravity-retry-policy.mjs:165 o/providers/antigravity-retry-policy.mjs:166"),
     ("rawUsage", "ProviderError.partial_usage (the turn's usageMetadata; null: none reported)", "o/session/send-with-recovery.mjs:558"),
@@ -117,37 +118,25 @@ pub fn error_field_unread(field: &str) -> bool {
     error_field(field).starts_with("unread")
 }
 
-/// Every field of a recorded provider result that a replay could leave out of its comparison, what the core compares it
-/// as and the Node code that reads it (b6f10295a, `o/` = `src/runtime/agent/orchestrator/`), as [`ERROR_FIELDS`] does
-/// for errors: a field whose mapping starts with `unread` has no reader outside tests by the search `[.?]<field>\b`
-/// (not an assignment) over `src/` without `*.test.mjs`; every other field is compared as the mapping names. A path
-/// names a nested field (`response.candidates[0].index`).
+/// Every field of a recorded provider result that has no field of the same name in the core's outcome: what the core
+/// compares it as and the Node code that reads it (b6f10295a, `o/` = `src/runtime/agent/orchestrator/`). A replay
+/// compares each such field exactly as its row maps it; a recorded field no Node code reads is not a row here but a line
+/// of the set's manifest exclusions (``` `name` is not compared: <reason> ```, read by the replay driver), the one place a
+/// recorded property is left out. A path names a nested field (`response.candidates[].content.parts`).
 pub const RESULT_FIELDS: &[(&str, &str, &str)] = &[
     // Anthropic (`AnthropicProvider#send`, anthropic-turn-result.mjs).
-    ("stopDetails", "unread: only copied from the turn into the result, read by nothing after", "o/providers/anthropic-sse-turn/turn-outcome.mjs:141 o/providers/anthropic-turn-result.mjs:60 (copies)"),
     ("hasThinkingContent", "StreamEvent::ContentSummary.has_thinking", "o/session/manager/ask-turn-commit.mjs:65 o/providers/anthropic-turn-result.mjs:62"),
     ("contentBlockTypes", "StreamEvent::ContentSummary.block_types", "o/session/manager/ask-turn-commit.mjs:66 o/providers/anthropic-message-threads.mjs:333 o/providers/anthropic-turn-result.mjs:63"),
-    // `onStreamDelta('transport')`: one per network read of the body (anthropic-sse.mjs:275, gemini.mjs:811).
-    ("streamDeltas.transport", "unread beyond liveness: markSessionStreamDelta (o/session/manager/runtime-liveness.mjs:273) and the idle deadlines read only that a read came, never the kind's count, which the socket's chunking sets; the core's stream liveness is the transport's own", "o/providers/openai-compat-chat-stream/stream-state.mjs:68 o/providers/openai-compat-stream.mjs:85 (skip it)"),
     // A `fetch` Response the Anthropic client's `fetch` returns (`createAnthropicApiKeyFetch`).
     ("response.status", "HttpResponse.status", "node_modules/@anthropic-ai/sdk/client.mjs (makeRequest: response.ok / status)"),
     ("response.headers", "HttpResponse.headers, in order", "node_modules/@anthropic-ai/sdk/client.mjs (retry-after, request-id)"),
-    ("response.statusText", "unread: no product or Anthropic SDK code reads it on this path (`[.?]statusText\\b` over src/ hits only other fetchers: antigravity-oauth-login.mjs:96, vertex-ai-maas.mjs:95 copy, runtime fetchers)", ""),
-    ("response.url", "unread: the Anthropic SDK reads it only for its debug log and `withResponse` meta (sdk internal/parse.mjs:8, :45); no product code reads it", ""),
     // Gemini (`consumeGeminiRestStreamResponse`'s aggregated response).
-    ("response.candidates[0].index", "unread: the aggregation's own sort key (gemini-stream.mjs:159, :196), read by nothing after", ""),
-    ("response.candidates[0].content.role", "unread: the aggregation writes it (gemini-stream.mjs:176), read by nothing after", ""),
-    ("response.candidates[0].content.parts", "StreamEvent::ReasoningReplay items.parts", "o/providers/gemini-response.mjs:23 o/providers/antigravity-response.mjs:53"),
-    ("response.candidates[0].finishReason", "StreamEvent::Completed stop: STOP and none are None, MAX_TOKENS MaxTokens, any other a typed failure", "o/providers/gemini-response.mjs:63 o/providers/antigravity-response.mjs:77 o/providers/antigravity-response.mjs:105 o/providers/gemini-stream.mjs:625"),
-    ("leakedToolCalls", "on a failed stream, StreamEvent::Progress(Tool) per recovered call (the calls are released only after a clean finish, where they are ToolCallDone)", "o/providers/gemini-stream.mjs:87 o/providers/gemini-response.mjs:37 o/providers/antigravity-response.mjs:71"),
+    ("response.candidates[].content.parts", "StreamEvent::ReasoningReplay items.parts", "o/providers/gemini-response.mjs:23 o/providers/antigravity-response.mjs:53"),
+    ("response.candidates[].finishReason", "StreamEvent::Completed stop: STOP and none are None (both a delivered turn: gemini-response.mjs:63), MAX_TOKENS MaxTokens, any other a typed failure", "o/providers/gemini-response.mjs:63 o/providers/antigravity-response.mjs:77 o/providers/antigravity-response.mjs:105 o/providers/gemini-stream.mjs:625"),
+    ("leakedToolCalls", "the calls the decoder's guard recovered ({id, name, arguments} each, GeminiDecoder::recovered_calls), whole and in order; a failed stream releases none of them (no ToolCallDone)", "o/providers/gemini-stream.mjs:87 o/providers/gemini-response.mjs:37 o/providers/antigravity-response.mjs:71"),
 ];
 
 /// The mapping of a recorded result field; panics for a field the table does not hold.
 pub fn result_field(field: &str) -> &'static str {
     RESULT_FIELDS.iter().find(|(name, _, _)| *name == field).map(|(_, mapping, _)| *mapping).unwrap_or_else(|| panic!("result field {field} is not in RESULT_FIELDS"))
-}
-
-/// Whether the table leaves a recorded result field out of the comparison.
-pub fn result_field_unread(field: &str) -> bool {
-    result_field(field).starts_with("unread")
 }
