@@ -211,7 +211,8 @@ impl Waiting {
         .expect("the desktop's answer is taken");
     }
 
-    /// The decision the session resolved the request with, as Node's session host was handed it (with the answering device).
+    /// The decision the session resolved the request with (with the answering device): what Node's session host was handed, as its
+    /// session api took it (`taken`).
     async fn took(&self, name: &str) -> Value {
         let handle = &self.handle;
         let resolution = eventually_on!(&[&handle.cell.stepped], || self.resolved.lock().unwrap().clone()).await;
@@ -257,8 +258,20 @@ async fn answers_that_meet_at_the_session_are_arbitrated_as_nodes() {
         for (step, outcome) in steps.iter().zip(&outcomes) {
             assert_eq!(outcome.as_ref(), step.get("outcome"), "{name}: what {} was shown", step["by"]);
         }
-        assert_eq!(waiting.took(name).await, case["took"], "{name}: the decision the session took");
+        assert_eq!(waiting.took(name).await, taken(&case["took"]), "{name}: the decision the session took");
     }
+}
+
+/// Recorded decisions as Node's host was handed them, as its session api took them: an answer without words reads as the person's
+/// (`decision?.reason || (approved ? 'approved by user' : 'denied by user')`, session-api/lifecycle.mjs:74).
+fn taken(handed: &Value) -> Value {
+    let mut taken = handed.clone();
+    for decision in taken.as_array_mut().expect("recorded decisions") {
+        if decision["reason"].as_str().is_none_or(str::is_empty) {
+            decision["reason"] = json!(if decision["approved"] == json!(true) { "approved by user" } else { "denied by user" });
+        }
+    }
+    taken
 }
 
 /// A room's answer to its member's approval goes the same way (`answer_member_approval`, Node's room `deps.approve`, which is the session
@@ -288,7 +301,7 @@ async fn a_rooms_answer_that_meets_another_is_arbitrated_as_nodes() {
     }
     .expect("the room's answer is a decision");
     assert_eq!(json!({ "value": if accepted { "answered" } else { "settled" } }), step["outcome"], "what the room's answer came to");
-    assert_eq!(waiting.took("room").await, case["took"], "the decision the session took");
+    assert_eq!(waiting.took("room").await, taken(&case["took"]),"the decision the session took");
 }
 
 /// A card's own answer (scenario `approval-cards`): phone a's card through the relay, this PC's window through its local connection. Each
@@ -309,7 +322,7 @@ async fn a_cards_bare_allow_is_refused_where_nodes_was() {
             let outcome = card_through(directory, connection, origin, thread, approval, &step["card"]).await;
             assert_eq!(outcome, step["outcome"], "{name}: what the card was given for {step}");
             if outcome["value"] == json!(true) {
-                assert_eq!(waiting.took(name).await, json!([step["decided"][0]]), "{name}: the decision the session took for {step}");
+                assert_eq!(waiting.took(name).await, taken(&json!([step["decided"][0]])),"{name}: the decision the session took for {step}");
             } else {
                 assert!(resolved.lock().unwrap().is_none(), "{name}: nothing resolved for {step}");
             }
@@ -353,14 +366,14 @@ async fn a_phones_bare_allow_answering_the_request_itself_is_refused_where_nodes
             },
         )
         .expect("the response is handed to the session");
-        let taken = if steps[0]["outcome"] == json!({ "value": true }) {
+        let next_taken = if steps[0]["outcome"] == json!({ "value": true }) {
             &steps[0]
         } else {
             let next = &steps[1];
             assert_eq!(card_from(directory, PHONE, thread, id, &next["card"]).await, next["outcome"], "{name}: the card's answer after the response");
             next
         };
-        assert_eq!(waiting.took(name).await, json!([taken["decided"][0]]), "{name}: the decision the session took");
+        assert_eq!(waiting.took(name).await, taken(&json!([next_taken["decided"][0]])), "{name}: the decision the session took");
     }
     assert_eq!(replayed, ["outbound-payment", "outbound-delete", "office-rollback", "connector", "shell, a bare allow"], "the cases replayed");
 }
@@ -398,7 +411,7 @@ async fn an_unpaired_phones_bare_allow_is_refused_as_a_paired_ones() {
     .expect("the response is handed to the session");
     let next = &steps[1];
     assert_eq!(card_from(directory, PHONE, thread, id, &next["card"]).await, next["outcome"], "the card's answer after the refused Allow");
-    assert_eq!(waiting.took("outbound-payment").await, json!([next["decided"][0]]), "the decision the session took");
+    assert_eq!(waiting.took("outbound-payment").await, taken(&json!([next["decided"][0]])), "the decision the session took");
 }
 
 /// The recorded payment case with the phone's bare Allow (`thread/approval/answer`) admitted while the phone is paired and connected,
@@ -418,7 +431,7 @@ async fn a_bare_allow_whose_phone_disconnects_before_it_is_decided_is_refused() 
     assert!(directory.member_approval(&handle.id).is_some(), "the approval still waits");
     let next = &steps[1];
     assert_eq!(card_from(directory, PHONE, thread, id, &next["card"]).await, next["outcome"], "the card's answer after the refused Allow");
-    assert_eq!(waiting.took("outbound-payment").await, json!([next["decided"][0]]), "the decision the session took");
+    assert_eq!(waiting.took("outbound-payment").await, taken(&json!([next["decided"][0]])), "the decision the session took");
 }
 
 /// The TUI's approve shortcut (`approval-shortcut.mjs`: `{approved: true, reason: 'approved by user'}` for any approval) answering the
@@ -487,7 +500,7 @@ async fn a_notifications_allow_and_deny_answer_as_nodes() {
             let ApprovalResolution::Decided { decision, device, .. } = resolution else { panic!("{name}: decided, got {resolution:?}") };
             let mut decided = serde_json::to_value(decision).unwrap();
             decided["device"] = json!(device);
-            assert_eq!(decided, step["decided"][0], "{name}: the decision Node handed its session");
+            assert_eq!(json!([decided]), taken(&json!([step["decided"][0]])), "{name}: the decision Node handed its session, as its session api took it");
             eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id).is_none().then_some(())).await;
         }
     }
