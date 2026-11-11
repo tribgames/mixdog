@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::boundary::CompactSettings;
+use mixdog_agent::compact::compactor::PlannedHandoff;
 use mixdog_agent::compact::dropped::Redactor;
 use mixdog_agent::compact::fresh::AttachmentSeam;
 use mixdog_agent::compact::summary_run::{SummaryFailure, SummaryResponse, SummaryRoute, SummarySender};
@@ -29,7 +30,7 @@ use super::assemble::CompactorInput;
 use super::compactors::{CompactionFacts, CompactionWorld, SessionCompactors};
 use super::host_seams::CompactorSource;
 use super::media::{AttachmentFacts, MediaLowering, StoredFacts};
-use super::summary_routes::{ForkSender, SummaryHost};
+use super::summary_routes::{ForkSender, SavedRequest, SummaryHost};
 
 pub(crate) fn io() -> ToolIo {
     let tokens = mixdog_rt::testing::tokens();
@@ -156,12 +157,21 @@ impl Clock for Epoch {
     }
 }
 
-/// The session side of the scenario: its media, the summary route plan's runtime and the saved
-/// `config.compaction`.
+/// The session side of the scenario: its media, the summary route plan's runtime, the saved
+/// `config.compaction` and the side-question store's saved request with its fork sender.
 pub(crate) struct World {
     pub provider: String,
     pub summary: Arc<dyn SummaryHost>,
     pub compaction: Option<Value>,
+    pub saved_request: Option<SavedRequest>,
+    pub fork_sender: Arc<dyn ForkSender>,
+}
+
+impl World {
+    /// A session with no saved request: nothing to fork.
+    pub(crate) fn unsaved(provider: &str, summary: Arc<dyn SummaryHost>, compaction: Option<Value>) -> Self {
+        Self { provider: provider.to_owned(), summary, compaction, saved_request: None, fork_sender: Arc::new(NoSummary) }
+    }
 }
 #[async_trait]
 impl CompactionWorld for World {
@@ -175,8 +185,8 @@ impl CompactionWorld for World {
             redactor: Arc::new(NoRedaction),
             cache: Arc::new(ColdTail),
             summary: self.summary.clone(),
-            saved_request: None,
-            fork_sender: Arc::new(NoSummary),
+            saved_request: self.saved_request.clone(),
+            fork_sender: self.fork_sender.clone(),
         }
     }
     fn compaction_config(&self) -> Option<Value> {
@@ -191,4 +201,13 @@ pub(crate) async fn session_compactor(world: World, thread: &str, header: &Heade
     let compactors = SessionCompactors::new(Arc::new(world), Arc::new(Epoch));
     let input = CompactorInput { settings, rows, archive: Arc::new(archive(data_dir, thread)), blobs: Arc::new(NoBlobs) };
     compactors.compactor(&ThreadId::from(thread.to_owned()), header, &[], input).await.expect("a compactor")
+}
+
+/// The summary plan of `thread`'s compactor as the run host wires it (`SessionCompactors` over
+/// `PlannedHandoff::for_session`), its saved request read at `clock`.
+pub(crate) async fn session_summary(world: World, clock: Arc<dyn Clock>, thread: &str, header: &Header, settings: CompactSettings, rows: Arc<StoredRows>, data_dir: &Path) -> PlannedHandoff {
+    let compactors = SessionCompactors::new(Arc::new(world), clock);
+    let input = CompactorInput { settings, rows, archive: Arc::new(archive(data_dir, thread)), blobs: Arc::new(NoBlobs) };
+    let session = compactors.session(&ThreadId::from(thread.to_owned()), header, &[], input).await;
+    PlannedHandoff::for_session(&session).expect("a session that knows its window").0
 }

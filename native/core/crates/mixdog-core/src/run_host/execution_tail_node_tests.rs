@@ -151,7 +151,7 @@ impl Replay {
             "session" => {
                 let Value::Object(header) = json!({ "provider": "stub", "model": "stub-model" }) else { unreachable!() };
                 let settings = CompactSettings { context_window: o["contextWindow"].as_u64(), token_calibration: 1.0, ..CompactSettings::default() };
-                let world = World { provider: "stub".into(), summary: Arc::new(StubHost), compaction: None };
+                let world = World::unsaved("stub", Arc::new(StubHost), None);
                 let rows = Arc::new(StoredRows::new());
                 let messages = messages_of(&input_rows(input, &self.previous), &rows);
                 let compactor = session_compactor(world, session, &header, settings, rows, &self.data).await;

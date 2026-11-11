@@ -114,6 +114,8 @@ mod prompt_session_tests;
 mod compaction_node_harness;
 #[cfg(test)]
 mod execution_tail_node_tests;
+#[cfg(test)]
+mod summary_mode_node_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
