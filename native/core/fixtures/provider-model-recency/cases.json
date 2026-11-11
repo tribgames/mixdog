@@ -1,6 +1,7 @@
 {
   "set": "provider-model-recency",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "window-range-default",
@@ -40,12 +41,18 @@
             "supportsWebSearch": false,
             "supportsPromptCaching": false,
             "supportsReasoning": false,
+            "reasoningLevels": {
+              "$exact": "undefined"
+            },
             "reasoningOptions": [],
             "reasoningContentField": null,
             "serviceTiers": [],
             "additionalSpeedTiers": [],
             "defaultServiceTier": null,
             "fastCapable": false,
+            "fastEfforts": {
+              "$exact": "undefined"
+            },
             "modelParameterOptions": [],
             "parameterVariants": [],
             "defaultModelParameters": {},
@@ -75,12 +82,18 @@
             "supportsWebSearch": false,
             "supportsPromptCaching": false,
             "supportsReasoning": false,
+            "reasoningLevels": {
+              "$exact": "undefined"
+            },
             "reasoningOptions": [],
             "reasoningContentField": null,
             "serviceTiers": [],
             "additionalSpeedTiers": [],
             "defaultServiceTier": null,
             "fastCapable": false,
+            "fastEfforts": {
+              "$exact": "undefined"
+            },
             "modelParameterOptions": [],
             "parameterVariants": [],
             "defaultModelParameters": {},
@@ -89,6 +102,34 @@
             "supportsMaxMode": false,
             "mode": null
           }
+        }
+      ],
+      "calls": [
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "anthropic-oauth",
+            {
+              "id": "m",
+              "contextWindow": 1000000
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "gemini",
+            {
+              "id": "m",
+              "contextWindow": 1048576
+            },
+            {
+              "callback": ""
+            }
+          ]
         }
       ]
     },
@@ -141,12 +182,18 @@
             "supportsWebSearch": false,
             "supportsPromptCaching": false,
             "supportsReasoning": false,
+            "reasoningLevels": {
+              "$exact": "undefined"
+            },
             "reasoningOptions": [],
             "reasoningContentField": null,
             "serviceTiers": [],
             "additionalSpeedTiers": [],
             "defaultServiceTier": null,
             "fastCapable": false,
+            "fastEfforts": {
+              "$exact": "undefined"
+            },
             "modelParameterOptions": [],
             "parameterVariants": [],
             "defaultModelParameters": {},
@@ -176,12 +223,18 @@
             "supportsWebSearch": false,
             "supportsPromptCaching": false,
             "supportsReasoning": false,
+            "reasoningLevels": {
+              "$exact": "undefined"
+            },
             "reasoningOptions": [],
             "reasoningContentField": null,
             "serviceTiers": [],
             "additionalSpeedTiers": [],
             "defaultServiceTier": null,
             "fastCapable": false,
+            "fastEfforts": {
+              "$exact": "undefined"
+            },
             "modelParameterOptions": [],
             "parameterVariants": [],
             "defaultModelParameters": {},
@@ -211,12 +264,18 @@
             "supportsWebSearch": false,
             "supportsPromptCaching": false,
             "supportsReasoning": false,
+            "reasoningLevels": {
+              "$exact": "undefined"
+            },
             "reasoningOptions": [],
             "reasoningContentField": null,
             "serviceTiers": [],
             "additionalSpeedTiers": [],
             "defaultServiceTier": null,
             "fastCapable": false,
+            "fastEfforts": {
+              "$exact": "undefined"
+            },
             "modelParameterOptions": [],
             "parameterVariants": [],
             "defaultModelParameters": {},
@@ -234,6 +293,9 @@
             "display": "m",
             "created": null,
             "releaseDate": null,
+            "contextWindow": {
+              "$exact": "undefined"
+            },
             "maxContextWindow": null,
             "outputTokens": null,
             "family": null,
@@ -245,12 +307,18 @@
             "supportsWebSearch": false,
             "supportsPromptCaching": false,
             "supportsReasoning": false,
+            "reasoningLevels": {
+              "$exact": "undefined"
+            },
             "reasoningOptions": [],
             "reasoningContentField": null,
             "serviceTiers": [],
             "additionalSpeedTiers": [],
             "defaultServiceTier": null,
             "fastCapable": false,
+            "fastEfforts": {
+              "$exact": "undefined"
+            },
             "modelParameterOptions": [],
             "parameterVariants": [],
             "defaultModelParameters": {},
@@ -259,6 +327,60 @@
             "supportsMaxMode": false,
             "mode": null
           }
+        }
+      ],
+      "calls": [
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "grok-oauth",
+            {
+              "id": "m",
+              "contextWindow": 256000
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "openai-oauth",
+            {
+              "id": "m",
+              "contextWindow": 272000,
+              "maxContextWindow": 872000
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "mixdog-local",
+            {
+              "id": "m",
+              "contextWindow": 1000000
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "fixture",
+            {
+              "id": "m"
+            },
+            {
+              "callback": ""
+            }
+          ]
         }
       ]
     },
@@ -291,6 +413,9 @@
           "display": "Model",
           "created": null,
           "releaseDate": null,
+          "contextWindow": {
+            "$exact": "undefined"
+          },
           "maxContextWindow": null,
           "outputTokens": null,
           "family": null,
@@ -309,6 +434,9 @@
           "additionalSpeedTiers": [],
           "defaultServiceTier": null,
           "fastCapable": false,
+          "fastEfforts": {
+            "$exact": "undefined"
+          },
           "modelParameterOptions": [],
           "parameterVariants": [],
           "defaultModelParameters": {},
@@ -333,6 +461,9 @@
           "display": "m",
           "created": null,
           "releaseDate": null,
+          "contextWindow": {
+            "$exact": "undefined"
+          },
           "maxContextWindow": null,
           "outputTokens": null,
           "family": null,
@@ -344,6 +475,9 @@
           "supportsWebSearch": false,
           "supportsPromptCaching": false,
           "supportsReasoning": false,
+          "reasoningLevels": {
+            "$exact": "undefined"
+          },
           "reasoningOptions": [],
           "reasoningContentField": null,
           "serviceTiers": [],
@@ -351,6 +485,9 @@
           "defaultServiceTier": null,
           "hidden": true,
           "fastCapable": false,
+          "fastEfforts": {
+            "$exact": "undefined"
+          },
           "modelParameterOptions": [],
           "parameterVariants": [],
           "defaultModelParameters": {},
@@ -359,7 +496,47 @@
           "supportsMaxMode": false,
           "mode": null
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "custom-1",
+            {
+              "id": "m",
+              "name": "Model",
+              "hidden": false,
+              "manual": true,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "customReasoning": {
+                "wireFormat": "deepseek",
+                "wireValues": {
+                  "high": "max"
+                },
+                "replay": true
+              },
+              "reasoningContentField": "reasoning_content"
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "custom-1",
+            {
+              "id": "m",
+              "hidden": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "first-party-row-unchanged-by-custom-fields",
@@ -372,6 +549,9 @@
           "display": "M",
           "created": null,
           "releaseDate": null,
+          "contextWindow": {
+            "$exact": "undefined"
+          },
           "maxContextWindow": null,
           "outputTokens": null,
           "family": null,
@@ -383,6 +563,9 @@
           "supportsWebSearch": false,
           "supportsPromptCaching": false,
           "supportsReasoning": false,
+          "reasoningLevels": {
+            "$exact": "undefined"
+          },
           "reasoningOptions": [],
           "reasoningContentField": null,
           "serviceTiers": [],
@@ -390,6 +573,9 @@
           "defaultServiceTier": null,
           "hidden": true,
           "fastCapable": false,
+          "fastEfforts": {
+            "$exact": "undefined"
+          },
           "modelParameterOptions": [],
           "parameterVariants": [],
           "defaultModelParameters": {},
@@ -404,6 +590,9 @@
           "display": "m",
           "created": null,
           "releaseDate": null,
+          "contextWindow": {
+            "$exact": "undefined"
+          },
           "maxContextWindow": null,
           "outputTokens": null,
           "family": null,
@@ -415,12 +604,18 @@
           "supportsWebSearch": false,
           "supportsPromptCaching": false,
           "supportsReasoning": false,
+          "reasoningLevels": {
+            "$exact": "undefined"
+          },
           "reasoningOptions": [],
           "reasoningContentField": null,
           "serviceTiers": [],
           "additionalSpeedTiers": [],
           "defaultServiceTier": null,
           "fastCapable": false,
+          "fastEfforts": {
+            "$exact": "undefined"
+          },
           "modelParameterOptions": [],
           "parameterVariants": [],
           "defaultModelParameters": {},
@@ -429,7 +624,36 @@
           "supportsMaxMode": false,
           "mode": null
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "openai",
+            {
+              "id": "m",
+              "name": "M",
+              "hidden": true,
+              "manual": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/model-recency.mjs.providerModelCacheRow",
+          "args": [
+            "openai",
+            {
+              "id": "m"
+            },
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
     }
   ]
 }
