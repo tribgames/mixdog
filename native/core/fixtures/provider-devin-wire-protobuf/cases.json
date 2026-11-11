@@ -1,0 +1,1308 @@
+{
+  "set": "provider-devin-wire-protobuf",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "get-user-jwt-response",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:17",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "GetUserJwtResponse",
+            "value": {
+              "userJwt": "abc",
+              "customApiServerUrl": "https://x.io"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "value": {
+              "userJwt": "abc",
+              "customApiServerUrl": "https://x.io"
+            },
+            "hex": "0a03616263120c68747470733a2f2f782e696f"
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "GetUserJwtResponse",
+            "value": {
+              "userJwt": "abc",
+              "customApiServerUrl": "https://x.io"
+            },
+            "hex": "0a03616263120c68747470733a2f2f782e696f"
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0a03616263120c68747470733a2f2f782e696f",
+            "value": {
+              "userJwt": "abc",
+              "customApiServerUrl": "https://x.io"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "repeated-enums-packed",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:24",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "Metadata",
+            "value": {
+              "apiKey": "k",
+              "supportedModelDisplays": [
+                3,
+                4,
+                6,
+                7,
+                8
+              ]
+            }
+          },
+          {
+            "op": "decode",
+            "type": "Metadata",
+            "value": {
+              "apiKey": "k",
+              "supportedModelDisplays": [
+                3,
+                4,
+                6,
+                7,
+                8
+              ]
+            },
+            "hex": "1a016bf201050304060708"
+          },
+          {
+            "op": "decode",
+            "type": "Metadata",
+            "value": {
+              "supportedModelDisplays": [
+                3,
+                4
+              ]
+            },
+            "hex": "f00103f00104"
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "Metadata",
+            "value": {
+              "apiKey": "k",
+              "supportedModelDisplays": [
+                3,
+                4,
+                6,
+                7,
+                8
+              ]
+            },
+            "hex": "1a016bf201050304060708"
+          },
+          {
+            "op": "decode",
+            "type": "Metadata",
+            "hex": "1a016bf201050304060708",
+            "value": {
+              "apiKey": "k",
+              "supportedModelDisplays": [
+                3,
+                4,
+                6,
+                7,
+                8
+              ]
+            }
+          },
+          {
+            "op": "decode",
+            "type": "Metadata",
+            "hex": "f00103f00104",
+            "value": {
+              "supportedModelDisplays": [
+                3,
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "nested-chat-request",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:36",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "GetChatMessageRequest",
+            "value": {
+              "chatModelUid": "m",
+              "chatMessagePrompts": [
+                {
+                  "source": 1,
+                  "prompt": "hi"
+                }
+              ],
+              "toolChoice": {
+                "optionName": "auto"
+              },
+              "modelAssignmentJwt": "j"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetChatMessageRequest",
+            "value": {
+              "chatMessagePrompts": [
+                {
+                  "source": 1,
+                  "prompt": "hi"
+                }
+              ],
+              "toolChoice": {
+                "optionName": "auto"
+              },
+              "chatModelUid": "m",
+              "modelAssignmentJwt": "j"
+            },
+            "hex": "1a0610011a02686962060a046175746faa01016dd201016a"
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "GetChatMessageRequest",
+            "value": {
+              "chatModelUid": "m",
+              "chatMessagePrompts": [
+                {
+                  "source": 1,
+                  "prompt": "hi"
+                }
+              ],
+              "toolChoice": {
+                "optionName": "auto"
+              },
+              "modelAssignmentJwt": "j"
+            },
+            "hex": "1a0610011a02686962060a046175746faa01016dd201016a"
+          },
+          {
+            "op": "decode",
+            "type": "GetChatMessageRequest",
+            "hex": "1a0610011a02686962060a046175746faa01016dd201016a",
+            "value": {
+              "chatMessagePrompts": [
+                {
+                  "source": 1,
+                  "prompt": "hi"
+                }
+              ],
+              "toolChoice": {
+                "optionName": "auto"
+              },
+              "chatModelUid": "m",
+              "modelAssignmentJwt": "j"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "proto3-defaults-and-presence",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:49",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "messageId": "",
+              "source": 0,
+              "numTokens": 0,
+              "toolResultIsError": false
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ChatToolChoice",
+            "value": {
+              "toolName": ""
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ChatToolDefinition",
+            "value": {
+              "readOnlyHint": false
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageRequest",
+            "value": {
+              "systemPromptCacheOptions": {}
+            }
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "messageId": "",
+              "source": 0,
+              "numTokens": 0,
+              "toolResultIsError": false
+            },
+            "hex": ""
+          },
+          {
+            "op": "encode",
+            "type": "ChatToolChoice",
+            "value": {
+              "toolName": ""
+            },
+            "hex": "1200"
+          },
+          {
+            "op": "encode",
+            "type": "ChatToolDefinition",
+            "value": {
+              "readOnlyHint": false
+            },
+            "hex": "3800"
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageRequest",
+            "value": {
+              "systemPromptCacheOptions": {}
+            },
+            "hex": "6a00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "fixed-width-and-signed-scalars",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:62",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "maxTokens": 64000,
+              "temperature": 1,
+              "topP": 0.5,
+              "stopPatterns": [
+                "x"
+              ]
+            }
+          },
+          {
+            "op": "decode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "maxTokens": "64000n",
+              "temperature": 1,
+              "topP": 0.5,
+              "stopPatterns": [
+                "x"
+              ]
+            },
+            "hex": "1080f40329000000000000f03f41000000000000e03f4a0178"
+          },
+          {
+            "op": "encode",
+            "type": "ModelDimension",
+            "value": {
+              "value": 0.5
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": -1
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": -1
+            },
+            "hex": "9001ffffffffffffffffff01"
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "300n"
+            }
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "maxTokens": 64000,
+              "temperature": 1,
+              "topP": 0.5,
+              "stopPatterns": [
+                "x"
+              ]
+            },
+            "hex": "1080f40329000000000000f03f41000000000000e03f4a0178"
+          },
+          {
+            "op": "decode",
+            "type": "CompletionConfiguration",
+            "hex": "1080f40329000000000000f03f41000000000000e03f4a0178",
+            "value": {
+              "maxTokens": "64000n",
+              "temperature": 1,
+              "topP": 0.5,
+              "stopPatterns": [
+                "x"
+              ]
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelDimension",
+            "value": {
+              "value": 0.5
+            },
+            "hex": "150000003f"
+          },
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": -1
+            },
+            "hex": "9001ffffffffffffffffff01"
+          },
+          {
+            "op": "decode",
+            "type": "ClientModelConfig",
+            "hex": "9001ffffffffffffffffff01",
+            "value": {
+              "maxTokens": -1
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "300n"
+            },
+            "hex": "10ac02"
+          }
+        ]
+      }
+    },
+    {
+      "id": "streamed-chat-response",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:82",
+      "input": {
+        "steps": [
+          {
+            "op": "decode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "messageId": "id",
+              "deltaText": "hi",
+              "stopReason": 3,
+              "deltaToolCalls": [
+                {
+                  "id": "c",
+                  "name": "n",
+                  "argumentsJson": "{}"
+                }
+              ],
+              "usage": {
+                "inputTokens": "5n",
+                "outputTokens": "7n"
+              },
+              "deltaThinking": "t",
+              "actualModelUid": "",
+              "$unknown": [
+                {
+                  "no": 99,
+                  "wireType": 0,
+                  "data": {
+                    "bytesHex": "01"
+                  }
+                }
+              ]
+            },
+            "hex": "0a0269641a0268692803320a0a016312016e1a027b7d3a04100518074a0174ba0100980601"
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "decode",
+            "type": "GetChatMessageResponse",
+            "hex": "0a0269641a0268692803320a0a016312016e1a027b7d3a04100518074a0174ba0100980601",
+            "value": {
+              "messageId": "id",
+              "deltaText": "hi",
+              "stopReason": 3,
+              "deltaToolCalls": [
+                {
+                  "id": "c",
+                  "name": "n",
+                  "argumentsJson": "{}"
+                }
+              ],
+              "usage": {
+                "inputTokens": "5n",
+                "outputTokens": "7n"
+              },
+              "deltaThinking": "t",
+              "actualModelUid": "",
+              "$unknown": [
+                {
+                  "no": 99,
+                  "wireType": 0,
+                  "data": {
+                    "bytesHex": "01"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "repeated-elements-keep-defaults",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:112",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "stopPatterns": [
+                "",
+                "a",
+                ""
+              ]
+            }
+          },
+          {
+            "op": "decode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "stopPatterns": [
+                "",
+                "a",
+                ""
+              ]
+            },
+            "hex": "4a004a01614a00"
+          },
+          {
+            "op": "encode",
+            "type": "Metadata",
+            "value": {
+              "supportedModelDisplays": [
+                0,
+                3
+              ]
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "toolCalls": [
+                {}
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "stopPatterns": [
+                "",
+                "a",
+                ""
+              ]
+            },
+            "hex": "4a004a01614a00"
+          },
+          {
+            "op": "decode",
+            "type": "CompletionConfiguration",
+            "hex": "4a004a01614a00",
+            "value": {
+              "stopPatterns": [
+                "",
+                "a",
+                ""
+              ]
+            }
+          },
+          {
+            "op": "encode",
+            "type": "Metadata",
+            "value": {
+              "supportedModelDisplays": [
+                0,
+                3
+              ]
+            },
+            "hex": "f201020003"
+          },
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "toolCalls": [
+                {}
+              ]
+            },
+            "hex": "3200"
+          }
+        ]
+      }
+    },
+    {
+      "id": "64-bit-integers-bigint",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:128",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "9007199254740993n"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "9007199254740993n"
+            },
+            "hex": "108180808080808010"
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "outputTokens": "18446744073709551615n"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ModelUsageStats",
+            "value": {
+              "outputTokens": "18446744073709551615n"
+            },
+            "hex": "18ffffffffffffffffff01"
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedQuotaCostBasisPoints": -1
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedQuotaCostBasisPoints": "-1n"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedQuotaCostBasisPoints": "-1"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedQuotaCostBasisPoints": "-1n"
+            },
+            "hex": "d001ffffffffffffffffff01"
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedOverageCostCents": "0n"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "0",
+              "outputTokens": 0
+            }
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "9007199254740993n"
+            },
+            "hex": "108180808080808010"
+          },
+          {
+            "op": "decode",
+            "type": "ModelUsageStats",
+            "hex": "108180808080808010",
+            "value": {
+              "inputTokens": "9007199254740993n"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "outputTokens": "18446744073709551615n"
+            },
+            "hex": "18ffffffffffffffffff01"
+          },
+          {
+            "op": "decode",
+            "type": "ModelUsageStats",
+            "hex": "18ffffffffffffffffff01",
+            "value": {
+              "outputTokens": "18446744073709551615n"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedQuotaCostBasisPoints": -1
+            },
+            "hex": "d001ffffffffffffffffff01"
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedQuotaCostBasisPoints": "-1n"
+            },
+            "hex": "d001ffffffffffffffffff01"
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedQuotaCostBasisPoints": "-1"
+            },
+            "hex": "d001ffffffffffffffffff01"
+          },
+          {
+            "op": "decode",
+            "type": "GetChatMessageResponse",
+            "hex": "d001ffffffffffffffffff01",
+            "value": {
+              "committedQuotaCostBasisPoints": "-1n"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "committedOverageCostCents": "0n"
+            },
+            "hex": "d80100"
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "0",
+              "outputTokens": 0
+            },
+            "hex": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "32-bit-and-unsigned-coercion",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:152",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": 4294967301
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "numTokens": 4294967301
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": -1
+            },
+            "hex": "9001ffffffff0f"
+          },
+          {
+            "op": "decode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "numTokens": 4294967295
+            },
+            "hex": "20ffffffff7f"
+          },
+          {
+            "op": "decode",
+            "type": "ChatMessagePrompt",
+            "hex": "20808080808001"
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "stopReason": -1
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "stopReason": -1
+            },
+            "hex": "28ffffffffffffffffff01"
+          },
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "numTokens": -1
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "-1n"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "seed": "-2"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": 1.5
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": "5n"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageRequest",
+            "value": {
+              "requestType": "5"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": 1.5
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "x"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ModelUsageStats",
+            "hex": "10ffffffffffffffffffff01"
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": 4294967301
+            },
+            "hex": "900105"
+          },
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "numTokens": 4294967301
+            },
+            "hex": "2005"
+          },
+          {
+            "op": "decode",
+            "type": "ClientModelConfig",
+            "hex": "9001ffffffff0f",
+            "value": {
+              "maxTokens": -1
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ChatMessagePrompt",
+            "hex": "20ffffffff7f",
+            "value": {
+              "numTokens": 4294967295
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ChatMessagePrompt",
+            "hex": "20808080808001",
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf 32-bit varint"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageResponse",
+            "value": {
+              "stopReason": -1
+            },
+            "hex": "28ffffffffffffffffff01"
+          },
+          {
+            "op": "decode",
+            "type": "GetChatMessageResponse",
+            "hex": "28ffffffffffffffffff01",
+            "value": {
+              "stopReason": -1
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ChatMessagePrompt",
+            "value": {
+              "numTokens": -1
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf uint32 value: negative"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "-1n"
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf uint64 value: negative"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "CompletionConfiguration",
+            "value": {
+              "seed": "-2"
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf uint64 value: negative"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": 1.5
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf int32 value: number"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ClientModelConfig",
+            "value": {
+              "maxTokens": "5n"
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf int32 value: bigint"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "GetChatMessageRequest",
+            "value": {
+              "requestType": "5"
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf enum value: string"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": 1.5
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf uint64 value: number"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "ModelUsageStats",
+            "value": {
+              "inputTokens": "x"
+            },
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf uint64 value: string"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ModelUsageStats",
+            "hex": "10ffffffffffffffffffff01",
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf varint"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "malformed-protobuf-rejected",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:170",
+      "input": {
+        "steps": [
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0801"
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0a0561"
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0a01ff"
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0a80"
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0b"
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0001"
+          },
+          {
+            "op": "decode",
+            "type": "ModelDimension",
+            "hex": "1000"
+          },
+          {
+            "op": "decode",
+            "type": "CompletionConfiguration",
+            "hex": "290000"
+          },
+          {
+            "op": "encode",
+            "type": "NoSuchMessage",
+            "value": {}
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0801",
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf wire type 0 for userJwt"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0a0561",
+            "error": {
+              "name": "Error",
+              "message": "Truncated Devin protobuf field"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0a01ff",
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf UTF-8 string",
+              "cause": {
+                "name": "TypeError",
+                "message": "The encoded data was not valid for encoding utf-8",
+                "code": "ERR_ENCODING_INVALID_ENCODED_DATA"
+              }
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0a80",
+            "error": {
+              "name": "Error",
+              "message": "Truncated Devin protobuf varint"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0b",
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf wire type 3 for userJwt"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "GetUserJwtResponse",
+            "hex": "0001",
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf field number 0"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "ModelDimension",
+            "hex": "1000",
+            "error": {
+              "name": "Error",
+              "message": "Invalid Devin protobuf wire type 0 for value"
+            }
+          },
+          {
+            "op": "decode",
+            "type": "CompletionConfiguration",
+            "hex": "290000",
+            "error": {
+              "name": "Error",
+              "message": "Truncated Devin protobuf field"
+            }
+          },
+          {
+            "op": "encode",
+            "type": "NoSuchMessage",
+            "value": {},
+            "error": {
+              "name": "Error",
+              "message": "Unknown Devin protobuf message: NoSuchMessage"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "assign-model-router-fields",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:183",
+      "input": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "AssignModelRequest",
+            "value": {
+              "modelRouterUid": "adaptive",
+              "cascadeId": "c",
+              "chatMessagePrompt": {
+                "source": 1
+              }
+            }
+          },
+          {
+            "op": "decode",
+            "type": "AssignModelResponse",
+            "value": {
+              "assignment": {
+                "assignmentJwt": "j",
+                "modelUid": "m",
+                "harnessUids": [
+                  "h"
+                ]
+              }
+            },
+            "hex": "0a090a016a12016d1a0168"
+          }
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "op": "encode",
+            "type": "AssignModelRequest",
+            "value": {
+              "modelRouterUid": "adaptive",
+              "cascadeId": "c",
+              "chatMessagePrompt": {
+                "source": 1
+              }
+            },
+            "hex": "120861646170746976651a01632a021001"
+          },
+          {
+            "op": "decode",
+            "type": "AssignModelResponse",
+            "hex": "0a090a016a12016d1a0168",
+            "value": {
+              "assignment": {
+                "assignmentJwt": "j",
+                "modelUid": "m",
+                "harnessUids": [
+                  "h"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "schema-table-field-names",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:195",
+      "input": {},
+      "result": {
+        "steps": [
+          {
+            "op": "schema",
+            "getChatMessageRequest": [
+              "metadata",
+              "prompt",
+              "chatMessagePrompts",
+              "requestType",
+              "configuration",
+              "tools",
+              "disableParallelToolCalls",
+              "toolChoice",
+              "systemPromptCacheOptions",
+              "chatModelName",
+              "cascadeId",
+              "promptId",
+              "plannerMode",
+              "chatModelUid",
+              "executionId",
+              "modelAssignmentJwt"
+            ],
+            "chatMessagePrompt": [
+              "messageId",
+              "source",
+              "prompt",
+              "numTokens",
+              "safeForCodeTelemetry",
+              "toolCalls",
+              "toolCallId",
+              "promptCacheOptions",
+              "toolResultIsError",
+              "images",
+              "thinking",
+              "signature",
+              "thinkingRedacted",
+              "outputId",
+              "thinkingId",
+              "geminiThoughtSignature",
+              "signatureType",
+              "phase"
+            ],
+            "field21": "chatModelUid",
+            "promptField2Enum": "ChatMessageSource"
+          }
+        ]
+      }
+    }
+  ]
+}
