@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// gemini-stream.test.mjs: the real `consumeGeminiRestStreamResponse` (+ `createGeminiTextLeakGuard`) over scripted SSE bodies. 14 cases
-// are recorded (every case but the first-chunk window, a Node timer with no Rust counterpart: dec:138). The recorded `response`,
+// gemini-stream.test.mjs: the real `consumeGeminiRestStreamResponse` (+ `createGeminiTextLeakGuard`) over scripted SSE bodies. every test
+// is recorded; the first-chunk window runs the product timer on the virtual clock (the 25 ms step is an input; dec:138 removed it in the core). The recorded `response`,
 // `error` (code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, ...) and callbacks are what a Rust decoder must equal.
 //   node benchmarks/rust-core/recorders/record-gemini-stream.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-gemini-stream',
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(new Response(<SSE text of the chunks>), options) and createGeminiTextLeakGuard. Not run: the first-chunk window case (gemini-stream.test.mjs:197, a wall-clock timer, dec:138 removes it) and any network send.',
-  replay: 'mixdog-ai providers::google decode (decode.rs): feed `input.chunks` as the SSE data frames and compare `result.response` / `error` (typed code, status, flags) and `progress`/`text`/`dispatched` callbacks in order.',
+  compare: 'mixdog-ai providers::google decode (decode.rs): feed `input.chunks` as the SSE data frames and compare `result.response` / `error` (typed code, status, flags) and `progress`/`text`/`dispatched` callbacks in order.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:71) and build_request (google/request.rs:638), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const { consumeGeminiRestStreamResponse, createGeminiTextLeakGuard } = await rec.P('agent/orchestrator/providers/gemini-stream.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs';
@@ -67,4 +68,10 @@ const inBand = { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'quo
 await run('in-band-error-before-text', 168, [inBand]);
 await run('in-band-error-after-stop', 174, [cand([{ text: 'ok' }], { finishReason: 'STOP' }), inBand]);
 await run('in-band-error-unterminated-tail', 185, [], undefined, `data: ${JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE' } })}`);
+await rec.run('first-chunk-window-follows-caller-and-names-phase', `${SRC}:196`, { firstByteTimeoutMs: 25, label: 'fixture', body: 'a ReadableStream that never produces a chunk', advanceMs: [25] }, async () => {
+  const silent = new Response(new ReadableStream({ start() {} }));
+  const pending = consumeGeminiRestStreamResponse(silent, { label: 'fixture', firstByteTimeoutMs: 25 }).then((response) => ({ response }), (error) => ({ error }));
+  await rec.clock.advance(25);
+  return pending;
+});
 await rec.finish();
