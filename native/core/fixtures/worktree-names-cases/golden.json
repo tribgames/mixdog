@@ -1,0 +1,227 @@
+{
+  "note": "Node's worktree names at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-worktree-names-cases.mjs",
+  "tests": [
+    "src/runtime/shared/worktrees/slug.test.mjs",
+    "src/runtime/shared/worktrees/cache-cleanups.test.mjs"
+  ],
+  "cases": [
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"Fix the login page!\"",
+      "kind": "slug",
+      "hint": "Fix the login page!",
+      "recorded": {
+        "slug": "fix-the-login-page",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"  Café crème: déjà vu  \"",
+      "kind": "slug",
+      "hint": "  Café crème: déjà vu  ",
+      "recorded": {
+        "slug": "cafe-creme-deja-vu",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"../../etc/passwd\"",
+      "kind": "slug",
+      "hint": "../../etc/passwd",
+      "recorded": {
+        "slug": "etc-passwd",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"로그인 버그 고치기\"",
+      "kind": "slug",
+      "hint": "로그인 버그 고치기",
+      "recorded": {
+        "slug": "task",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"\"",
+      "kind": "slug",
+      "hint": "",
+      "recorded": {
+        "slug": "task",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: null",
+      "kind": "slug",
+      "hint": "",
+      "recorded": {
+        "slug": "task",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"NUL\"",
+      "kind": "slug",
+      "hint": "NUL",
+      "recorded": {
+        "slug": "nul-task",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"com1\"",
+      "kind": "slug",
+      "hint": "com1",
+      "recorded": {
+        "slug": "com1-task",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"branch.lock\"",
+      "kind": "slug",
+      "hint": "branch.lock",
+      "recorded": {
+        "slug": "branch-lock",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"implement the new billing export pipeline with retries and audit logging\"",
+      "kind": "slug",
+      "hint": "implement the new billing export pipeline with retries and audit logging",
+      "recorded": {
+        "slug": "implement-the-new-billing-export",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"",
+      "kind": "slug",
+      "hint": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "recorded": {
+        "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"a\"",
+      "kind": "slug",
+      "hint": "a",
+      "recorded": {
+        "slug": "a",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"___\"",
+      "kind": "slug",
+      "hint": "___",
+      "recorded": {
+        "slug": "task",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: \"CON\"",
+      "kind": "slug",
+      "hint": "CON",
+      "recorded": {
+        "slug": "con-task",
+        "nameError": null
+      }
+    },
+    {
+      "case": "slugs are short, lowercase and Windows-safe: the length bound",
+      "kind": "bound",
+      "recorded": {
+        "max": 40
+      }
+    },
+    {
+      "case": "unique slugs add a numeric suffix within the length bound: fix",
+      "kind": "unique",
+      "base": "fix",
+      "taken": [
+        "fix",
+        "fix-2"
+      ],
+      "recorded": {
+        "slug": "fix-3"
+      }
+    },
+    {
+      "case": "unique slugs add a numeric suffix within the length bound: a full-length base",
+      "kind": "unique",
+      "base": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "taken": [
+        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+      ],
+      "recorded": {
+        "slug": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy-2"
+      }
+    },
+    {
+      "case": "unique slugs add a numeric suffix within the length bound: random suffix",
+      "kind": "random",
+      "base": "busy",
+      "pattern": "^busy-[0-9a-f]{8}$",
+      "recorded": {
+        "matches": true
+      }
+    },
+    {
+      "case": "registerWorktreeCacheCleanups registers each cleanup exactly once",
+      "kind": "cleanups",
+      "recorded": {
+        "names": [
+          "turn-worktree-snapshots",
+          "turn-snapshot-store",
+          "code-graph"
+        ],
+        "registered": [
+          "turn-worktree-snapshots",
+          "turn-snapshot-store",
+          "code-graph"
+        ],
+        "all": [
+          "turn-worktree-snapshots",
+          "turn-snapshot-store",
+          "code-graph"
+        ]
+      }
+    },
+    {
+      "case": "registered cleanups report ok with { removed, kept } for an unknown root",
+      "kind": "cleanupRun",
+      "recorded": {
+        "results": [
+          {
+            "name": "turn-worktree-snapshots",
+            "ok": true,
+            "result": {
+              "removed": [],
+              "kept": []
+            }
+          },
+          {
+            "name": "turn-snapshot-store",
+            "ok": true,
+            "result": {
+              "removed": [],
+              "kept": []
+            }
+          },
+          {
+            "name": "code-graph",
+            "ok": true,
+            "result": {
+              "removed": [],
+              "kept": []
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
