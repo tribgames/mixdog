@@ -427,12 +427,6 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
     let mut compared = 0;
     for (case, whole) in recorded["cases"].as_array().unwrap().iter().zip(exact.get("cases").as_array()) {
         let name = case["name"].as_str().unwrap();
-        // Node aborts a compaction whose session's abort signal is already aborted (an agent session linked to a
-        // cancelled parent); the core's manual pass is handed no cancellation (`compaction_world.rs`, the summary
-        // request's fresh `CancellationToken`): not replayed, the open difference of this recording.
-        if name == "cancelled" {
-            continue;
-        }
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let blobs = mixdog_store::blobs::BlobStore::new(dir.path());
@@ -500,7 +494,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         }));
         let rig = mixdog_core_session::session::testing::Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
-        deps.compaction = manual;
+        deps.compaction = manual.clone();
         let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(deps)));
         late.bind(&directory);
         // Node's session as its store holds it (`saveSessionAsync(live)` before the compaction): the header and the rows.
@@ -517,7 +511,16 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             op: Some(OpId::from("op-compact")),
             ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new()),
         };
-        let outcome = handle.request(request).await;
+        let outcome = if name == "cancelled" {
+            // A signal that is already aborted (an agent session linked to a cancelled parent, `linkParentSignalToSession`) reaches
+            // `compactSessionMessages` as the session's signal: handed to the product's manual compaction as the reason Node's
+            // parent aborted with (a client's request carries none: the compaction's own signal is the session's).
+            let cancel = Cancel::new();
+            cancel.abort("parent turn cancelled");
+            manual.compact(&thread, "manual", false, &cancel).await.map(|value| Reply::Value(value.unwrap_or(Value::Null)))
+        } else {
+            handle.request(request).await
+        };
         // The send group ties the core loop's own retries of one send; Node retries inside `provider.send`, which is
         // handed no such id.
         let sent: Vec<ModelRequest> = provider
@@ -548,7 +551,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
         assert_eq!(answered, node, "{name}: the outcome differs");
         compared += 1;
     }
-    assert_eq!(compared, 5);
+    assert_eq!(compared, 6);
 }
 
 /// The configuration seams over an empty saved configuration and environment (the recorder ran with neither).

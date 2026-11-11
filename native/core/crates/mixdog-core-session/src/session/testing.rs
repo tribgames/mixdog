@@ -90,6 +90,8 @@ pub struct TestCompaction {
     pub text_books: std::sync::atomic::AtomicBool,
     pub result: Mutex<Option<Value>>,
     pub calls: Mutex<Vec<String>>,
+    /// The signal each compaction call was handed.
+    pub cancels: Mutex<Vec<mixdog_agent::cancel::Cancel>>,
     /// Wakes after a compaction call is recorded.
     pub called: tokio::sync::Notify,
     /// A compaction waits on it before answering, when set.
@@ -120,8 +122,9 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         }
         Ok(lock(&self.heir_rows).clone())
     }
-    async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
+    async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
+        lock(&self.cancels).push(cancel.clone());
         self.called.notify_waiters();
         let hold = lock(&self.hold).clone();
         if let Some(hold) = hold {
