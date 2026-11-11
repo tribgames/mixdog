@@ -2913,7 +2913,14 @@ impl SessionActor {
     /// suppressed while one was in flight; `ask-queue.mjs:87-101` runs each notification as its
     /// own turn). Without wakes, completions wait for the next turn to take them.
     fn start_next_queued(&mut self) {
-        if self.turn_busy() || self.deleting || self.starts_gated() {
+        if self.turn_busy() || self.deleting {
+            return;
+        }
+        if self.starts_gated() {
+            #[cfg(any(test, feature = "test-support"))]
+            if !self.projected.queue.is_empty() {
+                self.cell.gate_holds.fetch_add(1, SeqCst);
+            }
             return;
         }
         // The wake's remaining completions run first, each its own turn (`ask-queue.mjs` `tail`).
@@ -4106,6 +4113,8 @@ impl SessionActor {
             && matches!(req.method.as_str(), "turn/start" | "thread/clear" | "thread/rewind" | "thread/compact/start")
         {
             after.waiting.push((req, tx));
+            #[cfg(any(test, feature = "test-support"))]
+            self.cell.gate_holds.fetch_add(1, SeqCst);
             return Ok(());
         }
         // The `/goal` route (`goalControl`): the Goal runtime answers; no record of its own.
