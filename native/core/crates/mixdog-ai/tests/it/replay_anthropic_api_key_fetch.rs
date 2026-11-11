@@ -5,8 +5,8 @@
 //! (`registry/builder.rs` `build_anthropic`, at any base URL); a custom provider or gateway engine has none
 //! (`custom_messages_engine` posts through the plain link), as Node's `custom ? {} : { fetch }` (`anthropic.mjs`).
 //! Each request is compared as it arrived (headers in order and case, body bytes: the gzip body is Node's byte for
-//! byte), each response as Node's `fetch` returned it (status, headers, text; `statusText` and `url` through
-//! `RESULT_FIELDS`), and the latch as Node read it.
+//! byte), each response as Node's `fetch` returned it (status, headers, text; `statusText` and `url` left out by the
+//! manifest's exclusions), and the latch as Node read it.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -26,7 +26,6 @@ use mixdog_ai::transport::TransportKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_testkit::Exact;
-use mixdog_testkit::provider_fields::result_field_unread;
 use tokio::sync::Notify;
 
 use crate::provider_case::CaseSet;
@@ -76,8 +75,7 @@ fn request(args: &[Exact]) -> WireRequest {
     }
 }
 
-/// Node's `{ response: { status, statusText, url, headers }, text }` of one `fetch`, with the fields `RESULT_FIELDS`
-/// declares unread left out (also of the recording).
+/// Node's `{ response: { status, statusText, url, headers }, text }` of one `fetch` from the core's response.
 async fn response(response: HttpResponse) -> Exact {
     let read = response.read_all().await.expect("the body");
     // The recording iterates a `Headers`: lower-cased names, sorted, repeats joined with ", ".
@@ -100,15 +98,17 @@ async fn response(response: HttpResponse) -> Exact {
     ])
 }
 
-fn recorded_response(node: &Exact) -> Exact {
-    let inner = node.get("response");
-    let kept = inner
-        .entries()
-        .iter()
-        .filter(|(k, _)| !result_field_unread(&format!("response.{k}")))
-        .cloned()
-        .collect();
-    Exact::Object(vec![("response".into(), Exact::Object(kept)), ("text".into(), node.get("text").clone())])
+/// Node's `{ response, text }` without the response fields the manifest declares not compared.
+fn recorded_response(set: &CaseSet, node: &Exact) -> Exact {
+    known_keys(node, &["response", "text"]);
+    Exact::Object(vec![("response".into(), set.compared("response.", node.get("response"))), ("text".into(), node.get("text").clone())])
+}
+
+#[track_caller]
+fn known_keys(node: &Exact, keys: &[&str]) {
+    for (key, _) in node.entries() {
+        assert!(keys.contains(&key.as_str()), "a recorded property this replay does not read: {key}");
+    }
 }
 
 /// Node's `gzipSync(raw)`, for the case's gated compressor.
@@ -214,10 +214,10 @@ async fn every_case_replays_as_nodes() {
         let mut got = Vec::new();
         if let Some(one) = recorded.try_get("response") {
             assert_eq!(responses.len(), 1, "{}: one fetch", case.id);
-            want.push(("response".to_owned(), recorded_response(one)));
+            want.push(("response".to_owned(), recorded_response(&set, one)));
             got.push(("response".to_owned(), responses.remove(0)));
         } else {
-            want.push(("responses".to_owned(), Exact::Array(recorded.get("responses").as_array().iter().map(recorded_response).collect())));
+            want.push(("responses".to_owned(), Exact::Array(recorded.get("responses").as_array().iter().map(|r| recorded_response(&set, r)).collect())));
             got.push(("responses".to_owned(), Exact::Array(responses)));
         }
         for (key, value) in recorded.entries() {

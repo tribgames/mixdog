@@ -8,6 +8,9 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-anthropic-server-fallback',
+  exclusions: [
+    "`stopDetails` is not compared: the send copies the turn's stop_details into its result (anthropic-sse-turn/turn-outcome.mjs:141, anthropic-turn-result.mjs:60) and nothing reads it after (`[.?]stopDetails\\b` over src/ without tests finds only those copies and the write at turn-events/message-events.mjs:27)",
+  ],
   entry: 'anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, opts) (the real SDK client, the real retry/recovery ladder) against the loopback endpoint; agent-loop.mjs agentLoop over that provider; anthropic-oauth.mjs AnthropicOAuthProvider({}).send over a credentials file of the recording (the OAuth request body, WIRE), and a stream carrying the fallback block (the parser, WIRE). Not run: a live endpoint.',
   compare: 'WIRE cases: serve each case\'s scripted answer (SSE events as writes, or 404 then JSON for the non-streaming case) from a loopback endpoint through the Rust Anthropic send and compare the request as it arrived (body bytes, every header in order incl. anthropic-beta) and `result` / `deltas` (model, providerMetadata.anthropicFallbacks, content without the fallback block). The Rust decoder does not read the fallback block today (K1 gap G7): the replay will report that difference.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",

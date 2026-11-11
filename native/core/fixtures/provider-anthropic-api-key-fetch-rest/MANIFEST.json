@@ -11,6 +11,8 @@
   "entry": "src/runtime/agent/orchestrator/providers/anthropic-api-key-fetch.mjs createAnthropicApiKeyFetch({ compress }) with the global fetch, anthropic.mjs AnthropicProvider({ apiKey, baseURL, name }).client.fetch, wire-gateway.mjs GatewayMessagesEngine({ apiKey, name, baseURL }).client.fetch. The compress callback of :130/:156 is a scripted function (recorded as its behaviour). Not run: a live Anthropic endpoint.",
   "exclusions": [
     "net requests: a gzip body (`Content-Encoding: gzip`) holds the deflate bytes of Node's bundled zlib (Chromium's, whose match search hashes with the CPU's CRC32 instructions where present, so the bytes are the recording host's); such a body is compared as its 10-byte gzip header and its inflated bytes, and its `content-length` as the length of the body that arrived",
+    "`response.statusText` is not compared: neither the Anthropic SDK nor product code reads it on this path (`[.?]statusText\\b` over src/ without tests finds only other fetchers: antigravity-oauth-login.mjs:96, vertex-ai-maas.mjs:95)",
+    "`response.url` is not compared: the Anthropic SDK reads it only for its debug log and `withResponse` metadata (@anthropic-ai/sdk internal/parse.mjs:8, :45); no product code reads it",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -118,7 +120,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-api-key-fetch-rest.mjs",
-  "recorderSha256": "0db41bf8eee167f8fb1ffb3928291ab52f92a0fd1e1dfe132d26c6fe02db0d31",
+  "recorderSha256": "3d5fca2f2f2c0e8cd58bce4e7b3326a9797c772a46fadb5b82ea65dc093c78bb",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) with AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the custom and gateway clients are built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). Not callable in Rust (work for the Rust side): a request that arrives as a Headers instance (:38) and an injected compressor (:130, :156): Rust has one compressor on a CPU lane (searched mixdog-ai/src/providers/anthropic and transport).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"

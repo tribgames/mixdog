@@ -17,6 +17,8 @@ const rec = await startRecording({
   replay: 'Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) with AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the custom and gateway clients are built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295). Not callable in Rust (work for the Rust side): a request that arrives as a Headers instance (:38) and an injected compressor (:130, :156): Rust has one compressor on a CPU lane (searched mixdog-ai/src/providers/anthropic and transport).',
   exclusions: [
     'net requests: a gzip body (`Content-Encoding: gzip`) holds the deflate bytes of Node\'s bundled zlib (Chromium\'s, whose match search hashes with the CPU\'s CRC32 instructions where present, so the bytes are the recording host\'s); such a body is compared as its 10-byte gzip header and its inflated bytes, and its `content-length` as the length of the body that arrived',
+    '`response.statusText` is not compared: neither the Anthropic SDK nor product code reads it on this path (`[.?]statusText\\b` over src/ without tests finds only other fetchers: antigravity-oauth-login.mjs:96, vertex-ai-maas.mjs:95)',
+    '`response.url` is not compared: the Anthropic SDK reads it only for its debug log and `withResponse` metadata (@anthropic-ai/sdk internal/parse.mjs:8, :45); no product code reads it',
   ],
 });
 const P = 'agent/orchestrator/providers/';

@@ -10,6 +10,8 @@
   },
   "entry": "anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, { onStreamDelta, onToolCall }) against the loopback endpoint serving the scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a live endpoint.",
   "exclusions": [
+    "`stopDetails` is not compared: the send copies the turn's stop_details into its result (anthropic-sse-turn/turn-outcome.mjs:141, anthropic-turn-result.mjs:60) and nothing reads it after (`[.?]stopDetails\\b` over src/ without tests finds only those copies and the write at turn-events/message-events.mjs:27)",
+    "`onStreamDelta('transport')` is not compared: one call per network read of the body (anthropic-sse.mjs:275), a count the socket's chunking sets; its readers (markSessionStreamDelta, session/manager/runtime-liveness.mjs:273, and the idle deadlines) read only that a read came, never the count",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -117,7 +119,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-stream.mjs",
-  "recorderSha256": "6e7a3de7b35a5dd5dd161820cc46fcd0bb76e19f5acb18fbd0449a5d47f74665",
+  "recorderSha256": "c2dd51b66c3895c699fa2ac5d397712fd33b34c5833667efe636598987e2d4dd",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"

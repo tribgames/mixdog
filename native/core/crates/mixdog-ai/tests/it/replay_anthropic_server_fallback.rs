@@ -43,9 +43,24 @@ fn result_of(sent: &replay_anthropic::Send) -> Exact {
     sent.result.clone()
 }
 
+#[track_caller]
+fn known_keys(what: &str, node: &Exact, keys: &[&str]) {
+    for (key, _) in node.entries() {
+        assert!(keys.contains(&key.as_str()), "{what}: a recorded property this replay does not read: {key}");
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn every_api_key_case_replays_as_nodes() {
     let set = CaseSet::load("anthropic-server-fallback");
+    set.not_replayed(
+        &["oauth-body-opts-eligible-models"],
+        "the OAuth route's send (AnthropicOAuthProvider over a credentials file, with its fire-and-forget catalog refresh): not replayed yet, open in the group A report",
+    );
+    set.not_replayed(
+        &["agent-loop-usage-delta-serving-model"],
+        "Node's agentLoop over the provider (usage deltas per iteration): an agent-loop replay (mixdog-agent), not replayed yet, open in the group A report",
+    );
     for id in [
         "eligible-families-default-fallback",
         "beta-header-gated-and-deduplicated",
@@ -71,12 +86,14 @@ async fn every_api_key_case_replays_as_nodes() {
         }
         let recorded = case.result();
         let what = format!("{id}: result");
-        let comparable = |r: &Exact| replay_anthropic::comparable(r);
+        let comparable = |r: &Exact| replay_anthropic::comparable(&set, r);
         match id {
             "eligible-families-default-fallback" => {
+                known_keys(&what, recorded, &["sends"]);
                 let want = recorded.get("sends").as_array();
                 assert_eq!(want.len(), results.len(), "{what}: one per send");
                 for (k, (want, got)) in want.iter().zip(&results).enumerate() {
+                    known_keys(&what, want, &["model", "serverFallback", "result"]);
                     let model = case.args_of("AnthropicProvider#send", k)[1].clone();
                     assert_eq!(want.get("model"), &model, "{what}: send {k} model");
                     let opts = &case.args_of("AnthropicProvider#send", k)[3];
@@ -87,10 +104,12 @@ async fn every_api_key_case_replays_as_nodes() {
                 }
             }
             "beta-header-gated-and-deduplicated" => {
+                known_keys(&what, recorded, &["on", "off"]);
                 crate::provider_case::assert_exact(&format!("{what}: on"), &comparable(recorded.get("on")), &result_of(&results[0]));
                 crate::provider_case::assert_exact(&format!("{what}: off"), &comparable(recorded.get("off")), &result_of(&results[1]));
             }
             _ => {
+                known_keys(&what, recorded, &["result"]);
                 assert_eq!(results.len(), 1, "{what}: one send");
                 crate::provider_case::assert_exact(&what, &comparable(recorded.get("result")), &result_of(&results[0]));
             }
