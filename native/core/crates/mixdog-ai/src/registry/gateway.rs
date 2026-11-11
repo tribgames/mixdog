@@ -402,21 +402,43 @@ impl Sdk {
             }
         }
         if self == Self::Anthropic {
+            // The Anthropic client writes its own headers in the case its `defaultHeaders` spell them
+            // (`Accept`, `User-Agent`, `X-Stainless-*`); the OpenAI client's `Headers` lower-cases every name.
+            for (name, _) in &mut base {
+                *name = anthropic_spelling(name).to_owned();
+            }
             base.push(("anthropic-version".to_owned(), "2023-06-01".to_owned()));
         }
         base
     }
 }
 
-/// `buildHeaders` (the SDKs' `internal/headers`): the sources in order, each one replacing a name it sets, which
-/// then stands at its place in that source. Names are lower-case, as `Headers` keeps them.
+/// The spelling `@anthropic-ai/sdk` 0.137.0 gives a header of its own.
+fn anthropic_spelling(name: &str) -> &str {
+    match name {
+        "accept" => "Accept",
+        "user-agent" => "User-Agent",
+        "x-stainless-retry-count" => "X-Stainless-Retry-Count",
+        "x-stainless-timeout" => "X-Stainless-Timeout",
+        "x-stainless-lang" => "X-Stainless-Lang",
+        "x-stainless-package-version" => "X-Stainless-Package-Version",
+        "x-stainless-os" => "X-Stainless-OS",
+        "x-stainless-arch" => "X-Stainless-Arch",
+        "x-stainless-runtime" => "X-Stainless-Runtime",
+        "x-stainless-runtime-version" => "X-Stainless-Runtime-Version",
+        other => other,
+    }
+}
+
+/// `buildHeaders` (the SDKs' `internal/headers`): the sources in order, each one replacing a name it sets (in any
+/// letter case), which then stands at its place in that source in the spelling that source gave it.
 fn build_headers(sources: [Vec<(String, String)>; 5]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for source in sources {
         let mut seen: Vec<String> = Vec::new();
         for (name, value) in source {
-            if !seen.contains(&name) {
-                out.retain(|(known, _)| *known != name);
+            if !seen.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
+                out.retain(|(known, _)| !known.eq_ignore_ascii_case(&name));
                 seen.push(name.clone());
             }
             out.push((name, value));
@@ -441,7 +463,7 @@ fn sdk_order(sdk: Sdk, defaults: &[String], headers: Vec<(String, String)>) -> V
             "authorization" | "x-api-key" => auth.push((name, value)),
             "content-type" => body.push((name, value)),
             _ if defaults.contains(&name) => client.push((name, value)),
-            _ if base.iter().any(|(n, v)| *n == name && *v == value) => {}
+            _ if base.iter().any(|(n, v)| n.eq_ignore_ascii_case(&name) && *v == value) => {}
             _ => own.push((name, value)),
         }
     }

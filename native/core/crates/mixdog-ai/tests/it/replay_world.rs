@@ -33,7 +33,14 @@ use mixdog_ai::registry::providers::ProviderBuilder as _;
 use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_ai::transport::KeepaliveSchedule;
 use mixdog_ai::transport::ReqwestLink;
+use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
+use mixdog_core_api::domain::provider::RequestOptions;
+use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::ToolCall;
+use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_testkit::Exact;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::StreamEvent;
 use serde_json::Value;
@@ -75,8 +82,77 @@ impl Pace for PausedPace {
     }
 }
 
+/// A recorded transcript message (`{role, content, toolCalls, toolCallId}`) as the core's message; any other key is
+/// a shape these replays do not read, and fails.
+pub fn message(node: &Exact) -> Message {
+    let role = match node.get("role").as_str() {
+        "user" => Role::User,
+        "assistant" => Role::Assistant,
+        "tool" => Role::Tool,
+        "system" => Role::System,
+        other => panic!("role {other}"),
+    };
+    let mut message = Message::new(role, Content::Text(node.get("content").as_str().to_owned()));
+    for (key, value) in node.entries() {
+        match key.as_str() {
+            "role" | "content" => {}
+            "toolCallId" => message.tool_call_id = Some(value.as_str().to_owned()),
+            "toolCalls" => {
+                message.tool_calls = value
+                    .as_array()
+                    .iter()
+                    .map(|call| {
+                        assert_eq!(call.entries().len(), 3, "a {{id, name, arguments}} call: {call:?}");
+                        ToolCall {
+                            id: call.get("id").as_str().to_owned(),
+                            name: call.get("name").as_str().to_owned(),
+                            arguments: crate::provider_cases::plain(call.get("arguments")),
+                            native_type: None,
+                        }
+                    })
+                    .collect();
+            }
+            other => panic!("a message key these replays do not read: {other}"),
+        }
+    }
+    message
+}
+
+/// A recorded tool definition (`{name, description, inputSchema}`).
+pub fn tool(node: &Exact) -> ToolDefinition {
+    assert_eq!(node.entries().len(), 3, "a {{name, description, inputSchema}} tool: {node:?}");
+    ToolDefinition {
+        name: node.get("name").as_str().to_owned(),
+        description: node.get("description").as_str().to_owned(),
+        input_schema: crate::provider_cases::plain(node.get("inputSchema")),
+        defer_loading: false,
+        freeform: None,
+    }
+}
+
+/// The request of a recorded `send(messages, model, tools, opts)` with empty `opts`.
+pub fn request(args: &[Exact]) -> ModelRequest {
+    assert!(args.get(3).is_none_or(|opts| opts.entries().is_empty()), "send options these replays do not read: {:?}", args[3]);
+    ModelRequest {
+        model: args[1].as_str().to_owned(),
+        messages: args[0].as_array().iter().map(message).collect(),
+        tools: args[2].as_array().iter().map(tool).collect(),
+        options: RequestOptions::default(),
+    }
+}
+
 /// The production builder over `endpoint`, with the case's environment, credentials under `home`.
 pub fn builder(endpoint: &Endpoint, home: &std::path::Path, env: Vec<(String, String)>) -> DefaultProviderBuilder {
+    builder_with(endpoint, home, env, SessionContext::new())
+}
+
+/// [`builder`] with the OpenAI session context (its clock and request ids: the recorded world's).
+pub fn builder_with(
+    endpoint: &Endpoint,
+    home: &std::path::Path,
+    env: Vec<(String, String)>,
+    context: SessionContext,
+) -> DefaultProviderBuilder {
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let env: Arc<dyn Environment> = Arc::new(CaseEnv(env));
@@ -90,7 +166,7 @@ pub fn builder(endpoint: &Endpoint, home: &std::path::Path, env: Vec<(String, St
         anthropic_caps: Arc::new(|_| None),
         google_traits: Arc::new(NoTraits),
         openai_facts: Arc::new(NoFacts),
-        openai_context: Arc::new(SessionContext::new()),
+        openai_context: Arc::new(context),
         codex_identity: CodexIdentity {
             installation_id: String::new(),
             user_agent: "".into(),

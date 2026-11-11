@@ -2,12 +2,8 @@
 //! adapter for the recorded provider config, sent through `ModelBroker::send` to the driver's endpoint serving the
 //! recorded replies; the requests compared whole as they arrived.
 
-use mixdog_core_api::domain::provider::Content;
-use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::RequestOptions;
-use mixdog_core_api::domain::provider::Role;
-use mixdog_testkit::Exact;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -17,16 +13,6 @@ use crate::provider_case::within;
 use crate::replay_world;
 
 const SET: &str = "openai-compat-stream-lifecycle";
-
-/// A recorded transcript message of these cases: a user's text.
-fn message(node: &Exact) -> Message {
-    assert_eq!(node.entries().len(), 2, "a {{role, content}} message: {node:?}");
-    let role = match node.get("role").as_str() {
-        "user" => Role::User,
-        other => panic!("role {other}"),
-    };
-    Message::new(role, Content::Text(node.get("content").as_str().to_owned()))
-}
 
 /// How the recorded send ends.
 #[derive(Clone, Copy, PartialEq)]
@@ -66,7 +52,7 @@ async fn replay_requests(id: &str, entry: &str, end: End) {
     assert_eq!(args[2].as_array().len(), 0, "no tools");
     let request = ModelRequest {
         model: args[1].as_str().to_owned(),
-        messages: args[0].as_array().iter().map(message).collect(),
+        messages: args[0].as_array().iter().map(replay_world::message).collect(),
         tools: Vec::new(),
         options: RequestOptions::default(),
     };
