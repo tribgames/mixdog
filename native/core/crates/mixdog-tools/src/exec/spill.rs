@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::OnceLock;
-use std::time::SystemTime;
 
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
@@ -32,19 +31,17 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Creates (truncating) both logs of a job and their directory. Best effort.
-pub async fn create_logs(lane: SpawnIo, cancel: &CancellationToken, out: &Path, err: &Path) {
-    let (out, err): (PathBuf, PathBuf) = (out.to_owned(), err.to_owned());
-    let Ok(handle) = lane.submit(cancel, move |_| {
-        if let Some(dir) = out.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::File::create(&out)?;
-        std::fs::File::create(&err).map(drop)
-    }) else {
-        return;
-    };
-    let _ = handle.await;
+/// Creates (truncating) both logs of a job and their directory. Best effort: a log that cannot be
+/// created fails its first append, which stops it.
+fn create_logs(logs: &[PathBuf; 2]) {
+    #[cfg(test)]
+    write_gate::pass(&logs[0]);
+    if let Some(dir) = logs[0].parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    for log in logs {
+        let _ = std::fs::File::create(log);
+    }
 }
 
 /// Unwritten log bytes one job may hold, the batch being written included, before its collector
@@ -52,10 +49,15 @@ pub async fn create_logs(lane: SpawnIo, cancel: &CancellationToken, out: &Path, 
 /// `feed.rs` `MERGE_LIMIT`, 64 KiB). The job's capture itself stays within `jobs.rs` `MEMORY_CAP`.
 pub const LOG_PENDING_CAP: usize = 256 * 1024;
 
-/// The writer of one job's two logs (stdout 0, stderr 1). Chunks are queued in arrival order and
-/// written in batches by a drain on an io-pty thread (one thread per drain, no shared pool, so one
-/// job's slow disk never stalls another's); one drain runs at a time per job, so each log keeps
-/// its order. A log whose write fails is not written again, as a failed append stopped it before.
+/// The writer of one job's two logs (stdout 0, stderr 1). The first drain creates the logs
+/// ([`LogWriter::open`], right after the job subscribed to its output, so the output is taken
+/// meanwhile); chunks are queued in arrival order and written in batches by a drain on an io-pty
+/// thread (one thread per drain, no shared pool, so one job's slow disk never stalls another's);
+/// one drain runs at a time per job, so each log keeps its order. A drain waits for an io-pty
+/// thread rather than dropping output when the lane is at its live cap. A log whose write fails is
+/// not written again, as a failed append stopped it before this writer (the stream's
+/// `spilling` flag, with nothing said in the result). Every exit of a drain (done, panicked, never
+/// run) leaves the writer idle, so [`LogWriter::close`] always returns.
 pub struct LogWriter {
     lane: PtyIo,
     shared: Arc<Shared>,
@@ -76,7 +78,38 @@ struct WriterState {
     /// Bytes queued or being written.
     bytes: usize,
     draining: bool,
+    /// The logs were created (by the first drain).
+    created: bool,
     stopped: [bool; 2],
+}
+
+/// Held by a drain from its submission to its end. Dropped any other way than [`DrainExit::done`]
+/// (the drain panicked, its thread could not take the lane's priority, its submission failed or
+/// was abandoned), it stops both logs, drops what was queued and leaves the writer idle.
+struct DrainExit {
+    shared: Option<Arc<Shared>>,
+}
+
+impl DrainExit {
+    /// The drain found nothing queued, under the state's lock: the writer is idle.
+    fn done(mut self, state: &mut WriterState) {
+        state.draining = false;
+        self.shared = None;
+    }
+}
+
+impl Drop for DrainExit {
+    fn drop(&mut self) {
+        let Some(shared) = self.shared.take() else { return };
+        {
+            let mut state = lock(&shared.state);
+            state.draining = false;
+            state.stopped = [true, true];
+            state.queued.clear();
+            state.bytes = 0;
+        }
+        shared.progress.notify_waiters();
+    }
 }
 
 impl LogWriter {
@@ -113,22 +146,24 @@ impl LogWriter {
             }
             written.await;
         }
-        self.start_drain();
+        self.start_drain().await;
     }
 
-    /// Starts a drain. With no thread to be had (the io-pty lane at its live cap) the queued
-    /// output is dropped and both logs stop, as a refused append stopped its log before.
-    fn start_drain(&self) {
-        let shared = self.shared.clone();
-        if self.lane.submit(&self.shared.never, move |_| drain(&shared)).is_err() {
-            let mut state = lock(&self.shared.state);
-            state.stopped = [true, true];
-            state.queued.clear();
-            state.bytes = 0;
-            state.draining = false;
-            drop(state);
-            self.shared.progress.notify_waiters();
+    /// Creates the logs, on the first drain. The job calls it once it is subscribed to the
+    /// process's output, so output that comes meanwhile is queued, not lost.
+    pub async fn open(&self) {
+        if std::mem::replace(&mut lock(&self.shared.state).draining, true) {
+            return;
         }
+        self.start_drain().await;
+    }
+
+    /// Starts a drain (`draining` is already set), waiting for an io-pty thread when the lane is
+    /// at its live cap. A drain that cannot be started ends through its [`DrainExit`].
+    async fn start_drain(&self) {
+        let exit = DrainExit { shared: Some(self.shared.clone()) };
+        let shared = self.shared.clone();
+        let _ = self.lane.submit_wait(&self.shared.never, move |_| drain(&shared, exit)).await;
     }
 
     /// Waits until everything queued is written (or its log stopped): the logs are complete.
@@ -153,12 +188,16 @@ impl LogWriter {
 
 /// Writes the queued chunks in batches, each log's run of a batch in one append, until nothing is
 /// queued.
-fn drain(shared: &Shared) {
+fn drain(shared: &Shared, exit: DrainExit) {
+    if !lock(&shared.state).created {
+        create_logs(&shared.logs);
+        lock(&shared.state).created = true;
+    }
     loop {
         let (batch, stopped) = {
             let mut state = lock(&shared.state);
             if state.queued.is_empty() {
-                state.draining = false;
+                exit.done(&mut state);
                 drop(state);
                 shared.progress.notify_waiters();
                 return;
@@ -212,20 +251,30 @@ pub(crate) mod write_gate {
     pub(crate) struct Gate {
         state: Mutex<(bool, usize)>,
         changed: Condvar,
+        /// The drain panics here instead of waiting.
+        panics: bool,
     }
 
     static GATES: Mutex<Vec<(PathBuf, Arc<Gate>)>> = Mutex::new(Vec::new());
 
-    /// Gates the drains of the logs under `dir`.
+    /// Gates the creation and the drains of the logs under `dir`.
     pub(crate) fn arm(dir: &Path) -> Arc<Gate> {
         let gate = Arc::new(Gate::default());
         GATES.lock().unwrap().push((dir.to_owned(), gate.clone()));
         gate
     }
 
-    pub(super) fn pass(log: &Path) {
+    /// Makes the drains of the logs under `dir` panic.
+    pub(crate) fn arm_panicking(dir: &Path) -> Arc<Gate> {
+        let gate = Arc::new(Gate { panics: true, ..Gate::default() });
+        GATES.lock().unwrap().push((dir.to_owned(), gate.clone()));
+        gate
+    }
+
+    pub(crate) fn pass(log: &Path) {
         let gate = GATES.lock().unwrap().iter().find(|(dir, _)| log.starts_with(dir)).map(|(_, gate)| gate.clone());
         if let Some(gate) = gate {
+            assert!(!gate.panics, "a test makes this log drain fail");
             let mut state = gate.state.lock().unwrap();
             state.1 += 1;
             gate.changed.notify_all();
@@ -339,31 +388,18 @@ pub async fn read_tee_tail(lane: InteractiveIo, cancel: &CancellationToken, path
 }
 
 /// The skill launchers of a runtime. Their directory and contents are built from the runtime's
-/// `SkillRuntime` and data directory, which never change, so they are made once. Only the disk
-/// can change: the length and modification time of each file as last written or found are kept,
-/// and a call whose files still carry them reads nothing more; a file removed or rewritten since
-/// no longer matches and is written again.
+/// `SkillRuntime` and data directory, which never change, so they are made once. The disk can
+/// change, and a launcher is executed, so every call compares each file's contents (a few hundred
+/// bytes) with what it must hold and writes again any that differs: a length or time stamp would
+/// pass a replacement of the same length and time.
 #[derive(Default)]
 pub struct KeptLaunchers {
     plan: OnceLock<Arc<LauncherPlan>>,
-    stamps: Mutex<Option<Vec<FileStamp>>>,
 }
 
 struct LauncherPlan {
     dir: PathBuf,
     files: Vec<(String, String)>,
-}
-
-type FileStamp = (u64, SystemTime);
-
-fn stamps(plan: &LauncherPlan) -> Option<Vec<FileStamp>> {
-    plan.files
-        .iter()
-        .map(|(name, _)| {
-            let meta = std::fs::metadata(plan.dir.join(name)).ok()?;
-            Some((meta.len(), meta.modified().ok()?))
-        })
-        .collect()
 }
 
 /// Writes (atomically) every launcher file whose content differs.
@@ -404,19 +440,9 @@ pub async fn ensure_launchers(
             })
         })
         .clone();
-    let last = lock(&kept.stamps).clone();
     let checked = plan.clone();
-    let job = lane.submit(cancel, move |_| {
-        if last.is_some() && stamps(&checked) == last {
-            return last;
-        }
-        write_launchers(&checked).ok()?;
-        stamps(&checked)
-    });
-    if let Ok(job) = job {
-        if let Ok(found) = job.await {
-            *lock(&kept.stamps) = found;
-        }
+    if let Ok(job) = lane.submit(cancel, move |_| write_launchers(&checked)) {
+        let _ = job.await;
     }
     plan.dir.clone()
 }

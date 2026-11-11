@@ -1429,6 +1429,182 @@ async fn a_launcher_changed_on_disk_is_written_again_by_the_next_call() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), written, "a removed launcher is written again");
 }
 
+/// A launcher replaced by one of the same length, its modification time put back, is still found
+/// out and written again: the next call runs the installation's launcher, not the replacement.
+#[tokio::test]
+async fn a_launcher_replaced_with_the_same_length_and_time_is_written_again() {
+    let rig = rig();
+    let rt = SkillRuntime {
+        platform: "linux".into(),
+        interpreter: "/opt/mixdog/mixdogd".into(),
+        entry: "/opt/mixdog/skill.js".into(),
+        electron: false,
+    };
+    let mut config = rig.runtime.config.clone_for_test();
+    config.skill_runtime = Some(rt.clone());
+    let shell = ShellTool::new(ExecRuntime::new(config));
+    let data = rig.dir.path().join("data");
+    let file = std::path::PathBuf::from(super::invocation::skill_launcher_dir(&rt, &data.to_string_lossy())).join("mixdog-skill-node");
+    shell.call(&ctx(&rig, "s1"), serde_json::json!({"command": "echo one"})).await.unwrap();
+    let written = std::fs::read_to_string(&file).unwrap();
+    let modified = std::fs::metadata(&file).unwrap().modified().unwrap();
+    std::fs::write(&file, "#".repeat(written.len())).unwrap();
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(modified).unwrap();
+    assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), modified);
+
+    shell.call(&ctx(&rig, "s2"), serde_json::json!({"command": "echo two"})).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), written, "the replacement is overwritten");
+}
+
+/// The log drain panics: the writer still ends, so closing it (the job's end) returns and later
+/// output does not hang either. The drain runs on a real io-pty thread (process-wide executors:
+/// nextest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_log_drain_that_panics_leaves_the_writer_ended_not_hung() {
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("p.stdout.log"), dir.path().join("p.stderr.log")];
+    let _gate = super::spill::write_gate::arm_panicking(dir.path());
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    let run = async {
+        writer.push(0, b"first\n".to_vec()).await;
+        writer.close().await;
+        writer.push(1, b"late\n".to_vec()).await;
+        writer.close().await;
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain panicked");
+    assert_eq!(writer.unwritten(), 0);
+}
+
+/// The lane refuses the log drain (the test backend refuses this thread's jobs): the writer ends
+/// and closing it returns.
+#[tokio::test]
+async fn a_refused_log_drain_leaves_the_writer_ended_not_hung() {
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("r.stdout.log"), dir.path().join("r.stderr.log")];
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+    let run = async {
+        writer.push(0, b"refused\n".to_vec()).await;
+        writer.close().await;
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the writer ends after its drain was refused");
+    assert_eq!(writer.unwritten(), 0);
+}
+
+/// Every io-pty thread is taken (a one-job cap, held): the writer waits for a thread instead of
+/// dropping the output, and the log holds it once the thread frees.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_saturated_io_pty_lane_delays_the_log_and_drops_nothing() {
+    use mixdog_rt::LaneToken;
+    let mut config = mixdog_rt::exec::RtConfig::for_cores(4);
+    config.pty_max_live = 1;
+    let (_executors, tokens) = mixdog_rt::exec::boot(config).expect("the executors");
+    let (started, held_started) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    tokens
+        .pty_io
+        .submit(&CancellationToken::new(), move |_| {
+            started.send(()).unwrap();
+            let _ = held.recv();
+        })
+        .expect("io-pty takes the holder");
+    held_started.recv_timeout(std::time::Duration::from_secs(60)).expect("the only io-pty thread is held");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("s.stdout.log"), dir.path().join("s.stderr.log")];
+    for log in &logs {
+        std::fs::write(log, b"").unwrap();
+    }
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    let mut run = Box::pin(async {
+        writer.push(0, b"kept\n".to_vec()).await;
+        writer.close().await;
+    });
+    assert!(futures::FutureExt::now_or_never(&mut run).is_none(), "the writer waits for an io-pty thread");
+    drop(release);
+    tokio::time::timeout(std::time::Duration::from_secs(60), run).await.expect("the log is written once the thread frees");
+    assert_eq!(std::fs::read_to_string(&logs[0]).unwrap(), "kept\n");
+}
+
+/// Delegates to the real process manager and reports the first spawned process's exit.
+struct ExitSignal {
+    inner: mixdog_spawn::LocalProcessManager,
+    exited: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+}
+
+#[async_trait]
+impl ProcessManager for ExitSignal {
+    async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
+        let mut options = mixdog_spawn::SpawnOptions::default();
+        if let Some(exited) = self.exited.lock().unwrap().take() {
+            options.on_exit = Some(Box::new(move |_: &ProcessExit| {
+                let _ = exited.send(());
+                Vec::new()
+            }));
+        }
+        self.inner.spawn_with(request, options).await
+    }
+    fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        self.inner.subscribe(handle, from_seq)
+    }
+    async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        self.inner.write_stdin(handle, bytes).await
+    }
+    fn close_stdin(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.inner.close_stdin(handle)
+    }
+    fn resize_pty(&self, handle: &ProcessHandle, size: PtySize) -> Result<(), ProcessError> {
+        self.inner.resize_pty(handle, size)
+    }
+    fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.inner.kill(handle)
+    }
+    fn list(&self) -> Vec<ProcessInfo> {
+        self.inner.list()
+    }
+}
+
+/// The job's log creation is held while the child writes twelve times what its replay ring holds
+/// (three merged output events) and exits: the output is already being taken (into the writer's
+/// queue, whose cap it stays under), so none of it is lost and the log holds all of it in order
+/// once the creation goes on. Real executors and processes (nextest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn output_written_while_the_log_creation_is_held_is_not_lost() {
+    const BYTES: usize = 192 * 1024;
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let mut rig = rig_on(tokens, Arc::new(OsPromptElevation), None);
+    let (exited, exit_seen) = std::sync::mpsc::channel();
+    let config = mixdog_spawn::ProcessConfig { ring_bytes: 16 * 1024, ..mixdog_spawn::ProcessConfig::default() };
+    rig.manager = Arc::new(ExitSignal {
+        inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, config),
+        exited: Mutex::new(Some(exited)),
+    });
+    let gate = super::spill::write_gate::arm(&rig.dir.path().join("l"));
+    let (command, expected) = if cfg!(windows) {
+        (format!("[Console]::Out.Write('x' * {BYTES})"), "x".repeat(BYTES))
+    } else {
+        (format!("printf '%0{BYTES}d' 0"), "0".repeat(BYTES))
+    };
+    // The creation is held until the child has exited; the waiting is on a thread of its own.
+    let opener = std::thread::spawn(move || {
+        gate.wait_reached(1);
+        exit_seen.recv_timeout(std::time::Duration::from_secs(60)).expect("the child wrote everything and exited");
+        gate.open();
+    });
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        rig.shell.call(&ctx(&rig, "ring"), serde_json::json!({ "command": command })),
+    )
+    .await
+    .expect("the call ends");
+    opener.join().unwrap();
+    let text = body(outcome);
+    assert!(text.starts_with("[exit code: 0]"), "{}", &text[..text.len().min(300)]);
+    let log = std::fs::read_to_string(rig.dir.path().join("l").join("task-ring.stdout.log")).unwrap();
+    assert!(log == expected, "the log holds all {BYTES} bytes in order ({} read)", log.len());
+}
+
 #[tokio::test]
 async fn a_real_echo_matches_the_golden_fixture() {
     let rig = real_rig();

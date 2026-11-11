@@ -1070,7 +1070,7 @@ const TERMINATION_RECHECK: Duration = Duration::from_millis(5_000);
 pub struct ExecRuntime {
     pub(crate) config: ExecConfig,
     pub(crate) snapshots: super::snapshot::Snapshots,
-    /// The skill launchers as last written or verified on disk.
+    /// The skill launchers' directory and contents, made once.
     pub(crate) launchers: spill::KeptLaunchers,
     jobs: Mutex<HashMap<String, Arc<Job>>>,
     cycles: OnceLock<Arc<dyn OwnerCycles>>,
@@ -1169,19 +1169,16 @@ impl ExecRuntime {
         time_limit_ms: u64,
         review: Option<Arc<dyn TurnReviewApi>>,
         notify: Option<ToolNotify>,
-        cancel: &CancellationToken,
     ) -> Result<Arc<Job>, ProcessError> {
         let handle = request.handle.clone();
         let cwd = request.cwd.as_path().to_string_lossy().into_owned();
         let stdout_log = self.config.spill_dir.join(format!("{task_id}.stdout.log"));
         let stderr_log = self.config.spill_dir.join(format!("{task_id}.stderr.log"));
-        // The logs are made while the process is created (both on io-spawn); a log that cannot be
-        // created is simply not written. The process's output reaches them only once both are done.
-        let ((), spawned) = tokio::join!(
-            spill::create_logs(self.config.lanes.spawn, cancel, &stdout_log, &stderr_log),
-            processes.spawn(request)
-        );
-        spawned?;
+        // Subscribed right after the spawn, before any file work, so the child's output is taken
+        // from its first byte (an unsubscribed replay ring drops a start that outgrows it). The
+        // job's writer creates the logs on its own io-pty thread (`collect` opens it); output that
+        // comes first waits in the writer's queue. The call's only io-spawn job is the spawn.
+        processes.spawn(request).await?;
         let source = processes.subscribe(&handle, Some(0))?;
         let logs = spill::LogWriter::new(self.config.lanes.pty, &stdout_log, &stderr_log);
         let (settled, _) = watch::channel(false);
@@ -1387,6 +1384,7 @@ async fn collect(
     logs: spill::LogWriter,
 ) {
     let mut exit = None;
+    logs.open().await;
     while let Some(event) = source.next().await {
         match event {
             ProcessEvent::Output { stream, bytes, .. } => {
