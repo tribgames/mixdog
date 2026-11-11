@@ -52,6 +52,15 @@ use crate::stream::CallStream;
 /// worker is ended.
 pub const CANCEL_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// How the grace is waited out, one future per cancelled call: the product's is a timer of [`CANCEL_GRACE`]
+/// ([`timer_grace`]); a test that must move the grace by an explicit step instead of by real time passes its own to
+/// [`ExtHostPool::with_grace`].
+pub type GraceWait = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+
+pub fn timer_grace() -> GraceWait {
+    Arc::new(|| Box::pin(tokio::time::sleep(CANCEL_GRACE)))
+}
+
 /// Calls accepted and not yet released by their consumer; beyond it a call is `Overloaded`.
 pub const DEFAULT_PENDING_CAP: usize = 64;
 
@@ -97,6 +106,11 @@ impl ExtHostPool {
     /// one (the host is never on the boot path). Must run inside the Tokio runtime; fails when the
     /// child-exit signal cannot be registered.
     pub fn new(config: ExtHostConfig) -> Result<Self, ExtHostError> {
+        Self::with_grace(config, timer_grace())
+    }
+
+    /// [`Self::new`] with the cancel grace waited out by `grace`.
+    pub fn with_grace(config: ExtHostConfig, grace: GraceWait) -> Result<Self, ExtHostError> {
         let exits = ChildExits::watch()?;
         let (events, inbox) = mpsc::unbounded_channel();
         let status = Arc::new(ArcSwap::from_pointee(Vec::new()));
@@ -114,7 +128,7 @@ impl ExtHostPool {
         );
         let dispatcher_browser = browser.clone();
         mixdog_rt::spawn("exthost.dispatch", TaskClass::Work, async move {
-            Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits)
+            Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits, grace)
                 .run(inbox)
                 .await;
         });
@@ -263,6 +277,7 @@ struct Dispatcher {
     spawn_failed: bool,
     shutting_down: bool,
     closers: Vec<oneshot::Sender<()>>,
+    grace: GraceWait,
 }
 
 impl Dispatcher {
@@ -273,9 +288,11 @@ impl Dispatcher {
         browser: BrowserHandle,
         status: Arc<ArcSwap<Vec<ExtWorkerStatus>>>,
         exits: ChildExits,
+        grace: GraceWait,
     ) -> Self {
         let per_thread_cap = config.workers.div_ceil(2).max(1);
         Self {
+            grace,
             config,
             rt,
             events,
@@ -378,8 +395,9 @@ impl Dispatcher {
         {
             let _ = io.writer.send(frame::cancel(call));
             let events = self.events.clone();
+            let grace = (self.grace)();
             drop(mixdog_rt::spawn("exthost.cancel-grace", TaskClass::Work, async move {
-                tokio::time::sleep(CANCEL_GRACE).await;
+                grace.await;
                 let _ = events.send(Event::CancelGrace { worker, call });
             }));
         }
@@ -604,7 +622,7 @@ mod tests {
             Arc::new(AtomicU64::new(0)),
             exits.clone(),
         );
-        let mut dispatcher = Dispatcher::new(config, Handle::current(), events, browser, status.clone(), exits);
+        let mut dispatcher = Dispatcher::new(config, Handle::current(), events, browser, status.clone(), exits, timer_grace());
 
         dispatcher.spawn_worker();
         // The stop is handled before the spawn's completion is: no process exists yet.
