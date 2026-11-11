@@ -445,7 +445,8 @@ mod tests {
             messages: state,
             routes: Arc::new(RecordedRoute(golden["route"].as_object().cloned().expect("route"))),
             session: adapter,
-            host: Arc::new(Mode(calls[0]["status"]["toolMode"].as_str().expect("mode").to_owned())),
+            // The recorder's own input (`record-context-inspection.mjs` `options.toolMode`), not read from an answer.
+            host: Arc::new(Mode("full".to_owned())),
             lowering: Arc::new(|_, _| (Arc::new(TextOnly), Arc::new(TextOnly))),
         };
         let service = ThreadContextService::new(Arc::new(LiveContextStatus::new(Arc::new(world))));

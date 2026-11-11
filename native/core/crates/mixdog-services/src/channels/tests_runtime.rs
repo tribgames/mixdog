@@ -678,7 +678,9 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
 }
 
 /// `fixtures/mcp-cwd-scope` `channelCall`: a `channel/call` naming a plugin's MCP tool reaches no MCP server; the channels
-/// dispatch answers it as Node's `handleToolCall` does.
+/// dispatch answers it as Node's `handleToolCall` does. The channels service has no MCP client (nothing under `channels/`
+/// names `mixdog_mcp`, and this crate does not depend on it), so no live server can be reached through it: what is compared
+/// is the dispatch's answer, whole, with Node's; Node's `ran: []` is the recording of its reach.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_channel_call_naming_an_mcp_tool_reaches_no_server() {
     let golden: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/mcp-cwd-scope/golden.json")).unwrap();

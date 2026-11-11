@@ -1,6 +1,11 @@
 {
   "cases": 8,
   "command": "node benchmarks/rust-core/recorders/record-applied-skills.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "exclusions": {
+    "meta.submissionIds": "a steered prompt's submission id is drawn by each side; the count and non-empty ids are compared",
+    "meta.transcript.messageId / attemptId / checkpointId": "the client turn carried Node's (turnMeta); the core draws its own, so both sides are compared as an id (a non-empty string)",
+    "restored row id": "Node counts hist_<session>_<n>, the core uses the record's iid; both sides are compared as an id"
+  },
   "fileCount": 1,
   "files": [
     {
@@ -43,7 +48,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-applied-skills.mjs",
-  "recorderSha256": "63f1e54acd6869200dc78af3021bbb1b286c4ff179ddd16ddab209ca2619e799",
+  "recorderSha256": "d6c207bfb23107c9d373a39efa87e5d2b7da8a7d020d2f9530208a5641c7eb51",
   "set": "applied-skills",
   "syntheticInputs": [
     "the provider: one that answers \"Done.\" (a summary request: \"a summary of the conversation\") and calls no tool",
