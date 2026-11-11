@@ -662,7 +662,7 @@ impl Run {
         }
         if let Some(skills) = self.env.skills.clone() {
             for content in std::mem::take(&mut self.pending_skill_prompts) {
-                skills.select(&content, &mut self.messages).await;
+                let _ = skills.select(&content, &mut self.messages).await;
             }
         } else {
             self.pending_skill_prompts.clear();

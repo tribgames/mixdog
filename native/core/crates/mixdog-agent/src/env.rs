@@ -105,11 +105,11 @@ pub trait SteerSource: Send + Sync {
     async fn drain(&self, request: DrainRequest) -> Vec<SteerEntry>;
 }
 
-/// Explicit skill selection for typed steering input, run before the next
-/// provider snapshot.
+/// Explicit skill selection for a turn's own prompt and for typed steering input, run before
+/// the next provider snapshot. The names of the skills that loaded, in selection order.
 #[async_trait]
 pub trait SkillSelector: Send + Sync {
-    async fn select(&self, content: &Content, transcript: &mut Vec<AgentMessage>);
+    async fn select(&self, content: &Content, transcript: &mut Vec<AgentMessage>) -> Vec<String>;
 }
 
 // ---------------------------------------------------------------------------

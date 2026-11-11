@@ -2655,6 +2655,13 @@ impl SessionActor {
     /// a retry finds the failed turn's identity and provenance (`failedTurnMessage`, `cache-warm.mjs:508-527`).
     /// Not for a system message. The outbox entry of the amend, for what must stand on it being durable.
     fn amend_last_with(&mut self, last: &ItemRecord, completion: Value) -> Option<u64> {
+        let (record, _) = Self::amend_transcript(last, "completion", completion)?;
+        Some(self.accept_record_entry(record, Class::Normal, Display::None, Vec::new(), Vec::new()))
+    }
+
+    /// The amend that sets `meta.transcript.<key>` on row `last`, and the amended row. `None` for a system message
+    /// or a body not held inline.
+    fn amend_transcript(last: &ItemRecord, key: &str, value: Value) -> Option<(Record, ItemRecord)> {
         let Slot::Inline(body) = &last.body else { return None };
         if body.get("role").and_then(Value::as_str) == Some("system") {
             return None;
@@ -2669,9 +2676,10 @@ impl SessionActor {
         if !transcript.is_object() {
             *transcript = json!({});
         }
-        transcript.as_object_mut().expect("transcript is an object").insert("completion".into(), completion);
+        transcript.as_object_mut().expect("transcript is an object").insert(key.into(), value);
+        let amended = ItemRecord { body: Slot::Inline(next.clone()), ..last.clone() };
         let record = Record::Amend(AmendRecord { iid: last.iid.clone(), op: None, refs: last.refs.clone(), body: Slot::Inline(next) });
-        Some(self.accept_record_entry(record, Class::Normal, Display::None, Vec::new(), Vec::new()))
+        Some((record, amended))
     }
 
     /// A failed turn's close (`failTurn`, `publishTurnClose`, `settleTurn`): the completion is recorded on the last
@@ -3311,6 +3319,22 @@ impl SessionActor {
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
                 self.with_facts(body, move |body, facts| JobDone::CommitFacts { turn, item: ItemCommit { body, ..item }, facts, ack });
+            }
+            ProducerMsg::AppliedSkills { turn, names, ack } => {
+                let input = self.run.as_ref().filter(|_| self.active(&turn)).and_then(|run| run.last_model.clone());
+                let Some(input) = input else {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                };
+                match Self::amend_transcript(&input, "appliedSkills", json!(names)) {
+                    Some((record, amended)) => {
+                        if let Some(run) = self.run.as_mut() {
+                            run.last_model = Some(amended);
+                        }
+                        self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
+                    }
+                    None => drop(ack.send(Err(RunError::NotApplied))),
+                }
             }
             ProducerMsg::ProviderState { turn, state, ack } => {
                 if !self.active(&turn) {
