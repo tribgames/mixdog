@@ -1,0 +1,2555 @@
+{
+  "domain": "memory-embedding-model-config",
+  "source": "src/runtime/memory/lib/embedding-model-config.test.mjs",
+  "cases": [
+    {
+      "name": "multilingual E5-small is the fixed production default",
+      "defaults": [
+        {
+          "env": {},
+          "modelId": {
+            "result": "Xenova/multilingual-e5-small"
+          },
+          "dims": {
+            "result": 384
+          },
+          "dtype": {
+            "result": "q8"
+          },
+          "device": {
+            "result": "cpu"
+          },
+          "graphFile": {
+            "result": "onnx/model_quantized.onnx"
+          },
+          "pooling": {
+            "result": "mean"
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_EMBED_MODEL": "ibm-granite/granite-embedding-97m-multilingual-r2"
+          },
+          "modelId": {
+            "result": "ibm-granite/granite-embedding-97m-multilingual-r2"
+          },
+          "dims": {
+            "result": 384
+          },
+          "dtype": {
+            "result": "fp32"
+          },
+          "device": {
+            "result": "cpu"
+          },
+          "graphFile": {
+            "result": "onnx/model_quint8_avx2.onnx"
+          },
+          "pooling": {
+            "result": "cls"
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_EMBED_MODEL": " "
+          },
+          "modelId": {
+            "result": "Xenova/multilingual-e5-small"
+          },
+          "dims": {
+            "result": 384
+          },
+          "dtype": {
+            "result": "q8"
+          },
+          "device": {
+            "result": "cpu"
+          },
+          "graphFile": {
+            "result": "onnx/model_quantized.onnx"
+          },
+          "pooling": {
+            "result": "mean"
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_EMBED_MODEL": "custom/x"
+          },
+          "modelId": {
+            "result": "custom/x"
+          },
+          "dims": {
+            "result": null
+          },
+          "dtype": {
+            "result": "fp32"
+          },
+          "device": {
+            "result": "auto"
+          },
+          "graphFile": {
+            "result": "onnx/model.onnx"
+          },
+          "pooling": {
+            "result": "mean"
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_EMBED_DTYPE": "q4"
+          },
+          "modelId": {
+            "result": "Xenova/multilingual-e5-small"
+          },
+          "dims": {
+            "result": 384
+          },
+          "dtype": {
+            "result": "q8"
+          },
+          "device": {
+            "result": "cpu"
+          },
+          "graphFile": {
+            "result": "onnx/model_quantized.onnx"
+          },
+          "pooling": {
+            "result": "mean"
+          }
+        },
+        {
+          "env": {
+            "MIXDOG_EMBED_MODEL": "Xenova/bge-m3",
+            "MIXDOG_EMBED_DTYPE": "fp16"
+          },
+          "modelId": {
+            "result": "Xenova/bge-m3"
+          },
+          "dims": {
+            "result": 1024
+          },
+          "dtype": {
+            "result": "fp16"
+          },
+          "device": {
+            "result": "auto"
+          },
+          "graphFile": {
+            "result": "onnx/model_q4.onnx"
+          },
+          "pooling": {
+            "result": "mean"
+          }
+        }
+      ],
+      "e5": {
+        "model": "Xenova/multilingual-e5-small",
+        "dims": {
+          "result": 384
+        },
+        "pooling": {
+          "result": "mean"
+        },
+        "outputName": {
+          "result": ""
+        },
+        "device": {
+          "result": "cpu"
+        },
+        "dtypes": [
+          {
+            "dtype": "",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "q8",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "q4",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "fp16",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "fp32",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "Q8",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": " fp16 ",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "int8",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": null,
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": {
+              "absent": true
+            },
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "multilingual E5-small applies asymmetric retrieval prefixes",
+      "inputs": [
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "query",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "query: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "query",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "query",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "query: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "query",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "QUERY",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "query: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "QUERY",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "QUERY",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "query: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "QUERY",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": " Query ",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "query: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": " Query ",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": " Query ",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "query: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": " Query ",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "passage",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "passage",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "passage",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "passage",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "document",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "document",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "document",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "document",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": null,
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": null,
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": null,
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": null,
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": {
+            "absent": true
+          },
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": {
+            "absent": true
+          },
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": {
+            "absent": true
+          },
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": {
+            "absent": true
+          },
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "other",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "other",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "other",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "passage: spaced"
+          }
+        },
+        {
+          "model": "Xenova/multilingual-e5-small",
+          "inputType": "other",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        }
+      ],
+      "defaultModelInput": [
+        {
+          "result": "passage: Windows 음성 런타임의 메모리 사용량"
+        },
+        {
+          "result": "query: Windows 음성 런타임의 메모리 사용량"
+        }
+      ]
+    },
+    {
+      "name": "Granite fallback keeps its official CLS pooling contract",
+      "granite": {
+        "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+        "dims": {
+          "result": 384
+        },
+        "pooling": {
+          "result": "cls"
+        },
+        "outputName": {
+          "result": ""
+        },
+        "device": {
+          "result": "cpu"
+        },
+        "dtypes": [
+          {
+            "dtype": "",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": "q8",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": "q4",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": "fp16",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": "fp32",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": "Q8",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": " fp16 ",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": "int8",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": null,
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          },
+          {
+            "dtype": {
+              "absent": true
+            },
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model_quint8_avx2.onnx"
+            }
+          }
+        ]
+      },
+      "inputs": [
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "query",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "query",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "query",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "query",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "QUERY",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "QUERY",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "QUERY",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "QUERY",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": " Query ",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": " Query ",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": " Query ",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": " Query ",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "passage",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "passage",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "passage",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "passage",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "document",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "document",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "document",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "document",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": null,
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": null,
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": null,
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": null,
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": {
+            "absent": true
+          },
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": {
+            "absent": true
+          },
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": {
+            "absent": true
+          },
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": {
+            "absent": true
+          },
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "other",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "other",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "other",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "ibm-granite/granite-embedding-97m-multilingual-r2",
+          "inputType": "other",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "graph file names follow the transformers.js dtype suffixes",
+      "bgeM3": {
+        "model": "Xenova/bge-m3",
+        "dims": {
+          "result": 1024
+        },
+        "pooling": {
+          "result": "mean"
+        },
+        "outputName": {
+          "result": ""
+        },
+        "device": {
+          "result": "auto"
+        },
+        "dtypes": [
+          {
+            "dtype": "",
+            "normalized": {
+              "result": "q4"
+            },
+            "graphFile": {
+              "result": "onnx/model_q4.onnx"
+            }
+          },
+          {
+            "dtype": "q8",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "q4",
+            "normalized": {
+              "result": "q4"
+            },
+            "graphFile": {
+              "result": "onnx/model_q4.onnx"
+            }
+          },
+          {
+            "dtype": "fp16",
+            "normalized": {
+              "result": "fp16"
+            },
+            "graphFile": {
+              "result": "onnx/model_fp16.onnx"
+            }
+          },
+          {
+            "dtype": "fp32",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model.onnx"
+            }
+          },
+          {
+            "dtype": "Q8",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": " fp16 ",
+            "normalized": {
+              "result": "fp16"
+            },
+            "graphFile": {
+              "result": "onnx/model_fp16.onnx"
+            }
+          },
+          {
+            "dtype": "int8",
+            "normalized": {
+              "result": "q4"
+            },
+            "graphFile": {
+              "result": "onnx/model_q4.onnx"
+            }
+          },
+          {
+            "dtype": null,
+            "normalized": {
+              "result": "q4"
+            },
+            "graphFile": {
+              "result": "onnx/model_q4.onnx"
+            }
+          },
+          {
+            "dtype": {
+              "absent": true
+            },
+            "normalized": {
+              "result": "q4"
+            },
+            "graphFile": {
+              "result": "onnx/model_q4.onnx"
+            }
+          }
+        ]
+      },
+      "custom": {
+        "model": "custom/embedding",
+        "dims": {
+          "result": null
+        },
+        "pooling": {
+          "result": "mean"
+        },
+        "outputName": {
+          "result": ""
+        },
+        "device": {
+          "result": "auto"
+        },
+        "dtypes": [
+          {
+            "dtype": "",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model.onnx"
+            }
+          },
+          {
+            "dtype": "q8",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": "q4",
+            "normalized": {
+              "result": "q4"
+            },
+            "graphFile": {
+              "result": "onnx/model_q4.onnx"
+            }
+          },
+          {
+            "dtype": "fp16",
+            "normalized": {
+              "result": "fp16"
+            },
+            "graphFile": {
+              "result": "onnx/model_fp16.onnx"
+            }
+          },
+          {
+            "dtype": "fp32",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model.onnx"
+            }
+          },
+          {
+            "dtype": "Q8",
+            "normalized": {
+              "result": "q8"
+            },
+            "graphFile": {
+              "result": "onnx/model_quantized.onnx"
+            }
+          },
+          {
+            "dtype": " fp16 ",
+            "normalized": {
+              "result": "fp16"
+            },
+            "graphFile": {
+              "result": "onnx/model_fp16.onnx"
+            }
+          },
+          {
+            "dtype": "int8",
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model.onnx"
+            }
+          },
+          {
+            "dtype": null,
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model.onnx"
+            }
+          },
+          {
+            "dtype": {
+              "absent": true
+            },
+            "normalized": {
+              "result": "fp32"
+            },
+            "graphFile": {
+              "result": "onnx/model.onnx"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "every other model and dtype shape",
+      "perModel": [
+        {
+          "model": "",
+          "dims": {
+            "result": null
+          },
+          "pooling": {
+            "result": "mean"
+          },
+          "outputName": {
+            "result": ""
+          },
+          "device": {
+            "result": "auto"
+          },
+          "dtypes": [
+            {
+              "dtype": "",
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": "q8",
+              "normalized": {
+                "result": "q8"
+              },
+              "graphFile": {
+                "result": "onnx/model_quantized.onnx"
+              }
+            },
+            {
+              "dtype": "q4",
+              "normalized": {
+                "result": "q4"
+              },
+              "graphFile": {
+                "result": "onnx/model_q4.onnx"
+              }
+            },
+            {
+              "dtype": "fp16",
+              "normalized": {
+                "result": "fp16"
+              },
+              "graphFile": {
+                "result": "onnx/model_fp16.onnx"
+              }
+            },
+            {
+              "dtype": "fp32",
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": "Q8",
+              "normalized": {
+                "result": "q8"
+              },
+              "graphFile": {
+                "result": "onnx/model_quantized.onnx"
+              }
+            },
+            {
+              "dtype": " fp16 ",
+              "normalized": {
+                "result": "fp16"
+              },
+              "graphFile": {
+                "result": "onnx/model_fp16.onnx"
+              }
+            },
+            {
+              "dtype": "int8",
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": null,
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": {
+                "absent": true
+              },
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            }
+          ]
+        },
+        {
+          "model": " Xenova/bge-m3 ",
+          "dims": {
+            "result": 1024
+          },
+          "pooling": {
+            "result": "mean"
+          },
+          "outputName": {
+            "result": ""
+          },
+          "device": {
+            "result": "auto"
+          },
+          "dtypes": [
+            {
+              "dtype": "",
+              "normalized": {
+                "result": "q4"
+              },
+              "graphFile": {
+                "result": "onnx/model_q4.onnx"
+              }
+            },
+            {
+              "dtype": "q8",
+              "normalized": {
+                "result": "q8"
+              },
+              "graphFile": {
+                "result": "onnx/model_quantized.onnx"
+              }
+            },
+            {
+              "dtype": "q4",
+              "normalized": {
+                "result": "q4"
+              },
+              "graphFile": {
+                "result": "onnx/model_q4.onnx"
+              }
+            },
+            {
+              "dtype": "fp16",
+              "normalized": {
+                "result": "fp16"
+              },
+              "graphFile": {
+                "result": "onnx/model_fp16.onnx"
+              }
+            },
+            {
+              "dtype": "fp32",
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": "Q8",
+              "normalized": {
+                "result": "q8"
+              },
+              "graphFile": {
+                "result": "onnx/model_quantized.onnx"
+              }
+            },
+            {
+              "dtype": " fp16 ",
+              "normalized": {
+                "result": "fp16"
+              },
+              "graphFile": {
+                "result": "onnx/model_fp16.onnx"
+              }
+            },
+            {
+              "dtype": "int8",
+              "normalized": {
+                "result": "q4"
+              },
+              "graphFile": {
+                "result": "onnx/model_q4.onnx"
+              }
+            },
+            {
+              "dtype": null,
+              "normalized": {
+                "result": "q4"
+              },
+              "graphFile": {
+                "result": "onnx/model_q4.onnx"
+              }
+            },
+            {
+              "dtype": {
+                "absent": true
+              },
+              "normalized": {
+                "result": "q4"
+              },
+              "graphFile": {
+                "result": "onnx/model_q4.onnx"
+              }
+            }
+          ]
+        },
+        {
+          "model": null,
+          "dims": {
+            "result": null
+          },
+          "pooling": {
+            "result": "mean"
+          },
+          "outputName": {
+            "result": ""
+          },
+          "device": {
+            "result": "auto"
+          },
+          "dtypes": [
+            {
+              "dtype": "",
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": "q8",
+              "normalized": {
+                "result": "q8"
+              },
+              "graphFile": {
+                "result": "onnx/model_quantized.onnx"
+              }
+            },
+            {
+              "dtype": "q4",
+              "normalized": {
+                "result": "q4"
+              },
+              "graphFile": {
+                "result": "onnx/model_q4.onnx"
+              }
+            },
+            {
+              "dtype": "fp16",
+              "normalized": {
+                "result": "fp16"
+              },
+              "graphFile": {
+                "result": "onnx/model_fp16.onnx"
+              }
+            },
+            {
+              "dtype": "fp32",
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": "Q8",
+              "normalized": {
+                "result": "q8"
+              },
+              "graphFile": {
+                "result": "onnx/model_quantized.onnx"
+              }
+            },
+            {
+              "dtype": " fp16 ",
+              "normalized": {
+                "result": "fp16"
+              },
+              "graphFile": {
+                "result": "onnx/model_fp16.onnx"
+              }
+            },
+            {
+              "dtype": "int8",
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": null,
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            },
+            {
+              "dtype": {
+                "absent": true
+              },
+              "normalized": {
+                "result": "fp32"
+              },
+              "graphFile": {
+                "result": "onnx/model.onnx"
+              }
+            }
+          ]
+        }
+      ],
+      "inputs": [
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "query",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "query",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "query",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "query",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "QUERY",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "QUERY",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "QUERY",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "QUERY",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": " Query ",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": " Query ",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": " Query ",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": " Query ",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "passage",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "passage",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "passage",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "passage",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "document",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "document",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "document",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "document",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": null,
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": null,
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": null,
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": null,
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": {
+            "absent": true
+          },
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": {
+            "absent": true
+          },
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": {
+            "absent": true
+          },
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": {
+            "absent": true
+          },
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "other",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "other",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "other",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "Xenova/bge-m3",
+          "inputType": "other",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "query",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "query",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "query",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "query",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "QUERY",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "QUERY",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "QUERY",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "QUERY",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": " Query ",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": " Query ",
+          "text": "",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": " Query ",
+          "text": "  spaced  ",
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": " Query ",
+          "text": null,
+          "type": {
+            "result": "query"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "passage",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "passage",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "passage",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "passage",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "document",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "document",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "document",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "document",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": null,
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": null,
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": null,
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": null,
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": {
+            "absent": true
+          },
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": {
+            "absent": true
+          },
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": {
+            "absent": true
+          },
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": {
+            "absent": true
+          },
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "other",
+          "text": "Windows 음성 런타임의 메모리 사용량",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "Windows 음성 런타임의 메모리 사용량"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "other",
+          "text": "",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "other",
+          "text": "  spaced  ",
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": "spaced"
+          }
+        },
+        {
+          "model": "custom/embedding",
+          "inputType": "other",
+          "text": null,
+          "type": {
+            "result": "document"
+          },
+          "prepared": {
+            "result": ""
+          }
+        }
+      ]
+    }
+  ]
+}
