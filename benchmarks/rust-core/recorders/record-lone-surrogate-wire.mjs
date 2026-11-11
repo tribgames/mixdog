@@ -208,6 +208,30 @@ const refusedFields = JSON.parse(readFileSync(join(REPO_ROOT, INVENTORY), 'utf8'
   .classes.filter((entry) => entry.class === 'refused')
   .flatMap((entry) => entry.fields.filter(DECLARED).map((field) => ({ field, reason: entry.reason })))
   .sort((a, b) => (a.field < b.field ? -1 : 1));
+const WORLD_FILES_SKIP = [
+  {
+    path: 'core/data/daemon-owner.lock',
+    reason: "the core's ownership of its data folder: an OS-held exclusive lock for its whole life (Node's daemon-owner.lock likewise), so its bytes cannot be read while it runs; written once at the start",
+  },
+];
+// The methods of the inventory's refused request fields that a desktop may not call (the method table's origins): the sweep's call
+// of them is refused for its origin before the lone unit is looked at.
+const METHOD_TABLE = 'native/core/crates/mixdog-app-protocol/schema/method_table.json';
+const desktopMethods = new Set(
+  JSON.parse(readFileSync(join(REPO_ROOT, METHOD_TABLE), 'utf8'))
+    .clientMethods.filter((row) => row.origins.includes('local'))
+    .map((row) => row.method),
+);
+const relayOnly = [
+  ...new Set(
+    JSON.parse(readFileSync(join(REPO_ROOT, INVENTORY), 'utf8'))
+      .classes.filter((entry) => entry.class === 'refused')
+      .flatMap((entry) => entry.fields)
+      .filter((field) => field.startsWith('request '))
+      .map((field) => field.split(' ')[1])
+      .filter((method) => !desktopMethods.has(method)),
+  ),
+].sort();
 const stage = stageSet(SET);
 writeJson(join(stage, 'golden.json'), {
   note: 'What Node b6f10295a did with a client string holding a lone surrogate where it becomes an HTTP header, a URL query or a language-server request, or where its serialised size is limited; and every request each case sent to the local server.',
@@ -248,12 +272,32 @@ writeSetManifest(stage, {
         coreMustAnswer: loneRefusal(entry.refused),
       })),
       check:
-        "the client failure detail equals coreMustAnswer whole; the local server got no request (nor the language server, which reports each request it receives there); for an MCP server, mcp/mcpStatus and mcp/getMcpServerConfig of its name answer after the call what they answered before it",
+        "the client failure detail equals coreMustAnswer whole; the local server got no request (nor the language server, which reports each request it receives there); for an MCP server, mcp/mcpStatus and mcp/getMcpServerConfig of its name answer after the call what they answered before it; worldFiles have the bytes they had before the call",
     },
     // Compared outside the replay: the Hugging Face search URL, by mixdog-services local_provider/hugging_face.rs (its HTTP is
     // a trait there; the core's catalog has no address but huggingface.co).
     replayedByRustTest: [{ case: 'hf-search-lone', test: 'mixdog-services local_provider::hugging_face::tests::a_query_holding_a_lone_surrogate_is_the_url_node_fetched' }],
     nodeOnlyRequests: [warmup],
+    // What "nothing stored" is checked on: the bytes of every file of the core's folders (`core/`: runtime, data, home, config)
+    // and of the cases' world (`world/`: the project the language server opens), read before and after each refused call; a file
+    // added, removed or changed fails it. Not read, with the reason:
+    worldFiles: {
+      skip: WORLD_FILES_SKIP,
+    },
+    // After the cases: every field the inventory refuses in a request or a notification, sent by the desktop client with a lone
+    // unit there and nothing else (a frame is refused before its params are read). An answer's fields are not here: an answer
+    // only exists to a request the core sent, and inventory_rule.rs fails each such request as classed.
+    inventorySweep: {
+      inventory: INVENTORY,
+      methodTable: METHOD_TABLE,
+      relayOnly: {
+        methods: relayOnly,
+        reason:
+          'only a paired phone may call these (the method table: origins without local): a desktop call is refused for its origin before the lone unit is read (lone-surrogate-wire-cases.mjs permissionRefusal); the refusal naming the field for a phone is mixdog-app-server tests::inventory_rule every_request_field_of_the_inventory_reaches_the_core_or_is_refused_as_classed',
+      },
+      check:
+        "a request's client failure detail equals loneRefusal of `<method>.params<pointer>` whole (permissionRefusal for relayOnly); a notification is followed by a request of a method no table has, answered only after the notification was read; for each, no request reached the local server (nor the language server, which reports there) and worldFiles are unchanged",
+    },
   },
 });
 commitStage(stage, SET);

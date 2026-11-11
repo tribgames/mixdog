@@ -80,7 +80,11 @@ pub(crate) fn lone(message: &Value) -> String {
 }
 
 /// Every request field: free text reaches the core as U+FFFD (the mock core echoes the params, compared whole); a refused one is
-/// `invalidParams` naming the field, and nothing reached the core (its echo is no answer).
+/// `invalidParams` naming the field, and nothing reached the core (its echo is no answer). That a refused field leaves the real
+/// core's files and the servers it talks to untouched is the `inventorySweep` of the lone-surrogate-wire replay
+/// (benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs): every refused request and notification field of this
+/// inventory, sent to a built mixdogd, with the bytes of every file of its folders and the stand-in servers' requests compared
+/// before and after.
 #[tokio::test(start_paused = true)]
 async fn every_request_field_of_the_inventory_reaches_the_core_or_is_refused_as_classed() {
     let rig = Rig::new();

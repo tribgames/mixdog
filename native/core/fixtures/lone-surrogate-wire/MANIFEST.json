@@ -5,9 +5,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 454540,
+      "bytes": 562499,
       "path": "golden.json",
-      "sha256": "576009849912f3a194a443819525722f02636d3b86328cb6af847c155559b223"
+      "sha256": "909d3ff1ea6bc7a531577c1d487a7df480d2f9611a74f6e3f87ffaccbc70f415"
     }
   ],
   "inputs": [
@@ -25,15 +25,15 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-cases.mjs",
-      "sha256": "ed20864da77d9743b941ad3c4f12e9d0887a8b7157a270b2082814e17d801afd"
+      "sha256": "d6cbd78e3d203683bd077259d7ca00e7c5e52517f4b18708bd03dbaadf1c197e"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lone-surrogate-wire-replay.mjs",
-      "sha256": "e5afe2385774132c09f67bd49b5a203b668e7e29984bc337269d05b88ed79e5b"
+      "sha256": "ebbd7673c77ac4dee2f26ceb628516108e7815b003a1a96812d76ab9040fac05"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/lsp-echo-stub.mjs",
-      "sha256": "87874854dea0411e9398eb1f5948233d630c373c1afc21386a70e77b8c36b9f7"
+      "sha256": "eb1b00ad4689d4cccb4951e85e0e03a11dc3da5171f8d2b0a8b5e35f0ca63c1c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -56,10 +56,30 @@
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/world-files.mjs",
+      "sha256": "e73847305a7826c827a4a2869303caf445e18334808af7b0289a917c0e4feafb"
+    },
+    {
       "path": "native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json",
       "sha256": "9771c0ef2c31ef4d77bbcc040186d894f39661c24ea30db6bfc0ba8eb469f271"
     }
   ],
+  "inventorySweep": {
+    "check": "a request's client failure detail equals loneRefusal of `<method>.params<pointer>` whole (permissionRefusal for relayOnly); a notification is followed by a request of a method no table has, answered only after the notification was read; for each, no request reached the local server (nor the language server, which reports there) and worldFiles are unchanged",
+    "inventory": "native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json",
+    "methodTable": "native/core/crates/mixdog-app-protocol/schema/method_table.json",
+    "relayOnly": {
+      "methods": [
+        "browser/stream",
+        "browser/webrtcSignal",
+        "transfer/authorizeRead",
+        "transfer/finishRead",
+        "transfer/grant/mint",
+        "transfer/redeemGrant"
+      ],
+      "reason": "only a paired phone may call these (the method table: origins without local): a desktop call is refused for its origin before the lone unit is read (lone-surrogate-wire-cases.mjs permissionRefusal); the refusal naming the field for a phone is mixdog-app-server tests::inventory_rule every_request_field_of_the_inventory_reaches_the_core_or_is_refused_as_classed"
+    }
+  },
   "mapping": {
     "at": {
       "lsp-code-action-diagnostic-lone": [
@@ -68,6 +88,98 @@
         },
         {
           "pointer": "/requests/0/received/params/context/diagnostics/0/message"
+        }
+      ],
+      "lsp-code-action-related-lone": [
+        {
+          "pointer": "/node/value/result/received/context/diagnostics/0/source"
+        },
+        {
+          "pointer": "/node/value/result/received/context/diagnostics/0/relatedInformation/0/message"
+        },
+        {
+          "pointer": "/requests/0/received/params/context/diagnostics/0/source"
+        },
+        {
+          "pointer": "/requests/0/received/params/context/diagnostics/0/relatedInformation/0/message"
+        }
+      ],
+      "lsp-code-action-resolve-lone": [
+        {
+          "pointer": "/node/value/result/received/diagnostics/0/message"
+        },
+        {
+          "pointer": "/node/value/result/received/diagnostics/0/source"
+        },
+        {
+          "pointer": "/node/value/result/received/diagnostics/0/relatedInformation/0/message"
+        },
+        {
+          "pointer": "/requests/0/received/params/diagnostics/0/message"
+        },
+        {
+          "pointer": "/requests/0/received/params/diagnostics/0/source"
+        },
+        {
+          "pointer": "/requests/0/received/params/diagnostics/0/relatedInformation/0/message"
+        }
+      ],
+      "lsp-completion-resolve-lone": [
+        {
+          "pointer": "/node/value/result/received/label"
+        },
+        {
+          "pointer": "/node/value/result/received/sortText"
+        },
+        {
+          "pointer": "/node/value/result/received/filterText"
+        },
+        {
+          "pointer": "/node/value/result/received/commitCharacters/0"
+        },
+        {
+          "pointer": "/requests/0/received/params/label"
+        },
+        {
+          "pointer": "/requests/0/received/params/sortText"
+        },
+        {
+          "pointer": "/requests/0/received/params/filterText"
+        },
+        {
+          "pointer": "/requests/0/received/params/commitCharacters/0"
+        }
+      ],
+      "lsp-completion-trigger-lone": [
+        {
+          "pointer": "/node/value/result/received/context/triggerCharacter"
+        },
+        {
+          "pointer": "/requests/0/received/params/context/triggerCharacter"
+        }
+      ],
+      "lsp-inlay-hint-resolve-lone": [
+        {
+          "pointer": "/node/value/result/received/label/0/value"
+        },
+        {
+          "pointer": "/requests/0/received/params/label/0/value"
+        }
+      ],
+      "lsp-on-type-formatting-lone": [
+        {
+          "pointer": "/node/value/result/received/ch"
+        },
+        {
+          "pointer": "/requests/0/received/params/ch"
+        }
+      ],
+      "lsp-signature-help-lone": [
+        {
+          "pointer": "/node/value/result/received/context/activeSignatureHelp/signatures/0/parameters/0/label"
+        },
+        {
+          "pointer": "/requests/0/received/params/context/activeSignatureHelp/signatures/0/parameters/0/label"
         }
       ]
     },
@@ -107,7 +219,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-lone-surrogate-wire.mjs",
-  "recorderSha256": "2b7930f0000544277d897a6a56d03bbe9540216208be9c3c9e42e3538895b318",
+  "recorderSha256": "e4acfe7b2050c7f4942ae2990302a2bb4e249c4b81da315e7cb2ed96a8485a75",
   "refusedByRule": {
     "cases": [
       {
@@ -374,11 +486,11 @@
               "callHierarchy": false,
               "codeAction": true,
               "codeActionKinds": [],
-              "codeActionResolve": false,
+              "codeActionResolve": true,
               "codeLens": false,
               "codeLensResolve": false,
-              "completion": false,
-              "completionResolve": false,
+              "completion": true,
+              "completionResolve": true,
               "completionTriggerCharacters": [],
               "declaration": false,
               "definition": false,
@@ -392,11 +504,13 @@
               "formatting": false,
               "hover": false,
               "implementation": false,
-              "inlayHint": false,
-              "inlayHintResolve": false,
+              "inlayHint": true,
+              "inlayHintResolve": true,
               "linkedEditingRange": false,
-              "onTypeFormatting": false,
-              "onTypeFormattingTriggerCharacters": [],
+              "onTypeFormatting": true,
+              "onTypeFormattingTriggerCharacters": [
+                "}"
+              ],
               "prepareRename": false,
               "rangeFormatting": false,
               "references": false,
@@ -409,7 +523,7 @@
                 "tokenTypes": []
               },
               "semanticTokensRange": false,
-              "signatureHelp": false,
+              "signatureHelp": true,
               "signatureHelpRetriggerCharacters": [],
               "signatureHelpTriggerCharacters": [],
               "typeDefinition": false,
@@ -474,11 +588,11 @@
               "callHierarchy": false,
               "codeAction": true,
               "codeActionKinds": [],
-              "codeActionResolve": false,
+              "codeActionResolve": true,
               "codeLens": false,
               "codeLensResolve": false,
-              "completion": false,
-              "completionResolve": false,
+              "completion": true,
+              "completionResolve": true,
               "completionTriggerCharacters": [],
               "declaration": false,
               "definition": false,
@@ -492,11 +606,13 @@
               "formatting": false,
               "hover": false,
               "implementation": false,
-              "inlayHint": false,
-              "inlayHintResolve": false,
+              "inlayHint": true,
+              "inlayHintResolve": true,
               "linkedEditingRange": false,
-              "onTypeFormatting": false,
-              "onTypeFormattingTriggerCharacters": [],
+              "onTypeFormatting": true,
+              "onTypeFormattingTriggerCharacters": [
+                "}"
+              ],
               "prepareRename": false,
               "rangeFormatting": false,
               "references": false,
@@ -509,7 +625,7 @@
                 "tokenTypes": []
               },
               "semanticTokensRange": false,
-              "signatureHelp": false,
+              "signatureHelp": true,
               "signatureHelpRetriggerCharacters": [],
               "signatureHelpTriggerCharacters": [],
               "typeDefinition": false,
@@ -560,11 +676,11 @@
               "callHierarchy": false,
               "codeAction": true,
               "codeActionKinds": [],
-              "codeActionResolve": false,
+              "codeActionResolve": true,
               "codeLens": false,
               "codeLensResolve": false,
-              "completion": false,
-              "completionResolve": false,
+              "completion": true,
+              "completionResolve": true,
               "completionTriggerCharacters": [],
               "declaration": false,
               "definition": false,
@@ -578,11 +694,13 @@
               "formatting": false,
               "hover": false,
               "implementation": false,
-              "inlayHint": false,
-              "inlayHintResolve": false,
+              "inlayHint": true,
+              "inlayHintResolve": true,
               "linkedEditingRange": false,
-              "onTypeFormatting": false,
-              "onTypeFormattingTriggerCharacters": [],
+              "onTypeFormatting": true,
+              "onTypeFormattingTriggerCharacters": [
+                "}"
+              ],
               "prepareRename": false,
               "rangeFormatting": false,
               "references": false,
@@ -595,7 +713,7 @@
                 "tokenTypes": []
               },
               "semanticTokensRange": false,
-              "signatureHelp": false,
+              "signatureHelp": true,
               "signatureHelpRetriggerCharacters": [],
               "signatureHelpTriggerCharacters": [],
               "typeDefinition": false,
@@ -627,7 +745,7 @@
         ]
       }
     ],
-    "check": "the client failure detail equals coreMustAnswer whole; the local server got no request (nor the language server, which reports each request it receives there); for an MCP server, mcp/mcpStatus and mcp/getMcpServerConfig of its name answer after the call what they answered before it",
+    "check": "the client failure detail equals coreMustAnswer whole; the local server got no request (nor the language server, which reports each request it receives there); for an MCP server, mcp/mcpStatus and mcp/getMcpServerConfig of its name answer after the call what they answered before it; worldFiles have the bytes they had before the call",
     "decision": "decisions.md \"Lone UTF-16 surrogates in client strings\": a field whose value becomes a header, a URL, a path, a command or an identifier refuses the call naming the field, before anything is stored or sent; Node may store or forward it, and the refusal without side effect is the accepted difference",
     "fields": [
       {
@@ -851,5 +969,13 @@
     }
   ],
   "set": "lone-surrogate-wire",
-  "totalBytes": 454540
+  "totalBytes": 562499,
+  "worldFiles": {
+    "skip": [
+      {
+        "path": "core/data/daemon-owner.lock",
+        "reason": "the core's ownership of its data folder: an OS-held exclusive lock for its whole life (Node's daemon-owner.lock likewise), so its bytes cannot be read while it runs; written once at the start"
+      }
+    ]
+  }
 }

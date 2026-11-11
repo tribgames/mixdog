@@ -492,6 +492,79 @@
       ]
     },
     {
+      "name": "custom-discover-body-at-limit-lone",
+      "asked": {
+        "run": "custom",
+        "op": "discover",
+        "input": {
+          "name": "Lone",
+          "protocol": "openai-chat",
+          "baseURL": "http://127.0.0.1:47815/v1",
+          "auth": "none",
+          "schemaVersion": 2,
+          "requestBody": {
+            "x": "\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00ab"
+          }
+        }
+      },
+      "coreMethod": "account/discoverCustomProviderModels",
+      "coreText": "{\"input\":{\"name\":\"Lone\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://127.0.0.1:47815/v1\",\"auth\":\"none\",\"schemaVersion\":2,\"requestBody\":{\"x\":\"\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00ab\"}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "models": [
+            {
+              "id": "m1",
+              "hidden": false,
+              "manual": false,
+              "inherited": {
+                "name": "m1",
+                "contextWindow": 0,
+                "maxOutputTokens": null
+              },
+              "supportsReasoning": false,
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              }
+            }
+          ]
+        }
+      },
+      "requests": [
+        {
+          "method": "GET",
+          "url": "/v1/models",
+          "xToken": null
+        }
+      ]
+    },
+    {
+      "name": "custom-discover-body-past-limit-lone",
+      "asked": {
+        "run": "custom",
+        "op": "discover",
+        "input": {
+          "name": "Lone",
+          "protocol": "openai-chat",
+          "baseURL": "http://127.0.0.1:47815/v1",
+          "auth": "none",
+          "schemaVersion": 2,
+          "requestBody": {
+            "x": "\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00\ude00abc"
+          }
+        }
+      },
+      "coreMethod": "account/discoverCustomProviderModels",
+      "coreText": "{\"input\":{\"name\":\"Lone\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://127.0.0.1:47815/v1\",\"auth\":\"none\",\"schemaVersion\":2,\"requestBody\":{\"x\":\"\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00\\ude00abc\"}}}",
+      "node": {
+        "ok": false,
+        "error": "[custom-provider] requestBody must be at most 16384 characters"
+      },
+      "requests": []
+    },
+    {
       "name": "custom-discover-body-16376-real-replacement",
       "asked": {
         "run": "custom",
@@ -661,10 +734,10 @@
           "status": "ready",
           "server": "rust-analyzer",
           "capabilities": {
-            "completion": false,
-            "completionResolve": false,
+            "completion": true,
+            "completionResolve": true,
             "completionTriggerCharacters": [],
-            "signatureHelp": false,
+            "signatureHelp": true,
             "signatureHelpTriggerCharacters": [],
             "signatureHelpRetriggerCharacters": [],
             "hover": false,
@@ -681,12 +754,14 @@
             "rename": true,
             "prepareRename": false,
             "codeAction": true,
-            "codeActionResolve": false,
+            "codeActionResolve": true,
             "codeActionKinds": [],
             "formatting": false,
             "rangeFormatting": false,
-            "onTypeFormatting": false,
-            "onTypeFormattingTriggerCharacters": [],
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
             "documentLink": false,
             "documentLinkResolve": false,
             "documentColor": false,
@@ -699,8 +774,8 @@
               "tokenTypes": [],
               "tokenModifiers": []
             },
-            "inlayHint": false,
-            "inlayHintResolve": false,
+            "inlayHint": true,
+            "inlayHintResolve": true,
             "callHierarchy": false,
             "workspaceSymbol": true,
             "executeCommand": true
@@ -764,10 +839,10 @@
           "status": "ready",
           "server": "rust-analyzer",
           "capabilities": {
-            "completion": false,
-            "completionResolve": false,
+            "completion": true,
+            "completionResolve": true,
             "completionTriggerCharacters": [],
-            "signatureHelp": false,
+            "signatureHelp": true,
             "signatureHelpTriggerCharacters": [],
             "signatureHelpRetriggerCharacters": [],
             "hover": false,
@@ -784,12 +859,14 @@
             "rename": true,
             "prepareRename": false,
             "codeAction": true,
-            "codeActionResolve": false,
+            "codeActionResolve": true,
             "codeActionKinds": [],
             "formatting": false,
             "rangeFormatting": false,
-            "onTypeFormatting": false,
-            "onTypeFormattingTriggerCharacters": [],
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
             "documentLink": false,
             "documentLinkResolve": false,
             "documentColor": false,
@@ -802,8 +879,8 @@
               "tokenTypes": [],
               "tokenModifiers": []
             },
-            "inlayHint": false,
-            "inlayHintResolve": false,
+            "inlayHint": true,
+            "inlayHintResolve": true,
             "callHierarchy": false,
             "workspaceSymbol": true,
             "executeCommand": true
@@ -854,10 +931,10 @@
           "status": "ready",
           "server": "rust-analyzer",
           "capabilities": {
-            "completion": false,
-            "completionResolve": false,
+            "completion": true,
+            "completionResolve": true,
             "completionTriggerCharacters": [],
-            "signatureHelp": false,
+            "signatureHelp": true,
             "signatureHelpTriggerCharacters": [],
             "signatureHelpRetriggerCharacters": [],
             "hover": false,
@@ -874,12 +951,14 @@
             "rename": true,
             "prepareRename": false,
             "codeAction": true,
-            "codeActionResolve": false,
+            "codeActionResolve": true,
             "codeActionKinds": [],
             "formatting": false,
             "rangeFormatting": false,
-            "onTypeFormatting": false,
-            "onTypeFormattingTriggerCharacters": [],
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
             "documentLink": false,
             "documentLinkResolve": false,
             "documentColor": false,
@@ -892,8 +971,8 @@
               "tokenTypes": [],
               "tokenModifiers": []
             },
-            "inlayHint": false,
-            "inlayHintResolve": false,
+            "inlayHint": true,
+            "inlayHintResolve": true,
             "callHierarchy": false,
             "workspaceSymbol": true,
             "executeCommand": true
@@ -975,10 +1054,10 @@
           "status": "ready",
           "server": "rust-analyzer",
           "capabilities": {
-            "completion": false,
-            "completionResolve": false,
+            "completion": true,
+            "completionResolve": true,
             "completionTriggerCharacters": [],
-            "signatureHelp": false,
+            "signatureHelp": true,
             "signatureHelpTriggerCharacters": [],
             "signatureHelpRetriggerCharacters": [],
             "hover": false,
@@ -995,12 +1074,14 @@
             "rename": true,
             "prepareRename": false,
             "codeAction": true,
-            "codeActionResolve": false,
+            "codeActionResolve": true,
             "codeActionKinds": [],
             "formatting": false,
             "rangeFormatting": false,
-            "onTypeFormatting": false,
-            "onTypeFormattingTriggerCharacters": [],
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
             "documentLink": false,
             "documentLinkResolve": false,
             "documentColor": false,
@@ -1013,8 +1094,8 @@
               "tokenTypes": [],
               "tokenModifiers": []
             },
-            "inlayHint": false,
-            "inlayHintResolve": false,
+            "inlayHint": true,
+            "inlayHintResolve": true,
             "callHierarchy": false,
             "workspaceSymbol": true,
             "executeCommand": true
@@ -1101,6 +1182,1048 @@
               "textDocument": {
                 "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
               }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "lsp-code-action-related-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "textDocument/codeAction",
+          "params": {
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 0
+              },
+              "end": {
+                "line": 0,
+                "character": 4
+              }
+            },
+            "context": {
+              "diagnostics": [
+                {
+                  "range": {
+                    "start": {
+                      "line": 0,
+                      "character": 0
+                    },
+                    "end": {
+                      "line": 0,
+                      "character": 4
+                    }
+                  },
+                  "message": "m",
+                  "source": "s\ud83d",
+                  "relatedInformation": [
+                    {
+                      "location": {
+                        "uri": "file:///D:/b.rs",
+                        "range": {
+                          "start": {
+                            "line": 0,
+                            "character": 0
+                          },
+                          "end": {
+                            "line": 0,
+                            "character": 4
+                          }
+                        }
+                      },
+                      "message": "r\ud83d"
+                    }
+                  ]
+                }
+              ],
+              "triggerKind": 1
+            }
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"textDocument/codeAction\",\"params\":{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":4}},\"context\":{\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":4}},\"message\":\"m\",\"source\":\"s\\ud83d\",\"relatedInformation\":[{\"location\":{\"uri\":\"file:///D:/b.rs\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":4}}},\"message\":\"r\\ud83d\"}]}],\"triggerKind\":1}}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": true,
+            "completionResolve": true,
+            "completionTriggerCharacters": [],
+            "signatureHelp": true,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": true,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": true,
+            "inlayHintResolve": true,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 4
+                }
+              },
+              "context": {
+                "diagnostics": [
+                  {
+                    "range": {
+                      "start": {
+                        "line": 0,
+                        "character": 0
+                      },
+                      "end": {
+                        "line": 0,
+                        "character": 4
+                      }
+                    },
+                    "message": "m",
+                    "source": "s\ud83d",
+                    "relatedInformation": [
+                      {
+                        "location": {
+                          "uri": "file:///D:/b.rs",
+                          "range": {
+                            "start": {
+                              "line": 0,
+                              "character": 0
+                            },
+                            "end": {
+                              "line": 0,
+                              "character": 4
+                            }
+                          }
+                        },
+                        "message": "r\ud83d"
+                      }
+                    ]
+                  }
+                ],
+                "triggerKind": 1
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "textDocument/codeAction",
+            "params": {
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 4
+                }
+              },
+              "context": {
+                "diagnostics": [
+                  {
+                    "range": {
+                      "start": {
+                        "line": 0,
+                        "character": 0
+                      },
+                      "end": {
+                        "line": 0,
+                        "character": 4
+                      }
+                    },
+                    "message": "m",
+                    "source": "s\ud83d",
+                    "relatedInformation": [
+                      {
+                        "location": {
+                          "uri": "file:///D:/b.rs",
+                          "range": {
+                            "start": {
+                              "line": 0,
+                              "character": 0
+                            },
+                            "end": {
+                              "line": 0,
+                              "character": 4
+                            }
+                          }
+                        },
+                        "message": "r\ud83d"
+                      }
+                    ]
+                  }
+                ],
+                "triggerKind": 1
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "lsp-code-action-resolve-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "codeAction/resolve",
+          "params": {
+            "title": "fix",
+            "diagnostics": [
+              {
+                "range": {
+                  "start": {
+                    "line": 0,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 0,
+                    "character": 4
+                  }
+                },
+                "message": "m\ud83d",
+                "source": "s\ud83d",
+                "relatedInformation": [
+                  {
+                    "location": {
+                      "uri": "file:///D:/b.rs",
+                      "range": {
+                        "start": {
+                          "line": 0,
+                          "character": 0
+                        },
+                        "end": {
+                          "line": 0,
+                          "character": 4
+                        }
+                      }
+                    },
+                    "message": "r\ud83d"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"codeAction/resolve\",\"params\":{\"title\":\"fix\",\"diagnostics\":[{\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":4}},\"message\":\"m\\ud83d\",\"source\":\"s\\ud83d\",\"relatedInformation\":[{\"location\":{\"uri\":\"file:///D:/b.rs\",\"range\":{\"start\":{\"line\":0,\"character\":0},\"end\":{\"line\":0,\"character\":4}}},\"message\":\"r\\ud83d\"}]}]}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": true,
+            "completionResolve": true,
+            "completionTriggerCharacters": [],
+            "signatureHelp": true,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": true,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": true,
+            "inlayHintResolve": true,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "title": "fix",
+              "diagnostics": [
+                {
+                  "range": {
+                    "start": {
+                      "line": 0,
+                      "character": 0
+                    },
+                    "end": {
+                      "line": 0,
+                      "character": 4
+                    }
+                  },
+                  "message": "m\ud83d",
+                  "source": "s\ud83d",
+                  "relatedInformation": [
+                    {
+                      "location": {
+                        "uri": "file:///D:/b.rs",
+                        "range": {
+                          "start": {
+                            "line": 0,
+                            "character": 0
+                          },
+                          "end": {
+                            "line": 0,
+                            "character": 4
+                          }
+                        }
+                      },
+                      "message": "r\ud83d"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "codeAction/resolve",
+            "params": {
+              "title": "fix",
+              "diagnostics": [
+                {
+                  "range": {
+                    "start": {
+                      "line": 0,
+                      "character": 0
+                    },
+                    "end": {
+                      "line": 0,
+                      "character": 4
+                    }
+                  },
+                  "message": "m\ud83d",
+                  "source": "s\ud83d",
+                  "relatedInformation": [
+                    {
+                      "location": {
+                        "uri": "file:///D:/b.rs",
+                        "range": {
+                          "start": {
+                            "line": 0,
+                            "character": 0
+                          },
+                          "end": {
+                            "line": 0,
+                            "character": 4
+                          }
+                        }
+                      },
+                      "message": "r\ud83d"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "lsp-completion-trigger-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "textDocument/completion",
+          "params": {
+            "position": {
+              "line": 0,
+              "character": 1
+            },
+            "context": {
+              "triggerKind": 2,
+              "triggerCharacter": "\ud83d"
+            }
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"textDocument/completion\",\"params\":{\"position\":{\"line\":0,\"character\":1},\"context\":{\"triggerKind\":2,\"triggerCharacter\":\"\\ud83d\"}}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": true,
+            "completionResolve": true,
+            "completionTriggerCharacters": [],
+            "signatureHelp": true,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": true,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": true,
+            "inlayHintResolve": true,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "context": {
+                "triggerKind": 2,
+                "triggerCharacter": "\ud83d"
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "textDocument/completion",
+            "params": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "context": {
+                "triggerKind": 2,
+                "triggerCharacter": "\ud83d"
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "lsp-completion-resolve-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "completionItem/resolve",
+          "params": {
+            "label": "a\ud83d",
+            "sortText": "s\ud83d",
+            "filterText": "f\ud83d",
+            "commitCharacters": [
+              "\ud83d"
+            ]
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"completionItem/resolve\",\"params\":{\"label\":\"a\\ud83d\",\"sortText\":\"s\\ud83d\",\"filterText\":\"f\\ud83d\",\"commitCharacters\":[\"\\ud83d\"]}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": true,
+            "completionResolve": true,
+            "completionTriggerCharacters": [],
+            "signatureHelp": true,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": true,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": true,
+            "inlayHintResolve": true,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "label": "a\ud83d",
+              "sortText": "s\ud83d",
+              "filterText": "f\ud83d",
+              "commitCharacters": [
+                "\ud83d"
+              ]
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "completionItem/resolve",
+            "params": {
+              "label": "a\ud83d",
+              "sortText": "s\ud83d",
+              "filterText": "f\ud83d",
+              "commitCharacters": [
+                "\ud83d"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "lsp-signature-help-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "textDocument/signatureHelp",
+          "params": {
+            "position": {
+              "line": 0,
+              "character": 1
+            },
+            "context": {
+              "triggerKind": 1,
+              "isRetrigger": true,
+              "activeSignatureHelp": {
+                "signatures": [
+                  {
+                    "label": "f(a)",
+                    "parameters": [
+                      {
+                        "label": "a\ud83d"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"textDocument/signatureHelp\",\"params\":{\"position\":{\"line\":0,\"character\":1},\"context\":{\"triggerKind\":1,\"isRetrigger\":true,\"activeSignatureHelp\":{\"signatures\":[{\"label\":\"f(a)\",\"parameters\":[{\"label\":\"a\\ud83d\"}]}]}}}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": true,
+            "completionResolve": true,
+            "completionTriggerCharacters": [],
+            "signatureHelp": true,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": true,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": true,
+            "inlayHintResolve": true,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "context": {
+                "triggerKind": 1,
+                "isRetrigger": true,
+                "activeSignatureHelp": {
+                  "signatures": [
+                    {
+                      "label": "f(a)",
+                      "parameters": [
+                        {
+                          "label": "a\ud83d"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "textDocument/signatureHelp",
+            "params": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "context": {
+                "triggerKind": 1,
+                "isRetrigger": true,
+                "activeSignatureHelp": {
+                  "signatures": [
+                    {
+                      "label": "f(a)",
+                      "parameters": [
+                        {
+                          "label": "a\ud83d"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "lsp-on-type-formatting-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "textDocument/onTypeFormatting",
+          "params": {
+            "position": {
+              "line": 0,
+              "character": 1
+            },
+            "ch": "\ud83d",
+            "options": {
+              "tabSize": 4,
+              "insertSpaces": true
+            }
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"textDocument/onTypeFormatting\",\"params\":{\"position\":{\"line\":0,\"character\":1},\"ch\":\"\\ud83d\",\"options\":{\"tabSize\":4,\"insertSpaces\":true}}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": true,
+            "completionResolve": true,
+            "completionTriggerCharacters": [],
+            "signatureHelp": true,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": true,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": true,
+            "inlayHintResolve": true,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "ch": "\ud83d",
+              "options": {
+                "tabSize": 4,
+                "insertSpaces": true
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "textDocument/onTypeFormatting",
+            "params": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "ch": "\ud83d",
+              "options": {
+                "tabSize": 4,
+                "insertSpaces": true
+              },
+              "textDocument": {
+                "uri": "file:///D:/mixdog-build/tmp/lone-surrogate-wire-world/project/a.rs"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "lsp-inlay-hint-resolve-lone",
+      "asked": {
+        "run": "lsp",
+        "input": {
+          "projectPath": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "root": "D:\\mixdog-build\\tmp\\lone-surrogate-wire-world\\project",
+          "relPath": "a.rs",
+          "languageId": "rust",
+          "method": "inlayHint/resolve",
+          "params": {
+            "position": {
+              "line": 0,
+              "character": 1
+            },
+            "label": [
+              {
+                "value": "v\ud83d"
+              }
+            ]
+          }
+        }
+      },
+      "coreMethod": "lsp/request",
+      "coreText": "{\"projectPath\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"root\":\"D:\\\\mixdog-build\\\\tmp\\\\lone-surrogate-wire-world\\\\project\",\"request\":{\"relPath\":\"a.rs\",\"languageId\":\"rust\",\"method\":\"inlayHint/resolve\",\"params\":{\"position\":{\"line\":0,\"character\":1},\"label\":[{\"value\":\"v\\ud83d\"}]}}}",
+      "node": {
+        "ok": true,
+        "value": {
+          "available": true,
+          "status": "ready",
+          "server": "rust-analyzer",
+          "capabilities": {
+            "completion": true,
+            "completionResolve": true,
+            "completionTriggerCharacters": [],
+            "signatureHelp": true,
+            "signatureHelpTriggerCharacters": [],
+            "signatureHelpRetriggerCharacters": [],
+            "hover": false,
+            "declaration": false,
+            "definition": false,
+            "typeDefinition": false,
+            "implementation": false,
+            "references": false,
+            "documentHighlight": false,
+            "linkedEditingRange": false,
+            "documentSymbol": false,
+            "codeLens": false,
+            "codeLensResolve": false,
+            "rename": true,
+            "prepareRename": false,
+            "codeAction": true,
+            "codeActionResolve": true,
+            "codeActionKinds": [],
+            "formatting": false,
+            "rangeFormatting": false,
+            "onTypeFormatting": true,
+            "onTypeFormattingTriggerCharacters": [
+              "}"
+            ],
+            "documentLink": false,
+            "documentLinkResolve": false,
+            "documentColor": false,
+            "foldingRange": false,
+            "selectionRange": false,
+            "semanticTokens": false,
+            "semanticTokensRange": false,
+            "semanticTokensDelta": false,
+            "semanticTokensLegend": {
+              "tokenTypes": [],
+              "tokenModifiers": []
+            },
+            "inlayHint": true,
+            "inlayHintResolve": true,
+            "callHierarchy": false,
+            "workspaceSymbol": true,
+            "executeCommand": true
+          },
+          "result": {
+            "received": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "label": [
+                {
+                  "value": "v\ud83d"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "url": "/lsp",
+          "xToken": null,
+          "received": {
+            "method": "inlayHint/resolve",
+            "params": {
+              "position": {
+                "line": 0,
+                "character": 1
+              },
+              "label": [
+                {
+                  "value": "v\ud83d"
+                }
+              ]
             }
           }
         }
