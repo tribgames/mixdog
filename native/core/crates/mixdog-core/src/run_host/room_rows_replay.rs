@@ -1,5 +1,6 @@
-//! The core's half of Node's recording `fixtures/agent-room-cases/golden.json` cases 3, 25, 27, 45 and 47
-//! (`record-agent-room-cases.mjs`): what the core gives for each case's inputs, the room rows it stores, the
+//! The core's half of Node's recording `fixtures/agent-room-cases/golden.json` cases 3, 25, 27, 45, 47 and 48
+//! (`record-agent-room-cases.mjs`): what the core gives for each case's inputs (case 48: a user's files taken in by the
+//! room's `SessionFiles` as the room host posts the row), the room rows it stores, the
 //! group-room lines a client reads of a room log (`thread/read`) and the rows the room host reads back
 //! (`DirectoryRoomDaemon::room_rows`). The whole of it is `packages/protocol-client/test/agent-room-core.json`;
 //! `packages/protocol-client/test/agent-room-rows.test.ts` turns its lines into rows with the client's `rowOf`
@@ -18,11 +19,17 @@ use mixdog_core_rooms::rooms::row_message::{normalize_room_row, room_row_message
 use mixdog_core_rooms::rooms::rows::rows_since_cursor;
 use mixdog_core_session::session::{SessionDirectory, StoreThreads};
 use mixdog_core_session::session::testing::{RecordTranscript, Rig};
+use mixdog_core_rooms::rooms::live::RoomFiles;
+use mixdog_core_session::session::room_log::{RoomLog, SessionRoomLog};
+use mixdog_store::blobs::BlobStore;
+use mixdog_store::schema::bounded::Digest;
 use mixdog_store::schema::record::Header;
 use mixdog_testkit::exact::Exact;
 use serde_json::{Value, json};
 
 use super::room_daemon::DirectoryRoomDaemon;
+use super::room_files::SessionFiles;
+use super::room_files::tests::NoDocuments;
 
 fn golden() -> Exact {
     Exact::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/agent-room-cases/golden.json"))
@@ -41,10 +48,11 @@ fn observed<'a>(golden: &'a Exact, index: usize) -> &'a Exact {
 }
 
 /// One room log over the real session directory on the real thread store, posted to through the room log's append and
-/// read by a client.
+/// read by a client; a row's files are taken in by the room's [`SessionFiles`] over the same data folder's attachment store.
 struct Log {
     directory: Arc<SessionDirectory>,
     daemon: DirectoryRoomDaemon,
+    files: SessionFiles,
     _rig: Rig,
     _data: tempfile::TempDir,
 }
@@ -71,18 +79,52 @@ impl Log {
         deps.transcript = Arc::new(RecordTranscript::new());
         let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
         let daemon = DirectoryRoomDaemon::new(directory.clone(), Arc::new(|| {}));
-        Self { directory, daemon, _rig: rig, _data: data }
+        let files = SessionFiles::new(directory.clone(), tokens.durability_io, data.path().to_path_buf(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {}));
+        Self { directory, daemon, files, _rig: rig, _data: data }
     }
 
-    /// A fresh room log holding `messages` (each `roomRowMessage`), posted in one append: its lines as
-    /// `thread/read` gives them, and its rows as the room host reads them back.
-    async fn post(&self, room: &str, messages: Vec<Value>) -> (Vec<Value>, Vec<Value>) {
+    /// A fresh room log `sess_room_<room>`.
+    async fn create(&self, room: &str) -> ThreadId {
         let thread = ThreadId::from(format!("sess_room_{room}"));
         let mut header = Header::new();
         header.insert("createdAt".into(), json!(1));
         header.insert("updatedAt".into(), json!(1));
         self.directory.create_with_id(thread.clone(), header, json!({})).await.unwrap();
+        thread
+    }
+
+    /// A fresh room log holding `messages` (each `roomRowMessage`), posted in one append: its lines as
+    /// `thread/read` gives them, and its rows as the room host reads them back.
+    async fn post(&self, room: &str, messages: Vec<Value>) -> (Vec<Value>, Vec<Value>) {
+        let thread = self.create(room).await;
         self.daemon.append_rows(thread.as_str(), messages).await.unwrap();
+        self.read(&thread).await
+    }
+
+    /// `rows` posted into a fresh log as the room host posts them (`View::post`): each row's files taken in, the row in
+    /// its canonical shape, its message appended. How many were added, the rows as stored and their messages.
+    async fn post_rows(&self, room: &str, rows: Vec<Value>, now: i64) -> (ThreadId, usize, Vec<Value>, Vec<Value>) {
+        let thread = self.create(room).await;
+        let mut kept = Vec::new();
+        for row in rows {
+            kept.push(normalize_room_row(&self.files.take_in(room, row).await.unwrap()).unwrap());
+        }
+        let messages: Vec<Value> = kept.iter().map(|row| room_row_message(row, now).unwrap()).collect();
+        let added = SessionRoomLog::new(self.directory.clone()).append_rows(thread.as_str(), messages.clone()).await.unwrap();
+        (thread, added, kept, messages)
+    }
+
+    /// The text of a stored attachment.
+    async fn stored_text(&self, reference: &str) -> String {
+        let (blobs, digest) = (BlobStore::new(self._data.path()), Digest::try_from(format!("sha256:{reference}")).unwrap());
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let bytes = mixdog_rt::LaneToken::submit(lane, &mixdog_rt::CancellationToken::new(), move |lane| blobs.read(lane, &digest).unwrap()).unwrap().await.unwrap();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    /// The log's lines as `thread/read` gives them, and its rows as the room host reads them back.
+    async fn read(&self, thread: &ThreadId) -> (Vec<Value>, Vec<Value>) {
+        let thread = thread.clone();
         let handle = self.directory.open_handle(&thread, &CallContext::internal("test")).await.unwrap();
         let read = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": thread }), op: None, ctx: CallContext::internal("test") };
         let Reply::Value(read) = handle.request(read).await.unwrap() else { panic!("thread/read answers a value") };
@@ -181,6 +223,17 @@ async fn core_values() -> Value {
     let (file_lines, file_rows) = log.post("case47", vec![message(row_input.clone())]).await;
     let (speech_lines, _) = log.post("case47speech", vec![message(speech_row.clone())]).await;
 
+    // Case 48 (`:400`): a user row's upload taken in by the log's intake, into `sess_room_abc123`.
+    let input = plain(observed(&golden, 48).get("input"));
+    let (thread, added, rows, messages) = log.post_rows("abc123", input.as_array().unwrap().clone(), now).await;
+    let (upload_lines, _) = log.read(&thread).await;
+    let part_ref = |kind: &str| rows[0]["parts"].as_array().unwrap().iter().find(|part| part["type"] == kind).unwrap()["attachmentRef"].as_str().unwrap().to_owned();
+    let stored_bytes = json!({
+        "image": log.stored_text(&part_ref("image")).await,
+        "file": log.stored_text(&part_ref("file")).await,
+        "text": log.stored_text(&part_ref("text")).await,
+    });
+
     json!({
         "3": { "normalizedRow": normalized_row, "legacyLines": legacy_lines },
         "25": { "named": named, "row": row, "lines": sender_lines },
@@ -195,6 +248,7 @@ async fn core_values() -> Value {
             "speechLines": speech_lines,
             "passRow": normalize_room_row(&pass).unwrap(),
         },
+        "48": { "added": added, "rows": rows, "storedBytes": stored_bytes, "sessionMessages": messages, "lines": upload_lines },
     })
 }
 
