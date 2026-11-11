@@ -34,7 +34,7 @@ const dec = (type, wire) => {
 const row = (id, line, steps) => rec.run(id, `${SRC}:${line}`, { steps: steps.map(({ op, type, value, hex: h }) => ({ op, type, ...(value !== undefined ? { value } : {}), ...(op === 'decode' ? { hex: h } : {}) })) }, () => ({ steps }));
 const S = (fn) => fn();
 
-await row('get-user-jwt-response', 17, [enc('GetUserJwtResponse', { userJwt: 'abc', customApiServerUrl: 'https://x.io' }), dec('GetUserJwtResponse', '0a03616263 120c 68747470733a2f2f782e696f')]);
+await row('get-user-jwt-response', 70, [enc('GetUserJwtResponse', { userJwt: 'abc', customApiServerUrl: 'https://x.io' }), dec('GetUserJwtResponse', '0a03616263 120c 68747470733a2f2f782e696f')]);
 await row('repeated-enums-packed', 24, [
   enc('Metadata', { apiKey: 'k', supportedModelDisplays: [3, 4, 6, 7, 8] }), dec('Metadata', '1a016b f20105 0304060708'), dec('Metadata', 'f00103 f00104'),
 ]);
@@ -52,7 +52,7 @@ await row('fixed-width-and-signed-scalars', 62, [
   enc('ModelDimension', { value: 0.5 }), enc('ClientModelConfig', { maxTokens: -1 }), dec('ClientModelConfig', '9001ffffffffffffffffff01'), enc('ModelUsageStats', { inputTokens: 300n }),
 ]);
 await row('streamed-chat-response', 82, [dec('GetChatMessageResponse', ['0a026964', '1a026869', '2803', '320a 0a0163 12016e 1a027b7d', '3a04 1005 1807', '4a0174', 'ba0100', '980601'].join(''))]);
-await row('repeated-elements-keep-defaults', 112, [
+await row('repeated-elements-keep-defaults', 95, [
   enc('CompletionConfiguration', { stopPatterns: ['', 'a', ''] }), dec('CompletionConfiguration', '4a00 4a0161 4a00'),
   enc('Metadata', { supportedModelDisplays: [0, 3] }), enc('ChatMessagePrompt', { toolCalls: [{}] }),
 ]);
@@ -74,10 +74,10 @@ await row('malformed-protobuf-rejected', 170, [
   ...[['GetUserJwtResponse', '0801'], ['GetUserJwtResponse', '0a0561'], ['GetUserJwtResponse', '0a01ff'], ['GetUserJwtResponse', '0a80'], ['GetUserJwtResponse', '0b'], ['GetUserJwtResponse', '0001'], ['ModelDimension', '1000'], ['CompletionConfiguration', '290000']].map(([type, wire]) => dec(type, wire)),
   enc('NoSuchMessage', {}),
 ]);
-await row('assign-model-router-fields', 183, [
+await row('assign-model-router-fields', 187, [
   enc('AssignModelRequest', { modelRouterUid: 'adaptive', cascadeId: 'c', chatMessagePrompt: { source: 1 } }), dec('AssignModelResponse', '0a09 0a016a 12016d 1a0168'),
 ]);
-await rec.run('schema-table-field-names', `${SRC}:195`, {}, () => ({
+await rec.run('schema-table-field-names', `${SRC}:198`, {}, () => ({
   steps: [{ op: 'schema', schemas: DEVIN_SCHEMAS, field21: DEVIN_SCHEMAS.GetChatMessageRequest[21].name, promptField2Enum: DEVIN_SCHEMAS.ChatMessagePrompt[2].enum }],
 }));
 await rec.finish();

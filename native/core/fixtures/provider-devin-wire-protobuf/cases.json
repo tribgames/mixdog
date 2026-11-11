@@ -5,7 +5,7 @@
   "cases": [
     {
       "id": "get-user-jwt-response",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:17",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:70",
       "input": {
         "steps": [
           {
@@ -534,7 +534,7 @@
     },
     {
       "id": "repeated-elements-keep-defaults",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:112",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:95",
       "input": {
         "steps": [
           {
@@ -1314,7 +1314,7 @@
     },
     {
       "id": "assign-model-router-fields",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:183",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:187",
       "input": {
         "steps": [
           {
@@ -1377,7 +1377,7 @@
     },
     {
       "id": "schema-table-field-names",
-      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:195",
+      "source": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.test.mjs:198",
       "input": {},
       "result": {
         "steps": [
