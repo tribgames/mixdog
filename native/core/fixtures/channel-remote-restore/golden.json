@@ -4,7 +4,7 @@
     {
       "name": "a pinned session that exists",
       "sessionId": "sess_live",
-      "transcriptExists": true,
+      "deleted": false,
       "restored": true,
       "calls": [
         {
@@ -47,34 +47,66 @@
             "text": "{\"version\":1,\"sessionId\":\"sess_live\",\"transcriptPath\":\"/work/sess_live.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
           }
         }
-      ]
+      ],
+      "inbound": {
+        "routed": true,
+        "submitted": [],
+        "log": [
+          "channel session delivery unavailable session=none"
+        ]
+      },
+      "send": {
+        "status": 200,
+        "body": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "unknown tool: reply"
+              }
+            ],
+            "isError": true
+          }
+        },
+        "calls": [
+          {
+            "name": "reply",
+            "args": {
+              "chat_id": "c1",
+              "text": "hi back"
+            },
+            "answer": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "unknown tool: reply"
+                }
+              ],
+              "isError": true
+            }
+          }
+        ]
+      },
+      "list": {
+        "sessions": [
+          "sess_live"
+        ],
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "sess_live",
+          "cwd": "/work"
+        }
+      }
     },
     {
       "name": "a pinned session that was deleted",
       "sessionId": "sess_deleted",
-      "transcriptExists": false,
-      "restored": true,
-      "calls": [
-        {
-          "name": "activate_channel_bridge",
-          "args": {
-            "active": true,
-            "sessionId": "sess_deleted",
-            "transcriptPath": "/work/sess_deleted.jsonl",
-            "restore": true
-          },
-          "answer": {
-            "content": [
-              {
-                "type": "text",
-                "text": "channel bridge activated"
-              }
-            ]
-          }
-        }
-      ],
+      "deleted": true,
+      "restored": false,
+      "calls": [],
       "logs": [
-        "remote intent restored session=sess_deleted"
+        "remote intent restore skipped session=sess_deleted: the session no longer exists",
+        "remote intent cleared (pinned session deleted)"
       ],
       "checkpoints": [
         {
@@ -88,14 +120,62 @@
         },
         {
           "at": "restored",
-          "pinnedSession": "sess_deleted",
-          "remoteSession": "sess_deleted",
+          "pinnedSession": null,
+          "remoteSession": null,
           "file": {
-            "kind": "file",
-            "text": "{\"version\":1,\"sessionId\":\"sess_deleted\",\"transcriptPath\":\"/work/sess_deleted.jsonl\",\"cwd\":\"/work\",\"updatedAt\":123}"
+            "kind": "absent"
           }
         }
-      ]
+      ],
+      "inbound": {
+        "routed": true,
+        "submitted": [],
+        "log": [
+          "channel session delivery unavailable session=none"
+        ]
+      },
+      "send": {
+        "status": 200,
+        "body": {
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "unknown tool: reply"
+              }
+            ],
+            "isError": true
+          }
+        },
+        "calls": [
+          {
+            "name": "reply",
+            "args": {
+              "chat_id": "c1",
+              "text": "hi back"
+            },
+            "answer": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "unknown tool: reply"
+                }
+              ],
+              "isError": true
+            }
+          }
+        ]
+      },
+      "list": {
+        "sessions": [
+          "sess_live"
+        ],
+        "remoteSession": {
+          "enabled": false,
+          "sessionId": null,
+          "cwd": null
+        }
+      }
     }
   ]
 }
