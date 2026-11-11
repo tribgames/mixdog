@@ -157,19 +157,19 @@ struct Filters {
 
 fn dense_cte(has_vector: bool, f: &Filters) -> String {
     if !has_vector {
-        return "\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::text IS NOT NULL AND false),".into();
+        return "\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),".into();
     }
     format!(
         "
 dense AS (
   SELECT id,
-         1 - (embedding <=> $1::text::halfvec) AS sim,
-         ROW_NUMBER() OVER (ORDER BY embedding <=> $1::text::halfvec) AS dense_rank
+         1 - (embedding <=> $1::halfvec) AS sim,
+         ROW_NUMBER() OVER (ORDER BY embedding <=> $1::halfvec) AS dense_rank
   FROM entries
   WHERE embedding IS NOT NULL
     {}
     {}
-  ORDER BY embedding <=> $1::text::halfvec
+  ORDER BY embedding <=> $1::halfvec
   LIMIT $4
 ),",
         f.clause, f.root
@@ -178,8 +178,7 @@ dense AS (
 
 fn sparse_cte(fts: Option<&str>, prefix_mode: bool, f: &Filters) -> String {
     if fts.is_none() {
-        // `real`, the type of `ts_rank_cd` in the other form: the row decoder reads `sparse_lex` as a REAL either way.
-        return "\nsparse AS (SELECT NULL::bigint AS id, NULL::real AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),".into();
+        return "\nsparse AS (SELECT NULL::bigint AS id, NULL::float8 AS lex, NULL::bigint AS sparse_rank WHERE $2::text IS NOT NULL AND false),".into();
     }
     let tsq = if prefix_mode { "to_tsquery('simple', $2)" } else { "websearch_to_tsquery('simple', $2)" };
     format!(
@@ -351,7 +350,7 @@ LEFT JOIN exact  x ON x.id = c.id",
         exact_cte(exact_param, &filters),
     );
     let mut params = vec![
-        vector_sql.map_or(P::T(String::new()), P::T),
+        vector_sql.map_or(P::Null, P::Lit),
         fts.map_or(P::T(String::new()), P::T),
         P::T(plan.clean.clone()),
         P::I(plan.candidate_window),
@@ -415,7 +414,7 @@ async fn resolve_roots(
         params.extend(scope_params);
         let rows = read_query(
             db,
-            &format!("SELECT {ENTRY_ROW_COLUMNS} FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"),
+            &format!("SELECT {ENTRY_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"),
             &params,
         )
         .await?;
@@ -469,7 +468,7 @@ async fn fetch_final_rows(db: &Db, resolution: &RootResolution, plan: &Plan) -> 
         }
         let mut all = vec![P::IA(ids)];
         all.extend(params);
-        read_query(db, &format!("SELECT {FINAL_ROW_COLUMNS} FROM entries WHERE id = ANY($1::bigint[]) {clause}"), &all).await
+        read_query(db, &format!("SELECT {FINAL_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) {clause}"), &all).await
     }
     let (window_clause, window_params) = plan.filter(2, false, "");
     if resolution.member_hit_roots.is_empty() {
@@ -613,7 +612,8 @@ async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result
     Ok((merged, expanded))
 }
 
-fn prefer_latest_concept_rows(rows: &[Row], latest: &[Row]) -> Vec<Row> {
+/// `preferLatestConceptRows`: each row replaced by the newest latest-row of one of its concepts.
+pub fn prefer_latest_concept_rows(rows: &[Row], latest: &[Row]) -> Vec<Row> {
     let mut by_concept: HashMap<i64, &Row> = HashMap::new();
     for row in latest {
         by_concept.entry(row.matched_concept_id.or(row.concept_id).unwrap_or(row.id)).or_insert(row);
@@ -745,6 +745,9 @@ thread_local! {
     /// When set, the candidate rows (every lane's columns) each search on this thread read: what Node's recording of the
     /// candidate statement holds, which the search's result does not carry.
     pub(crate) static OBSERVED_CANDIDATES: std::cell::RefCell<Option<Vec<Vec<Row>>>> = const { std::cell::RefCell::new(None) };
+    /// When set, the next search's candidate statement is sent to no database and answered with these rows (a
+    /// recording whose stand-in database answered that statement with its own rows).
+    pub(crate) static CANDIDATE_ANSWER: std::cell::RefCell<Option<Vec<Row>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Hybrid search over `entries`. Numeric-only and empty queries find nothing.
@@ -755,7 +758,18 @@ pub async fn search_relevant_hybrid(db: &Db, query: &str, options: &SearchOption
     }
     let plan = Plan::new(clean, options);
     let (sql, params) = build_hybrid_query(&plan);
-    let mut raw = read_query(db, &sql, &params).await?;
+    #[cfg(test)]
+    let answered = CANDIDATE_ANSWER.with(|answer| answer.borrow_mut().take());
+    #[cfg(not(test))]
+    let answered: Option<Vec<Row>> = None;
+    let mut raw = match answered {
+        Some(rows) => {
+            #[cfg(test)]
+            crate::memory::recall::store::observe_read(&sql, &params);
+            rows
+        }
+        None => read_query(db, &sql, &params).await?,
+    };
     #[cfg(test)]
     OBSERVED_CANDIDATES.with(|observed| {
         if let Some(list) = observed.borrow_mut().as_mut() {

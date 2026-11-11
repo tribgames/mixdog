@@ -5,6 +5,7 @@
 mod cache_retention;
 mod chunk_audit;
 mod chunk_quality_handoff;
+mod history_duplicates;
 mod hybrid_sql_exact;
 mod light_ko_morph;
 mod model_config;
@@ -151,6 +152,10 @@ pub(crate) fn row(value: &Exact) -> Result<Row, String> {
             "exact_rarity" => row.exact_rarity = opt_float(v).map_err(at)?,
             "rrf" => row.rrf = opt_float(v).map_err(at)?,
             "retrievalScore" => row.retrieval_score = opt_float(v).map_err(at)?,
+            "retrievalRank" => row.retrieval_rank = opt_integer(v).map_err(at)?.map(|r| r as usize),
+            "concept_ids" => {
+                row.concept_ids = v.as_array().iter().map(integer).collect::<Result<_, _>>().map_err(at)?;
+            }
             "_retrievalEvidence" => {
                 row.retrieval_evidence = match opt_str(v).map_err(at)? {
                     None => None,
@@ -259,6 +264,8 @@ fn row_optional(row: &Row) -> Vec<(&'static str, Option<Exact>)> {
         ("exact_rank", i(row.exact_rank)),
         ("rrf", f(row.rrf)),
         ("retrievalScore", f(row.retrieval_score)),
+        ("retrievalRank", row.retrieval_rank.map(|r| int(r as i64))),
+        ("concept_ids", (!row.concept_ids.is_empty()).then(|| Exact::Array(row.concept_ids.iter().map(|id| int(*id)).collect()))),
         ("_retrievalEvidence", row.retrieval_evidence.map(string)),
         ("members", row.members.as_ref().map(|m| Exact::Array(m.iter().map(row_value).collect()))),
         ("_historicalRootElement", s(&row.historical_root_element)),
