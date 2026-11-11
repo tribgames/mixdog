@@ -3,10 +3,12 @@
 //! entries live in this crate gets its recorded inputs through the room's own functions (the ones the exchange, a
 //! member's turn and the supervisor step call) and its whole recorded value compared.
 //!
-//! Not replayed here: the cases whose value is Node's transcript row of a stored room message (`roomRowItem`,
+//! Not compared here: the cases whose value is Node's transcript row of a stored room message (`roomRowItem`,
 //! `roomRowsOfItems` over it: 3, 25, 27, 45, 47) — that row is built by the protocol client
-//! (`packages/protocol-client/src/rows.ts` `roomRowItem`), the core hands it a `roomRow` item — and the log's intake
-//! of a user row's upload (48), which the core does not have (the manifest's `replay.notReplayed`).
+//! (`packages/protocol-client/src/rows.ts` `roomRowItem`) from the `roomRow` lines the core hands it. The core's side
+//! of them is `mixdog-core` `run_host::room_rows_replay`, and of case 25's exchange this file's
+//! `the_core_gives_the_client_the_exchange_case_25_records`; `packages/protocol-client/test/agent-room-rows.test.ts`
+//! compares each whole.
 //!
 //! Inputs the recording echoes are taken from it; the few the recorder passed without echoing them are written here
 //! as the recorder wrote them (`record-agent-room-cases.mjs`, the line named at each). A Rust value is written in the
@@ -184,6 +186,26 @@ fn a_peer_mention_is_one_other_member_outside_code_and_quotes() {
         })
         .collect();
     check(json!({ "members": plain(want.get("members")), "mentions": mentions }), want, name);
+}
+
+/// Case 25's exchange that serves only the member asked (`record-agent-room-cases.mjs:197`), as the core runs it: the
+/// value `packages/protocol-client/test/agent-room-rows.test.ts` puts beside the client's rows of the case and compares
+/// whole with the recording. `MIXDOG_WRITE_AGENT_ROOM_CORE=1` writes it there instead of comparing.
+#[tokio::test]
+async fn the_core_gives_the_client_the_exchange_case_25_records() {
+    let golden = golden();
+    let recorded = observed(&golden, 25, "a member is named exactly by id or name; a row from another session keeps and shows its sender").get("onlyExchange").get("spec");
+    // The recorded `spec` is the input; the client test puts it back in front of what the exchange gives. Its `choose:
+    // undefined` is a field the recorder left unset, which JSON has only as absent.
+    let spec = Value::Object(recorded.entries().iter().filter(|(_, v)| *v != Exact::Undefined).map(|(k, v)| (k.clone(), plain(v))).collect());
+    let got = json!({ "25": { "onlyExchange": run_spec(&spec).await } });
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../packages/protocol-client/test/agent-room-core-exchange.json");
+    if std::env::var_os("MIXDOG_WRITE_AGENT_ROOM_CORE").is_some() {
+        std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&got).unwrap())).unwrap();
+        return;
+    }
+    let want: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    assert_eq!(got, want, "the core's exchange differs from {}", path.display());
 }
 
 /// Cases 4-24: each scripted exchange (`exchange(spec)` / `exchanges(specs)`) through `run_room_exchange`.
