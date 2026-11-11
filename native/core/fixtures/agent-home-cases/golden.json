@@ -76,9 +76,7 @@
             "sessionId": ""
           },
           {
-            "agentId": {
-              "null": true
-            },
+            "agentId": null,
             "sessionId": ""
           }
         ],
@@ -125,10 +123,17 @@
             "skipAgentRules": true,
             "result": {
               "roleRules": "",
+              "userPrompt": {
+                "$exact": "undefined"
+              },
               "skipRoleCatalog": false,
               "skipPersona": false,
               "agent": "github-watcher",
-              "profile": {}
+              "profile": {
+                "skip": {
+                  "$exact": "undefined"
+                }
+              }
             }
           },
           {
@@ -136,23 +141,35 @@
             "skipAgentRules": true,
             "result": {
               "roleRules": "",
+              "userPrompt": {
+                "$exact": "undefined"
+              },
               "skipRoleCatalog": true,
               "skipPersona": true,
               "agent": "lead",
-              "profile": {}
+              "profile": {
+                "skip": {
+                  "$exact": "undefined"
+                }
+              }
             }
           },
           {
-            "agent": {
-              "null": true
-            },
+            "agent": null,
             "skipAgentRules": true,
             "result": {
               "roleRules": "",
+              "userPrompt": {
+                "$exact": "undefined"
+              },
               "skipRoleCatalog": true,
               "skipPersona": true,
               "agent": null,
-              "profile": {}
+              "profile": {
+                "skip": {
+                  "$exact": "undefined"
+                }
+              }
             }
           }
         ]

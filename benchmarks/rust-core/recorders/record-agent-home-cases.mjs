@@ -11,7 +11,6 @@ const { MIXY_AGENT_ID, agentHomeSessionId, agentIdOfHomeSession, isAgentHomeSess
 const { SESSION_ID_PATTERN } = await set.load('src/runtime/agent/orchestrator/runtime-core/session-id.mjs');
 const { isScratchSession } = await set.load('src/session-runtime/lifecycle/shared.mjs');
 const { sessionRolePromptFields } = await set.load('src/runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs');
-const nul = (v) => (v === null ? { null: true } : v);
 
 await set.run('the home key is a fixed, reversible session id per agent', () => ({
   mixyAgentId: MIXY_AGENT_ID, sessionIdPattern: SESSION_ID_PATTERN.source, sessionIdPatternFlags: SESSION_ID_PATTERN.flags,
@@ -19,12 +18,12 @@ await set.run('the home key is a fixed, reversible session id per agent', () => 
   distinct: { 'a.b': agentHomeSessionId('a.b'), 'a-b': agentHomeSessionId('a-b') }, lead: agentHomeSessionId('lead'),
 }));
 await set.run('non-agent ids and ordinary sessions are not home threads', () => ({
-  agentIds: ['', 'Upper', '-lead', 'has space', 'a_b', null].map((agentId) => ({ agentId: nul(agentId), sessionId: agentHomeSessionId(agentId) })),
-  sessionIds: ['sess_desktop_x', 'sess_home_', 'sess_home_Up', 'sess_home__x', 'sess_daemon_1'].map((sessionId) => ({ sessionId, isHome: isAgentHomeSessionId(sessionId), agentId: nul(agentIdOfHomeSession(sessionId)) })),
+  agentIds: ['', 'Upper', '-lead', 'has space', 'a_b', null].map((agentId) => ({ agentId, sessionId: agentHomeSessionId(agentId) })),
+  sessionIds: ['sess_desktop_x', 'sess_home_', 'sess_home_Up', 'sess_home__x', 'sess_daemon_1'].map((sessionId) => ({ sessionId, isHome: isAgentHomeSessionId(sessionId), agentId: agentIdOfHomeSession(sessionId) })),
 }));
 await set.run("a home thread's prompt carries its agent's role; a Lead's does not", () => {
   const options = { ownerIsAgent: false, toolFreeRole: false, delegationFree: false };
-  return { options, fields: ['github-watcher', 'lead', null].map((agent) => ({ agent: nul(agent), skipAgentRules: true, result: sessionRolePromptFields({ agent, skipAgentRules: true }, options) })) };
+  return { options, fields: ['github-watcher', 'lead', null].map((agent) => ({ agent, skipAgentRules: true, result: sessionRolePromptFields({ agent, skipAgentRules: true }, options) })) };
 });
 await set.run('a blank home thread is never scratch, so no close tombstones its fixed id', () => ({
   blankDesktop: { session: { id: 'sess_desktop_blank', messages: [] }, scratch: isScratchSession({ id: 'sess_desktop_blank', messages: [] }) },
