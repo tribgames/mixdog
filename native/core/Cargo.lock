@@ -5234,6 +5234,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-core",
+ "tracing-subscriber",
  "tungstenite",
  "typenum",
  "unicode-normalization",
