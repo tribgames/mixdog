@@ -66,6 +66,9 @@ pub struct AnthropicConfig {
     /// The API-key route's `disableBetaHeaders`: no first-party-only request
     /// features, no server-side fallback, no mid-conversation effort updates.
     pub disable_beta_headers: bool,
+    /// A user-defined (`custom-*`) endpoint: no first-party base betas, only those its request body needs
+    /// (`requestBetasFor` `base: ''`).
+    pub custom_endpoint: bool,
     /// The provider's configured `extraHeaders`, sent on the API-key route's
     /// messages and listing requests. They replace a default header of the
     /// same name (`anthropic-version`, `x-api-key`), except `anthropic-beta`
@@ -105,6 +108,7 @@ impl AnthropicConfig {
             max_output_tokens: None,
             cli_version: DEFAULT_CLI_VERSION.to_owned(),
             disable_beta_headers: false,
+            custom_endpoint: false,
             extra_headers: Vec::new(),
             listing: ListingLookup::new(),
             fast_mode: Arc::clone(fast_mode::process()),
@@ -182,7 +186,12 @@ impl WireCodec for AnthropicCodec {
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify_response(response)
+        let mut error = classify_response(response);
+        // The API-key engine posts through the Anthropic SDK, whose error names the refusal its own way.
+        if self.flavor == Flavor::ApiKey {
+            error.message = super::errors::sdk_message(response);
+        }
+        error
     }
 }
 
@@ -266,7 +275,11 @@ impl AnthropicCodec {
             fast_mode: &self.config.fast_mode,
         };
         let built = build_body(&cfg, request)?;
-        let beta = beta_header(self.flavor, built.betas);
+        let beta = if self.config.custom_endpoint {
+            super::betas::custom_beta_header(built.betas)
+        } else {
+            beta_header(self.flavor, built.betas)
+        };
         let mut headers = vec![("anthropic-version".to_owned(), ANTHROPIC_VERSION.to_owned())];
         // The API-key route with beta headers off sends none; the OAuth route
         // always does.
