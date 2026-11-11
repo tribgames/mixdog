@@ -955,6 +955,240 @@
       ]
     },
     {
+      "id": "sessionless-sends-share-idle-sockets-no-owner-wait-no-chain",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:112",
+      "input": {
+        "args": {
+          "auth": {
+            "type": "openai-direct",
+            "apiKey": "fixture-key"
+          },
+          "poolKey": null,
+          "cacheKey": "shared",
+          "codexHeaders": {}
+        },
+        "steps": [
+          "two concurrent acquires",
+          "a.lastResponseId = resp-from-caller-a",
+          "release both keep",
+          "acquire again",
+          "acquire other cacheKey",
+          "release both without keep"
+        ]
+      },
+      "result": {
+        "first": {
+          "distinctEntries": true,
+          "opened": 2
+        },
+        "idle": {
+          "firstSocketReadyState": 1
+        },
+        "second": {
+          "reused": true,
+          "opened": 2,
+          "lastResponseId": null
+        },
+        "third": {
+          "reused": false
+        },
+        "events": [
+          {
+            "event": "dial",
+            "host": "api.openai.com",
+            "port": 443,
+            "servername": "api.openai.com"
+          },
+          {
+            "event": "dial",
+            "host": "api.openai.com",
+            "port": 443,
+            "servername": "api.openai.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-key"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "x-client-request-id",
+                "75c35f8d53abceed34912923b0a8bfbe"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "lmXwCE8NENc9uHbtp3pQdA=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.openai.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: 3TmY8f3yd5vsawCiXKlL/PyCOMo="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-key"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "x-client-request-id",
+                "b37119ba36ad55010d9db39ec9fe2080"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "MzcqQXQ4thrpjxy6StKsGQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.openai.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: kEL9csI5MfkpMoLzyc05sYx+014="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "dial",
+            "host": "api.openai.com",
+            "port": 443,
+            "servername": "api.openai.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/v1/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-key"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "x-client-request-id",
+                "90f42cc9c062a57269e3c7f35fe771f2"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "QbskeZtdRCKcbI9hEk2V7w=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "api.openai.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: wKapD7B4lMUOv1vKw7OqbbRpmeM="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 1000,
+            "reason": "release_no_keep"
+          }
+        ]
+      }
+    },
+    {
       "id": "concurrent-lookups-share-one-resolution",
       "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:94",
       "input": {
@@ -1067,438 +1301,6 @@
           }
         ],
         "upgradeRequestEvents": [
-          {
-            "event": "upgrade-request",
-            "method": "GET",
-            "target": "/backend-api/codex/responses",
-            "httpVersion": "1.1",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer fixture-access-token"
-              ],
-              [
-                "chatgpt-account-id",
-                "acct-fixture"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses_websockets=2026-02-06"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ],
-              [
-                "session-id",
-                "ws-connect-test"
-              ],
-              [
-                "thread-id",
-                "ws-connect-test"
-              ],
-              [
-                "x-client-request-id",
-                "ws-connect-test"
-              ],
-              [
-                "Sec-WebSocket-Version",
-                "13"
-              ],
-              [
-                "Sec-WebSocket-Key",
-                "dcNfjVOrzu00kSkjsKi/vg=="
-              ],
-              [
-                "Connection",
-                "Upgrade"
-              ],
-              [
-                "Upgrade",
-                "websocket"
-              ],
-              [
-                "Sec-WebSocket-Extensions",
-                "permessage-deflate; client_max_window_bits"
-              ],
-              [
-                "Host",
-                "chatgpt.com"
-              ]
-            ]
-          },
-          {
-            "event": "upgrade-request",
-            "method": "GET",
-            "target": "/backend-api/codex/responses",
-            "httpVersion": "1.1",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer fixture-access-token"
-              ],
-              [
-                "chatgpt-account-id",
-                "acct-fixture"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses_websockets=2026-02-06"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ],
-              [
-                "session-id",
-                "ws-connect-test"
-              ],
-              [
-                "thread-id",
-                "ws-connect-test"
-              ],
-              [
-                "x-client-request-id",
-                "ws-connect-test"
-              ],
-              [
-                "Sec-WebSocket-Version",
-                "13"
-              ],
-              [
-                "Sec-WebSocket-Key",
-                "lmXwCE8NENc9uHbtp3pQdA=="
-              ],
-              [
-                "Connection",
-                "Upgrade"
-              ],
-              [
-                "Upgrade",
-                "websocket"
-              ],
-              [
-                "Sec-WebSocket-Extensions",
-                "permessage-deflate; client_max_window_bits"
-              ],
-              [
-                "Host",
-                "chatgpt.com"
-              ]
-            ]
-          },
-          {
-            "event": "upgrade-request",
-            "method": "GET",
-            "target": "/backend-api/codex/responses",
-            "httpVersion": "1.1",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer fixture-access-token"
-              ],
-              [
-                "chatgpt-account-id",
-                "acct-fixture"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses_websockets=2026-02-06"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ],
-              [
-                "session-id",
-                "ws-connect-test"
-              ],
-              [
-                "thread-id",
-                "ws-connect-test"
-              ],
-              [
-                "x-client-request-id",
-                "ws-connect-test"
-              ],
-              [
-                "Sec-WebSocket-Version",
-                "13"
-              ],
-              [
-                "Sec-WebSocket-Key",
-                "s3EZujatVQENnbOeyf4ggA=="
-              ],
-              [
-                "Connection",
-                "Upgrade"
-              ],
-              [
-                "Upgrade",
-                "websocket"
-              ],
-              [
-                "Sec-WebSocket-Extensions",
-                "permessage-deflate; client_max_window_bits"
-              ],
-              [
-                "Host",
-                "chatgpt.com"
-              ]
-            ]
-          },
-          {
-            "event": "upgrade-request",
-            "method": "GET",
-            "target": "/backend-api/codex/responses",
-            "httpVersion": "1.1",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer fixture-access-token"
-              ],
-              [
-                "chatgpt-account-id",
-                "acct-fixture"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses_websockets=2026-02-06"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ],
-              [
-                "session-id",
-                "ws-connect-test"
-              ],
-              [
-                "thread-id",
-                "ws-connect-test"
-              ],
-              [
-                "x-client-request-id",
-                "ws-connect-test"
-              ],
-              [
-                "Sec-WebSocket-Version",
-                "13"
-              ],
-              [
-                "Sec-WebSocket-Key",
-                "MzcqQXQ4thrpjxy6StKsGQ=="
-              ],
-              [
-                "Connection",
-                "Upgrade"
-              ],
-              [
-                "Upgrade",
-                "websocket"
-              ],
-              [
-                "Sec-WebSocket-Extensions",
-                "permessage-deflate; client_max_window_bits"
-              ],
-              [
-                "Host",
-                "chatgpt.com"
-              ]
-            ]
-          },
-          {
-            "event": "upgrade-request",
-            "method": "GET",
-            "target": "/backend-api/codex/responses",
-            "httpVersion": "1.1",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer fixture-access-token"
-              ],
-              [
-                "chatgpt-account-id",
-                "acct-fixture"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses_websockets=2026-02-06"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ],
-              [
-                "session-id",
-                "ws-connect-test"
-              ],
-              [
-                "thread-id",
-                "ws-connect-test"
-              ],
-              [
-                "x-client-request-id",
-                "ws-connect-test"
-              ],
-              [
-                "Sec-WebSocket-Version",
-                "13"
-              ],
-              [
-                "Sec-WebSocket-Key",
-                "kPQsycBipXJp48fzX+dx8g=="
-              ],
-              [
-                "Connection",
-                "Upgrade"
-              ],
-              [
-                "Upgrade",
-                "websocket"
-              ],
-              [
-                "Sec-WebSocket-Extensions",
-                "permessage-deflate; client_max_window_bits"
-              ],
-              [
-                "Host",
-                "chatgpt.com"
-              ]
-            ]
-          },
-          {
-            "event": "upgrade-request",
-            "method": "GET",
-            "target": "/backend-api/codex/responses",
-            "httpVersion": "1.1",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer fixture-access-token"
-              ],
-              [
-                "chatgpt-account-id",
-                "acct-fixture"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses_websockets=2026-02-06"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ],
-              [
-                "session-id",
-                "ws-connect-test"
-              ],
-              [
-                "thread-id",
-                "ws-connect-test"
-              ],
-              [
-                "x-client-request-id",
-                "ws-connect-test"
-              ],
-              [
-                "Sec-WebSocket-Version",
-                "13"
-              ],
-              [
-                "Sec-WebSocket-Key",
-                "QbskeZtdRCKcbI9hEk2V7w=="
-              ],
-              [
-                "Connection",
-                "Upgrade"
-              ],
-              [
-                "Upgrade",
-                "websocket"
-              ],
-              [
-                "Sec-WebSocket-Extensions",
-                "permessage-deflate; client_max_window_bits"
-              ],
-              [
-                "Host",
-                "chatgpt.com"
-              ]
-            ]
-          },
           {
             "event": "upgrade-request",
             "method": "GET",
@@ -2506,84 +2308,124 @@
                 "chatgpt.com"
               ]
             ]
-          }
-        ]
-      },
-      "calls": [
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs._clearConnectCachesForTest",
-          "args": []
-        }
-      ]
-    },
-    {
-      "id": "sessionless-sends-share-idle-sockets-no-owner-wait-no-chain",
-      "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:112",
-      "input": {
-        "args": {
-          "auth": {
-            "type": "openai-direct",
-            "apiKey": "fixture-key"
-          },
-          "poolKey": null,
-          "cacheKey": "shared",
-          "codexHeaders": {}
-        },
-        "steps": [
-          "two concurrent acquires",
-          "a.lastResponseId = resp-from-caller-a",
-          "release both keep",
-          "acquire again",
-          "acquire other cacheKey",
-          "release both without keep"
-        ]
-      },
-      "result": {
-        "first": {
-          "distinctEntries": true,
-          "opened": 2
-        },
-        "idle": {
-          "firstSocketReadyState": 1
-        },
-        "second": {
-          "reused": true,
-          "opened": 2,
-          "lastResponseId": null
-        },
-        "third": {
-          "reused": false
-        },
-        "events": [
-          {
-            "event": "dial",
-            "host": "api.openai.com",
-            "port": 443,
-            "servername": "api.openai.com"
-          },
-          {
-            "event": "dial",
-            "host": "api.openai.com",
-            "port": 443,
-            "servername": "api.openai.com"
           },
           {
             "event": "upgrade-request",
             "method": "GET",
-            "target": "/v1/responses",
+            "target": "/backend-api/codex/responses",
             "httpVersion": "1.1",
             "headers": [
               [
                 "Authorization",
-                "Bearer fixture-key"
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
               ],
               [
                 "OpenAI-Beta",
                 "responses_websockets=2026-02-06"
               ],
               [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
                 "x-client-request-id",
-                "85d5273014f2a7ddfe255649fbe5f096"
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "hdUnMBTyp93+JVZJ++Xwlg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
               ],
               [
                 "Sec-WebSocket-Version",
@@ -2607,39 +2449,127 @@
               ],
               [
                 "Host",
-                "api.openai.com"
+                "chatgpt.com"
               ]
             ]
           },
           {
-            "event": "upgrade-response",
-            "lines": [
-              "HTTP/1.1 101 Switching Protocols",
-              "Upgrade: websocket",
-              "Connection: Upgrade",
-              "Sec-WebSocket-Accept: 6Z0FwBL6xbj+QZUq9hL4hyJ/Rdk="
-            ]
-          },
-          {
-            "event": "open"
-          },
-          {
             "event": "upgrade-request",
             "method": "GET",
-            "target": "/v1/responses",
+            "target": "/backend-api/codex/responses",
             "httpVersion": "1.1",
             "headers": [
               [
                 "Authorization",
-                "Bearer fixture-key"
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
               ],
               [
                 "OpenAI-Beta",
                 "responses_websockets=2026-02-06"
               ],
               [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
                 "x-client-request-id",
-                "a49b44377a59819db3df5b61a6e0a51a"
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "pJtEN3pZgZ2z31thpuClGg=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
               ],
               [
                 "Sec-WebSocket-Version",
@@ -2663,45 +2593,127 @@
               ],
               [
                 "Host",
-                "api.openai.com"
+                "chatgpt.com"
               ]
             ]
           },
           {
-            "event": "upgrade-response",
-            "lines": [
-              "HTTP/1.1 101 Switching Protocols",
-              "Upgrade: websocket",
-              "Connection: Upgrade",
-              "Sec-WebSocket-Accept: Mu5nME0mzKheu72venT8w4EkqsM="
-            ]
-          },
-          {
-            "event": "open"
-          },
-          {
-            "event": "dial",
-            "host": "api.openai.com",
-            "port": 443,
-            "servername": "api.openai.com"
-          },
-          {
             "event": "upgrade-request",
             "method": "GET",
-            "target": "/v1/responses",
+            "target": "/backend-api/codex/responses",
             "httpVersion": "1.1",
             "headers": [
               [
                 "Authorization",
-                "Bearer fixture-key"
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
               ],
               [
                 "OpenAI-Beta",
                 "responses_websockets=2026-02-06"
               ],
               [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
                 "x-client-request-id",
-                "49f836cba6788b146c45533663bb814f"
+                "ws-connect-test"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "Sfg2y6Z4ixRsRVM2Y7uBTw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "ws-connect-test"
+              ],
+              [
+                "thread-id",
+                "ws-connect-test"
+              ],
+              [
+                "x-client-request-id",
+                "ws-connect-test"
               ],
               [
                 "Sec-WebSocket-Version",
@@ -2725,30 +2737,18 @@
               ],
               [
                 "Host",
-                "api.openai.com"
+                "chatgpt.com"
               ]
             ]
-          },
-          {
-            "event": "upgrade-response",
-            "lines": [
-              "HTTP/1.1 101 Switching Protocols",
-              "Upgrade: websocket",
-              "Connection: Upgrade",
-              "Sec-WebSocket-Accept: 9u2oMrfjQdqEGZ6h4Uh9qOoihZM="
-            ]
-          },
-          {
-            "event": "open"
-          },
-          {
-            "event": "closed",
-            "serverInitiated": false,
-            "code": 1000,
-            "reason": "release_no_keep"
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs._clearConnectCachesForTest",
+          "args": []
+        }
+      ]
     }
   ]
 }

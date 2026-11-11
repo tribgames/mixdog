@@ -63,27 +63,6 @@ await rec.run('deadline-surfaces-acquire-timeout-when-no-leg-opens', `${SRC}:83`
   const outcome = await race;
   return { outcome, upgradeRequests: upgrades(), events: snapshot() };
 });
-// :94 - concurrent lookups for one host share a single resolution. The Node test calls cachedLookup 20 times; here 20 sockets are opened through the provider (acquireWebSocket -> the ws client ->
-// the product DNS cache `cachedLookup` -> dns.lookup): the world honours the client's `lookup` function for this case, so the only scripted layer below the product is `dns.lookup` itself (fixed
-// answers, every call recorded in order with its arguments); the 20 upgrade requests that reach the loopback server are the wire observation.
-await rec.run('concurrent-lookups-share-one-resolution', `${SRC}:94`, { host: 'chatgpt.com', concurrent: 20, dnsLookupAnswer: SCRIPTED_ADDRESSES }, async () => {
-  _clearConnectCachesForTest();
-  _clearWebSocketPoolForTest();
-  dnsCalls.length = 0;
-  world.reset({});
-  world.honorLookup = true;
-  try {
-    const sockets = await Promise.all(Array.from({ length: 20 }, () => settle(acquireWebSocket(ACQUIRE))));
-    const resolverCalls = dnsCalls.map((c) => ({ ...c }));
-    const opened = sockets.filter((s) => s.value).length;
-    for (const s of sockets) if (s.value) rec.describe(s.value.entry, { $connection: 'the provider client socket (real WebSocket to the loopback server)' });
-    for (const conn of world.conns) conn.close?.(1000, 'recorder-end');
-    await world.until((x) => x.filter((e) => e.event === 'closed').length >= opened, 'every socket closed');
-    return { resolverCalls, opened, errors: sockets.filter((s) => s.error).map((s) => s.error), dials: world.dials.map((d) => ({ ...d })), upgradeRequestEvents: world.trace.filter((e) => e.event === 'upgrade-request') };
-  } finally {
-    world.honorLookup = false;
-  }
-});
 await rec.run('sessionless-sends-share-idle-sockets-no-owner-wait-no-chain', `${SRC}:112`, { args: { auth: { type: 'openai-direct', apiKey: 'fixture-key' }, poolKey: null, cacheKey: 'shared', codexHeaders: {} }, steps: ['two concurrent acquires', 'a.lastResponseId = resp-from-caller-a', 'release both keep', 'acquire again', 'acquire other cacheKey', 'release both without keep'] }, async () => {
   world.reset({});
   _clearWebSocketPoolForTest();
@@ -105,6 +84,27 @@ await rec.run('sessionless-sends-share-idle-sockets-no-owner-wait-no-chain', `${
     return { first, idle, second, third, events: snapshot() };
   } finally {
     _clearWebSocketPoolForTest();
+  }
+});
+// :94 - concurrent lookups for one host share a single resolution. The Node test calls cachedLookup 20 times; here 20 sockets are opened through the provider (acquireWebSocket -> the ws client ->
+// the product DNS cache `cachedLookup` -> dns.lookup): the world honours the client's `lookup` function for this case, so the only scripted layer below the product is `dns.lookup` itself (fixed
+// answers, every call recorded in order with its arguments); the 20 upgrade requests that reach the loopback server are the wire observation.
+await rec.run('concurrent-lookups-share-one-resolution', `${SRC}:94`, { host: 'chatgpt.com', concurrent: 20, dnsLookupAnswer: SCRIPTED_ADDRESSES }, async () => {
+  _clearConnectCachesForTest();
+  _clearWebSocketPoolForTest();
+  dnsCalls.length = 0;
+  world.reset({});
+  world.honorLookup = true;
+  try {
+    const sockets = await Promise.all(Array.from({ length: 20 }, () => settle(acquireWebSocket(ACQUIRE))));
+    const resolverCalls = dnsCalls.map((c) => ({ ...c }));
+    const opened = sockets.filter((s) => s.value).length;
+    for (const s of sockets) if (s.value) rec.describe(s.value.entry, { $connection: 'the provider client socket (real WebSocket to the loopback server)' });
+    for (const conn of world.conns) conn.close?.(1000, 'recorder-end');
+    await world.until((x) => x.filter((e) => e.event === 'closed').length >= opened, 'every socket closed');
+    return { resolverCalls, opened, errors: sockets.filter((s) => s.error).map((s) => s.error), dials: world.dials.map((d) => ({ ...d })), upgradeRequestEvents: world.trace.filter((e) => e.event === 'upgrade-request') };
+  } finally {
+    world.honorLookup = false;
   }
 });
 await rec.finish();
