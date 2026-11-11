@@ -724,7 +724,7 @@ impl FileService for LocalFileService {
     /// [`Streamed`]).
     fn walk(&self, _lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
         let root = request.root.as_path();
-        let walking = match walking(&request, Box::new(tree::RealDirs::new(root))) {
+        let walking = match walking(&request, Box::new(tree::RealDirs)) {
             Ok(walking) => Box::new(walking),
             Err(error) => return failed(error),
         };
@@ -740,7 +740,7 @@ impl FileService for LocalFileService {
     /// The search runs on its own thread, at most [`QUEUE`] matches and [`QUEUE_BYTES`] ahead of the consumer (see
     /// [`Streamed`]).
     fn search_text(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-        let walked = match text_listing(&request, Box::new(tree::RealDirs::new(request.root.as_path()))) {
+        let walked = match text_listing(&request, Box::new(tree::RealDirs)) {
             Ok(walked) => walked,
             Err(error) => return failed(error),
         };
@@ -757,8 +757,9 @@ fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, 
     let prune = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
     let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, prune);
     let max_depth = (!request.recursive).then_some(1);
-    let walk = tree::Tree::new(root, rules.clone(), max_depth, dirs);
-    Ok(Walking { walk, rules, root: root.to_path_buf(), include_dirs: request.include_dirs })
+    let volumes = Volumes::shared(root);
+    let walk = tree::Tree::new(root, rules, max_depth, dirs, volumes.clone());
+    Ok(Walking { walk, volumes, root: root.to_path_buf(), include_dirs: request.include_dirs })
 }
 
 /// A text search's walk, its entries listed through `dirs` ([`tree`]): siblings in name order, depth first, so the
@@ -772,23 +773,23 @@ fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Wa
     ignore_rules(&mut builder, request.respect_ignore);
     let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, Vec::new());
     let walk_root = root.to_path_buf();
-    let place = Place::default();
-    let at = place.clone();
-    let listing: Listing = Box::new(tree::Tree::new(root, rules.clone(), None, dirs).map(move |item| match item {
-        Ok(entry) => {
-            *locked(&at) = Some((entry.path.clone(), entry.kind == EntryKind::Dir));
-            Ok((entry.kind == EntryKind::File).then_some(entry.path))
-        }
-        Err(error) => Err(io_error(&error, &walk_root)),
+    let volumes = Volumes::shared(root);
+    // A refused call is the search's answer; a call after the producer was given up ends the walk.
+    let listing: Listing = Box::new(tree::Tree::new(root, rules, None, dirs, volumes.clone()).map_while(move |item| match item {
+        Ok(entry) => Some(Ok((entry.kind == EntryKind::File).then_some(entry.path))),
+        Err(error) => match halt_of(&error) {
+            Some(Halt::Refused(refusal)) => Some(Err(FsError::new(refusal.clone(), None))),
+            Some(_) => None,
+            None => Some(Err(io_error(&error, &walk_root))),
+        },
     }));
-    Ok(Walked { listing, place, rules: Some(rules) })
+    Ok(Walked { listing, volumes })
 }
 
-/// A text search's walk ([`text_listing`]), where it is ([`Place`]) and its exclusion rules ([`Volumes`]).
+/// A text search's walk ([`text_listing`]) and the volumes it names its calls on ([`Volumes`]).
 struct Walked {
     listing: Listing,
-    place: Place,
-    rules: Option<tree::SharedRules>,
+    volumes: SharedVolumes,
 }
 
 /// A file opened for its search, as the search server opens it (`File::open`, serve_search/matching.rs:228). On Unix a
@@ -882,13 +883,13 @@ fn telling(root: &Path) -> String {
 }
 
 /// `root`'s volume by the filesystem's identity and whether it is fixed by the text ([`Known`]): [`volume_id`] on
-/// Windows; on Unix the device of the mount its canonical path lies under ([`unix_io::Crossings`]).
+/// Windows; on Unix the device of the mount its canonical path lies under ([`unix_io::tell`]).
 #[cfg_attr(not(feature = "replay-controls"), allow(dead_code))]
 fn root_volume_id(root: &Path) -> Option<(String, bool)> {
     #[cfg(windows)]
     return volume_id(root);
     #[cfg(unix)]
-    return unix_io::Crossings::new(root).ok().map(|c| (c.root_volume(), c.fixed())).filter(|(v, _)| !v.is_empty());
+    return unix_io::tell(root, unix_io::mount_table()).ok().map(|told| (told.volume, told.fixed)).filter(|(v, _)| !v.is_empty());
     #[cfg(not(any(windows, unix)))]
     {
         let _ = root;
@@ -986,14 +987,14 @@ fn search_over(
     listing: Listing,
     open: Opener,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-    search_with(producers, request, Walked { listing, place: Place::default(), rules: None }, open)
+    search_with(producers, request, Walked { listing, volumes: Volumes::shared(request.root.as_path()) }, open)
 }
 
-/// [`search_over`] of a walk that keeps where it is and its rules ([`Walked`], [`Volumes`]).
+/// [`search_over`] of a walk that names the volumes of its calls ([`Walked`], [`Volumes`]).
 fn search_with(
     producers: &Arc<Producers>,
     request: &SearchRequest,
-    Walked { listing, place, rules }: Walked,
+    Walked { listing, volumes }: Walked,
     open: Opener,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
@@ -1023,9 +1024,7 @@ fn search_with(
         open,
         left: request.limit,
         first_per_file: request.first_per_file,
-        scope: request.root.as_path().to_path_buf(),
-        place,
-        rules,
+        volumes,
         #[cfg(feature = "count-jobs")]
         root: request.root.as_path().to_path_buf(),
         #[cfg(feature = "count-jobs")]
@@ -2036,7 +2035,8 @@ trait Produce<T>: Send {
 
 struct Walking {
     walk: tree::Tree,
-    rules: tree::SharedRules,
+    /// The volumes its producer reads on, shared with its walk ([`Volumes`]).
+    volumes: SharedVolumes,
     root: PathBuf,
     include_dirs: bool,
 }
@@ -2049,23 +2049,20 @@ impl Produce<DirEntry> for Walking {
                 out.send(Err(FsError::new(refusal, None)));
             }
         };
-        let mut volumes = Volumes::new(hold.ticket.clone(), &self.root, Some(self.rules));
-        if let Err(refusal) = volumes.start() {
+        let started = {
+            let mut volumes = locked(&self.volumes);
+            volumes.bind(hold.ticket.clone());
+            volumes.start()
+        };
+        if let Err(refusal) = started {
             return refused(refusal);
         }
         let mut walk = self.walk;
-        let mut last: Option<(PathBuf, bool)> = None;
         loop {
             if out.ctl.stopped() {
                 return;
             }
-            if let Err(refusal) = volumes.step(last.as_ref().map(|(path, dir)| (path.as_path(), *dir))) {
-                return refused(refusal);
-            }
             let Some(item) = walk.next() else { return };
-            if let Ok(entry) = &item {
-                last = Some((entry.path.clone(), entry.kind == EntryKind::Dir));
-            }
             let sent = match item {
                 Ok(entry) if entry.depth == 0 => true,
                 Ok(entry) => {
@@ -2075,7 +2072,11 @@ impl Produce<DirEntry> for Walking {
                     let Some(path) = AbsPath::new(entry.path) else { continue };
                     out.send(Ok(DirEntry { path, kind: entry.kind }))
                 }
-                Err(error) => out.send(Err(io_error(&error, &self.root))),
+                Err(error) => match halt_of(&error) {
+                    Some(Halt::Refused(refusal)) => return refused(Some(refusal.clone())),
+                    Some(_) => return,
+                    None => out.send(Err(io_error(&error, &self.root))),
+                },
             };
             if !sent {
                 return;
@@ -2216,134 +2217,143 @@ impl IoLink {
     }
 }
 
-/// The entry a walk gave last, and whether it is a folder: where the walk is ([`Volumes::step`]).
-type Place = Arc<Mutex<Option<(PathBuf, bool)>>>;
+/// The volume a call on `path` reads on, as a stall in it is charged ([`Volumes::name`]): with the mount points below
+/// the root (`mounts`, as the walk names them, each with the volume below it), the volume of the deepest one `path`
+/// lies at or under, else the root's (`root_volume`). With no mount table (`None`: it could not be read), which entries
+/// are mount points is unknown, not "none": any entry may be a dead mount, so the call is charged to `path` itself,
+/// which only calls on that same path are refused by; it can refuse no other path's call, so no healthy volume's.
+fn charged(mounts: Option<&[(PathBuf, String)]>, root_volume: &str, path: &Path) -> String {
+    match mounts {
+        Some(mounts) => mounts
+            .iter()
+            .filter(|(point, _)| path.starts_with(point))
+            .max_by_key(|(point, _)| point.components().count())
+            .map_or_else(|| root_volume.to_owned(), |(_, volume)| volume.clone()),
+        None => format!("unknown mount {}", path.to_string_lossy()),
+    }
+}
 
-/// The mount point a walk may enter at its next step, given the entry it gave last (`last`, a folder or not): of
-/// `under` (in path order), the first past `last` whose parent is a folder the walk is in (`last` itself when a folder,
-/// else its parent, and their ancestors) and that the walk's rules let in (`excluded`, by its path and name alone,
-/// [`tree::Rules::excludes_folder`]). The walk lists each folder's entries in path order and reads a folder as it
-/// reaches it, before giving it, so its next step reads in no other mount point's folder.
-///
-/// The walk's exclusion rules (hidden entries, globs, ignore files, the pruned `.git`) apply to an entry before
-/// anything reads it ([`tree`]): a folder they exclude, and every folder under it, is never one the walk is in, so a
-/// mount point under one is never chosen, and a mount point they exclude itself is never read, so `excluded` passes it.
-#[cfg_attr(not(unix), allow(dead_code))]
-fn next_crossing<'a>(
-    under: &'a [(PathBuf, String)],
-    last: &Path,
-    last_is_dir: bool,
-    mut excluded: impl FnMut(&Path) -> bool,
-) -> Option<&'a (PathBuf, String)> {
-    let here = if last_is_dir { last } else { last.parent()? };
-    under.iter().find(|(point, _)| {
-        point.as_path() > last && point.parent().is_some_and(|parent| here.starts_with(parent)) && !excluded(point)
-    })
+/// The mount points a walk may read on below its root, each with its volume, `None` when the table cannot be read
+/// ([`charged`]): Unix, the kernel's table ([`unix_io::mount_table`]); elsewhere none, as a walk follows no junction,
+/// mounted folder or link (Node's walk does not either).
+type MountTable = Box<dyn Fn() -> Option<Vec<(PathBuf, String)>> + Send>;
+
+fn mount_table() -> MountTable {
+    #[cfg(unix)]
+    return Box::new(unix_io::mount_table);
+    #[cfg(not(unix))]
+    Box::new(|| Some(Vec::new()))
 }
 
 /// The volumes a producer reads on, for [`SchedulerConfig::stuck_per_volume`]: a give-up charges the volume of the
-/// call it was in, told by the filesystem's identity ([`Producers::give_up`], [`Ticket::reading`]). Before a call
-/// that reads on another volume than the last one it named, the producer names that one ([`Ticket::read_on`]); one
-/// holding as many given-up threads as one may refuses it, and the producer answers its search with Node's answer to a
-/// request whose server was ended for a stalled cancel. Node has no answer for one part of a search: a subtree whose
-/// read stalls stalls its whole request (its server's walk never finishes), which its client answers with that text
-/// once it ended the server; so the search is answered so in full, as the tools answer it ([`FsErrorKind::CancelStalled`]).
+/// call it was in, told by the filesystem's identity ([`Producers::give_up`], [`Ticket::reading`]). Before each call
+/// the walk makes on an entry ([`tree::gate::probe`]) and each open of a file, the producer names the volume the call
+/// reads on ([`Volumes::name`], [`charged`]) when it is not the one it named last ([`Ticket::read_on`]); one holding as
+/// many given-up threads as one may refuses it, and the producer answers its search with Node's answer to a request
+/// whose server was ended for a stalled cancel. Node has no answer for one part of a search: a subtree whose read
+/// stalls stalls its whole request (its server's walk never finishes), which its client answers with that text once it
+/// ended the server; so the search is answered so in full, as the tools answer it ([`FsErrorKind::CancelStalled`]).
 ///
-/// On Windows a walk never leaves its root's volume (it follows no junction, mounted folder or link, as Node's walk
-/// does not), so the volume is its root's, told at the start ([`volume_id`]). On Unix a mount point below the root is a
-/// folder the walk enters: the volume is the device of the mount the walk reads in ([`unix_io::Crossings`]), and before
-/// the step that may enter a mount point the producer reads that mount point once, named to its volume, so a dead
-/// mount holds that read and not the walk's next step, which is named to the volume it is in. What stays charged to
-/// the volume the walk is in: a step that leaves a mount below the root for a folder of the volume above it.
+/// Shared by a walk ([`tree::Tree`]), which names the calls on its entries, and the producer running it, which tells
+/// the root's volume first ([`Volumes::start`]) and names the opens; both on the producer's one thread.
 struct Volumes {
-    ticket: Arc<Ticket>,
+    ticket: Option<Arc<Ticket>>,
     root: PathBuf,
-    #[cfg(unix)]
-    crossings: Option<unix_io::Crossings>,
-    /// The walk's exclusion rules: a mount point they exclude is never read ([`next_crossing`]).
-    #[cfg(unix)]
-    rules: Option<tree::SharedRules>,
+    /// Where the mount points are read from ([`mount_table`]); a test puts a table of its own in its place.
+    table: MountTable,
+    /// The root's volume, empty until told or when it cannot be told.
+    root_volume: String,
+    /// The mount points below the root, as the walk names them, each with its volume ([`charged`]).
+    mounts: Option<Vec<(PathBuf, String)>>,
+    /// The volume named last.
+    named: String,
 }
 
+type SharedVolumes = Arc<Mutex<Volumes>>;
+
 impl Volumes {
-    fn new(ticket: Arc<Ticket>, root: &Path, rules: Option<tree::SharedRules>) -> Self {
-        #[cfg(not(unix))]
-        let _ = rules;
-        Self {
-            ticket,
+    fn shared(root: &Path) -> SharedVolumes {
+        Arc::new(Mutex::new(Self {
+            ticket: None,
             root: root.to_path_buf(),
-            #[cfg(unix)]
-            crossings: None,
-            #[cfg(unix)]
-            rules,
-        }
+            table: mount_table(),
+            root_volume: String::new(),
+            mounts: Some(Vec::new()),
+            named: String::new(),
+        }))
+    }
+
+    /// The producer that names the volumes: until it is set, nothing is named.
+    fn bind(&mut self, ticket: Arc<Ticket>) {
+        self.ticket = Some(ticket);
     }
 
     /// The producer's first call: tells its root's volume by the filesystem's identity, remembered for the root's next
-    /// search ([`known_volume`]), and names it (refused if it is at its bound). This reads on the volumes the root's path
-    /// passes through, named as the root's telling ([`telling`]); one that cannot be told leaves the producer named so.
-    /// On Windows one told within [`KNOWN_FRESH`] is taken as it is, unless admission asked for it afresh
-    /// ([`Ticket::retell`]).
+    /// search ([`known_volume`]), and the mount points below it, and names the root's volume (refused if it is at its
+    /// bound). This reads on the volumes the root's path passes through, named as the root's telling ([`telling`]); one
+    /// that cannot be told leaves the producer named so. On Windows one told within [`KNOWN_FRESH`] is taken as it is,
+    /// unless admission asked for it afresh ([`Ticket::retell`]).
     fn start(&mut self) -> Result<(), Option<FsErrorKind>> {
+        let Some(ticket) = self.ticket.clone() else { return Ok(()) };
         #[cfg(unix)]
-        let told = {
-            self.crossings = unix_io::Crossings::new(&self.root).ok();
-            self.crossings.as_ref().map(|c| (c.root_volume(), c.fixed())).filter(|(v, _)| !v.is_empty())
+        let told = match unix_io::tell(&self.root, (self.table)()) {
+            Ok(told) => {
+                self.mounts = told.mounts;
+                Some(told.volume).filter(|v| !v.is_empty()).inspect(|v| remember_volume(&self.root, (v, told.fixed)))
+            }
+            Err(_) => {
+                self.mounts = None;
+                None
+            }
         };
         #[cfg(windows)]
-        let told = match fresh_volume(&self.root).filter(|_| !self.ticket.retell.load(Ordering::SeqCst)) {
-            Some(volume) => return self.ticket.read_on(&volume),
-            None => volume_id(&self.root),
+        let told = {
+            self.mounts = (self.table)();
+            match fresh_volume(&self.root).filter(|_| !ticket.retell.load(Ordering::SeqCst)) {
+                Some(volume) => Some(volume),
+                None => volume_id(&self.root).inspect(|(volume, fixed)| remember_volume(&self.root, (volume, *fixed))).map(|(volume, _)| volume),
+            }
         };
         #[cfg(not(any(unix, windows)))]
-        let told: Option<(String, bool)> = None;
-        let Some((id, fixed)) = told else { return Ok(()) };
-        remember_volume(&self.root, (&id, fixed));
-        self.ticket.read_on(&id)
+        let told: Option<String> = {
+            self.mounts = (self.table)();
+            None
+        };
+        let Some(id) = told else { return Ok(()) };
+        self.root_volume.clone_from(&id);
+        self.named.clone_from(&id);
+        ticket.read_on(&id)
     }
 
-    /// Before the walk's next step from `last`, the entry it gave last and whether it is a folder.
-    fn step(&mut self, last: Option<(&Path, bool)>) -> Result<(), Option<FsErrorKind>> {
-        #[cfg(unix)]
-        if let (Some(crossings), Some((last, last_is_dir))) = (self.crossings.as_mut(), last) {
-            let rules = self.rules.as_ref();
-            let (crossing, here) = crossings.step(last, last_is_dir, &mut |point| rules.is_some_and(|rules| tree::locked(rules).excludes_folder(point)));
-            if let Some((point, volume)) = crossing {
-                self.ticket.read_on(&volume)?;
-                let _ = std::fs::metadata(&point);
-            }
-            return self.ticket.read_on(&here);
+    /// Before a call that reads on `path`: names its volume ([`charged`]) unless it was named last.
+    fn name(&mut self, path: &Path) -> Result<(), Option<FsErrorKind>> {
+        let Some(ticket) = &self.ticket else { return Ok(()) };
+        let volume = charged(self.mounts.as_deref(), &self.root_volume, path);
+        if volume == self.named {
+            return Ok(());
         }
-        let _ = last;
+        ticket.read_on(&volume)?;
+        self.named = volume;
         Ok(())
     }
 
-    /// Before `file` is opened.
-    fn open(&mut self, file: &Path) -> Result<(), Option<FsErrorKind>> {
-        #[cfg(unix)]
-        if let Some(crossings) = &self.crossings {
-            return self.ticket.read_on(&crossings.volume_of(file));
-        }
-        let _ = file;
-        Ok(())
+    /// Whether the mount table names `path` a mount point: a folder, told without a call.
+    fn mount_point(&self, path: &Path) -> bool {
+        self.mounts.as_ref().is_some_and(|mounts| mounts.iter().any(|(point, _)| point == path))
     }
 }
 
 /// The serving thread of a text search ([`IoLink`]): makes the calls its scan asks for until the scan ends, reading at
 /// most [`READ_CHUNK`] bytes at a time into a buffer of its own, each call after naming the volume it reads on
 /// ([`Volumes`]). It lets go of its [`Hold`] before the rest of what it holds.
-fn serve(link: &IoLink, mut listing: Listing, open: Opener, hold: Hold, (mut volumes, place): (Volumes, Place)) {
+fn serve(link: &IoLink, mut listing: Listing, open: Opener, hold: Hold, volumes: SharedVolumes) {
     let mut file: Option<Box<dyn Read + Send>> = None;
     let mut chunk = vec![0; READ_CHUNK];
-    let mut refused = volumes.start().err();
+    let refused = locked(&volumes).start().err();
     while let Some(ask) = link.next_ask() {
         let (answer, read) = match ask {
             Ask::Next => {
                 file = None;
-                if refused.is_none() {
-                    let last = locked(&place).clone();
-                    refused = volumes.step(last.as_ref().map(|(path, dir)| (path.as_path(), *dir))).err();
-                }
                 match &refused {
                     None => (Answer::Next(listing.next()), 0),
                     Some(Some(refusal)) => (Answer::Next(Some(Err(FsError::new(refusal.clone(), None)))), 0),
@@ -2352,7 +2362,8 @@ fn serve(link: &IoLink, mut listing: Listing, open: Opener, hold: Hold, (mut vol
             }
             Ask::Open(path) => {
                 file = None;
-                match volumes.open(&path) {
+                let named = locked(&volumes).name(&path);
+                match named {
                     Err(Some(refusal)) => (Answer::Open(Err(io::Error::other(Halt::Refused(refusal)))), 0),
                     Err(None) => break,
                     Ok(()) => match open(&path) {
@@ -2419,10 +2430,8 @@ struct Searching {
     left: Option<usize>,
     /// [`SearchRequest::first_per_file`].
     first_per_file: bool,
-    /// The search's root, and where its walk is ([`Volumes`]).
-    scope: PathBuf,
-    place: Place,
-    rules: Option<tree::SharedRules>,
+    /// The volumes its producer reads on, shared with its walk ([`Volumes`]).
+    volumes: SharedVolumes,
     #[cfg(feature = "count-jobs")]
     root: PathBuf,
     #[cfg(feature = "count-jobs")]
@@ -2438,15 +2447,13 @@ impl Produce<SearchMatch> for Searching {
             open,
             left,
             first_per_file,
-            scope,
-            place,
-            rules,
+            volumes,
             #[cfg(feature = "count-jobs")]
             root,
             #[cfg(feature = "count-jobs")]
             _live,
         } = *self;
-        let volumes = Volumes::new(hold.ticket.clone(), &scope, rules);
+        locked(&volumes).bind(hold.ticket.clone());
         let link = Arc::new(IoLink::default());
         let _ = out.ctl.link.set(link.clone());
         let failure = out.clone();
@@ -2470,7 +2477,7 @@ impl Produce<SearchMatch> for Searching {
         match spawned {
             Ok(_) => {
                 drop(failure);
-                serve(&link, listing, open, hold, (volumes, place));
+                serve(&link, listing, open, hold, volumes);
             }
             // The closure, dropped unrun, let go of its share of the slot.
             Err(error) => {
@@ -3217,7 +3224,11 @@ pub mod deadline_script {
     impl super::Produce<mixdog_core_api::domain::fs::SearchMatch> for Held {
         fn run(self: Box<Self>, _out: super::Out<mixdog_core_api::domain::fs::SearchMatch>, hold: super::Hold) {
             // Its root's volume told as a search tells it, so its give-up charges that volume.
-            let _ = super::Volumes::new(hold.ticket.clone(), &self.root, None).start();
+            let volumes = super::Volumes::shared(&self.root);
+            let mut volumes = super::locked(&volumes);
+            volumes.bind(hold.ticket.clone());
+            let _ = volumes.start();
+            drop(volumes);
             let mut unstuck = UNSTUCK.0.lock().unwrap_or_else(PoisonError::into_inner);
             while !unstuck.iter().any(|scope| self.root.starts_with(scope)) {
                 unstuck = UNSTUCK.1.wait(unstuck).unwrap_or_else(PoisonError::into_inner);
@@ -4448,42 +4459,27 @@ mod tests {
         std::fs::remove_dir(junction.as_path()).unwrap();
     }
 
-    /// The mount point a walk enters next: the first past its last entry whose parent is a folder it is in; none in a
-    /// folder it has not reached, none it has passed.
+    /// A call is charged to the volume below the deepest mount point its path lies at or under, the root's under none
+    /// (by whole components: `/r/mm` is not under `/r/m`); with no mount table, to its path itself, so a stall there
+    /// refuses only calls on that same path, never the root's volume.
     #[test]
-    fn the_next_crossing_is_the_first_mount_point_past_the_walk_in_a_folder_it_is_in() {
-        let under: Vec<(PathBuf, String)> = ["/r/a/m", "/r/b/c/m", "/r/z"].iter().map(|p| (PathBuf::from(p), (*p).to_owned())).collect();
-        let next = |last: &str, dir: bool| next_crossing(&under, Path::new(last), dir, |_| false).map(|(p, _)| p.to_str().unwrap());
-        assert_eq!(next("/r", true), Some("/r/z"), "/r/a/m's parent is not open yet");
-        assert_eq!(next("/r/a", true), Some("/r/a/m"));
-        assert_eq!(next("/r/a/l.txt", false), Some("/r/a/m"));
-        assert_eq!(next("/r/a/n.txt", false), Some("/r/z"), "past /r/a/m");
-        assert_eq!(next("/r/b/c", true), Some("/r/b/c/m"));
-        assert_eq!(next("/r/b/x.txt", false), Some("/r/z"));
-        assert_eq!(next("/r/z", true), None);
+    fn a_call_is_charged_to_the_volume_of_the_path_it_reads() {
+        let mounts = vec![(PathBuf::from("/r/m"), "m".to_owned()), (PathBuf::from("/r/m/n"), "n".to_owned())];
+        let known = |path: &str| charged(Some(&mounts), "root", Path::new(path));
+        assert_eq!([known("/r"), known("/r/a.txt"), known("/r/mm")], ["root", "root", "root"]);
+        assert_eq!([known("/r/m"), known("/r/m/x"), known("/r/m/n"), known("/r/m/n/y")], ["m", "m", "n", "n"]);
+        let unknown = |path: &str| charged(None, "root", Path::new(path));
+        assert_eq!(unknown("/r/dead"), unknown("/r/dead"));
+        assert!(unknown("/r/dead") != unknown("/r/a.txt") && unknown("/r/dead") != unknown("/r") && unknown("/r") != "root");
     }
 
-    /// The mount points probed over a walk whose rules exclude the folders `/r/d`, `/r/x` and `/r/q/z`: what it gives is
-    /// its entries without those and anything under them. `/r/x/m` and `/r/x/y/m`, under an excluded folder, are never
-    /// probed, nor are `/r/d` (directly beneath the root) and `/r/q/z`, mount points excluded themselves.
-    #[test]
-    fn a_walk_probes_only_the_mount_points_it_opens() {
-        let points = ["/r/a/m", "/r/d", "/r/q/z", "/r/x/m", "/r/x/y/m"];
-        let under: Vec<(PathBuf, String)> = points.iter().map(|p| (PathBuf::from(p), (*p).to_owned())).collect();
-        let excluded = |point: &Path| ["/r/d", "/r/x", "/r/q/z"].iter().any(|e| point.starts_with(e));
-        let given = [("/r", true), ("/r/a", true), ("/r/a/l.txt", false), ("/r/a/m", true), ("/r/b.txt", false), ("/r/q", true), ("/r/q/w.txt", false), ("/r/y.txt", false)];
-        let mut probed: Vec<&str> =
-            given.iter().filter_map(|(last, dir)| next_crossing(&under, Path::new(last), *dir, excluded)).map(|(_, p)| p.as_str()).collect();
-        probed.sort_unstable();
-        probed.dedup();
-        assert_eq!(probed, ["/r/a/m"]);
-    }
-
-    /// The real filesystem, except that a call on a gated path or under it (a listing, a type, a root) is counted and
-    /// held until the test lets go: a dead mount's folder.
+    /// The real filesystem through the walk's own calls ([`tree::Dirs`]), except that a call on a gated path or under it
+    /// (the root's type, a listing, a type) is counted and held until the test lets go, as on a dead mount; the entries
+    /// at `untyped` are listed without their type, as a listing that gives none lists them (a Unix filesystem without
+    /// `d_type`).
     struct Gated {
-        real: tree::RealDirs,
         gated: Vec<PathBuf>,
+        untyped: Vec<PathBuf>,
         calls: Arc<AtomicUsize>,
         release: Arc<(Mutex<bool>, std::sync::Condvar)>,
     }
@@ -4502,19 +4498,59 @@ mod tests {
     }
 
     impl tree::Dirs for Gated {
-        fn root(&mut self, root: &Path) -> io::Result<(EntryKind, bool)> {
-            self.hold(root);
-            self.real.root(root)
+        fn root(&mut self, root: &tree::Asked<'_>) -> io::Result<(EntryKind, bool)> {
+            self.hold(root.path());
+            tree::Dirs::root(&mut tree::RealDirs, root)
         }
 
-        fn list(&mut self, dir: &Path) -> io::Result<Vec<io::Result<Box<dyn tree::Listed>>>> {
-            self.hold(dir);
-            self.real.list(dir)
+        fn list(&mut self, dir: &tree::Asked<'_>) -> io::Result<Vec<io::Result<tree::Listed>>> {
+            self.hold(dir.path());
+            let listed = tree::Dirs::list(&mut tree::RealDirs, dir)?;
+            let untyped = |listed: tree::Listed| if self.untyped.iter().any(|path| path == listed.path()) { listed.untyped() } else { listed };
+            Ok(listed.into_iter().map(|entry| entry.map(untyped)).collect())
         }
 
-        fn kind(&mut self, entry: &dyn tree::Listed) -> io::Result<EntryKind> {
+        fn kind(&mut self, entry: &tree::Asked<'_>) -> io::Result<EntryKind> {
             self.hold(entry.path());
-            self.real.kind(entry)
+            tree::Dirs::kind(&mut tree::RealDirs, entry)
+        }
+    }
+
+    /// A file that tells whether anything opened it: on Windows under a batch oplock, which an open breaks (the open then
+    /// waits until the oplock is let go of); on Unix a FIFO with no writer, whose open for reading waits for one, which a
+    /// writer's non-blocking open then finds.
+    struct Tripwire {
+        #[cfg(unix)]
+        path: PathBuf,
+        #[cfg(windows)]
+        hold: deadline_script::OplockHold,
+    }
+
+    impl Tripwire {
+        fn new(path: PathBuf) -> Self {
+            #[cfg(windows)]
+            let tripwire = {
+                std::fs::write(&path, "").unwrap();
+                Self { hold: deadline_script::OplockHold::new(&path).unwrap() }
+            };
+            #[cfg(unix)]
+            let tripwire = {
+                let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+                // SAFETY: a NUL-terminated path.
+                assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
+                Self { path }
+            };
+            tripwire
+        }
+
+        fn opened(&self) -> bool {
+            #[cfg(windows)]
+            return self.hold.wait_broken(Duration::ZERO);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(&self.path).is_ok()
+            }
         }
     }
 
@@ -4522,22 +4558,41 @@ mod tests {
         WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, include_dirs: true, prune, server: None }
     }
 
-    /// A root whose excluded children, directly beneath it, are folders on a dead mount: every listing, type or open of
-    /// one of them, or of anything under it, never returns. `z` is excluded by the search's glob (the listing's prune),
-    /// `.h` as hidden, `q` by an `.ignore` file. The text search and the file listing each finish with the rest of the
-    /// tree, and nothing ever called on the excluded children (counted: none).
+    /// A root whose excluded children, directly beneath it, are folders on a dead mount: every call of the walk on one of
+    /// them, or on anything under it, never returns ([`Gated`]). `z` is excluded by the search's glob (the listing's
+    /// prune), `.h` as hidden, `q` by an `.ignore` line, and `dead` by an `.ignore` line for folders only (`dead/`)
+    /// while its listing gives no type: the mount table names it a mount point, so it is a folder, told without a call.
+    /// The text search and the file listing each finish with the rest of the tree, and nothing was called on, or opened
+    /// under, an excluded child (counted: none).
+    ///
+    /// [`Gated`] sees every call the walk makes on an entry ([`tree::gate::probe`]). It does not see the root's telling
+    /// ([`Volumes::start`]) nor ignore's own calls as it loads the rules ([`tree`]); of those, the ones that could reach
+    /// an excluded child are the loading of its ignore files, were it ever taken for a folder the walk is in: each holds
+    /// an `.ignore` that tells whether anything opened it ([`Tripwire`]), checked too.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn excluded_children_are_never_listed_typed_or_opened() {
         let (_dir, root) = root();
-        for (path, text) in [("a.txt", "needle\n"), ("b/c.txt", "needle\n"), ("z/d.txt", "needle\n"), (".h/e.txt", "needle\n"), ("q/f.txt", "needle\n"), (".ignore", "q\n")] {
+        let files = [("a.txt", "needle\n"), ("b/c.txt", "needle\n"), ("z/d.txt", "needle\n"), (".h/e.txt", "needle\n"), ("q/f.txt", "needle\n"), ("dead/g.txt", "needle\n"), (".ignore", "q\ndead/\n")];
+        for (path, text) in files {
             let path = root.join(path).as_path().to_path_buf();
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, text).unwrap();
         }
-        let gated: Vec<PathBuf> = ["z", ".h", "q"].iter().map(|name| root.join(name).as_path().to_path_buf()).collect();
+        let gated: Vec<PathBuf> = ["z", ".h", "q", "dead"].iter().map(|name| root.join(name).as_path().to_path_buf()).collect();
+        let tripwires: Vec<Tripwire> = gated.iter().map(|child| Tripwire::new(child.join(".ignore"))).collect();
+        let dead = root.join("dead").as_path().to_path_buf();
+        // The mount table names `dead` a mount point (on Unix by its canonical path, as the kernel's table does).
+        #[cfg(unix)]
+        let point = std::fs::canonicalize(&dead).unwrap();
+        #[cfg(not(unix))]
+        let point = dead.clone();
+        let table = || -> MountTable {
+            let point = point.clone();
+            Box::new(move || Some(vec![(point.clone(), "dead".to_owned())]))
+        };
         let calls = Arc::new(AtomicUsize::new(0));
         let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
-        let gate = || Box::new(Gated { real: tree::RealDirs::new(root.as_path()), gated: gated.clone(), calls: calls.clone(), release: release.clone() });
+        let gate = || Box::new(Gated { gated: gated.clone(), untyped: vec![dead.clone()], calls: calls.clone(), release: release.clone() });
         let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
 
         let request = SearchRequest { exclude_globs: vec!["z".into()], include_hidden: false, respect_ignore: true, ..needle_request(&root, None) };
@@ -4549,7 +4604,9 @@ mod tests {
             }
             Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>)
         });
-        let mut search = search_with(&producers, &request, text_listing(&request, gate()).unwrap(), open);
+        let walked = text_listing(&request, gate()).unwrap();
+        locked(&walked.volumes).table = table();
+        let mut search = search_with(&producers, &request, walked, open);
         let mut found = Vec::new();
         while let Some(hit) = within("the search's matches", search.next()).await {
             found.push(hit.unwrap().path);
@@ -4561,6 +4618,7 @@ mod tests {
         let prune = vec![root.join("z")];
         let origin = Origin::new(None, root.as_path(), "file inventory");
         let walk = walking(&listing_request(&root, prune), gate()).unwrap();
+        locked(&walk.volumes).table = table();
         let mut walk = streamed(&producers, Box::new(walk), Deadline::default(), origin, false);
         let mut listed = Vec::new();
         while let Some(entry) = within("the listing's entries", walk.next()).await {
@@ -4571,9 +4629,60 @@ mod tests {
         assert_eq!(listed, expected);
 
         assert_eq!((calls.load(Ordering::SeqCst), opened.load(Ordering::SeqCst)), (0, 0), "a call on an excluded child");
+        assert!(tripwires.iter().all(|tripwire| !tripwire.opened()), "an ignore file of an excluded child was opened");
         *release.0.lock().unwrap() = true;
         release.1.notify_all();
         settled(&producers, "every producer ends", ProducerCounts::default()).await;
+    }
+
+    /// With no mount table (it could not be read), any entry may be a mount point the walk does not know of. A root's
+    /// `dead`, excluded by an `.ignore` line for folders only (`dead/`) and listed without its type, must be asked its
+    /// type to be judged, and that call never returns ([`Gated`]): it is made on the bounded probe, charged to `dead`
+    /// alone. Once MAX_STUCK_PER_VOLUME searches are given up in it, the root's next search answers its other file and
+    /// then, at `dead`, Node's stalled answer, with no call made on `dead`; a search of another folder of the same
+    /// volume answers in full. Once the calls return, every given-up thread ends.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_no_mount_table_a_stall_judging_an_entry_is_charged_to_that_entry() {
+        let (_other_dir, other) = root();
+        let (_dir, root) = root();
+        std::fs::write(root.join("a.txt").as_path(), "needle\n").unwrap();
+        std::fs::write(root.join(".ignore").as_path(), "dead/\n").unwrap();
+        std::fs::create_dir(root.join("dead").as_path()).unwrap();
+        std::fs::write(other.join("b.txt").as_path(), "needle\n").unwrap();
+        let dead = root.join("dead").as_path().to_path_buf();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let producers = Arc::new(Producers::new(scheduler(16, NODE_QUEUE, Duration::ZERO)));
+        let request = |root: &AbsPath| SearchRequest { include_hidden: false, respect_ignore: true, ..needle_request(root, None) };
+        let search = |root: &AbsPath| {
+            let dirs = Box::new(Gated { gated: vec![dead.clone()], untyped: vec![dead.clone()], calls: calls.clone(), release: release.clone() });
+            let walked = text_listing(&request(root), dirs).unwrap();
+            locked(&walked.volumes).table = Box::new(|| None);
+            search_with(&producers, &request(root), walked, Box::new(open_to_search))
+        };
+        let answers = async |stream: &mut Box<dyn EventSource<Result<SearchMatch, FsError>>>| {
+            let mut answers = Vec::new();
+            while let Some(answer) = within("the search's answers", stream.next()).await {
+                answers.push(answer.map(|hit| hit.path.as_path().to_path_buf()).map_err(|error| error.kind));
+            }
+            stream.close().await;
+            answers
+        };
+        for stalled in 1..=MAX_STUCK_PER_VOLUME {
+            let mut stream = search(&root);
+            assert!(eventually(|| calls.load(Ordering::SeqCst) >= stalled).await, "search {stalled} in its call on dead");
+            stream.close().await;
+        }
+        assert_eq!(producers.counts(), ProducerCounts { stalled: MAX_STUCK_PER_VOLUME, ..Default::default() });
+        let found = answers(&mut search(&root)).await;
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0], Ok(root.join("a.txt").as_path().to_path_buf()));
+        assert!(matches!(found[1], Err(FsErrorKind::CancelStalled { .. })), "{found:?}");
+        assert_eq!(calls.load(Ordering::SeqCst), MAX_STUCK_PER_VOLUME, "the refused search made no call on dead");
+        assert_eq!(answers(&mut search(&other)).await, [Ok(other.join("b.txt").as_path().to_path_buf())]);
+        *release.0.lock().unwrap() = true;
+        release.1.notify_all();
+        settled(&producers, "every given-up thread ends", ProducerCounts::default()).await;
     }
 
     /// A mapped drive's device target names its share; a network mount point is keyed as `\\server\share\`.
@@ -4729,7 +4838,7 @@ mod tests {
         assert_eq!(producers.counts(), ProducerCounts { live: 1, waiting: QUEUE, ..Default::default() });
         assert!(saturated(within("a search past 9 waiting", one_file(SearchClass::Interactive).next()).await));
         assert!(saturated(within("a fuzzy search past 9 waiting", one_file(SearchClass::Fuzzy).next()).await));
-        let walking = walking(&listing_request(&root, Vec::new()), Box::new(tree::RealDirs::new(root.as_path()))).unwrap();
+        let walking = walking(&listing_request(&root, Vec::new()), Box::new(tree::RealDirs)).unwrap();
         let origin = Origin::new(None, root.as_path(), "file inventory");
         let mut walk = streamed(&producers, Box::new(walking), Deadline::default(), origin, false);
         assert_eq!(producers.counts().waiting, QUEUE, "a walk Node does not queue runs at once");

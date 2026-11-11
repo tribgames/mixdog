@@ -181,7 +181,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
-      "sha256": "aa280d5707f3dc1f0bd8b3cc43539262194a917c861e7070cf7b647f2aaccbf4"
+      "sha256": "dd068ca90fe5d92654f65d5ad670076eab8fe8af80ee91f14d157713c84d755d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -234,7 +234,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "23e6f9a2a7c9db49f891264208902afa261a96c92a8346f447f3f542366f0b8a",
+  "recorderSha256": "07b5d833f404875a6e0d014a4185a363d4f6465e6bfa1ad14c7f7d206e1570e7",
   "scenarios": [
     "read-modes",
     "read-shapes",
