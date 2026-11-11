@@ -1,0 +1,1100 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a message to the whole room is posted under its submission id and routed to every member",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "hello all",
+            "options": {
+              "id": "sub-1"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "returned": true
+          }
+        ],
+        "readBack": [
+          {
+            "kind": "user",
+            "id": "sub-1",
+            "at": 1800000000000,
+            "text": "hello all"
+          }
+        ],
+        "routed": [
+          {
+            "roomId": "abc123",
+            "to": [],
+            "everyone": true,
+            "waiting": true
+          }
+        ],
+        "room": {
+          "lastSpeaker": "user",
+          "lastAt": 1800000000000,
+          "lastPreview": "hello all",
+          "submissions": [
+            "sub-1"
+          ]
+        },
+        "catalogRepublished": 2
+      }
+    },
+    {
+      "case": "/ask names its members in order, by name, and routes to them alone",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "/ask Bench lead, GitHub 감시 check the build",
+            "options": {
+              "id": "sub-2"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "returned": true
+          }
+        ],
+        "readBack": [
+          {
+            "kind": "user",
+            "to": [
+              "bench-lead",
+              "gh"
+            ],
+            "toName": [
+              "Bench lead",
+              "GitHub 감시"
+            ],
+            "id": "sub-2",
+            "at": 1800000000000,
+            "text": "check the build"
+          }
+        ],
+        "routed": [
+          {
+            "roomId": "abc123",
+            "to": [
+              "bench-lead",
+              "gh"
+            ],
+            "everyone": false,
+            "waiting": true
+          }
+        ],
+        "room": {
+          "lastSpeaker": "user",
+          "lastAt": 1800000000000,
+          "lastPreview": "check the build",
+          "submissions": [
+            "sub-2"
+          ]
+        },
+        "catalogRepublished": 2
+      }
+    },
+    {
+      "case": "a message's files go up with its row: the log stores them and the row carries references",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "/ask gh see [Image #1], [Pasted text #2 +1 lines] and [File #3: plan.docx]"
+              },
+              {
+                "type": "image",
+                "data": "cG5nIGJ5dGVz",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "file",
+                "data": "ZG9jeCBieXRlcw==",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "filename": "plan.docx"
+              }
+            ],
+            "options": {
+              "id": "sub-3",
+              "pastedImages": {
+                "1": {
+                  "id": 1,
+                  "type": "image",
+                  "mediaType": "image/png",
+                  "filename": "shot.png",
+                  "sizeBytes": 9
+                }
+              },
+              "pastedTexts": {
+                "2": {
+                  "id": 2,
+                  "text": "pasted body",
+                  "source": "paste",
+                  "filename": "Pasted text #2",
+                  "mimeType": "text/plain"
+                }
+              }
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "returned": true
+          }
+        ],
+        "readBack": [
+          {
+            "kind": "user",
+            "to": [
+              "gh"
+            ],
+            "toName": [
+              "GitHub 감시"
+            ],
+            "parts": [
+              {
+                "type": "text",
+                "attachmentRef": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+                "textKind": "paste",
+                "mimeType": "text/plain",
+                "filename": "Pasted text #2",
+                "sizeBytes": 11
+              },
+              {
+                "type": "image",
+                "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+                "mimeType": "image/png",
+                "sizeBytes": 9
+              },
+              {
+                "type": "file",
+                "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "filename": "plan.docx",
+                "sizeBytes": 10
+              }
+            ],
+            "id": "sub-3",
+            "at": 1800000000000,
+            "text": "see [Image #1], [Pasted text #2 +1 lines] and [File #3: plan.docx]"
+          }
+        ],
+        "routed": [
+          {
+            "roomId": "abc123",
+            "to": [
+              "gh"
+            ],
+            "everyone": false,
+            "waiting": true
+          }
+        ],
+        "room": {
+          "lastSpeaker": "user",
+          "lastAt": 1800000000000,
+          "lastPreview": "see [Image #1], [Pasted text #2 +1 lines] and [File #3: plan.docx]",
+          "submissions": [
+            "sub-3"
+          ]
+        },
+        "catalogRepublished": 2,
+        "storedBytes": [
+          {
+            "type": "text",
+            "text": "pasted body"
+          },
+          {
+            "type": "image",
+            "text": "png bytes"
+          },
+          {
+            "type": "file",
+            "text": "docx bytes"
+          }
+        ]
+      }
+    },
+    {
+      "case": "a submission sent again, or one an earlier process accepted, is acknowledged once and posted once",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {},
+            "submissions": [
+              "sub-old"
+            ]
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "first",
+            "options": {
+              "id": "sub-4"
+            }
+          },
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "first",
+            "options": {
+              "id": "sub-4"
+            }
+          },
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "again",
+            "options": {
+              "id": "sub-old"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "returned": true
+          },
+          {
+            "returned": true
+          },
+          {
+            "returned": true
+          }
+        ],
+        "readBack": [
+          {
+            "kind": "user",
+            "id": "sub-4",
+            "at": 1800000000000,
+            "text": "first"
+          }
+        ],
+        "routed": [
+          {
+            "roomId": "abc123",
+            "to": [],
+            "everyone": true,
+            "waiting": true
+          }
+        ],
+        "room": {
+          "lastSpeaker": "user",
+          "lastAt": 1800000000000,
+          "lastPreview": "first",
+          "submissions": [
+            "sub-old",
+            "sub-4"
+          ]
+        },
+        "catalogRepublished": 2
+      }
+    },
+    {
+      "case": "an addressee that is no member of the room is refused",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "/ask Nobody hi",
+            "options": {
+              "id": "sub-5"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "threw": {
+              "message": "No member of this room has that name."
+            }
+          }
+        ],
+        "readBack": [],
+        "routed": [],
+        "room": {
+          "lastSpeaker": {
+            "$exact": "undefined"
+          },
+          "lastAt": {
+            "$exact": "undefined"
+          },
+          "lastPreview": {
+            "$exact": "undefined"
+          },
+          "submissions": {
+            "$exact": "undefined"
+          }
+        },
+        "catalogRepublished": 0
+      }
+    },
+    {
+      "case": "a switched-off addressee is refused with its code and name",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "/ask Release ship it",
+            "options": {
+              "id": "sub-6"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "threw": {
+              "message": "\"Release\" is switched off.",
+              "code": "ROOM_MEMBER_SWITCHED_OFF",
+              "details": {
+                "name": "Release"
+              }
+            }
+          }
+        ],
+        "readBack": [],
+        "routed": [],
+        "room": {
+          "lastSpeaker": {
+            "$exact": "undefined"
+          },
+          "lastAt": {
+            "$exact": "undefined"
+          },
+          "lastPreview": {
+            "$exact": "undefined"
+          },
+          "submissions": {
+            "$exact": "undefined"
+          }
+        },
+        "catalogRepublished": 0
+      }
+    },
+    {
+      "case": "a message with nothing to send is refused",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "   ",
+            "options": {
+              "id": "sub-7"
+            }
+          },
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "/ask Bench",
+            "options": {
+              "id": "sub-8"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "threw": {
+              "message": "Write a message to send."
+            }
+          },
+          {
+            "threw": {
+              "message": "Write a message to send."
+            }
+          }
+        ],
+        "readBack": [],
+        "routed": [],
+        "room": {
+          "lastSpeaker": {
+            "$exact": "undefined"
+          },
+          "lastAt": {
+            "$exact": "undefined"
+          },
+          "lastPreview": {
+            "$exact": "undefined"
+          },
+          "submissions": {
+            "$exact": "undefined"
+          }
+        },
+        "catalogRepublished": 0
+      }
+    },
+    {
+      "case": "a room that no longer exists refuses the message",
+      "observed": {
+        "rooms": [],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "hi",
+            "options": {
+              "id": "sub-9"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "threw": {
+              "message": "This room no longer exists."
+            }
+          }
+        ],
+        "readBack": [],
+        "routed": [],
+        "room": null,
+        "catalogRepublished": 0
+      }
+    },
+    {
+      "case": "a file part with no bytes is dropped: the row goes up with its text",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": [
+              {
+                "type": "text",
+                "text": "see the file"
+              },
+              {
+                "type": "file",
+                "data": "",
+                "mimeType": "text/plain",
+                "filename": "empty.txt"
+              }
+            ],
+            "options": {
+              "id": "sub-10"
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "returned": true
+          }
+        ],
+        "readBack": [
+          {
+            "kind": "user",
+            "id": "sub-10",
+            "at": 1800000000000,
+            "text": "see the file"
+          }
+        ],
+        "routed": [
+          {
+            "roomId": "abc123",
+            "to": [],
+            "everyone": true,
+            "waiting": true
+          }
+        ],
+        "room": {
+          "lastSpeaker": "user",
+          "lastAt": 1800000000000,
+          "lastPreview": "see the file",
+          "submissions": [
+            "sub-10"
+          ]
+        },
+        "catalogRepublished": 2
+      }
+    },
+    {
+      "case": "an attached file the log refuses refuses the message: no row, nothing routed, nothing stored",
+      "observed": {
+        "rooms": [
+          {
+            "id": "abc123",
+            "name": "Plan",
+            "members": [
+              "bench",
+              "bench-lead",
+              "gh",
+              "rel"
+            ],
+            "maxRounds": 6,
+            "maxMessages": 12,
+            "shareTools": false,
+            "createdAt": 1,
+            "cursors": {}
+          }
+        ],
+        "labels": [
+          {
+            "id": "bench",
+            "name": "Bench",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "bench-lead",
+            "name": "Bench lead",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": ""
+          },
+          {
+            "id": "gh",
+            "name": "GitHub 감시",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "watches GitHub"
+          },
+          {
+            "id": "rel",
+            "name": "Release",
+            "route": {
+              "provider": "openai",
+              "model": "gpt-5"
+            },
+            "description": "",
+            "disabled": true
+          }
+        ],
+        "sends": [
+          {
+            "sessionId": "sess_room_abc123",
+            "prompt": "[File #1]",
+            "options": {
+              "id": "sub-11",
+              "pastedTexts": {
+                "1": {
+                  "id": 1,
+                  "text": "",
+                  "source": "file",
+                  "filename": "empty.txt",
+                  "mimeType": "text/plain"
+                }
+              }
+            }
+          }
+        ],
+        "outcomes": [
+          {
+            "threw": {
+              "message": "prompt attachment is empty"
+            }
+          }
+        ],
+        "readBack": [],
+        "routed": [],
+        "room": {
+          "lastSpeaker": {
+            "$exact": "undefined"
+          },
+          "lastAt": {
+            "$exact": "undefined"
+          },
+          "lastPreview": {
+            "$exact": "undefined"
+          },
+          "submissions": {
+            "$exact": "undefined"
+          }
+        },
+        "catalogRepublished": 0,
+        "storedBytes": []
+      }
+    }
+  ]
+}

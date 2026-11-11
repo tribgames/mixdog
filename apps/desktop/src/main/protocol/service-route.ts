@@ -3,6 +3,7 @@
 // arguments become the named params of the Rust op, in the declared order of `client_methods.json`; a thread-addressed
 // op gets `threadId` from the session argument. The client library adds `opId` to every mutation (`call`), so none is
 // set here. A method with no request op is refused before anything is sent (`unknownMethod`): there is no fallback.
+import { roomIdOfSession } from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { blankSnapshot, remoteSessionIdOf, START_CALLS, startFolder } from '../../shared/blank-snapshot';
 import type { StartCall } from '../../shared/blank-snapshot';
 import type { SessionSnapshot } from '../../shared/contract';
@@ -128,7 +129,12 @@ const SINGLE: Readonly<Record<string, Single>> = {
     one('agent/memory/delete', { agentId, entryId: entry.id, indexRevision: entry.indexRevision }),
   inheritSession: ([threadId, route, options]) =>
     one('thread/fork', given({ threadId, route, compact: options?.compact }), 'reply'),
-  submitToSession: ([threadId, prompt, options]) => one('turn/start', { threadId, input: turnInput(prompt, options) }),
+  // A room log runs no turn: a message into it is the room's (`session-host.ts:1089-1091` → `agentRooms.send`), `room/send`
+  // with the same input, whose reply is `true`.
+  submitToSession: ([threadId, prompt, options]) =>
+    roomIdOfSession(threadId)
+      ? one('room/send', { input: { threadId, ...turnInput(prompt, options) } })
+      : one('turn/start', { threadId, input: turnInput(prompt, options) }),
   abortSession: ([threadId, options]) =>
     one('turn/interrupt', given({ threadId, restorePrompt: options?.restorePrompt, submissionId: options?.submissionId })),
   listProviderModels: ([options]) => one('model/list', given({ force: options?.force, refresh: options?.refresh, quick: options?.quick })),

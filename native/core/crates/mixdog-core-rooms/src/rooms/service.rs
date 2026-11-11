@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::params::{RoomContinueParams, RoomCreateParams, RoomLeaveParams, RoomRemoveParams, RoomResetParams, RoomUpdateParams};
+use mixdog_app_protocol::v2::params::{RoomContinueParams, RoomCreateParams, RoomLeaveParams, RoomRemoveParams, RoomResetParams, RoomSendParams, RoomUpdateParams};
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
@@ -33,6 +33,9 @@ use super::records::{RoomPatch, RoomRecord, RoomStore, Rooms};
 use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::coded;
 use mixdog_core_base::support::decode;
+use mixdog_core_base::support::failed;
+use mixdog_protocol::DomainErrorDetail;
+use super::user_send::{RoomSend, UserMessage};
 use mixdog_core_base::support::wrong_method;
 
 /// An agent contact as the room needs it.
@@ -177,6 +180,15 @@ fn failure(error: RoomError) -> CoreError {
         RoomError::NotFound(_) => "notFound",
         RoomError::PreconditionFailed(_) => "preconditionFailed",
         RoomError::Port(_) => "failed",
+        RoomError::Refused(message) => return failed("room", message.clone()),
+        RoomError::SwitchedOff(name) => {
+            return CoreError::DomainError {
+                domain: "room".into(),
+                code: Some("ROOM_MEMBER_SWITCHED_OFF".into()),
+                message: Some(error.to_string().into()),
+                detail: Some(Box::new(DomainErrorDetail::RoomMemberSwitchedOff { name: name.clone() })),
+            };
+        }
     };
     coded("room", code, error.to_string())
 }
@@ -190,6 +202,8 @@ pub struct RoomService<S: RoomStore, H: RoomHost, R: RoomRunner> {
     names: Arc<dyn super::catalog_rows::MemberNames>,
     /// The rooms' first load, which every room call awaits first (`agent-rooms.ts:267,294,323,365,376,409`).
     ready: Arc<RoomsReady>,
+    /// A user's message into a room (`room/send`).
+    sender: Arc<dyn RoomSend>,
 }
 
 impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> RoomService<S, H, R> {
@@ -200,8 +214,19 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         ops: OpScopes,
         names: Arc<dyn super::catalog_rows::MemberNames>,
         ready: Arc<RoomsReady>,
+        sender: Arc<dyn RoomSend>,
     ) -> Self {
-        Self { rooms, host, runner, ops, names, ready }
+        Self { rooms, host, runner, ops, names, ready, sender }
+    }
+
+    /// `submitToSession` on a room log (`session-host.ts:1089-1091` → `agentRooms.send`): the message posted and routed
+    /// (`LiveRooms::send`), then the catalog republished (`agent-room-messages.ts:110`); `true`, also for a submission
+    /// accepted before, which republishes nothing (`:76`).
+    async fn send(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
+        if self.sender.send(&UserMessage::of(input)?).await? {
+            self.host.republish_catalog(&replied.hold()).await?;
+        }
+        Ok(json!(true))
     }
 
     async fn known(&self) -> Result<Vec<KnownAgent>, RoomError> {
@@ -385,10 +410,13 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
             "room/leave" => decode::<RoomLeaveParams>(&req)?.input,
             "room/remove" => decode::<RoomRemoveParams>(&req)?.input,
             "room/reset" => decode::<RoomResetParams>(&req)?.input,
+            "room/send" => decode::<RoomSendParams>(&req)?.input,
             other => return Err(wrong_method("room", other)),
         };
         let method = method.to_owned();
         let replied = &req.ctx.after_answer;
+        // A repeated op answers as the first did: a send `true`, every other room op `{}`.
+        let repeated = if method == "room/send" { json!(true) } else { json!({}) };
         self.ops
             .run(
                 &req,
@@ -401,17 +429,18 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
                         "room/continue" => self.proceed(&input).await,
                         "room/leave" => self.leave(&input).await,
                         "room/reset" => self.reset(&input, replied).await,
+                        "room/send" => self.send(&input, replied).await,
                         _ => self.remove(&input, replied).await,
                     };
                     result.map_err(failure)
                 },
-                || async { Ok(json!({})) },
+                || async { Ok(repeated.clone()) },
             )
             .await
     }
 
     fn methods(&self) -> &'static [&'static str] {
-        &["room/create", "room/update", "room/continue", "room/leave", "room/remove", "room/reset"]
+        &["room/create", "room/update", "room/continue", "room/leave", "room/remove", "room/reset", "room/send"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
@@ -507,6 +536,15 @@ mod tests {
         }
     }
 
+    /// No user message is sent in these tests.
+    struct NoSends;
+    #[async_trait]
+    impl RoomSend for NoSends {
+        async fn send(&self, _: &UserMessage) -> Result<bool, RoomError> {
+            unreachable!("no user message is sent here")
+        }
+    }
+
     struct Runs(bool);
     #[async_trait]
     impl RoomRunner for Runs {
@@ -543,7 +581,7 @@ mod tests {
             });
             let rooms = Arc::new(Rooms::new(Mem(Mutex::new(RoomDoc::from([(room_id.to_owned(), before.clone())])))));
             let ops = mixdog_core_base::support::testing::scopes(dir.path(), "room").await;
-            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops, Arc::new(Unnamed), RoomsReady::prepared());
+            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops, Arc::new(Unnamed), RoomsReady::prepared(), Arc::new(NoSends));
 
             // The unknown room is asked for by another id than the one the record sits under.
             let asked = if name == "unknown room" { "nosuchroom" } else { room_id };
@@ -711,6 +749,7 @@ mod tests {
             mixdog_core_base::support::testing::scopes(dir.path(), "room").await,
             Arc::new(Unnamed),
             RoomsReady::prepared(),
+            Arc::new(NoSends),
         );
         (service, host, dir)
     }

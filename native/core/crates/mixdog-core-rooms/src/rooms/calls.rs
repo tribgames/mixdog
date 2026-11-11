@@ -198,6 +198,36 @@ pub struct RoomCalls<R: CallRunner> {
     runner: Arc<R>,
     state: Mutex<State>,
     log: Arc<dyn Fn(&str) + Send + Sync>,
+    intakes: Arc<Intakes>,
+}
+
+/// Per room, the user messages still on their way to `route` (`intakes`, `agent-room-scheduler.ts:120-138`).
+type Intakes = Mutex<HashMap<String, Vec<Arc<AtomicBool>>>>;
+
+/// One message's latch (`IntakeRequest`): registered before its first await, released when dropped. Stop sets it, so a
+/// message stopped on its way is posted but routes nothing.
+pub struct Intake {
+    room_id: String,
+    stopped: Arc<AtomicBool>,
+    intakes: Arc<Intakes>,
+}
+
+impl Intake {
+    pub fn stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Intake {
+    fn drop(&mut self) {
+        let mut intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pending) = intakes.get_mut(&self.room_id) {
+            pending.retain(|flag| !Arc::ptr_eq(flag, &self.stopped));
+            if pending.is_empty() {
+                intakes.remove(&self.room_id);
+            }
+        }
+    }
 }
 
 fn cancel_all(calls: &[RoomCall]) {
@@ -234,7 +264,14 @@ fn merged(prior: Option<Request>, request: Request) -> Request {
 
 impl<R: CallRunner + 'static> RoomCalls<R> {
     pub fn new(runner: Arc<R>, log: Arc<dyn Fn(&str) + Send + Sync>) -> Arc<Self> {
-        Arc::new(Self { runner, state: Mutex::new(State::default()), log })
+        Arc::new(Self { runner, state: Mutex::new(State::default()), log, intakes: Arc::default() })
+    }
+
+    /// `scheduler.intake(roomId, run)`: the latch of one user message into `room_id`, until it is dropped.
+    pub fn intake(&self, room_id: &str) -> Intake {
+        let stopped = Arc::new(AtomicBool::new(false));
+        self.intakes.lock().unwrap_or_else(|e| e.into_inner()).entry(room_id.to_owned()).or_default().push(stopped.clone());
+        Intake { room_id: room_id.to_owned(), stopped, intakes: self.intakes.clone() }
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -357,15 +394,24 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         self.route(room_id, Request { to, everyone: false, waiting: false, only: true, calls: queued });
     }
 
-    /// The stop button: the relays held back end cancelled, the speaking member's turn is cut off
-    /// and no one else gets a turn. True when an exchange was cancelled.
+    /// The stop button: the relays held back end cancelled, the user messages on their way route
+    /// nothing, the speaking member's turn is cut off and no one else gets a turn. True when an
+    /// exchange was cancelled or a message was on its way.
     pub fn stop(self: &Arc<Self>, room_id: &str) -> bool {
         let (queued, active) = {
             let mut state = self.state();
             (state.relays.remove(room_id).unwrap_or_default(), state.running.get(room_id).cloned())
         };
         cancel_all(&queued);
-        let Some(active) = active else { return false };
+        let incoming = {
+            let intakes = self.intakes.lock().unwrap_or_else(|e| e.into_inner());
+            let pending = intakes.get(room_id).map(Vec::as_slice).unwrap_or_default();
+            for flag in pending {
+                flag.store(true, Ordering::SeqCst);
+            }
+            !pending.is_empty()
+        };
+        let Some(active) = active else { return incoming };
         active.set_stopped();
         if let Some(pending) = active.pending().take() {
             cancel_all(&pending.calls);

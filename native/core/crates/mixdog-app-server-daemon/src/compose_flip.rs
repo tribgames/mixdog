@@ -2552,6 +2552,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             maintainer: maintainer.clone(),
             preview: Arc::new(|text: &str| mixdog_core_rooms::rooms::preview::plain_preview_text(text)), // flip-rooms-9
             log: room_log.clone(),
+            now: now_ms.clone(),
         },
     );
     let room_calls = mixdog_core_rooms::rooms::calls::RoomCalls::new(Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live_rooms.clone())), room_log.clone());
@@ -2643,6 +2644,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
         definition_names.clone(),
         rooms_ready.clone(),
+        // A user's message into a room (`room/send`, the composer's `submitToSession` on a room log).
+        Arc::new(mixdog_core_rooms::rooms::user_send::UserSend::new(rooms.clone(), live_rooms.clone(), room_calls.clone())),
     )))?;
     // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
     // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and
