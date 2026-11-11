@@ -136,6 +136,7 @@ crate::notification_definitions! {
     ThreadSnapshot => "thread/snapshot" (ThreadSnapshotParams) @thread,
     ThreadClosed => "thread/closed" (ThreadIdParams) @thread,
     ThreadStatusChanged => "thread/status/changed" (ThreadStatusChangedParams) @thread,
+    ThreadStageUpdated => "thread/stage/updated" (ThreadStageUpdatedParams) @thread,
     ThreadNameUpdated => "thread/name/updated" (ThreadNameUpdatedParams) @thread,
     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (TokenUsageUpdatedParams) @thread,
     ThreadGoalUpdated => "thread/goal/updated" (ThreadValueParams) @thread,
