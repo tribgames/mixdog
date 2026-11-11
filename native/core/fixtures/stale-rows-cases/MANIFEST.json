@@ -2,7 +2,6 @@
   "command": "node benchmarks/rust-core/recorders/record-stale-rows-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "the sessions whose rows stay, the tombstones left (tag:session), and each scan decision",
   "excluded": {
-    "a settled row whose session is live in this process is kept": "DIFFERENCE: Node's sessionHasLiveWork also counts an active runtime stage, so s-active (streaming) keeps its row; the core's transition_stale asks only LiveSessions::has_live_work (a running turn or queued input) and tombstones it",
     "an empty index, live rows and settled rows under a day never load config": "GONE (gaps-rest.md): the reap window is an injected trait (agent_registry/mod.rs `ReapWindow`), not a config load to count",
     "scan admission of running and recently settled sessions never loads config": "GONE (gaps-rest.md): the reap window is an injected trait, not a config load to count"
   },
@@ -43,7 +42,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-stale-rows-cases.mjs",
-  "recorderSha256": "e0e9e0f3f56beb5aa542f29cb3798b99d24d8480595b53bb29b5a69c9a7083fd",
+  "recorderSha256": "c3840df8ea2750b06fd984ea4672c8429a028e89d8c52db70de77b8e05a57e50",
   "set": "stale-rows-cases",
   "totalBytes": 10248
 }

@@ -154,9 +154,6 @@ const excluded = {
     'GONE (gaps-rest.md): the reap window is an injected trait (agent_registry/mod.rs `ReapWindow`), not a config load to count',
   'scan admission of running and recently settled sessions never loads config':
     'GONE (gaps-rest.md): the reap window is an injected trait, not a config load to count',
-  'a settled row whose session is live in this process is kept':
-    "DIFFERENCE: Node's sessionHasLiveWork also counts an active runtime stage, so s-active (streaming) keeps its row; " +
-    "the core's transition_stale asks only LiveSessions::has_live_work (a running turn or queued input) and tombstones it",
 };
 
 const finalDir = join(FIXTURES_ROOT, 'stale-rows-cases');
