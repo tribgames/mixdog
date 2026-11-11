@@ -1,0 +1,750 @@
+{
+  "domain": "memory-chunk-quality-handoff",
+  "clock": {
+    "dateNowMs": 1700000000000,
+    "reason": "verifiedAt of every chunk_quality below"
+  },
+  "source": "src/runtime/memory/lib/memory-chunk-quality.test.mjs",
+  "cases": [
+    {
+      "name": "known stale-summary fallback includes the original root body, code, URLs and every unique member (test line 372)",
+      "handoff": {
+        "label": "stale summary falls back to originals",
+        "roots": [
+          {
+            "id": 1,
+            "ts": 1000,
+            "source_turn": 1,
+            "session_id": "s",
+            "role": "user",
+            "content": "```js\nconst n = 296;\n```\nhttps://example.com | exact",
+            "is_root": 1,
+            "element": "stale metadata",
+            "summary": "All succeeded.",
+            "chunk_quality": {
+              "version": 1,
+              "verification": "structural",
+              "memberIds": [
+                "1",
+                "2"
+              ],
+              "sourceHash": "023dc4110ab820d4581c127ca8093d68c8d6f5a96d7f2a0b904fc9e556070db1",
+              "summaryHash": "d6e6ab112deae371665cd6ef9c265095fcd7b15c13dac490329ac5368b06d95b",
+              "sourceTokens": 20,
+              "summaryTokens": 6,
+              "verifiedAt": 1700000000000
+            },
+            "members": [
+              {
+                "id": 1,
+                "ts": 1000,
+                "source_turn": 1,
+                "session_id": "s",
+                "role": "user",
+                "content": "```js\nconst n = 296;\n```\nhttps://example.com | exact",
+                "element": "stale",
+                "summary": "wrong"
+              },
+              {
+                "id": 2,
+                "ts": 2000,
+                "source_turn": 2,
+                "session_id": "s",
+                "role": "assistant",
+                "content": "No success was verified."
+              }
+            ]
+          }
+        ],
+        "projected": {
+          "result": [
+            {
+              "id": 2,
+              "ts": 2000,
+              "source_turn": 2,
+              "session_id": "s",
+              "role": "assistant",
+              "content": "No success was verified.",
+              "is_root": 0,
+              "chunk_root": null,
+              "_compactRaw": true
+            },
+            {
+              "id": 1,
+              "ts": 1000,
+              "source_turn": 1,
+              "session_id": "s",
+              "role": "user",
+              "content": "```js\nconst n = 296;\n```\nhttps://example.com | exact",
+              "is_root": 0,
+              "chunk_root": null,
+              "_compactRaw": true
+            }
+          ]
+        },
+        "rendered": {
+          "result": "[2000] a: No success was verified. [pending] #2\n[1000] u: ```js\nconst n = 296;\n```\nhttps://example.com | exact [pending] #1"
+        },
+        "renderOptions": {
+          "maxBodyChars": null
+        },
+        "rootsUnchanged": true
+      }
+    },
+    {
+      "name": "legacy compressed bodies contain no search metadata, IDs or role labels (test line 393)",
+      "handoff": {
+        "label": "legacy compressed body carries no metadata",
+        "roots": [
+          {
+            "id": 1,
+            "ts": 1000,
+            "is_root": 1,
+            "element": "internal-search-key",
+            "summary": "Pending request.",
+            "members": [
+              {
+                "id": 1,
+                "ts": 1000,
+                "source_turn": 1,
+                "session_id": "s",
+                "role": "user",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+              },
+              {
+                "id": 2,
+                "ts": 2000,
+                "source_turn": 2,
+                "session_id": "s",
+                "role": "assistant",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+              }
+            ]
+          }
+        ],
+        "projected": {
+          "result": [
+            {
+              "id": 1,
+              "ts": 1000,
+              "is_root": 1,
+              "element": "",
+              "summary": "Pending request.",
+              "_compactBody": true,
+              "_compactMemberIds": [
+                "1",
+                "2"
+              ]
+            }
+          ]
+        },
+        "rendered": {
+          "result": "Pending request."
+        },
+        "renderOptions": null,
+        "rootsUnchanged": true
+      }
+    },
+    {
+      "name": "overlapping chunk memberships fall back to unique originals instead of duplicate summaries (test line 406)",
+      "handoff": {
+        "label": "overlapping memberships fall back to unique originals",
+        "roots": [
+          {
+            "id": 1,
+            "is_root": 1,
+            "summary": "Pending request.",
+            "members": [
+              {
+                "id": 1,
+                "ts": 1000,
+                "source_turn": 1,
+                "session_id": "s",
+                "role": "user",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+              },
+              {
+                "id": 2,
+                "ts": 2000,
+                "source_turn": 2,
+                "session_id": "s",
+                "role": "assistant",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+              }
+            ],
+            "chunk_quality": {
+              "version": 1,
+              "verification": "structural",
+              "memberIds": [
+                "1",
+                "2"
+              ],
+              "sourceHash": "c8f771818c49d140c08a3320d29dfe966f0495de61ef945d2b2e35e5cb0f82a9",
+              "summaryHash": "fe518cdfe1b87a3b5dfca8982b7d8e97a5ac558725589663a47943f7bcfdd0f7",
+              "sourceTokens": 106,
+              "summaryTokens": 4,
+              "verifiedAt": 1700000000000
+            }
+          },
+          {
+            "id": 3,
+            "is_root": 1,
+            "summary": "Pending request.",
+            "members": [
+              {
+                "id": 1,
+                "ts": 1000,
+                "source_turn": 1,
+                "session_id": "s",
+                "role": "user",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+              },
+              {
+                "id": 2,
+                "ts": 2000,
+                "source_turn": 2,
+                "session_id": "s",
+                "role": "assistant",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+              }
+            ],
+            "chunk_quality": {
+              "version": 1,
+              "verification": "structural",
+              "memberIds": [
+                "1",
+                "2"
+              ],
+              "sourceHash": "c8f771818c49d140c08a3320d29dfe966f0495de61ef945d2b2e35e5cb0f82a9",
+              "summaryHash": "fe518cdfe1b87a3b5dfca8982b7d8e97a5ac558725589663a47943f7bcfdd0f7",
+              "sourceTokens": 106,
+              "summaryTokens": 4,
+              "verifiedAt": 1700000000000
+            }
+          }
+        ],
+        "projected": {
+          "result": [
+            {
+              "id": 2,
+              "ts": 2000,
+              "source_turn": 2,
+              "session_id": "s",
+              "role": "assistant",
+              "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. ",
+              "is_root": 0,
+              "chunk_root": null,
+              "_compactRaw": true
+            },
+            {
+              "id": 1,
+              "ts": 1000,
+              "source_turn": 1,
+              "session_id": "s",
+              "role": "user",
+              "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. ",
+              "is_root": 0,
+              "chunk_root": null,
+              "_compactRaw": true
+            }
+          ]
+        },
+        "rendered": {
+          "result": "[2000] a: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #2\n[1000] u: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #1"
+        },
+        "renderOptions": null,
+        "rootsUnchanged": true
+      }
+    },
+    {
+      "name": "further shapes (beyond the test file)",
+      "handoffs": [
+        {
+          "label": "verified summary of a single root is used",
+          "roots": [
+            {
+              "id": 1,
+              "is_root": 1,
+              "summary": "Pending request.",
+              "members": [
+                {
+                  "id": 1,
+                  "ts": 1000,
+                  "source_turn": 1,
+                  "session_id": "s",
+                  "role": "user",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                },
+                {
+                  "id": 2,
+                  "ts": 2000,
+                  "source_turn": 2,
+                  "session_id": "s",
+                  "role": "assistant",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                }
+              ],
+              "chunk_quality": {
+                "version": 1,
+                "verification": "structural",
+                "memberIds": [
+                  "1",
+                  "2"
+                ],
+                "sourceHash": "c8f771818c49d140c08a3320d29dfe966f0495de61ef945d2b2e35e5cb0f82a9",
+                "summaryHash": "fe518cdfe1b87a3b5dfca8982b7d8e97a5ac558725589663a47943f7bcfdd0f7",
+                "sourceTokens": 106,
+                "summaryTokens": 4,
+                "verifiedAt": 1700000000000
+              }
+            }
+          ],
+          "projected": {
+            "result": [
+              {
+                "id": 1,
+                "is_root": 1,
+                "summary": "Pending request.",
+                "chunk_quality": {
+                  "version": 1,
+                  "verification": "structural",
+                  "memberIds": [
+                    "1",
+                    "2"
+                  ],
+                  "sourceHash": "c8f771818c49d140c08a3320d29dfe966f0495de61ef945d2b2e35e5cb0f82a9",
+                  "summaryHash": "fe518cdfe1b87a3b5dfca8982b7d8e97a5ac558725589663a47943f7bcfdd0f7",
+                  "sourceTokens": 106,
+                  "summaryTokens": 4,
+                  "verifiedAt": 1700000000000
+                },
+                "element": "",
+                "_compactBody": true,
+                "_compactMemberIds": [
+                  "1",
+                  "2"
+                ]
+              }
+            ]
+          },
+          "rendered": {
+            "result": "Pending request."
+          },
+          "renderOptions": null,
+          "rootsUnchanged": true
+        },
+        {
+          "label": "verified summary rendered without a body bound",
+          "roots": [
+            {
+              "id": 1,
+              "is_root": 1,
+              "summary": "Pending request.",
+              "members": [
+                {
+                  "id": 1,
+                  "ts": 1000,
+                  "source_turn": 1,
+                  "session_id": "s",
+                  "role": "user",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                },
+                {
+                  "id": 2,
+                  "ts": 2000,
+                  "source_turn": 2,
+                  "session_id": "s",
+                  "role": "assistant",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                }
+              ],
+              "chunk_quality": {
+                "version": 1,
+                "verification": "structural",
+                "memberIds": [
+                  "1",
+                  "2"
+                ],
+                "sourceHash": "c8f771818c49d140c08a3320d29dfe966f0495de61ef945d2b2e35e5cb0f82a9",
+                "summaryHash": "fe518cdfe1b87a3b5dfca8982b7d8e97a5ac558725589663a47943f7bcfdd0f7",
+                "sourceTokens": 106,
+                "summaryTokens": 4,
+                "verifiedAt": 1700000000000
+              }
+            }
+          ],
+          "projected": {
+            "result": [
+              {
+                "id": 1,
+                "is_root": 1,
+                "summary": "Pending request.",
+                "chunk_quality": {
+                  "version": 1,
+                  "verification": "structural",
+                  "memberIds": [
+                    "1",
+                    "2"
+                  ],
+                  "sourceHash": "c8f771818c49d140c08a3320d29dfe966f0495de61ef945d2b2e35e5cb0f82a9",
+                  "summaryHash": "fe518cdfe1b87a3b5dfca8982b7d8e97a5ac558725589663a47943f7bcfdd0f7",
+                  "sourceTokens": 106,
+                  "summaryTokens": 4,
+                  "verifiedAt": 1700000000000
+                },
+                "element": "",
+                "_compactBody": true,
+                "_compactMemberIds": [
+                  "1",
+                  "2"
+                ]
+              }
+            ]
+          },
+          "rendered": {
+            "result": "Pending request."
+          },
+          "renderOptions": {
+            "maxBodyChars": null
+          },
+          "rootsUnchanged": true
+        },
+        {
+          "label": "altered summary on a verified root",
+          "roots": [
+            {
+              "id": 1,
+              "is_root": 1,
+              "summary": "It succeeded.",
+              "members": [
+                {
+                  "id": 1,
+                  "ts": 1000,
+                  "source_turn": 1,
+                  "session_id": "s",
+                  "role": "user",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                },
+                {
+                  "id": 2,
+                  "ts": 2000,
+                  "source_turn": 2,
+                  "session_id": "s",
+                  "role": "assistant",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                }
+              ],
+              "chunk_quality": {
+                "version": 1,
+                "verification": "structural",
+                "memberIds": [
+                  "1",
+                  "2"
+                ],
+                "sourceHash": "c8f771818c49d140c08a3320d29dfe966f0495de61ef945d2b2e35e5cb0f82a9",
+                "summaryHash": "fe518cdfe1b87a3b5dfca8982b7d8e97a5ac558725589663a47943f7bcfdd0f7",
+                "sourceTokens": 106,
+                "summaryTokens": 4,
+                "verifiedAt": 1700000000000
+              }
+            }
+          ],
+          "projected": {
+            "result": [
+              {
+                "id": 2,
+                "ts": 2000,
+                "source_turn": 2,
+                "session_id": "s",
+                "role": "assistant",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. ",
+                "is_root": 0,
+                "chunk_root": null,
+                "_compactRaw": true
+              },
+              {
+                "id": 1,
+                "ts": 1000,
+                "source_turn": 1,
+                "session_id": "s",
+                "role": "user",
+                "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. ",
+                "is_root": 0,
+                "chunk_root": null,
+                "_compactRaw": true
+              }
+            ]
+          },
+          "rendered": {
+            "result": "[2000] a: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #2\n[1000] u: The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated.  [pending] #1"
+          },
+          "renderOptions": null,
+          "rootsUnchanged": true
+        },
+        {
+          "label": "root without members",
+          "roots": [
+            {
+              "id": 9,
+              "ts": 9000,
+              "is_root": 1,
+              "summary": "Alone.",
+              "content": "original alone"
+            }
+          ],
+          "projected": {
+            "result": [
+              {
+                "id": 9,
+                "ts": 9000,
+                "is_root": 0,
+                "content": "original alone",
+                "chunk_root": null,
+                "_compactRaw": true
+              }
+            ]
+          },
+          "rendered": {
+            "result": "[9000] original alone [pending] #9"
+          },
+          "renderOptions": null,
+          "rootsUnchanged": true
+        },
+        {
+          "label": "two disjoint legacy roots",
+          "roots": [
+            {
+              "id": 1,
+              "ts": 1000,
+              "is_root": 1,
+              "element": "internal-search-key",
+              "summary": "Pending request.",
+              "members": [
+                {
+                  "id": 1,
+                  "ts": 1000,
+                  "source_turn": 1,
+                  "session_id": "s",
+                  "role": "user",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                },
+                {
+                  "id": 2,
+                  "ts": 2000,
+                  "source_turn": 2,
+                  "session_id": "s",
+                  "role": "assistant",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                }
+              ]
+            },
+            {
+              "id": 5,
+              "ts": 5000,
+              "is_root": 1,
+              "summary": "Second request.",
+              "members": [
+                {
+                  "id": 5,
+                  "ts": 5000,
+                  "source_turn": 5,
+                  "session_id": "s",
+                  "role": "user",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                },
+                {
+                  "id": 6,
+                  "ts": 6000,
+                  "source_turn": 6,
+                  "session_id": "s",
+                  "role": "assistant",
+                  "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+                }
+              ]
+            }
+          ],
+          "projected": {
+            "result": [
+              {
+                "id": 5,
+                "ts": 5000,
+                "is_root": 1,
+                "summary": "Second request.",
+                "element": "",
+                "_compactBody": true,
+                "_compactMemberIds": [
+                  "5",
+                  "6"
+                ]
+              },
+              {
+                "id": 1,
+                "ts": 1000,
+                "is_root": 1,
+                "element": "",
+                "summary": "Pending request.",
+                "_compactBody": true,
+                "_compactMemberIds": [
+                  "1",
+                  "2"
+                ]
+              }
+            ]
+          },
+          "rendered": {
+            "result": "Second request.\nPending request."
+          },
+          "renderOptions": null,
+          "rootsUnchanged": true
+        },
+        {
+          "label": "no roots",
+          "roots": [],
+          "projected": {
+            "result": []
+          },
+          "rendered": {
+            "result": "(no results)"
+          },
+          "renderOptions": null,
+          "rootsUnchanged": true
+        }
+      ],
+      "quality": [
+        {
+          "label": "legacy root with members",
+          "expectedMembers": null,
+          "result": {
+            "usable": true,
+            "reasons": [],
+            "provenance": "legacy",
+            "sourceTokens": 106,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        },
+        {
+          "label": "verified root",
+          "expectedMembers": null,
+          "result": {
+            "usable": true,
+            "reasons": [],
+            "provenance": "structural",
+            "sourceTokens": 106,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        },
+        {
+          "label": "verified root, member list cut",
+          "expectedMembers": [
+            {
+              "id": 2,
+              "ts": 2000,
+              "source_turn": 2,
+              "session_id": "s",
+              "role": "assistant",
+              "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+            }
+          ],
+          "result": {
+            "usable": false,
+            "reasons": [
+              "source_changed"
+            ],
+            "provenance": "structural",
+            "sourceTokens": 53,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        },
+        {
+          "label": "verified root, duplicated member",
+          "expectedMembers": [
+            {
+              "id": 1,
+              "ts": 1000,
+              "source_turn": 1,
+              "session_id": "s",
+              "role": "user",
+              "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+            },
+            {
+              "id": 2,
+              "ts": 2000,
+              "source_turn": 2,
+              "session_id": "s",
+              "role": "assistant",
+              "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+            },
+            {
+              "id": 1,
+              "ts": 1000,
+              "source_turn": 1,
+              "session_id": "s",
+              "role": "user",
+              "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+            }
+          ],
+          "result": {
+            "usable": false,
+            "reasons": [
+              "duplicate_members",
+              "source_changed"
+            ],
+            "provenance": "structural",
+            "sourceTokens": 158,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        },
+        {
+          "label": "verified root, member content changed",
+          "expectedMembers": [
+            {
+              "id": 1,
+              "ts": 1000,
+              "source_turn": 1,
+              "session_id": "s",
+              "role": "user",
+              "content": "changed"
+            },
+            {
+              "id": 2,
+              "ts": 2000,
+              "source_turn": 2,
+              "session_id": "s",
+              "role": "assistant",
+              "content": "The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. The request and its details are repeated. "
+            }
+          ],
+          "result": {
+            "usable": false,
+            "reasons": [
+              "source_changed"
+            ],
+            "provenance": "structural",
+            "sourceTokens": 55,
+            "summaryTokens": 4,
+            "shorter": true
+          }
+        },
+        {
+          "label": "expanded summary",
+          "expectedMembers": null,
+          "result": {
+            "usable": false,
+            "reasons": [
+              "not_shorter",
+              "summary_changed"
+            ],
+            "provenance": "structural",
+            "sourceTokens": 106,
+            "summaryTokens": 2500,
+            "shorter": false
+          }
+        }
+      ]
+    }
+  ]
+}
