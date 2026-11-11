@@ -57,7 +57,7 @@ struct Script {
     seen: Mutex<Vec<p::ModelRequest>>,
 }
 
-struct Events(VecDeque<p::StreamEvent>);
+pub(super) struct Events(pub(super) VecDeque<p::StreamEvent>);
 
 #[async_trait]
 impl p::ModelStream for Events {
@@ -95,7 +95,7 @@ impl p::ProviderAdapter for Script {
     }
 }
 
-fn answer(text: &str) -> Vec<p::StreamEvent> {
+pub(super) fn answer(text: &str) -> Vec<p::StreamEvent> {
     vec![p::StreamEvent::TextDelta(text.into()), p::StreamEvent::Completed { stop: Some(p::StopReason::EndTurn), pricing_model: None, request_ms: None }]
 }
 
@@ -125,7 +125,7 @@ impl ProviderConfigSource for NoConfig {
     }
 }
 
-struct Offline;
+pub(super) struct Offline;
 #[async_trait]
 impl mixdog_ai::transport::HttpSend for Offline {
     async fn send(&self, _: p::WireRequest, _: mixdog_ai::transport::Exchange) -> Result<mixdog_ai::transport::HttpResponse, p::ProviderError> {
@@ -135,7 +135,7 @@ impl mixdog_ai::transport::HttpSend for Offline {
 
 /// The `modelProxy/run/event` notifications, by connection.
 #[derive(Default)]
-struct Notes(Mutex<Vec<(ConnectionId, String, Value)>>);
+pub(super) struct Notes(Mutex<Vec<(ConnectionId, String, Value)>>);
 
 impl ConnectionNotifier for Notes {
     fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError> {
@@ -146,7 +146,7 @@ impl ConnectionNotifier for Notes {
 
 impl Notes {
     /// The typed events of run `run_id`, in order.
-    fn events(&self, run_id: &str) -> Vec<w::ProxyEvent> {
+    pub(super) fn events(&self, run_id: &str) -> Vec<w::ProxyEvent> {
         let notes = self.0.lock().unwrap();
         notes
             .iter()
@@ -157,13 +157,29 @@ impl Notes {
 }
 
 async fn service(script: Arc<Script>) -> (ModelProxyService, Arc<Notes>) {
-    let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
-    let catalog = Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await);
+    service_of(Arc::new(Lookup(script)), Arc::new(NoQuota), Arc::new(NoConfig), None).await
+}
+
+/// The service the daemon registers, over this PC's provider lookup, quota probe and config; `catalog` is the PC's
+/// catalog (an empty cold one when `None`).
+pub(super) async fn service_of(
+    providers: Arc<dyn ProviderLookup>,
+    quota: Arc<dyn QuotaProbe>,
+    config: Arc<dyn ProviderConfigSource>,
+    catalog: Option<Arc<mixdog_ai::catalog::CatalogService>>,
+) -> (ModelProxyService, Arc<Notes>) {
+    let catalog = match catalog {
+        Some(catalog) => catalog,
+        None => {
+            let dir = tempfile::tempdir().unwrap();
+            let tokens = mixdog_rt::testing::tokens();
+            let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+            let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
+            Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await)
+        }
+    };
     let broker = Arc::new(ModelBroker::new(Arc::new(Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
-    let runner = ProxyRunner { providers: Arc::new(Lookup(script)), broker, quota: Arc::new(NoQuota), wire: Arc::new(PcWireRouter), config: Arc::new(NoConfig), catalog };
+    let runner = ProxyRunner { providers, broker, quota, wire: Arc::new(PcWireRouter), config, catalog };
     let notes = Arc::new(Notes::default());
     (ModelProxyService::new(Arc::new(runner), Arc::new(MockHostChannel::default()), notes.clone()), notes)
 }
@@ -175,25 +191,31 @@ fn script(excluded: Vec<p::ToolExclusionReport>, events: Vec<p::StreamEvent>) ->
 /// `modelProxy/run` of a send to "openai", as the relaying connection asks it.
 fn run(run_id: &str, request: &p::ModelRequest) -> CoreRequest {
     let call = w::ProxyCall::Send { provider: "openai".into(), request: Box::new(request_out(request)) };
+    run_call(run_id, &call, None, ConnectionId(1), CancellationToken::new())
+}
+
+/// `modelProxy/run` of `call` from connection `from`, with the providers its host may use and the request's own
+/// cancel token (a child of the connection's: it is cancelled when the connection goes).
+pub(super) fn run_call(run_id: &str, call: &w::ProxyCall, allowed: Option<&[&str]>, from: ConnectionId, cancel: CancellationToken) -> CoreRequest {
     CoreRequest {
         method: Method("modelProxy/run"),
-        params: json!({ "runId": run_id, "call": call, "allowedProviders": null }),
+        params: json!({ "runId": run_id, "call": call, "allowedProviders": allowed }),
         op: None,
-        ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new()),
+        ctx: CallContext::connection(from, mixdog_protocol::Origin::Local, cancel),
     }
 }
 
-fn request(messages: Vec<p::Message>) -> p::ModelRequest {
+pub(super) fn request(messages: Vec<p::Message>) -> p::ModelRequest {
     p::ModelRequest { model: "gpt".into(), messages, tools: Vec::new(), options: p::RequestOptions::default() }
 }
 
-async fn answered(service: &ModelProxyService, call: CoreRequest) -> Value {
+pub(super) async fn answered(service: &ModelProxyService, call: CoreRequest) -> Value {
     let Reply::Value(answer) = service.call(call).await.expect("a run answers") else { panic!("not a value") };
     answer["result"].clone()
 }
 
 /// The streamed text of a run (Node's send result `content`).
-fn content(events: &[w::ProxyEvent]) -> String {
+pub(super) fn content(events: &[w::ProxyEvent]) -> String {
     events.iter().filter_map(|e| if let w::ProxyEvent::TextDelta { text } = e { Some(text.as_str()) } else { None }).collect()
 }
 

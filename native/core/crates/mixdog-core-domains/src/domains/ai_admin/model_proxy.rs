@@ -978,7 +978,7 @@ impl ProxyRunner {
                 Ok(w::ProxyAnswer::Route { route })
             }
             w::ProxyCall::ListModels { provider, refresh } => {
-                self.adapter(&provider).await?;
+                let adapter = self.adapter(&provider).await?;
                 if refresh {
                     self.catalog.refresh().await;
                 }
@@ -988,7 +988,15 @@ impl ProxyRunner {
                 if let (true, Some(mixdog_ai::catalog::ProviderStatus::Missing { message, .. })) = (models.is_empty(), snapshot.status.get(&id)) {
                     return Err(refusal("MODEL_PROXY_LISTING_FAILED", message.clone(), p::ErrorKind::Transient));
                 }
-                Ok(w::ProxyAnswer::Models { models: models.iter().map(catalog_model_out).collect() })
+                // The budget depends on the model, so it rides with the model's own row (host.ts `catalog`).
+                let budget = |id: &str| {
+                    adapter.first_response_budget(id, None).and_then(|b| {
+                        Some(w::ProxyBudget { transport_ms: u64::try_from(b.transport_ms).ok().filter(|ms| *ms > 0)?, semantic_ms: u64::try_from(b.semantic_ms).ok().filter(|ms| *ms > 0)? })
+                    })
+                };
+                Ok(w::ProxyAnswer::Models {
+                    models: models.iter().map(|m| w::ProxyModel { first_response_budget: budget(&m.id), ..catalog_model_out(m) }).collect(),
+                })
             }
             w::ProxyCall::Send { provider, request } => {
                 let adapter = self.adapter(&provider).await?;
