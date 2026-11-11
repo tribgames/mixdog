@@ -152,13 +152,13 @@ pub(crate) struct Settle {
 pub(crate) type SettleSlot = Arc<Mutex<Settle>>;
 
 impl Settle {
-    fn reach_lock(&mut self) {
+    fn reach_lock(&mut self, st: &mut crate::barriers::LockState) {
         if self.retry_due
             && self.ambiguous
             && self.turn.is_none()
             && let Some(key) = &self.key
         {
-            self.turn = Some(self.locks.take(key));
+            self.turn = Some(st.take(key));
         }
     }
 }
@@ -169,11 +169,28 @@ impl Settle {
 /// any instant; it waits until the stream is waiting for bytes it has not received (open) or, once the response is
 /// complete, until the batch has taken its place at its first call (open again).
 ///
-/// The streamed run settled; called before its barrier lets the calls behind it go.
-fn run_settled(slot: &SettleSlot, ambiguous: bool) {
-    let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    s.ambiguous = ambiguous;
-    s.reach_lock();
+/// Settles a streamed call when its task ends, by finishing or by being dropped (a cancel, a panic), before its barrier
+/// lets the calls behind it go.
+struct Settler {
+    id: String,
+    slot: SettleSlot,
+    /// The run settled as an ambiguous edit.
+    ambiguous: bool,
+    finished: tokio::sync::watch::Sender<bool>,
+}
+
+impl Drop for Settler {
+    fn drop(&mut self) {
+        {
+            let mut s = self.slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            s.ambiguous = self.ambiguous;
+            let locks = s.locks.clone();
+            // The retry's place (when the batch already waits for the call) and the places of the edits the barrier is about
+            // to let go are taken here, in one step, before `finished` wakes them (`EditLocks::settle`).
+            locks.settle(&self.id, |st| s.reach_lock(st));
+        }
+        self.finished.send_replace(true);
+    }
 }
 
 /// The batch answered the call without its run: no retry is due, and a place the retry took is given up.
@@ -303,7 +320,8 @@ impl Run {
             });
             let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             s.retry_due = due;
-            s.reach_lock();
+            let locks = s.locks.clone();
+            locks.with(|st| s.reach_lock(st));
         }
     }
 
@@ -407,14 +425,23 @@ impl Run {
         self.eager_settles.insert(id.clone(), Arc::clone(&slot));
         let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
+        // An edit reaches its file's lock the moment its barriers let it go (`withEditTargetLock`): its place is taken by the
+        // settlement that lets it go, not when its task is next polled.
+        let place = key.as_deref().map(|key| locks.enqueue(key, preceding.ids()));
+        let mut settler = Settler { id: id.clone(), slot, ambiguous: false, finished };
         let mut gate = self.settle_gate.subscribe();
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
             let dispatch_started_at = env.clock.now_ms();
             let executed = match preceding.wait(&exec.name).await {
                 Some(text) => crate::tools::stamp_timing(Executed::skipped(&exec.id, text), dispatch_started_at, env.clock.as_ref()),
                 None => {
-                    // An edit reaches its file's lock once its barriers let it go (`withEditTargetLock`).
-                    let mut turn = key.as_deref().map(|key| locks.take(key));
+                    #[cfg(feature = "test-support")]
+                    if let Some(key) = &key {
+                        crate::test_hooks::edit_start(key, &exec.id).await;
+                    }
+                    let mut turn = place.map(|place| {
+                        place.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().expect("the settlement that let the edit go handed it its place")
+                    });
                     if let Some(turn) = &mut turn {
                         turn.ready().await;
                     }
@@ -428,8 +455,8 @@ impl Run {
             failed.store(executed.failed, std::sync::atomic::Ordering::Release);
             // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
             observer.event(RunEvent::EarlyResult(early_result(&early_id, &executed)));
-            run_settled(&slot, executed.conflict);
-            finished.send_replace(true);
+            settler.ambiguous = executed.conflict;
+            drop(settler);
             executed
         });
         self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name) });
@@ -808,7 +835,14 @@ impl Run {
                         let mut turn = None;
                         if group.is_some() {
                             let _ = reach.wait_for(|at| *at >= j).await;
-                            turn = slot.and_then(|slot| slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).turn.take());
+                            if let Some(slot) = slot {
+                                let mut s = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                turn = s.turn.take();
+                                #[cfg(feature = "test-support")]
+                                if let (Some(turn), Some(key)) = (&turn, &s.key) {
+                                    crate::test_hooks::retry_queued(key, &id, turn.waits());
+                                }
+                            }
                         }
                         if let Some(turn) = &mut turn {
                             turn.ready().await;
