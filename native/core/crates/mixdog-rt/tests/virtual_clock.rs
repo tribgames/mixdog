@@ -778,6 +778,56 @@ fn a_malformed_command_ends_the_core() {
     ended_by_the_clock(core, "the replay sent a malformed command \"advance soon\"");
 }
 
+/// The wait's deadline is far past the test's: the core ends on the closed connection, not on the wait.
+#[test]
+fn a_controller_that_closes_during_a_wait_ends_the_core() {
+    let (core, mut control) = started("idle", &[], 30_000);
+    control.send("wait 3600000 event never");
+    drop(control);
+    ended_by_a_closed_connection(core, "with `wait 3600000 event never` unanswered");
+}
+
+/// The cause names the close (an end of stream or, on Windows, a reset) and what was unanswered.
+fn ended_by_a_closed_connection(core: Core, unanswered: &str) {
+    let (code, stderr) = core.ended();
+    assert_eq!(code, Some(virtual_clock::EXIT_CODE), "the core's stderr: {stderr}");
+    let (_, cause) = stderr.split_once("mixdog virtual clock: the replay closed the control connection (").unwrap_or_else(|| panic!("the core's stderr names the closed connection: {stderr}"));
+    assert!(cause.contains(&format!(") {unanswered}: ")), "the core's stderr names {unanswered:?}: {stderr}");
+}
+
+/// The settle bound is far past the test's deadline: the core ends on the closed connection while its lane job runs.
+#[test]
+fn a_controller_that_closes_during_an_advance_ends_the_core() {
+    let (core, mut control) = started("stuck", &[], 3_600_000);
+    control.send("advance 100");
+    drop(control);
+    ended_by_a_closed_connection(core, "with `advance 100` unanswered");
+}
+
+/// Numbers past 2^53 - 1, as given or as the wall clock an advance would answer, end the core with its exit code.
+#[test]
+fn numbers_past_the_wire_bound_end_the_core() {
+    let max = virtual_clock::MAX_MS;
+    let cases: [(&str, String, Option<&str>, String); 5] = [
+        ("wall-ms u64::MAX", format!("start {TOKEN} {} 30000", u64::MAX), None, format!("{} is past {max} ms", u64::MAX)),
+        ("settle-ms past u64", format!("start {TOKEN} {WALL} 18446744073709551616"), None, format!("18446744073709551616 is past {max} ms")),
+        ("advance past the bound", format!("start {TOKEN} {max} 30000"), Some("advance 1"), format!("advance 1: wall-ms {max} + V 0 + 1 is past {max} ms")),
+        ("advance u64::MAX", format!("start {TOKEN} {WALL} 30000"), Some("advance 18446744073709551615"), format!("{} is past {max} ms", u64::MAX)),
+        ("wait deadline", format!("start {TOKEN} {WALL} 30000"), Some("wait 9007199254740992 event never"), format!("9007199254740992 is past {max} ms")),
+    ];
+    for (name, start, command, cause) in cases {
+        let (core, mut control) = handshake("idle", &[]);
+        control.send(&start);
+        if let Some(command) = command {
+            assert_eq!(control.line(&start), format!("now {}", start.rsplit(' ').nth(1).expect("wall-ms")), "{name}");
+            control.send(command);
+        }
+        let (code, stderr) = core.ended();
+        assert_eq!(code, Some(virtual_clock::EXIT_CODE), "{name}: {stderr}");
+        assert!(stderr.contains(&cause), "{name}: the core's stderr names {cause:?}: {stderr}");
+    }
+}
+
 #[test]
 fn a_start_with_another_token_ends_the_core() {
     let (core, mut control) = handshake("idle", &[]);
