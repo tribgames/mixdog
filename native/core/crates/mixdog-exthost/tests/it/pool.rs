@@ -174,13 +174,32 @@ async fn a_worker_stuck_in_sync_code_keeps_its_slot_until_stopped() {
     let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
     assert!(
         tokio::time::timeout(Duration::from_millis(300), waiting.next()).await.is_err(),
-        "no timer reclaims a slot"
+        "the slot is held until the cancel's grace has passed (a_parser_that_ignores_the_cancel_is_ended_after_the_grace)"
     );
     assert_eq!(busy(&pool.status()), 1);
     pool.stop_worker(worker).unwrap();
     // A replacement worker serves the call that was waiting.
     assert_eq!(finish(&mut waiting).await.1.unwrap(), json!("after"));
     assert!(matches!(pool.stop_worker(ExtWorkerId(999)), Err(ExtError::UnknownWorker)));
+}
+
+/// A parser that never looks at the cancel (the PDF read after its 60,000 ms deadline drops the call): the process is ended
+/// once `CANCEL_GRACE` has passed, with nobody stopping the worker, and the next call (the only worker is the parser's) is
+/// answered by a fresh worker: that answer is the fact this waits on, and the parser's process is gone by then.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_parser_that_ignores_the_cancel_is_ended_after_the_grace() {
+    let pool = ExtHostPool::new(config(1, &[])).unwrap();
+    let pid_file = pid_file("ignores-cancel");
+    let spinning = pool.call(call("a", "spinWithPid", json!({"pidFile": pid_file}))).unwrap();
+    let parser = helper_pid(&pid_file).await;
+    let _ = std::fs::remove_file(&pid_file);
+    drop(spinning);
+    let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
+    let (_, outcome) = tokio::time::timeout(mixdog_exthost::CANCEL_GRACE * 6, finish(&mut waiting))
+        .await
+        .expect("the next call to be answered once the cancelled parser's grace has passed");
+    assert_eq!(outcome.unwrap(), json!("after"), "a fresh worker serves the next call");
+    assert!(!alive(parser).await, "the parser process is gone");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

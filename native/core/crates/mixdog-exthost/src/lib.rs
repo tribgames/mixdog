@@ -45,6 +45,7 @@ pub use image_codec::ReadResize;
 pub use image_codec::ReadResizeError;
 pub use image_codec::RenditionVariant;
 pub use image_codec::StillRendition;
+pub use pool::CANCEL_GRACE;
 pub use pool::DEFAULT_PENDING_CAP;
 pub use pool::ExtHostConfig;
 pub use pool::ExtHostPool;
