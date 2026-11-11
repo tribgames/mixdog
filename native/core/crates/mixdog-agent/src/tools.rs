@@ -519,7 +519,8 @@ pub(crate) struct Executed {
     pub(crate) message: AgentMessage,
     pub(crate) failed: bool,
     pub(crate) arg_failure: bool,
-    /// The tool reported an ambiguous edit (`Conflict`).
+    /// The tool reported an ambiguous edit (`Conflict` with two matches or more: `isAmbiguousEditFailure`'s
+    /// `old_string found N times`, never the `Conflict` of an anchor not found).
     pub(crate) conflict: bool,
     pub(crate) follow_ups: Vec<AgentMessage>,
     /// Served from the result cache: the id of the call that first delivered
@@ -1149,7 +1150,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
             let mut executed = Executed::error(&call.id, error.message_for_model);
             executed.message.tool_timing = Some(timing(execution_completed_at));
             executed.arg_failure = matches!(error.code, ToolErrorCode::InvalidArgs { .. });
-            executed.conflict = matches!(error.code, ToolErrorCode::Conflict { .. });
+            executed.conflict = matches!(error.code, ToolErrorCode::Conflict { matches } if matches >= 2);
             executed
         }
     }
@@ -1243,6 +1244,12 @@ impl Run {
         }
         // The audit records what runs: a bridged `call_tool` as its target (the wire calls stay the transcript's).
         let (execution, _, _) = self.execution_view(&calls);
+        // Node's serial loop is at the first call once the response is in; it does not wait, as the tools here do, for the
+        // assistant item to be on disk, so an ambiguous first edit settling during that wait finds the batch at it.
+        if let Some(first) = execution.first() {
+            self.reach_call(first, &crate::batch::edit_groups(&execution));
+        }
+        self.settle_gate.send_replace(true);
         let batch = tool_batch(self.iterations, &execution);
         if let Some(log) = &self.env.failures {
             log.batch(&batch);

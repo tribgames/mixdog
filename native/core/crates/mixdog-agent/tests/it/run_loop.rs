@@ -77,6 +77,8 @@ enum Step {
     Event(StreamEvent),
     Fail(ProviderError),
     Hang,
+    /// The stream goes on once the count reaches the number: a response still streaming while the calls it handed over run.
+    Until(tokio::sync::watch::Receiver<usize>, usize, &'static str),
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -90,11 +92,18 @@ struct ScriptedStream(VecDeque<Step>);
 #[async_trait]
 impl ModelStream for ScriptedStream {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        match self.0.pop_front() {
-            None => None,
-            Some(Step::Event(event)) => Some(Ok(event)),
-            Some(Step::Fail(error)) => Some(Err(error)),
-            Some(Step::Hang) => std::future::pending().await,
+        loop {
+            return match self.0.pop_front() {
+                None => None,
+                Some(Step::Event(event)) => Some(Ok(event)),
+                Some(Step::Fail(error)) => Some(Err(error)),
+                Some(Step::Hang) => std::future::pending().await,
+                Some(Step::Until(mut count, at, what)) => {
+                    let reached = tokio::time::timeout(Duration::from_secs(30), count.wait_for(|n| *n >= at)).await;
+                    assert!(reached.is_ok(), "the stream waited 30 s for {what}");
+                    continue;
+                }
+            };
         }
     }
 
@@ -442,6 +451,83 @@ async fn a_partial_result_is_never_admitted_to_the_cache() {
         finish(h.run(config(), vec![Arc::new(Marked(complete))], vec![AgentMessage::user("go")])).await;
         assert_eq!(*reuse.0.lock().unwrap(), stored, "complete = {complete}");
     }
+}
+
+/// `edit` of one file kept in memory, answering as the str-replace adapter does: a unique anchor is replaced, one found more than
+/// once is refused as ambiguous unless the call says how many remain (`editOccurrence`), when the first is taken. It counts the
+/// runs that ended.
+struct AnchoredFile {
+    spec: ToolSpec,
+    text: Mutex<String>,
+    runs: Mutex<Vec<(String, Option<u32>)>>,
+    ended: tokio::sync::watch::Sender<usize>,
+}
+
+impl AnchoredFile {
+    fn new(text: &str) -> Arc<Self> {
+        let spec = ToolSpec {
+            name: "edit".into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: "edit".into(),
+            input_schema: json!({"type": "object"}),
+            annotations: ToolAnnotations::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        Arc::new(Self { spec, text: Mutex::new(text.into()), runs: Mutex::default(), ended: tokio::sync::watch::Sender::new(0) })
+    }
+}
+
+#[async_trait]
+impl Tool for AnchoredFile {
+    fn spec(&self) -> &ToolSpec {
+        &self.spec
+    }
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let (old, new) = (args["old_string"].as_str().unwrap(), args["new_string"].as_str().unwrap());
+        let expected = ctx.options.edit_occurrence.map(|o| o.expected);
+        self.runs.lock().unwrap().push((ctx.call_id.as_str().to_owned(), expected));
+        let outcome = {
+            let mut text = self.text.lock().unwrap();
+            let found = text.matches(old).count() as u32;
+            if found == 1 || (found >= 2 && expected == Some(found)) {
+                *text = text.replacen(old, new, 1);
+                Ok(ToolOutput { parts: vec![ToolPart::Text("Updated a.txt (1 replacement)".into())], ..ToolOutput::default() })
+            } else if found == 0 {
+                Err(ToolError::new(ToolErrorCode::NotFound { target: old.into() }, "Error: old_string not found"))
+            } else {
+                Err(ToolError::new(ToolErrorCode::Conflict { matches: found }, format!("Error: edit failed (old_string found {found} times)")))
+            }
+        };
+        self.ended.send_modify(|n| *n += 1);
+        outcome
+    }
+}
+
+/// `createEagerBarriers` (`eager-dispatch/barriers.mjs:81,96`) lets a same-file edit go when the edit before it settles, an
+/// ambiguous one included; its batch-group retry (`retryAmbiguousEdit`) comes when the batch reaches it, here after the response
+/// ended, so the edit behind it has already run against the file as the first run left it.
+#[tokio::test]
+async fn an_edit_behind_an_ambiguous_streamed_edit_runs_before_the_group_retry() {
+    let file = AnchoredFile::new("same\nsame\n");
+    let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "a.txt", "old_string": "same", "new_string": new }));
+    let h = Harness::new(vec![
+        turn(vec![
+            edit("x1", "one"),
+            edit("x2", "two"),
+            Step::Until(file.ended.subscribe(), 2, "both streamed edits to end"),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
+    let runs = file.runs.lock().unwrap().clone();
+    let want: Vec<(String, Option<u32>)> = vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(2)), ("x2".into(), None)];
+    assert_eq!(runs, want);
+    assert_eq!(*file.text.lock().unwrap(), "one\ntwo\n");
 }
 
 /// `echo` whose result carries the given `meta`, as `apply_patch` carries `uiDiff`.
