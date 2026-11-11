@@ -7,6 +7,282 @@
   },
   "cases": [
     {
+      "name": "legacy audit includes the source body on the root and reports old deferred rows separately (test line 38)",
+      "source": [
+        {
+          "id": 1,
+          "ts": 1000,
+          "role": "user",
+          "session_id": "s",
+          "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+          "is_root": 1,
+          "chunk_root": 1,
+          "summary": "There were 296 failures."
+        },
+        {
+          "id": 2,
+          "ts": 2000,
+          "role": "assistant",
+          "session_id": "s",
+          "content": "Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. ",
+          "is_root": 0,
+          "chunk_root": 1
+        },
+        {
+          "id": 3,
+          "ts": 3000,
+          "role": "user",
+          "session_id": "s",
+          "content": "Deferred source must remain available.",
+          "is_root": 0,
+          "chunk_root": 3
+        }
+      ],
+      "roots": [
+        {
+          "id": 1,
+          "ts": 1000,
+          "role": "user",
+          "session_id": "s",
+          "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+          "is_root": 1,
+          "chunk_root": 1,
+          "summary": "There were 296 failures.",
+          "members": [
+            {
+              "id": 1,
+              "ts": 1000,
+              "role": "user",
+              "session_id": "s",
+              "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+              "is_root": 1,
+              "chunk_root": 1,
+              "summary": "There were 296 failures."
+            },
+            {
+              "id": 2,
+              "ts": 2000,
+              "role": "assistant",
+              "session_id": "s",
+              "content": "Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. ",
+              "is_root": 0,
+              "chunk_root": 1
+            }
+          ]
+        }
+      ],
+      "report": {
+        "entryCount": 3,
+        "chunkCount": 1,
+        "reusable": 1,
+        "rawFallback": 0,
+        "legacyDeferredRows": 1,
+        "reasons": {},
+        "chunks": [
+          {
+            "id": 1,
+            "memberCount": 2,
+            "usable": true,
+            "reasons": [],
+            "provenance": "legacy",
+            "sourceTokens": 471,
+            "summaryTokens": 6,
+            "shorter": true
+          }
+        ]
+      },
+      "sourceFirstHasMembers": false
+    },
+    {
+      "name": "existing good chunks are usable without an AI call or a verification record (test line 55)",
+      "root": {
+        "id": 1,
+        "ts": 1000,
+        "role": "user",
+        "session_id": "s",
+        "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+        "is_root": 1,
+        "chunk_root": 1,
+        "summary": "There were 296 failures.",
+        "members": [
+          {
+            "id": 1,
+            "ts": 1000,
+            "role": "user",
+            "session_id": "s",
+            "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+            "is_root": 1,
+            "chunk_root": 1,
+            "summary": "There were 296 failures."
+          },
+          {
+            "id": 2,
+            "ts": 2000,
+            "role": "assistant",
+            "session_id": "s",
+            "content": "Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. ",
+            "is_root": 0,
+            "chunk_root": 1
+          }
+        ]
+      },
+      "review": {
+        "result": {
+          "usable": true,
+          "reasons": [],
+          "provenance": "legacy",
+          "sourceTokens": 471,
+          "summaryTokens": 6,
+          "shorter": true
+        }
+      },
+      "summaryUnchanged": true,
+      "chunkQualityAfter": {
+        "$exact": "undefined"
+      }
+    },
+    {
+      "name": "legacy reuse still rejects mixed sessions and expanded summaries (test line 65)",
+      "mixed": {
+        "input": {
+          "id": 1,
+          "ts": 1000,
+          "role": "user",
+          "session_id": "s",
+          "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+          "is_root": 1,
+          "chunk_root": 1,
+          "summary": "There were 296 failures.",
+          "members": [
+            {
+              "id": 1,
+              "ts": 1000,
+              "role": "user",
+              "session_id": "s",
+              "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+              "is_root": 1,
+              "chunk_root": 1,
+              "summary": "There were 296 failures."
+            },
+            {
+              "id": 2,
+              "ts": 2000,
+              "role": "assistant",
+              "session_id": "other",
+              "content": "Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. ",
+              "is_root": 0,
+              "chunk_root": 1
+            }
+          ]
+        },
+        "result": {
+          "usable": false,
+          "reasons": [
+            "mixed_sessions"
+          ],
+          "provenance": "legacy",
+          "sourceTokens": 471,
+          "summaryTokens": 6,
+          "shorter": true
+        }
+      },
+      "expanded": {
+        "input": {
+          "id": 1,
+          "ts": 1000,
+          "role": "user",
+          "session_id": "s",
+          "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+          "is_root": 1,
+          "chunk_root": 1,
+          "summary": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. \nConfirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. extra",
+          "members": [
+            {
+              "id": 1,
+              "ts": 1000,
+              "role": "user",
+              "session_id": "s",
+              "content": "User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. User requires 296 failures to be reported accurately. ",
+              "is_root": 1,
+              "chunk_root": 1,
+              "summary": "There were 296 failures."
+            },
+            {
+              "id": 2,
+              "ts": 2000,
+              "role": "assistant",
+              "session_id": "s",
+              "content": "Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. Confirmed: 296 failures, not successes. ",
+              "is_root": 0,
+              "chunk_root": 1
+            }
+          ]
+        },
+        "result": {
+          "usable": false,
+          "reasons": [
+            "not_shorter"
+          ],
+          "provenance": "legacy",
+          "sourceTokens": 471,
+          "summaryTokens": 472,
+          "shorter": false
+        }
+      }
+    },
+    {
+      "name": "raw window query binds truthy non-string projectScope at the original param slot (test line 101)",
+      "calls": [
+        {
+          "args": [
+            100,
+            200,
+            10,
+            {
+              "projectScope": 7
+            }
+          ],
+          "result": []
+        },
+        {
+          "args": [
+            100,
+            200,
+            10,
+            {
+              "projectScope": {
+                "id": 42
+              }
+            }
+          ],
+          "result": []
+        }
+      ],
+      "captured": [
+        {
+          "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n                element, category, summary, status, score, last_seen_at, project_id\n         FROM entries\n         WHERE chunk_root IS NULL AND is_root = 0 AND ts >= $1 AND ts <= $2 AND (project_id IS NULL OR project_id = $3)\n         ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n         LIMIT $4",
+          "params": [
+            100,
+            200,
+            7,
+            10
+          ]
+        },
+        {
+          "sql": "SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,\n                element, category, summary, status, score, last_seen_at, project_id\n         FROM entries\n         WHERE chunk_root IS NULL AND is_root = 0 AND ts >= $1 AND ts <= $2 AND (project_id IS NULL OR project_id = $3)\n         ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC\n         LIMIT $4",
+          "params": [
+            100,
+            200,
+            {
+              "id": 42
+            },
+            10
+          ]
+        }
+      ],
+      "secondParamIsTheScopeObject": true
+    },
+    {
       "name": "compact session retrieval includes the original root as a member without requiring includeMembers (test line 81)",
       "session": {
         "label": "verified root, members read through the SQL predicate (the test)",
