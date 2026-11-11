@@ -736,14 +736,14 @@ pub(crate) mod tests {
         }
 
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/attachment-preflight.json");
-        // Whole recorded values (`lib/exact.mjs`); an absent continuation (`undefined`) is none here, and a JS
-        // number with no fraction is the integer the Rust side writes.
+        // Whole recorded values (`lib/exact.mjs`). A property whose value is `undefined` is a property the object does
+        // not have, as for every reader of Node's request (an absent `Option` here); `undefined` anywhere else fails.
+        // A JS number with no fraction is the integer the Rust side writes.
         fn plain(e: &Exact) -> Value {
             match e {
-                Exact::Undefined => Value::Null,
                 Exact::Number(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => json!(*n as i64),
                 Exact::Array(items) => Value::Array(items.iter().map(plain).collect()),
-                Exact::Object(entries) => Value::Object(entries.iter().map(|(k, v)| (k.clone(), plain(v))).collect()),
+                Exact::Object(entries) => Value::Object(entries.iter().filter(|(_, v)| *v != Exact::Undefined).map(|(k, v)| (k.clone(), plain(v))).collect()),
                 other => other.to_plain().unwrap(),
             }
         }
@@ -791,15 +791,26 @@ pub(crate) mod tests {
                 let rows = serde_json::to_string(&messages.iter().map(row_of).collect::<Vec<_>>()).unwrap();
                 serde_json::from_str(&rows.replace(&data[1..data.len() - 1], "<data>")).unwrap()
             };
-            // A sent message is shown as its transcript entry: the core keeps a part's measured facts (`sizeBytes`,
-            // `pageCount`, ...) on the stored row, where Node keeps them on the message object it sends.
-            let sent_rows = |messages: &[Message], entries: &[AgentMessage]| {
-                shown(
-                    &messages
-                        .iter()
-                        .map(|m| entries.iter().find(|e| &e.message == m).cloned().unwrap_or_else(|| AgentMessage::new(m.clone())))
-                        .collect::<Vec<_>>(),
-                )
+            // The request as the core sent it, untouched: each message's own row.
+            let sent_rows = |messages: &[Message]| shown(&messages.iter().map(|m| AgentMessage::new(m.clone())).collect::<Vec<_>>());
+            // The one declared difference: Node's file part carries its measured facts on the message object it hands
+            // the provider (media-normalization.mjs `pdfDescriptor` prices from them); the core's request part has no
+            // such field and its pricing reads the same facts from the part's stored row. So Node's sent file part is
+            // compared without them, and they are compared, whole, with the core's stored row for the same part.
+            const FACTS: [&str; 4] = ["sizeBytes", "pageCount", "textPages", "textChars"];
+            let without_facts = |sends: &Value, stored: &Value| -> Value {
+                let mut sends = sends.clone();
+                for send in sends.as_array_mut().unwrap() {
+                    for message in send["messages"].as_array_mut().unwrap() {
+                        for part in message["content"].as_array_mut().into_iter().flatten().filter(|p| p["type"] == "file") {
+                            let facts: serde_json::Map<String, Value> = FACTS.iter().filter_map(|k| part.as_object_mut().unwrap().remove(*k).map(|v| ((*k).to_owned(), v))).collect();
+                            let held = stored.as_array().unwrap().iter().flat_map(|m| m["content"].as_array().into_iter().flatten()).find(|p| p["filename"] == part["filename"] && p["attachmentRef"] == part["attachmentRef"]).expect("the part's stored row");
+                            let held: serde_json::Map<String, Value> = FACTS.iter().filter_map(|k| held.get(*k).map(|v| ((*k).to_owned(), v.clone()))).collect();
+                            assert_eq!(held, facts, "the facts Node sent are the ones the core stored");
+                        }
+                    }
+                }
+                sends
             };
             let mut transcript: Vec<AgentMessage> = Vec::new();
             let mut continuation = Some(ProviderState { gemini: None, rest: [("responseId".to_owned(), json!("resp_0"))].into_iter().collect() });
@@ -864,10 +875,16 @@ pub(crate) mod tests {
                 let requests = provider.requests.lock().unwrap().clone();
                 let sends: Vec<Value> = requests
                     .iter()
-                    .map(|r| json!({ "messages": sent_rows(&r.messages, &output.transcript), "providerState": r.options.provider_state.as_ref().map(ProviderState::to_json) }))
+                    .map(|r| {
+                        let mut send = json!({ "messages": sent_rows(&r.messages) });
+                        if let Some(state) = &r.options.provider_state {
+                            send["providerState"] = state.to_json();
+                        }
+                        send
+                    })
                     .collect();
-                assert_eq!(Value::Array(sends), turn["sends"], "{name} turn {n}: what the provider was sent");
-                assert_eq!(output.provider_state.as_ref().map(ProviderState::to_json).unwrap_or(Value::Null), turn["providerState"], "{name} turn {n}: the continuation");
+                assert_eq!(Value::Array(sends), without_facts(&turn["sends"], &shown(&output.transcript)), "{name} turn {n}: what the provider was sent");
+                assert_eq!(output.provider_state.as_ref().map(ProviderState::to_json), turn.get("providerState").cloned(), "{name} turn {n}: the continuation");
                 // Neither loop appends its final reply (the ask wrapper does); the recording's next turn adds it.
                 transcript = output.transcript;
                 assert_eq!(shown(&transcript), turn["after"], "{name} turn {n}: the transcript");
