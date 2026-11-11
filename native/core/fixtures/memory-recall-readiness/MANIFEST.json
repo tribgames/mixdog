@@ -1,0 +1,58 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the 3 s default cold wait that expires (case 47: branch gaps-memory-channels) and the real embedder",
+    "runs": "embedRecallQuery (recall-embedding-readiness.mjs) with scripted isReady / canWarmup / warmup / embed / onWarmupError and an AbortSignal; setTimeout/clearTimeout are wrapped only to record the armed delay and whether it was cleared"
+  },
+  "exclusions": "case 47 (timeout fallback) belongs to the gaps-memory-channels recording",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6205,
+      "path": "golden.json",
+      "sha256": "df33a214639dbc5777fce556057a4efc47e53547d6b0423e083c1cb71563ddd2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "timer handles": "only the armed delay and the cleared flag are kept"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-recall-readiness.mjs",
+  "recorderSha256": "d166c6fcc44aced0260abe40c764143db8f999234bd247295a9cb3f3c1063ae5",
+  "replay": "mixdog-services memory: mem/embed/provider.rs query_vector + mem/recall/mod.rs search_by_query embedding step; compares per scenario the returned {vector, state, error message}, the rejection (name, message, same reason object), the ordered embedder/readiness/warmup calls (embed options {priority:true, inputType:\"query\"}) and the timers armed (delay, cleared). Rust awaits warmup without a bound today: the timers list is what a bounded-wait implementation must arm",
+  "set": "memory-recall-readiness",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 6205,
+  "uuidsNormalised": "none"
+}
