@@ -14,9 +14,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 20208,
+      "bytes": 22119,
       "path": "golden.json",
-      "sha256": "c9f98207c5ca4e17fd99f48f80ec28d168bfc86012c8b5fcd714605ea5982c2b"
+      "sha256": "98506be51d1ac4e37bc9ffc8a83f5ff1f3ea0c4d0f60cb965af377a56fe3d000"
     }
   ],
   "inputs": [
@@ -34,11 +34,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.cs",
-      "sha256": "079d476a5577c77dde2c06ec241649e93d75bcf6cbe3b180e8c5cd40b1eb06cb"
+      "sha256": "0b8ad1474f05231dceee16b182c58876ff45ec07697685a9e418d02ec05cb182"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/git-standin.mjs",
-      "sha256": "b74926ebeae0fc16872836dd04925cccf352b69235f3b1b5272ddfb2f84b1aff"
+      "sha256": "cc3a9194258417b5cc80b9b5f2851344a4c2593e3c84001b00ff00b59fee1098"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
@@ -105,8 +105,12 @@
       "$.cases[6].observed.options.cwd",
       "$.cases[6].observed.options.env.PATH",
       "$.cases[6].observed.staleCommand",
+      "$.cases[6].observed.first.rejected.props.timing.queueMs",
+      "$.cases[6].observed.first.rejected.props.timing.spawnMs",
+      "$.cases[6].observed.afterRemoval.resolved.timing.queueMs",
+      "$.cases[6].observed.afterRemoval.resolved.timing.spawnMs",
       "$.cases[6].observed.standinStarts.real[0].cwd",
-      "$.cases[6].observed.standinStarts.real[0].env[4]",
+      "$.cases[6].observed.standinStarts.real[0].env[5]",
       "$.cases[7].observed.env.PATH",
       "$.cases[7].observed.gitChildEnvOfEnv.PATH",
       "$.cases[8].observed.fallbackInstall.wrapper[2]",
@@ -115,8 +119,10 @@
       "$.cases[8].observed.command",
       "$.cases[8].observed.launcherEnvironment.PATH",
       "$.cases[8].observed.viaLauncher.output[1]",
+      "$.cases[8].observed.viaLauncher.pid",
       "$.cases[8].observed.viaLauncher.stdout",
       "$.cases[8].observed.direct.output[1]",
+      "$.cases[8].observed.direct.pid",
       "$.cases[8].observed.direct.stdout",
       "$.cases[8].observed.standinStarts.launcher[0].cwd",
       "$.cases[8].observed.standinStarts.launcher[0].env[4]",
@@ -125,7 +131,7 @@
       "$.cases[8].observed.standinStarts.real[1].cwd",
       "$.cases[8].observed.standinStarts.real[1].env[5]"
     ],
-    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+    "reason": "every temp root is written <root>; the process id of a spawned child (spawnSync result.pid) is a measurement of the run, written <pid>; the spawn timings of runChildTimed are written <ms>. Nothing else is normalised: every environment is recorded whole and compared raw."
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -145,7 +151,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-git-launch-cases.mjs",
-  "recorderSha256": "0a99c97ad12176060cbe7fa63bf26e36918639ba20373697c52cc1ccc1de3363",
+  "recorderSha256": "7d4347c9b926e892ab205d6cba36e821f3b471237584be478ecdd085fd76808b",
   "replay": {
     "compare": "mixdog-scm git_launch.rs: rebuild each case's tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole",
     "entry": "Drive these public items on o1: mixdog-scm/src/git_launch.rs:119 resolve_layout; mixdog-scm/src/git_launch.rs:207 launch_environment; mixdog-scm/src/git_launch.rs:267 launch_for; mixdog-scm/src/git_launch.rs:287 git_command; mixdog-scm/src/git_launch.rs:295 forget_missing; mixdog-scm/src/git.rs:90 start_git.",
@@ -193,6 +199,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "git-launch-cases",
-  "totalBytes": 20208,
+  "totalBytes": 22119,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
