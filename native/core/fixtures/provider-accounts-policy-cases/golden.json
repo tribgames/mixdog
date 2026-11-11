@@ -1,0 +1,641 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a roster saved before switching policies maps auto onto a policy",
+      "observed": {
+        "provider": "openai-oauth",
+        "log": [
+          {
+            "step": "file: no policy, auto false",
+            "read": {
+              "policy": "manual",
+              "auto": false,
+              "accounts": 1,
+              "selected": true
+            }
+          },
+          {
+            "step": "file: no policy, auto true",
+            "read": {
+              "policy": "limit",
+              "auto": true,
+              "accounts": 1,
+              "selected": true
+            }
+          },
+          {
+            "step": "file: policy headroom, auto false (an older build turned switching off)",
+            "read": {
+              "policy": "manual",
+              "auto": false,
+              "accounts": 1,
+              "selected": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "policy writes keep auto readable for builds that predate it",
+      "observed": {
+        "provider": "openai-oauth",
+        "log": [
+          {
+            "change": {
+              "policy": "headroom"
+            },
+            "pool": {
+              "policy": "headroom",
+              "auto": true,
+              "accounts": 1,
+              "selected": true
+            },
+            "file": {
+              "policy": "headroom",
+              "auto": true,
+              "keys": [
+                "accounts",
+                "auto",
+                "policy",
+                "selectedId"
+              ]
+            }
+          },
+          {
+            "change": {
+              "auto": true
+            },
+            "pool": {
+              "policy": "headroom",
+              "auto": true,
+              "accounts": 1,
+              "selected": true
+            },
+            "file": {
+              "policy": "headroom",
+              "auto": true,
+              "keys": [
+                "accounts",
+                "auto",
+                "policy",
+                "selectedId"
+              ]
+            }
+          },
+          {
+            "change": {
+              "auto": false
+            },
+            "pool": {
+              "policy": "manual",
+              "auto": false,
+              "accounts": 1,
+              "selected": true
+            },
+            "file": {
+              "policy": "manual",
+              "auto": false,
+              "keys": [
+                "accounts",
+                "auto",
+                "policy",
+                "selectedId"
+              ]
+            }
+          },
+          {
+            "change": {
+              "auto": true
+            },
+            "pool": {
+              "policy": "limit",
+              "auto": true,
+              "accounts": 1,
+              "selected": true
+            },
+            "file": {
+              "policy": "limit",
+              "auto": true,
+              "keys": [
+                "accounts",
+                "auto",
+                "policy",
+                "selectedId"
+              ]
+            }
+          },
+          {
+            "change": {
+              "policy": "manual"
+            },
+            "pool": {
+              "policy": "manual",
+              "auto": false,
+              "accounts": 1,
+              "selected": true
+            },
+            "file": {
+              "policy": "manual",
+              "auto": false,
+              "keys": [
+                "accounts",
+                "auto",
+                "policy",
+                "selectedId"
+              ]
+            }
+          },
+          {
+            "change": {
+              "policy": "fastest"
+            },
+            "rejected": {
+              "name": "TypeError",
+              "message": "Unknown account switching policy."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "manual, limit and headroom pick accounts as their names say",
+      "observed": {
+        "model": "m",
+        "now": 5000000,
+        "picks": [
+          {
+            "label": "manual, nothing used up",
+            "pool": {
+              "accounts": [
+                {
+                  "id": "a",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 60
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "b",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 10
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "c",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 30
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                }
+              ],
+              "selectedId": "a",
+              "auto": false
+            },
+            "usedUp": [],
+            "options": null,
+            "now": 5000000,
+            "picked": "a"
+          },
+          {
+            "label": "manual, selected account used up",
+            "pool": {
+              "accounts": [
+                {
+                  "id": "a",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 60
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "b",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 10
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "c",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 30
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                }
+              ],
+              "selectedId": "a",
+              "auto": false
+            },
+            "usedUp": [
+              "a"
+            ],
+            "options": null,
+            "now": 5000000,
+            "picked": null
+          },
+          {
+            "label": "limit (auto, no policy)",
+            "pool": {
+              "accounts": [
+                {
+                  "id": "a",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 60
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "b",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 10
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "c",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 30
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                }
+              ],
+              "selectedId": "a",
+              "auto": true
+            },
+            "usedUp": [],
+            "options": null,
+            "now": 5000000,
+            "picked": "a"
+          },
+          {
+            "label": "headroom, first request",
+            "pool": {
+              "accounts": [
+                {
+                  "id": "a",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 60
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "b",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 10
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "c",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 30
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                }
+              ],
+              "selectedId": "a",
+              "auto": true,
+              "policy": "headroom"
+            },
+            "usedUp": [],
+            "options": null,
+            "now": 5000000,
+            "picked": "b"
+          },
+          {
+            "label": "headroom, session keeps its usable account",
+            "pool": {
+              "accounts": [
+                {
+                  "id": "a",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 60
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "b",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 10
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "c",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 30
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                }
+              ],
+              "selectedId": "a",
+              "auto": true,
+              "policy": "headroom"
+            },
+            "usedUp": [],
+            "options": {
+              "sessionAccountId": "c"
+            },
+            "now": 5000000,
+            "picked": "c"
+          },
+          {
+            "label": "headroom, session account hit a limit",
+            "pool": {
+              "accounts": [
+                {
+                  "id": "a",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 60
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "b",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 10
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "c",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 30
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                }
+              ],
+              "selectedId": "a",
+              "auto": true,
+              "policy": "headroom"
+            },
+            "usedUp": [
+              "c"
+            ],
+            "options": {
+              "sessionAccountId": "c"
+            },
+            "now": 5000000,
+            "picked": "b"
+          },
+          {
+            "label": "headroom, unknown usage keeps roster order",
+            "pool": {
+              "accounts": [
+                {
+                  "id": "a",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 60
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "b",
+                  "usage": {
+                    "windows": [
+                      {
+                        "label": "5H",
+                        "usedPct": 10
+                      }
+                    ],
+                    "checkedAt": 5000000
+                  }
+                },
+                {
+                  "id": "c"
+                }
+              ],
+              "selectedId": "a",
+              "auto": true,
+              "policy": "headroom"
+            },
+            "usedUp": [],
+            "options": null,
+            "now": 5000000,
+            "picked": "a"
+          }
+        ]
+      }
+    },
+    {
+      "case": "a full model-family window limits that family only",
+      "observed": {
+        "now": 5000000,
+        "limits": [
+          {
+            "account": {
+              "id": "a",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 12,
+                    "resetAt": 5001000
+                  },
+                  {
+                    "label": "7D Fable",
+                    "usedPct": 100,
+                    "resetAt": 5001000
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            },
+            "limit": {
+              "scope": "model",
+              "families": [
+                "Fable"
+              ]
+            }
+          },
+          {
+            "account": {
+              "id": "b",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "5H",
+                    "usedPct": 100,
+                    "resetAt": 5001000
+                  },
+                  {
+                    "label": "7D Fable",
+                    "usedPct": 100,
+                    "resetAt": 5001000
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            },
+            "limit": {
+              "scope": "account"
+            }
+          },
+          {
+            "account": {
+              "id": "c",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "7D Fable",
+                    "usedPct": 40
+                  }
+                ],
+                "checkedAt": 5000000
+              },
+              "blockedUntil": 5001000,
+              "blockedModel": "claude-fable-5"
+            },
+            "limit": {
+              "scope": "model",
+              "families": [
+                "Fable"
+              ]
+            }
+          },
+          {
+            "account": {
+              "id": "d",
+              "blockedUntil": 5001000,
+              "blockedModel": "gpt-5"
+            },
+            "limit": {
+              "scope": "account"
+            }
+          },
+          {
+            "account": {
+              "id": "e",
+              "usage": {
+                "windows": [
+                  {
+                    "label": "7D",
+                    "usedPct": 99
+                  }
+                ],
+                "checkedAt": 5000000
+              }
+            },
+            "limit": null
+          }
+        ],
+        "exhaustedForModelOnly": [
+          {
+            "accountId": "a",
+            "model": "claude-fable-5",
+            "answer": true
+          },
+          {
+            "accountId": "a",
+            "model": "claude-opus-4",
+            "answer": false
+          },
+          {
+            "accountId": "b",
+            "model": "claude-fable-5",
+            "answer": false
+          }
+        ]
+      }
+    }
+  ]
+}
