@@ -1,0 +1,322 @@
+{
+  "set": "provider-anthropic-server-fallback",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "eligible-families-default-fallback",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:22",
+      "input": {},
+      "result": {
+        "eligibility": {
+          "claude-opus-5": true,
+          "claude-fable-5-20260801": true,
+          "claude-opus-4-8": false
+        },
+        "applied": true,
+        "body": {
+          "fallbacks": "default"
+        },
+        "appliedDisabled": false,
+        "disabled": {}
+      }
+    },
+    {
+      "id": "beta-header-gated-and-deduplicated",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:36",
+      "input": {},
+      "result": {
+        "betaConstant": "server-side-fallback-2026-07-01",
+        "off": "",
+        "on": "server-side-fallback-2026-07-01",
+        "onList": [
+          "server-side-fallback-2026-07-01"
+        ]
+      }
+    },
+    {
+      "id": "oauth-body-opts-eligible-models",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:48",
+      "input": {},
+      "result": {
+        "opus5": {
+          "model": "claude-opus-5",
+          "max_tokens": 65536,
+          "messages": [],
+          "stream": true,
+          "fallbacks": "default",
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "thinking": {
+            "type": "adaptive"
+          }
+        },
+        "opus48": {
+          "model": "claude-opus-4-8",
+          "max_tokens": 65536,
+          "messages": [],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "thinking": {
+            "type": "adaptive"
+          }
+        },
+        "disabled": {
+          "model": "claude-opus-5",
+          "max_tokens": 65536,
+          "messages": [],
+          "stream": true,
+          "system": [
+            {
+              "type": "text",
+              "text": "You are Claude Code, Anthropic's official CLI for Claude."
+            }
+          ],
+          "thinking": {
+            "type": "adaptive"
+          }
+        }
+      }
+    },
+    {
+      "id": "fallback-block-parser",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:59",
+      "input": {
+        "block": {
+          "type": "fallback",
+          "from": {
+            "model": "claude-opus-5"
+          },
+          "to": {
+            "model": "claude-opus-4-8"
+          },
+          "trigger": {
+            "type": "refusal",
+            "category": "cyber"
+          }
+        }
+      },
+      "result": {
+        "parsed": {
+          "trigger": "refusal",
+          "originalModel": "claude-opus-5",
+          "fallbackModel": "claude-opus-4-8",
+          "category": "cyber"
+        },
+        "notAFallback": null
+      }
+    },
+    {
+      "id": "sse-records-fallback-attributes-serving-model",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:93",
+      "input": {
+        "events": [
+          {
+            "type": "message_start",
+            "message": {
+              "model": "claude-opus-5",
+              "usage": {
+                "input_tokens": 10
+              }
+            }
+          },
+          {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {
+              "type": "fallback",
+              "from": {
+                "model": "claude-opus-5"
+              },
+              "to": {
+                "model": "claude-opus-4-8"
+              },
+              "trigger": {
+                "type": "refusal",
+                "category": "cyber"
+              }
+            }
+          },
+          {
+            "type": "content_block_stop",
+            "index": 0
+          },
+          {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+              "type": "text",
+              "text": ""
+            }
+          },
+          {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+              "type": "text_delta",
+              "text": "done"
+            }
+          },
+          {
+            "type": "content_block_stop",
+            "index": 1
+          },
+          {
+            "type": "message_delta",
+            "delta": {
+              "stop_reason": "end_turn"
+            },
+            "usage": {
+              "output_tokens": 2
+            }
+          },
+          {
+            "type": "message_stop"
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "done",
+          "model": "claude-opus-4-8",
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 2,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 10,
+              "output_tokens": 2
+            },
+            "promptTokens": 10
+          },
+          "stopReason": "end_turn",
+          "hasThinkingContent": false,
+          "contentBlockTypes": [
+            "fallback",
+            "text_delta"
+          ],
+          "assistantBlocks": [
+            {
+              "type": "text",
+              "text": "done"
+            }
+          ],
+          "providerReplay": {
+            "version": 1,
+            "provider": "anthropic",
+            "items": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ]
+          },
+          "providerMetadata": {
+            "anthropicFallbacks": [
+              {
+                "trigger": "refusal",
+                "originalModel": "claude-opus-5",
+                "fallbackModel": "claude-opus-4-8",
+                "category": "cyber"
+              }
+            ]
+          },
+          "generationMs": 0
+        },
+        "stateAfter": {
+          "attemptIndex": 0,
+          "sawMessageStart": true,
+          "sawCompleted": true,
+          "emittedToolCall": false,
+          "partialToolCall": false,
+          "emittedThinking": false,
+          "emittedText": true,
+          "ttftAt": 1794225600000,
+          "emittedTextChars": 4
+        }
+      }
+    },
+    {
+      "id": "agent-loop-usage-delta-serving-model",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-server-fallback.test.mjs:148",
+      "input": {},
+      "result": {
+        "result": {
+          "content": "done",
+          "model": "claude-opus-4-8",
+          "stopReason": "end_turn",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 2,
+            "reasoningTokens": null,
+            "reasoningTokensComplete": false,
+            "cachedTokens": 3,
+            "cacheWriteTokens": 4,
+            "cacheWrite1hTokens": 0,
+            "promptTokens": 8
+          },
+          "lastTurnUsage": {
+            "inputTokens": 1,
+            "outputTokens": 2,
+            "cachedTokens": 3,
+            "cacheWriteTokens": 4,
+            "promptTokens": 8
+          },
+          "lastSendTools": [],
+          "firstTurnUsage": {
+            "inputTokens": 1,
+            "outputTokens": 2,
+            "reasoningTokens": null,
+            "reasoningTokensComplete": false,
+            "cachedTokens": 3,
+            "cacheWriteTokens": 4,
+            "cacheWrite1hTokens": 0,
+            "promptTokens": 8
+          },
+          "iterations": 1,
+          "toolCallsTotal": 0,
+          "providerStateUpdated": false,
+          "providerContinuations": 0
+        },
+        "deltas": [
+          {
+            "sessionId": "server-fallback-usage-test",
+            "iterationIndex": 1,
+            "usageMetricsTurnId": 0,
+            "source": "provider_send",
+            "requestedModel": "claude-opus-5",
+            "model": "claude-opus-4-8",
+            "usageMetricsEpoch": 0,
+            "deltaInput": 1,
+            "deltaOutput": 2,
+            "deltaToolCalls": 0,
+            "reasoningTokens": null,
+            "reasoningTokensComplete": false,
+            "deltaPrompt": 8,
+            "requestMs": 0,
+            "promptKnown": true,
+            "deltaCachedRead": 3,
+            "deltaCacheWrite": 4,
+            "contextInputTokens": 1,
+            "contextOutputTokens": 2,
+            "contextPromptTokens": 8,
+            "contextCachedReadTokens": 3,
+            "contextCacheWriteTokens": 4,
+            "contextMeasuredTokens": null,
+            "sendTools": [],
+            "ts": 1794225600000
+          }
+        ]
+      }
+    }
+  ]
+}
