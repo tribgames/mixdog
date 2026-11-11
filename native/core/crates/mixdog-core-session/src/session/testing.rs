@@ -1023,6 +1023,15 @@ impl ApprovalIds for Counter {
     }
 }
 
+/// No shell runtime: a loaded session carries no strip until one is published.
+pub struct NoShellStrips;
+
+impl super::shell_jobs::ShellStrips for NoShellStrips {
+    fn strip(&self, _thread: &ThreadId) -> Option<serde_json::Value> {
+        None
+    }
+}
+
 pub struct NamedDevices;
 
 impl Devices for NamedDevices {
@@ -1763,6 +1772,7 @@ impl Rig {
             work: self.work.clone(),
             agent_status: self.agents.clone(),
             code_graph_prewarm: self.code_graph.clone(),
+            shell_strips: Arc::new(NoShellStrips),
             agent_signals: self.signals.clone(),
             side: self.side.clone(),
             inherit: self.inherit.clone(),
