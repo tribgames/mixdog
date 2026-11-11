@@ -18,7 +18,9 @@
 //! `wait`: the core numbers its `node_log` lines from 0 in log order and keeps every one from the cursor (0 at start) on. `wait`
 //! finds the first kept line equal to `<line>`, the whole line, byte for byte (a longer line that starts the same is another
 //! line), waiting up to deadline-ms of real time for it to be logged; it answers `seen <n>`, its number, once the core settles, or
-//! `missed`. It moves nothing: lines are matched in log order whatever order they are waited in. `cursor <n>` moves the cursor
+//! `missed "<line>": ` and what was kept instead: `no line logged from the cursor <c>`, or `from the cursor <c>, <k> line(s): `
+//! and the kept lines, each quoted (Rust's `{:?}`), comma-separated, only the last 20 (`, the last 20` before the colon) when
+//! there are more. It moves nothing: lines are matched in log order whatever order they are waited in. `cursor <n>` moves the cursor
 //! forward to `n`, at most the number of lines logged so far, and answers `cursor <n>`; the lines before it are dropped, so the next
 //! `wait` for a repeated line finds its next occurrence. A cursor moved back or past the lines logged ends the process.
 //!
@@ -906,20 +908,31 @@ pub mod pause {
     }
 }
 
-/// The number of the first line from the cursor on equal to `wanted`, within `within`; nothing is consumed.
-fn wait_log(clock: &Clock, within: Duration, wanted: &str) -> Option<u64> {
+/// The most kept lines a `missed` answer quotes.
+const MISSED_QUOTES: usize = 20;
+
+/// The number of the first line from the cursor on equal to `wanted`, within `within`; nothing is consumed. Past `within`, the
+/// `missed` answer: the awaited line and the lines kept instead (the last [`MISSED_QUOTES`], with the count before them).
+fn wait_log(clock: &Clock, within: Duration, wanted: &str) -> Result<u64, String> {
     let deadline = real_deadline(within, &format!("wait for {wanted:?}"));
     let mut log = lock(&clock.log);
     // Commands run one at a time, so the cursor stays put while this waits: lines already looked at need no second look.
     let mut looked = 0;
     loop {
         if let Some(at) = log.lines.iter().skip(looked).position(|line| line == wanted) {
-            return Some(log.first + (looked + at) as u64);
+            return Ok(log.first + (looked + at) as u64);
         }
         looked = log.lines.len();
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
-            return None;
+            let (first, kept) = (log.first, log.lines.len());
+            let unquoted = kept.saturating_sub(MISSED_QUOTES);
+            let quoted = log.lines.iter().skip(unquoted).map(|line| format!("{line:?}")).collect::<Vec<_>>().join(", ");
+            return Err(match (kept, unquoted) {
+                (0, _) => format!("missed {wanted:?}: no line logged from the cursor {first}"),
+                (_, 0) => format!("missed {wanted:?}: from the cursor {first}, {kept} line(s): {quoted}"),
+                _ => format!("missed {wanted:?}: from the cursor {first}, {kept} line(s), the last {MISSED_QUOTES}: {quoted}"),
+            });
         }
         log = clock.logged.wait_timeout(log, left).unwrap_or_else(PoisonError::into_inner).0;
     }
@@ -983,11 +996,11 @@ fn serve(clock: &'static Clock, commands: &mpsc::Receiver<Command>, mut stream: 
         let reply = match command {
             Command::Advance(ms) => format!("now {}", advance(clock, ms)),
             Command::Wait { within, line } => match wait_log(clock, Duration::from_millis(within), &line) {
-                Some(seen) => {
+                Ok(seen) => {
                     settle(clock, &format!("wait for {line:?}"));
                     format!("seen {seen}")
                 }
-                None => "missed".to_owned(),
+                Err(missed) => missed,
             },
             Command::Cursor(to) => {
                 move_cursor(clock, to);

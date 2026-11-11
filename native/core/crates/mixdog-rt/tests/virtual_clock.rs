@@ -538,7 +538,7 @@ impl Control {
     fn wait(&mut self, within: Duration, line: &str) -> Option<u64> {
         let command = format!("wait {} {line}", within.as_millis());
         let answer = self.ask(&command);
-        if answer == "missed" {
+        if answer.starts_with(&format!("missed {line:?}: ")) {
             return None;
         }
         Some(answer.strip_prefix("seen ").and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("{command} answered {answer:?}")))
@@ -807,6 +807,10 @@ fn wait_matches_whole_lines_in_log_order_from_the_cursor() {
     assert_eq!(control.wait(DEADLINE, "event done"), Some(done + 2), "past the cursor: the repeat");
     assert_eq!(control.wait(Duration::ZERO, "event alpha"), None, "behind the cursor");
     assert_eq!(control.wait(Duration::ZERO, "event done twice"), Some(done + 1));
+    // A missed wait names the awaited line and the lines kept instead.
+    assert_eq!(control.ask("wait 0 event alpha"), format!(r#"missed "event alpha": from the cursor {}, 2 line(s): "event done twice", "event done""#, done + 1));
+    control.cursor(done + 3);
+    assert_eq!(control.ask("wait 0 event alpha"), format!(r#"missed "event alpha": no line logged from the cursor {}"#, done + 3));
 }
 
 #[test]
