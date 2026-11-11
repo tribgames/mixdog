@@ -118,7 +118,6 @@
         },
         "calls": [
           {
-            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
             "metadata": {
               "ideName": "devin-cli",
               "extensionVersion": "3000.11.3",
@@ -128,23 +127,7 @@
               "ideVersion": "3000.11.3",
               "extensionName": "chisel",
               "ideType": "chisel"
-            },
-            "headers": [
-              [
-                "content-type",
-                "application/proto"
-              ],
-              [
-                "connect-protocol-version",
-                "1"
-              ],
-              [
-                "accept",
-                "*/*"
-              ]
-            ],
-            "redirect": "error",
-            "bodyHex": "0a580a09646576696e2d636c691209333030302e31312e331a17646576696e2d73657373696f6e2d746f6b656e24746f6b2202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+            }
           }
         ],
         "defaultBaseUrl": "https://server.codeium.com"
@@ -154,10 +137,7 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "tok",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": "tok"
             }
           ]
         },
@@ -167,7 +147,7 @@
             "GetUserJwtRequest",
             {
               "$exact": "bytes",
-              "type": "Uint8Array",
+              "type": "Buffer",
               "base64": "ClgKCWRldmluLWNsaRIJMzAwMC4xMS4zGhdkZXZpbi1zZXNzaW9uLXRva2VuJHRvayICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
             }
           ]
@@ -181,6 +161,69 @@
               "customApiServerUrl": "https://acme.windsurf.example/api/"
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "90"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClgKCWRldmluLWNsaRIJMzAwMC4xMS4zGhdkZXZpbi1zZXNzaW9uLXRva2VuJHRvayICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "Cgd0aGUtand0EiJodHRwczovL2FjbWUud2luZHN1cmYuZXhhbXBsZS9hcGkv"
+            }
+          }
         }
       ]
     },
@@ -199,7 +242,6 @@
         },
         "retryCalls": [
           {
-            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
             "metadata": {
               "ideName": "devin-cli",
               "extensionVersion": "3000.11.3",
@@ -209,26 +251,9 @@
               "ideVersion": "3000.11.3",
               "extensionName": "chisel",
               "ideType": "chisel"
-            },
-            "headers": [
-              [
-                "content-type",
-                "application/proto"
-              ],
-              [
-                "connect-protocol-version",
-                "1"
-              ],
-              [
-                "accept",
-                "*/*"
-              ]
-            ],
-            "redirect": "error",
-            "bodyHex": "0a5c0a09646576696e2d636c691209333030302e31312e331a1b646576696e2d73657373696f6e2d746f6b656e247261772d6b65792202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+            }
           },
           {
-            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
             "metadata": {
               "ideName": "devin-cli",
               "extensionVersion": "3000.11.3",
@@ -238,23 +263,7 @@
               "ideVersion": "3000.11.3",
               "extensionName": "chisel",
               "ideType": "chisel"
-            },
-            "headers": [
-              [
-                "content-type",
-                "application/proto"
-              ],
-              [
-                "connect-protocol-version",
-                "1"
-              ],
-              [
-                "accept",
-                "*/*"
-              ]
-            ],
-            "redirect": "error",
-            "bodyHex": "0a480a09646576696e2d636c691209333030302e31312e331a077261772d6b65792202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+            }
           }
         ],
         "forbidden": {
@@ -273,7 +282,6 @@
         },
         "forbiddenCalls": [
           {
-            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
             "metadata": {
               "ideName": "devin-cli",
               "extensionVersion": "3000.11.3",
@@ -283,23 +291,7 @@
               "ideVersion": "3000.11.3",
               "extensionName": "chisel",
               "ideType": "chisel"
-            },
-            "headers": [
-              [
-                "content-type",
-                "application/proto"
-              ],
-              [
-                "connect-protocol-version",
-                "1"
-              ],
-              [
-                "accept",
-                "*/*"
-              ]
-            ],
-            "redirect": "error",
-            "bodyHex": "0a5c0a09646576696e2d636c691209333030302e31312e331a1b646576696e2d73657373696f6e2d746f6b656e247261772d6b65792202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+            }
           }
         ],
         "prefixed": {
@@ -318,7 +310,6 @@
         },
         "prefixedCalls": [
           {
-            "url": "https://server.codeium.com/exa.auth_pb.AuthService/GetUserJwt",
             "metadata": {
               "ideName": "devin-cli",
               "extensionVersion": "3000.11.3",
@@ -328,23 +319,7 @@
               "ideVersion": "3000.11.3",
               "extensionName": "chisel",
               "ideType": "chisel"
-            },
-            "headers": [
-              [
-                "content-type",
-                "application/proto"
-              ],
-              [
-                "connect-protocol-version",
-                "1"
-              ],
-              [
-                "accept",
-                "*/*"
-              ]
-            ],
-            "redirect": "error",
-            "bodyHex": "0a560a09646576696e2d636c691209333030302e31312e331a15646576696e2d73657373696f6e2d746f6b656e24782202656e2a0777696e646f77733a09333030302e31312e33620663686973656ce2010663686973656c"
+            }
           }
         ]
       },
@@ -353,10 +328,7 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "raw-key",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": "raw-key"
             }
           ]
         },
@@ -366,7 +338,7 @@
             "GetUserJwtRequest",
             {
               "$exact": "bytes",
-              "type": "Uint8Array",
+              "type": "Buffer",
               "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
             }
           ]
@@ -377,7 +349,7 @@
             "GetUserJwtRequest",
             {
               "$exact": "bytes",
-              "type": "Uint8Array",
+              "type": "Buffer",
               "base64": "CkgKCWRldmluLWNsaRIJMzAwMC4xMS4zGgdyYXcta2V5IgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
             }
           ]
@@ -395,10 +367,7 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "raw-key",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": "raw-key"
             }
           ]
         },
@@ -408,7 +377,7 @@
             "GetUserJwtRequest",
             {
               "$exact": "bytes",
-              "type": "Uint8Array",
+              "type": "Buffer",
               "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
             }
           ]
@@ -417,10 +386,7 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "devin-session-token$x",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": "devin-session-token$x"
             }
           ]
         },
@@ -430,10 +396,244 @@
             "GetUserJwtRequest",
             {
               "$exact": "bytes",
-              "type": "Uint8Array",
+              "type": "Buffer",
               "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHgiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "94"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\",\"message\":\"no\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "74"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "CkgKCWRldmluLWNsaRIJMzAwMC4xMS4zGgdyYXcta2V5IgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "CgpsZWdhY3ktand0"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "94"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClwKCWRldmluLWNsaRIJMzAwMC4xMS4zGhtkZXZpbi1zZXNzaW9uLXRva2VuJHJhdy1rZXkiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 403,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "88"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHgiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{}"
+          }
         }
       ]
     },
@@ -471,10 +671,7 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "S3ssionSecretValue42",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": "S3ssionSecretValue42"
             }
           ]
         },
@@ -484,7 +681,7 @@
             "GetUserJwtRequest",
             {
               "$exact": "bytes",
-              "type": "Uint8Array",
+              "type": "Buffer",
               "base64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJFMzc3Npb25TZWNyZXRWYWx1ZTQyIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
             }
           ]
@@ -495,17 +692,142 @@
             "GetUserJwtRequest",
             {
               "$exact": "bytes",
-              "type": "Uint8Array",
+              "type": "Buffer",
               "base64": "ClUKCWRldmluLWNsaRIJMzAwMC4xMS4zGhRTM3NzaW9uU2VjcmV0VmFsdWU0MiICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "107"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "CmkKCWRldmluLWNsaRIJMzAwMC4xMS4zGihkZXZpbi1zZXNzaW9uLXRva2VuJFMzc3Npb25TZWNyZXRWYWx1ZTQyIgJlbioHd2luZG93czoJMzAwMC4xMS4zYgZjaGlzZWziAQZjaGlzZWw="
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\",\"message\":\"token devin-session-token$S3ssionSecretValue42 rejected (raw S3ssionSecretValue42)\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "87"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClUKCWRldmluLWNsaRIJMzAwMC4xMS4zGhRTM3NzaW9uU2VjcmV0VmFsdWU0MiICZW4qB3dpbmRvd3M6CTMwMDAuMTEuM2IGY2hpc2Vs4gEGY2hpc2Vs"
+          },
+          "reply": {
+            "status": 401,
+            "contentType": "application/json",
+            "body": "{\"code\":\"unauthenticated\",\"message\":\"token S3ssionSecretValue42 rejected (raw S3ssionSecretValue42)\"}"
+          }
         }
       ]
     },
     {
       "id": "empty-jwt-missing-token-unsafe-host",
       "source": "src/runtime/agent/orchestrator/providers/devin-wire-session.test.mjs:126",
-      "input": {},
+      "input": {
+        "answers": [
+          {},
+          "(never called)",
+          {
+            "userJwt": "j",
+            "customApiServerUrl": "http://evil.example"
+          }
+        ]
+      },
       "result": {
         "emptyJwt": {
           "error": {
@@ -552,10 +874,18 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "t",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": "t"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
             }
           ]
         },
@@ -570,10 +900,7 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": ""
             }
           ]
         },
@@ -581,10 +908,18 @@
           "entry": "src/runtime/agent/orchestrator/providers/devin-wire-session.mjs.exchangeDevinUserJwt",
           "args": [
             {
-              "sessionToken": "t",
-              "fetchFn": {
-                "callback": "fetchFn"
-              }
+              "sessionToken": "t"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/devin-wire-protobuf.mjs.decodeDevinMessage",
+          "args": [
+            "GetUserJwtRequest",
+            {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
             }
           ]
         },
@@ -597,6 +932,130 @@
               "customApiServerUrl": "http://evil.example"
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "88"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": ""
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://server.codeium.com",
+          "path": "/exa.auth_pb.AuthService/GetUserJwt",
+          "headers": [
+            [
+              "host",
+              "server.codeium.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/proto"
+            ],
+            [
+              "connect-protocol-version",
+              "1"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "88"
+            ]
+          ],
+          "body": {
+            "$exact": "bytes",
+            "type": "Buffer",
+            "base64": "ClYKCWRldmluLWNsaRIJMzAwMC4xMS4zGhVkZXZpbi1zZXNzaW9uLXRva2VuJHQiAmVuKgd3aW5kb3dzOgkzMDAwLjExLjNiBmNoaXNlbOIBBmNoaXNlbA=="
+          },
+          "reply": {
+            "status": 200,
+            "contentType": "application/proto",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "CgFqEhNodHRwOi8vZXZpbC5leGFtcGxl"
+            }
+          }
         }
       ]
     },
