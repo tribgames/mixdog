@@ -1954,7 +1954,7 @@
             "format": "json"
           },
           "result": {
-            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}",
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}",
             "entries": [
               {
                 "source": "curated",
@@ -1964,7 +1964,7 @@
                 "element": "Common",
                 "summary": "Common preference",
                 "status": "active",
-                "injection_enabled": 1,
+                "injection_enabled": true,
                 "record_id": 81,
                 "index_revision": "<uuid-13>"
               }
@@ -1973,13 +1973,16 @@
             "content": [
               {
                 "type": "text",
-                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}"
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}"
               }
             ],
             "isError": false
           },
-          "writesSoFar": [],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2018,6 +2021,10 @@
               ]
             },
             {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
               "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 150 THEN 1 WHEN 170 THEN 2 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
               "params": [
                 null,
@@ -2033,15 +2040,15 @@
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-14>\",\"recordIds\":[150,170]}"
+                "value": "{\"revision\": \"<uuid-14>\", \"recordIds\": [150, 170]}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-15>\",\"recordIds\":[200]}"
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2090,7 +2097,7 @@
             "format": "json"
           },
           "result": {
-            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"First\",\"summary\":\"First alpha memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":150,\"index_revision\":\"<uuid-14>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":170,\"index_revision\":\"<uuid-14>\"}],\"nextOffset\":null}",
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"First\",\"summary\":\"First alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":150,\"index_revision\":\"<uuid-14>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-14>\"}],\"nextOffset\":null}",
             "entries": [
               {
                 "source": "curated",
@@ -2100,7 +2107,7 @@
                 "element": "First",
                 "summary": "First alpha memory",
                 "status": "active",
-                "injection_enabled": 1,
+                "injection_enabled": true,
                 "record_id": 150,
                 "index_revision": "<uuid-14>"
               },
@@ -2112,7 +2119,7 @@
                 "element": "Second",
                 "summary": "Second alpha memory",
                 "status": "active",
-                "injection_enabled": 1,
+                "injection_enabled": true,
                 "record_id": 170,
                 "index_revision": "<uuid-14>"
               }
@@ -2121,13 +2128,16 @@
             "content": [
               {
                 "type": "text",
-                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"First\",\"summary\":\"First alpha memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":150,\"index_revision\":\"<uuid-14>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":170,\"index_revision\":\"<uuid-14>\"}],\"nextOffset\":null}"
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"First\",\"summary\":\"First alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":150,\"index_revision\":\"<uuid-14>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-14>\"}],\"nextOffset\":null}"
               }
             ],
             "isError": false
           },
-          "writesSoFar": [],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2145,6 +2155,10 @@
               ]
             },
             {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
               "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 150 THEN 1 WHEN 170 THEN 2 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
               "params": [
                 "alpha",
@@ -2160,15 +2174,15 @@
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-14>\",\"recordIds\":[150,170]}"
+                "value": "{\"revision\": \"<uuid-14>\", \"recordIds\": [150, 170]}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-15>\",\"recordIds\":[200]}"
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2226,8 +2240,11 @@
               }
             ]
           },
-          "writesSoFar": [],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2243,21 +2260,25 @@
               "params": [
                 "memory.core.index.%"
               ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
             }
           ],
           "tables": {
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-14>\",\"recordIds\":[150,170]}"
+                "value": "{\"revision\": \"<uuid-14>\", \"recordIds\": [150, 170]}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-15>\",\"recordIds\":[200]}"
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2314,10 +2335,11 @@
             ],
             "isError": false
           },
-          "writesSoFar": [
-            150
-          ],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2333,6 +2355,28 @@
               "params": [
                 "memory.core.index.%"
               ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "SELECT project_id, agent_id FROM core_entries WHERE id = $1",
+              "params": [
+                150
+              ]
+            },
+            {
+              "sql": "DELETE FROM core_entries WHERE id = $1\n       AND project_id IS NOT DISTINCT FROM $2 AND agent_id IS NOT DISTINCT FROM $3 RETURNING *",
+              "params": [
+                150,
+                "alpha",
+                null
+              ]
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
             },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
@@ -2356,21 +2400,29 @@
                 "memory.core.index.\"alpha\"",
                 "{\"revision\":\"<uuid-16>\",\"recordIds\":[170]}"
               ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n      SELECT id, summary, project_id, agent_id, updated_at\n      FROM core_entries\n      WHERE status IS NULL OR status = 'active'\n      ORDER BY project_id NULLS FIRST, id ASC\n    ",
+              "params": []
             }
           ],
           "tables": {
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-16>\",\"recordIds\":[170]}"
+                "value": "{\"revision\": \"<uuid-16>\", \"recordIds\": [170]}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-15>\",\"recordIds\":[200]}"
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2420,10 +2472,11 @@
               }
             ]
           },
-          "writesSoFar": [
-            150
-          ],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2439,21 +2492,25 @@
               "params": [
                 "memory.core.index.%"
               ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
             }
           ],
           "tables": {
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-16>\",\"recordIds\":[170]}"
+                "value": "{\"revision\": \"<uuid-16>\", \"recordIds\": [170]}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-15>\",\"recordIds\":[200]}"
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2494,7 +2551,7 @@
             "format": "json"
           },
           "result": {
-            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":170,\"index_revision\":\"<uuid-16>\"}],\"nextOffset\":null}",
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-16>\"}],\"nextOffset\":null}",
             "entries": [
               {
                 "source": "curated",
@@ -2504,7 +2561,7 @@
                 "element": "Second",
                 "summary": "Second alpha memory",
                 "status": "active",
-                "injection_enabled": 1,
+                "injection_enabled": true,
                 "record_id": 170,
                 "index_revision": "<uuid-16>"
               }
@@ -2513,15 +2570,16 @@
             "content": [
               {
                 "type": "text",
-                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":170,\"index_revision\":\"<uuid-16>\"}],\"nextOffset\":null}"
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"alpha\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Second alpha memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-16>\"}],\"nextOffset\":null}"
               }
             ],
             "isError": false
           },
-          "writesSoFar": [
-            150
-          ],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2539,6 +2597,10 @@
               ]
             },
             {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
               "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 170 THEN 1 WHEN 200 THEN 1 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
               "params": [
                 "alpha",
@@ -2554,15 +2616,15 @@
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-16>\",\"recordIds\":[170]}"
+                "value": "{\"revision\": \"<uuid-16>\", \"recordIds\": [170]}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-15>\",\"recordIds\":[200]}"
+                "value": "{\"revision\": \"<uuid-15>\", \"recordIds\": [200]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2604,20 +2666,20 @@
             "summary": "Moved"
           },
           "result": {
-            "text": "core edited (project=beta id=2 index_revision=<uuid-17>): Second — Moved",
+            "text": "core edited (project=beta id=2 index_revision=<uuid-17>): Moved — Moved",
             "content": [
               {
                 "type": "text",
-                "text": "core edited (project=beta id=2 index_revision=<uuid-17>): Second — Moved"
+                "text": "core edited (project=beta id=2 index_revision=<uuid-17>): Moved — Moved"
               }
             ],
             "isError": false
           },
-          "writesSoFar": [
-            150,
-            170
-          ],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2633,6 +2695,70 @@
               "params": [
                 "memory.core.index.%"
               ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "SELECT * FROM core_entries WHERE id = $1",
+              "params": [
+                170
+              ]
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
+              "sql": "SET LOCAL lock_timeout = '5s'",
+              "params": []
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "core:alpha"
+              ]
+            },
+            {
+              "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
+              "params": [
+                "core:beta"
+              ]
+            },
+            {
+              "sql": "SELECT * FROM core_entries WHERE id = $1 FOR UPDATE",
+              "params": [
+                170
+              ]
+            },
+            {
+              "sql": "\n    SELECT id, status FROM core_entries\n    WHERE project_id IS NOT DISTINCT FROM $1 AND agent_id IS NOT DISTINCT FROM $4 AND element = $2\n      AND ($3::bigint IS NULL OR id <> $3)\n    ORDER BY id LIMIT 2 FOR UPDATE\n  ",
+              "params": [
+                "beta",
+                "Moved",
+                170,
+                null
+              ]
+            },
+            {
+              "sql": "UPDATE core_entries\n       SET element = $1, summary = $2, category = $3, project_id = $4, updated_at = $5\n       WHERE id = $6",
+              "params": [
+                "Moved",
+                "Moved",
+                "rule",
+                "beta",
+                1800000000000,
+                170
+              ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
             },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
@@ -2665,6 +2791,18 @@
               ]
             },
             {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
+              "sql": "\n      SELECT id, summary, project_id, agent_id, updated_at\n      FROM core_entries\n      WHERE status IS NULL OR status = 'active'\n      ORDER BY project_id NULLS FIRST, id ASC\n    ",
+              "params": []
+            },
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
+            {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
                 "memory.core.index."
@@ -2679,21 +2817,25 @@
               "params": [
                 "memory.core.index.%"
               ]
+            },
+            {
+              "sql": "COMMIT",
+              "params": []
             }
           ],
           "tables": {
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-18>\",\"recordIds\":[]}"
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-17>\",\"recordIds\":[200,170]}"
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2709,7 +2851,7 @@
                 "id": 170,
                 "project_id": "beta",
                 "status": "active",
-                "element": "Second",
+                "element": "Moved",
                 "summary": "Moved",
                 "agent_id": null
               },
@@ -2734,7 +2876,7 @@
             "format": "json"
           },
           "result": {
-            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Beta\",\"summary\":\"Beta memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":200,\"index_revision\":\"<uuid-17>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Moved\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":170,\"index_revision\":\"<uuid-17>\"}],\"nextOffset\":null}",
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Beta\",\"summary\":\"Beta memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":200,\"index_revision\":\"<uuid-17>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Moved\",\"summary\":\"Moved\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-17>\"}],\"nextOffset\":null}",
             "entries": [
               {
                 "source": "curated",
@@ -2744,7 +2886,7 @@
                 "element": "Beta",
                 "summary": "Beta memory",
                 "status": "active",
-                "injection_enabled": 1,
+                "injection_enabled": true,
                 "record_id": 200,
                 "index_revision": "<uuid-17>"
               },
@@ -2753,10 +2895,10 @@
                 "id": 2,
                 "project_id": "beta",
                 "agent_id": null,
-                "element": "Second",
+                "element": "Moved",
                 "summary": "Moved",
                 "status": "active",
-                "injection_enabled": 1,
+                "injection_enabled": true,
                 "record_id": 170,
                 "index_revision": "<uuid-17>"
               }
@@ -2765,16 +2907,16 @@
             "content": [
               {
                 "type": "text",
-                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Beta\",\"summary\":\"Beta memory\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":200,\"index_revision\":\"<uuid-17>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Second\",\"summary\":\"Moved\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":170,\"index_revision\":\"<uuid-17>\"}],\"nextOffset\":null}"
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Beta\",\"summary\":\"Beta memory\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":200,\"index_revision\":\"<uuid-17>\"},{\"source\":\"curated\",\"id\":2,\"project_id\":\"beta\",\"agent_id\":null,\"element\":\"Moved\",\"summary\":\"Moved\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":170,\"index_revision\":\"<uuid-17>\"}],\"nextOffset\":null}"
               }
             ],
             "isError": false
           },
-          "writesSoFar": [
-            150,
-            170
-          ],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2792,6 +2934,10 @@
               ]
             },
             {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
               "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 200 THEN 1 WHEN 170 THEN 2 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
               "params": [
                 "beta",
@@ -2807,15 +2953,15 @@
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-18>\",\"recordIds\":[]}"
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-17>\",\"recordIds\":[200,170]}"
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2831,7 +2977,7 @@
                 "id": 170,
                 "project_id": "beta",
                 "status": "active",
-                "element": "Second",
+                "element": "Moved",
                 "summary": "Moved",
                 "agent_id": null
               },
@@ -2856,7 +3002,7 @@
             "format": "json"
           },
           "result": {
-            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}",
+            "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}",
             "entries": [
               {
                 "source": "curated",
@@ -2866,7 +3012,7 @@
                 "element": "Common",
                 "summary": "Common preference",
                 "status": "active",
-                "injection_enabled": 1,
+                "injection_enabled": true,
                 "record_id": 81,
                 "index_revision": "<uuid-13>"
               }
@@ -2875,16 +3021,16 @@
             "content": [
               {
                 "type": "text",
-                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":1,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}"
+                "text": "{\"entries\":[{\"source\":\"curated\",\"id\":1,\"project_id\":null,\"agent_id\":null,\"element\":\"Common\",\"summary\":\"Common preference\",\"status\":\"active\",\"injection_enabled\":true,\"record_id\":81,\"index_revision\":\"<uuid-13>\"}],\"nextOffset\":null}"
               }
             ],
             "isError": false
           },
-          "writesSoFar": [
-            150,
-            170
-          ],
           "statements": [
+            {
+              "sql": "BEGIN",
+              "params": []
+            },
             {
               "sql": "SELECT pg_advisory_xact_lock(hashtext($1))",
               "params": [
@@ -2902,6 +3048,10 @@
               ]
             },
             {
+              "sql": "COMMIT",
+              "params": []
+            },
+            {
               "sql": "\n    SELECT * FROM (\n      SELECT 'curated'::text AS source, c.id, c.project_id, c.agent_id, c.element, c.summary,\n             COALESCE(c.status, 'active')::text AS status,\n             (c.status IS NULL OR c.status = 'active') AS injection_enabled\n      FROM core_entries c\n    ) memories\n    WHERE (agent_id = $6::text OR ($6::text IS NULL AND agent_id IS NULL\n        AND ($1::text = '*' OR project_id = $1 OR (project_id IS NULL AND (NOT $5::boolean OR $1::text IS NULL)))))\n      AND ($4::boolean OR injection_enabled)\n    ORDER BY project_id NULLS FIRST, CASE id WHEN 200 THEN 1 WHEN 170 THEN 2 WHEN 81 THEN 1 ELSE id END ASC, id ASC\n    LIMIT $2 OFFSET $3\n  ",
               "params": [
                 null,
@@ -2917,15 +3067,15 @@
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-18>\",\"recordIds\":[]}"
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-17>\",\"recordIds\":[200,170]}"
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -2941,7 +3091,7 @@
                 "id": 170,
                 "project_id": "beta",
                 "status": "active",
-                "element": "Second",
+                "element": "Moved",
                 "summary": "Moved",
                 "agent_id": null
               },
@@ -2973,24 +3123,20 @@
               }
             ]
           },
-          "writesSoFar": [
-            150,
-            170
-          ],
           "statements": [],
           "tables": {
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-18>\",\"recordIds\":[]}"
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-17>\",\"recordIds\":[200,170]}"
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -3006,7 +3152,7 @@
                 "id": 170,
                 "project_id": "beta",
                 "status": "active",
-                "element": "Second",
+                "element": "Moved",
                 "summary": "Moved",
                 "agent_id": null
               },
@@ -3039,24 +3185,20 @@
               }
             ]
           },
-          "writesSoFar": [
-            150,
-            170
-          ],
           "statements": [],
           "tables": {
             "meta": [
               {
                 "key": "memory.core.index.\"alpha\"",
-                "value": "{\"revision\":\"<uuid-18>\",\"recordIds\":[]}"
+                "value": "{\"revision\": \"<uuid-18>\", \"recordIds\": []}"
               },
               {
                 "key": "memory.core.index.\"beta\"",
-                "value": "{\"revision\":\"<uuid-17>\",\"recordIds\":[200,170]}"
+                "value": "{\"revision\": \"<uuid-17>\", \"recordIds\": [200, 170]}"
               },
               {
                 "key": "memory.core.index.null",
-                "value": "{\"revision\":\"<uuid-13>\",\"recordIds\":[81]}"
+                "value": "{\"revision\": \"<uuid-13>\", \"recordIds\": [81]}"
               }
             ],
             "core_entries": [
@@ -3072,7 +3214,7 @@
                 "id": 170,
                 "project_id": "beta",
                 "status": "active",
-                "element": "Second",
+                "element": "Moved",
                 "summary": "Moved",
                 "agent_id": null
               },
@@ -3088,43 +3230,10 @@
           }
         }
       ],
-      "impls": [
+      "files": [
         {
-          "impl": "deleteCoreImpl",
-          "recordId": 150,
-          "options": {
-            "expectedProjectId": "alpha",
-            "expectedAgentId": null,
-            "caller": {
-              "kind": "host",
-              "agentId": "",
-              "interactive": true
-            }
-          },
-          "rowProjectId": "alpha"
-        },
-        {
-          "impl": "editCoreImpl",
-          "recordId": 170,
-          "patch": {
-            "action": "core",
-            "op": "edit",
-            "project_id": "alpha",
-            "id": 1,
-            "index_revision": "<uuid-16>",
-            "target_project_id": "beta",
-            "summary": "Moved",
-            "element": "Moved",
-            "expectedProjectId": "alpha",
-            "expectedAgentId": null,
-            "targetProjectId": "beta",
-            "caller": {
-              "kind": "host",
-              "agentId": "",
-              "interactive": true
-            }
-          },
-          "rowProjectId": "alpha"
+          "path": "core-memory.json",
+          "text": "{\"version\":1,\"revision\":2,\"updatedAt\":1800000000000,\"curated\":[{\"id\":1,\"indexRevision\":\"<uuid-13>\",\"summary\":\"Common preference\",\"projectId\":null,\"agentId\":null,\"updatedAt\":1800000000000},{\"id\":2,\"indexRevision\":\"<uuid-17>\",\"summary\":\"Moved\",\"projectId\":\"beta\",\"agentId\":null,\"updatedAt\":1800000000000},{\"id\":1,\"indexRevision\":\"<uuid-17>\",\"summary\":\"Beta memory\",\"projectId\":\"beta\",\"agentId\":null,\"updatedAt\":1800000000000}]}\n"
         }
       ]
     }
