@@ -1899,7 +1899,9 @@ impl SessionActor {
         let storage = self.storage();
         if storage != self.published_storage {
             self.published_storage = storage;
-            notes.push(self.runtime_note());
+            // The store's write queue is the core's own (Node's state has no such field): it releases no held start, so a
+            // kickoff's busy still waits for the turn's own next runtime change, however the writes are timed.
+            notes.push(self.storage_note());
         }
         if !notes.is_empty() {
             self.publish(notes);
@@ -2114,6 +2116,16 @@ impl SessionActor {
         }
     }
 
+    /// The runtime section with the storage state as it is now, the held start still held (see [`Self::view`]).
+    fn storage_note(&self) -> Note {
+        let mut value = self.acked.runtime(self.storage());
+        if self.runtime_held.load(SeqCst) {
+            value.busy = false;
+            value.spinner = None;
+        }
+        Note::new("thread/runtime/updated", &ThreadSectionParams { thread_id: self.id.clone(), value })
+    }
+
     fn runtime_note(&self) -> Note {
         self.runtime_held.store(false, SeqCst);
         Note::new(
@@ -2151,6 +2163,11 @@ impl SessionActor {
             Effect::PublishApproval(request) => {
                 self.deps.server_requests.publish(request);
                 if !self.release_step_hold(true) {
+                    // `approveToolRequest` sets the spinner's `tool-approval` before `requestToolApproval` (turn.mjs:295-296): the
+                    // request's frame shows that mode, however the run's mark and this effect reached the actor.
+                    if self.run.is_some() && self.spinner().is_some_and(|spinner| spinner.get("mode").and_then(Value::as_str) != Some("tool-approval")) {
+                        self.patch_spinner([("mode", json!("tool-approval"))]);
+                    }
                     // `set({ toolApproval })` flushes immediately (`draft-store.mjs:69-71`).
                     let mark = super::phone_frame::Mark { immediate: true, ..Default::default() };
                     let flushed = self.frames.mark(mark, tokio::time::Instant::now());
@@ -3928,7 +3945,7 @@ impl SessionActor {
                 // A held step's approval shows its mode in its own frame, ahead of the step's `tool-use`, which then stands
                 // (recorded: state 6 of the approval cases is `tool-use` while the request is still shown).
                 super::run::CallMark::ToolApproval => {
-                    if self.step_hold.is_none() {
+                    if self.step_hold.is_none() && self.spinner().and_then(|spinner| spinner.get("mode")).and_then(Value::as_str) != Some("tool-approval") {
                         self.patch_spinner([("mode", json!("tool-approval"))]);
                     }
                 }
