@@ -638,14 +638,25 @@ pub enum ProxyEvent {
     ResponseId { id: String },
     /// The roster account that served the answer (`StreamEvent::AccountRouting`, Node `providerMetadata.accountRouting`).
     AccountRouting { provider: String, account_id: String, session_account_id: Option<String> },
-    /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).
+    /// The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`);
+    /// credential-shaped text in the message is redacted.
     AccountSwitching { message: String },
     /// A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).
+    /// The PC's account id never leaves it (Node's `scalarDetail` drops it): provider and time only.
     AccountChanged {
         provider: String,
-        account_id: String,
         #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
+    },
+    /// A tool of the request the PC's adapter left out for its input schema (`ToolExclusionReport`, Node
+    /// `onToolExcluded`); credential-shaped text in each string is redacted.
+    ToolExcluded {
+        name: String,
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
+        index: u64,
+        pointer: String,
+        reason: String,
+        message: String,
     },
     /// The send went out once more on another wire after a refusal; the session's new `wireRoute`, whole
     /// (`StreamEvent::WireRerouted`, Node `wireReroute`).
