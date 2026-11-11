@@ -14,6 +14,7 @@ use super::host::CoreAccess;
 use super::host::CoreReport;
 use super::host::EnsureHost;
 use super::host::Launch;
+use super::host::ServerCore;
 use super::install::InstallSpec;
 use super::install::collect;
 use super::install::ensure_installed;
@@ -49,6 +50,12 @@ pub fn run(
         Mode::Probe => manage::probe(args, host, access),
         Mode::Cleanup => manage::cleanup(args, host, access),
     }
+}
+
+/// The end of a stop: the exit of a core that answered it, or, for one that stayed silent on it, Node's `stopDaemon`
+/// without a reply (`terminateProcess`: SIGTERM, the grace, SIGKILL).
+pub(super) fn retire(access: &dyn CoreAccess, core: &ServerCore, answered: bool) -> Result<(), EnsureError> {
+    if answered { access.wait_exit(core) } else { access.terminate(core) }
 }
 
 pub(super) fn lock_options(args: &ProgramArgs, purpose: String) -> LockOptions {
@@ -137,19 +144,16 @@ fn ensure(
         }
         // Node's replacement text names the build that replaces the core (`daemon.mjs:589`).
         let replacement = ReplacementBuild { revision: args.build.clone(), version: args.version.clone() };
-        let drain = access.stop_when_idle(&core, StopReason::SshReplace, Some(&replacement))?;
-        let retired = match &args.confirm_token {
-            Some(token) => {
-                access.stop_confirmed(&core, StopReason::SshReplace, token, Some(&replacement))?;
-                true
-            }
-            None => drain.running.is_empty(),
+        let graceful = match access.stop_when_idle(&core, StopReason::SshReplace, Some(&replacement))? {
+            Some(drain) => match &args.confirm_token {
+                Some(token) => access.stop_confirmed(&core, StopReason::SshReplace, token, Some(&replacement))?,
+                None if drain.running.is_empty() => true,
+                None => return Err(EnsureError::Busy { server_version: core.version, drain }),
+            },
+            None => false,
         };
-        if !retired {
-            return Err(EnsureError::Busy { server_version: core.version, drain });
-        }
-        access.wait_exit(&core)?;
-        replaced = Some(Replaced { pid: core.pid, version: core.version, graceful: true });
+        retire(access, &core, graceful)?;
+        replaced = Some(Replaced { pid: core.pid, version: core.version, graceful });
     }
 
     for dir in [&paths.runtime_root, &paths.user_data, &paths.mixdog_home, &paths.data_dir] {

@@ -93,16 +93,20 @@ impl CoreAccess for Access {
         self.calls.borrow_mut().push(format!("hold:{on}"));
         Ok(())
     }
-    fn stop_when_idle(&self, _: &ServerCore, reason: StopReason, _: Option<&ReplacementBuild>) -> Result<DrainReport, EnsureError> {
+    fn stop_when_idle(&self, _: &ServerCore, reason: StopReason, _: Option<&ReplacementBuild>) -> Result<Option<DrainReport>, EnsureError> {
         self.calls.borrow_mut().push(format!("stop_when_idle:{reason:?}"));
-        Ok(DrainReport { drain_id: "d".into(), running: self.running.clone(), confirm_token: "ct".into() })
+        Ok(Some(DrainReport { drain_id: "d".into(), running: self.running.clone(), confirm_token: "ct".into() }))
     }
-    fn stop_confirmed(&self, _: &ServerCore, _: StopReason, token: &str, _: Option<&ReplacementBuild>) -> Result<(), EnsureError> {
+    fn stop_confirmed(&self, _: &ServerCore, _: StopReason, token: &str, _: Option<&ReplacementBuild>) -> Result<bool, EnsureError> {
         self.calls.borrow_mut().push(format!("stop_confirmed:{token}"));
-        Ok(())
+        Ok(true)
     }
     fn wait_exit(&self, _: &ServerCore) -> Result<(), EnsureError> {
         self.calls.borrow_mut().push("wait_exit".into());
+        Ok(())
+    }
+    fn terminate(&self, _: &ServerCore) -> Result<(), EnsureError> {
+        self.calls.borrow_mut().push("terminate".into());
         Ok(())
     }
     fn launch(&self, launch: &Launch) -> Result<(), EnsureError> {
@@ -376,17 +380,22 @@ impl EnsureHost for LockWaiter<'_> {
 /// The discovery file a serving core of 1.4.6/b6 publishes, naming this test process (alive, its real start time) and a
 /// control listener on `control_port`.
 fn publish_core(paths: &RemotePaths, control_port: u16, instance_id: &str) -> String {
+    publish(paths, std::process::id(), ("1.4.6", "b6", "serving"), control_port, instance_id)
+}
+
+/// The discovery file a core (`version`, `build`, `state`) publishes, naming the process `pid` (alive, its real start
+/// time) and a control listener on `control_port`.
+fn publish(paths: &RemotePaths, pid: u32, (version, build, state): (&str, &str, &str), control_port: u16, instance_id: &str) -> String {
     use crate::verdict::ProcessTable;
-    let pid = std::process::id();
     let start_ms = crate::verdict::OsProcessTable.query(u64::from(pid)).unwrap().unwrap().identity.start_ms;
     let raw = serde_json::json!({
         "pid": pid,
         "endpoints": { "session": { "port": 1, "token": "bootstrap-test-token" }, "modelProxy": { "port": 2 } },
         "core": {
             "control": { "port": control_port },
-            "state": "serving",
-            "version": "1.4.6",
-            "build": "b6",
+            "state": state,
+            "version": version,
+            "build": build,
             "instanceId": instance_id,
             "processStartTime": start_ms.to_string(),
         },
@@ -477,78 +486,180 @@ fn a_published_core_that_does_not_answer_is_not_attached_as_healthy() {
     assert!(!report.healthy && !report.core_current, "another core's answer proves nothing: {report:?}");
 }
 
-/// A run attaching to a published core whose control listener is `listener`; `answer` plays the core's side of the
-/// probe's connection (the request already read) on the run's clock, which moves only when it advances it. Returns the
-/// report with the core's end of the connection and the clock, as they are when the run has returned.
-fn probe_through(
-    answer: impl FnOnce(&mut std::net::TcpStream, &super::idle::IdleWatch, &str),
-) -> (Report, std::net::TcpStream, std::sync::Arc<super::idle::IdleWatch>) {
+/// What a run met on the core's side: its result, the core's end of the connection and the run's clock, as they are
+/// when the run has returned.
+struct Served {
+    result: Result<Report, EnsureError>,
+    conn: std::net::TcpStream,
+    watch: std::sync::Arc<super::idle::IdleWatch>,
+}
+
+/// A run of `args` through the real `OsAccess` against a published core (`published`: version, build, state) whose
+/// process is `pid` and whose control listener is a real one. `answer` plays the core's side of the run's first
+/// connection, whose request head (already read) starts with `request`, on the run's clock, which moves only when it
+/// advances it; the core's state is a real lifecycle.
+fn served_through(
+    args: ProgramArgs,
+    pid: u32,
+    published: (&str, &str, &str),
+    request: &str,
+    answer: impl FnOnce(&mut std::net::TcpStream, &super::idle::IdleWatch, &std::sync::Arc<crate::lifecycle::Lifecycle>),
+) -> Served {
     use std::io::Read;
     let env = env();
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let fx = crate::lifecycle::testing::fixture();
     fx.lifecycle.set_serving().unwrap();
-    let status = fx.lifecycle.status();
-    publish_core(&env.paths(), listener.local_addr().unwrap().port(), &status.instance_id);
-    let body = serde_json::to_string(&crate::control::api::StatusReply { status: (*status).clone(), stalled_ms: 0 }).unwrap();
+    publish(&env.paths(), pid, published, listener.local_addr().unwrap().port(), &fx.lifecycle.status().instance_id);
     let watch = super::idle::IdleWatch::manual();
-    let (done, report) = std::sync::mpsc::channel();
-    let probing = std::sync::Arc::clone(&watch);
+    let (done, result) = std::sync::mpsc::channel();
+    let running = std::sync::Arc::clone(&watch);
     std::thread::spawn(move || {
         let host = env.host();
-        let access = super::os::OsAccess::with_idle(&host, probing);
-        done.send(run(&args("1.4.6", "b6"), &host, &access, &env.exe).unwrap()).unwrap();
+        let access = super::os::OsAccess::with_idle(&host, running);
+        done.send(run(&args, &host, &access, &env.exe)).unwrap();
     });
     let (mut conn, _) = listener.accept().unwrap();
-    let mut request = Vec::new();
-    while !request.ends_with(b"\r\n\r\n") {
+    let mut head = Vec::new();
+    while !head.ends_with(b"\r\n\r\n") {
         let mut byte = [0u8];
         conn.read_exact(&mut byte).unwrap();
-        request.push(byte[0]);
+        head.push(byte[0]);
     }
-    assert!(request.starts_with(b"GET /mgmt/status "), "{}", String::from_utf8_lossy(&request));
-    answer(&mut conn, &watch, &body);
-    // Bounds only a failing run (a probe that never gives up); a passing one has already answered. The connection stays
+    assert!(head.starts_with(request.as_bytes()), "{}", String::from_utf8_lossy(&head));
+    answer(&mut conn, &watch, &fx.lifecycle);
+    // Bounds only a failing run (one that never gives up); a passing one has already answered. The connection stays
     // open until then, so the run cannot have seen its end instead of the limit.
-    let report = report.recv_timeout(Duration::from_secs(60)).expect("the probe is still waiting for the core");
-    (report, conn, watch)
+    let result = result.recv_timeout(Duration::from_secs(60)).expect("the run is still waiting for the core");
+    Served { result, conn, watch }
+}
+
+/// The core's whole answer to `GET /mgmt/status`, and to a command, which replies with the state after it.
+fn status_answer(lifecycle: &crate::lifecycle::Lifecycle) -> String {
+    let body = serde_json::to_string(&crate::control::api::StatusReply { status: (*lifecycle.status()).clone(), stalled_ms: 0 }).unwrap();
+    format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+}
+
+/// `answer` in two parts, each written just inside `limit` of inactivity, so the whole takes twice the limit.
+fn answer_in_two_parts(conn: &mut std::net::TcpStream, watch: &super::idle::IdleWatch, answer: &str, limit: Duration) {
+    use std::io::Write;
+    let (first, rest) = answer.split_at(answer.len() / 2);
+    let just_inside = limit - Duration::from_millis(1);
+    watch.advance(just_inside);
+    conn.write_all(first.as_bytes()).unwrap();
+    watch.wait_chunks(1);
+    watch.advance(just_inside);
+    conn.write_all(rest.as_bytes()).unwrap();
+    conn.shutdown(std::net::Shutdown::Write).unwrap();
+}
+
+/// Giving up ends the read: by the time the run returns its reader has finished and the core sees its connection closed.
+fn assert_given_up(served: &mut Served) {
+    use std::io::Read;
+    assert_eq!(served.watch.readers(), 0, "the request's reader outlived the run");
+    // Bounds only a failing run, whose connection stays open. The rest of a request (its body) is read first.
+    served.conn.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+    match served.conn.read_to_end(&mut Vec::new()) {
+        Ok(_) => {}
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => {}
+        Err(e) => panic!("the request's connection is still open after the run: {e:?}"),
+    }
+}
+
+/// A process standing in for a published core's, so that ending it ends nothing else: `sort`, hidden, reading its
+/// stdin until that closes and then exiting 0 (a signalled one does not).
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the stand-in core is a real process")]
+fn core_process() -> std::process::Child {
+    #[cfg(windows)]
+    let mut command = {
+        let system = std::path::Path::new(&std::env::var_os("SystemRoot").unwrap()).join("System32");
+        let mut command = std::process::Command::new(system.join("sort.exe"));
+        // CREATE_NO_WINDOW
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+        command
+    };
+    #[cfg(unix)]
+    let mut command = std::process::Command::new("sort");
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap()
 }
 
 /// Node's `daemonRequest` gives up after 1,500 ms without a byte: a core that accepts the probe and stays silent is not
-/// attached as healthy, and no second core is started beside it. Giving up ends the read: by the time the run returns
-/// its reader has finished and the core sees its connection closed.
+/// attached as healthy, and no second core is started beside it.
 #[test]
 fn a_core_that_accepts_the_probe_and_stays_silent_is_not_healthy_after_the_idle_limit() {
-    use std::io::Read;
-    let (report, mut conn, watch) = probe_through(|_, watch, _| watch.advance(super::idle::ANSWER_IDLE));
+    let mut served = served_through(args("1.4.6", "b6"), std::process::id(), ("1.4.6", "b6", "serving"), "GET /mgmt/status ", |_, watch, _| {
+        watch.advance(super::idle::ANSWER_IDLE);
+    });
+    let report = served.result.as_ref().unwrap();
     assert!(!report.healthy && !report.core_current && !report.started, "{report:?}");
-    assert_eq!(watch.readers(), 0, "the probe's reader outlived the run");
-    // Bounds only a failing run, whose connection stays open.
-    conn.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-    match conn.read(&mut [0u8; 1]) {
-        Ok(0) => {}
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => {}
-        other => panic!("the probe's connection is still open after the run: {other:?}"),
-    }
+    assert_given_up(&mut served);
 }
 
 /// The limit is on inactivity, not on the whole answer: a core that answers in two parts, each just inside the limit,
 /// is attached as healthy although the answer takes twice the limit.
 #[test]
 fn a_core_that_answers_slowly_within_the_idle_limit_is_attached() {
-    use std::io::Write;
-    let (report, ..) = probe_through(|conn, watch, body| {
-        let reply = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
-        let (first, rest) = reply.split_at(reply.len() / 2);
-        let just_inside = super::idle::ANSWER_IDLE - Duration::from_millis(1);
-        watch.advance(just_inside);
-        conn.write_all(first.as_bytes()).unwrap();
-        watch.wait_chunks(1);
-        watch.advance(just_inside);
-        conn.write_all(rest.as_bytes()).unwrap();
-        conn.shutdown(std::net::Shutdown::Write).unwrap();
+    let served = served_through(args("1.4.6", "b6"), std::process::id(), ("1.4.6", "b6", "serving"), "GET /mgmt/status ", |conn, watch, core| {
+        answer_in_two_parts(conn, watch, &status_answer(core), super::idle::ANSWER_IDLE);
     });
+    let report = served.result.unwrap();
     assert!(report.healthy && report.core_current && !report.started, "{report:?}");
+}
+
+/// Node's `stopDaemon` gives `/stop` 3,000 ms without a byte; a core silent that long is ended as one that did not
+/// answer: SIGTERM, the grace, SIGKILL (`terminateProcess`). The run gives the request up, ends the core's process and
+/// reports it stopped.
+#[test]
+fn a_core_that_accepts_the_stop_and_stays_silent_is_ended_by_signal_after_the_stop_limit() {
+    let mut process = core_process();
+    let pid = process.id();
+    let mut served = served_through(cleanup_args(CleanupPhase::Stop), pid, ("1.4.6", "b6", "serving"), "POST /mgmt/stop ", |_, watch, _| {
+        watch.advance(super::idle::STOP_IDLE);
+    });
+    let report = served.result.as_ref().unwrap();
+    assert_eq!(report.cleanup.as_ref().unwrap().stopped, Some(Stopped { pid, stopped: true }));
+    let status = process.try_wait().unwrap().expect("the silent core's process still runs after the run");
+    assert!(!status.success(), "the silent core's process ended by itself, not by a signal: {status:?}");
+    assert_given_up(&mut served);
+}
+
+/// The stop limit is on inactivity too, and longer than the probe's: a core that answers its stop in two parts, each
+/// just inside 3,000 ms, is waited out and never signalled.
+#[test]
+fn a_core_that_answers_the_stop_slowly_within_the_stop_limit_is_waited_out_and_not_signalled() {
+    let mut process = core_process();
+    let pid = process.id();
+    let mut stdin = process.stdin.take();
+    let served = served_through(cleanup_args(CleanupPhase::Stop), pid, ("1.4.6", "b6", "serving"), "POST /mgmt/stop ", |conn, watch, core| {
+        core.request_stop(crate::lifecycle::StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        answer_in_two_parts(conn, watch, &status_answer(core), super::idle::STOP_IDLE);
+        // The core leaves once it has answered: its process ends by itself.
+        drop(stdin.take());
+    });
+    let report = served.result.unwrap();
+    assert_eq!(report.cleanup.unwrap().stopped, Some(Stopped { pid, stopped: true }));
+    assert!(process.wait().unwrap().success(), "the core that answered its stop was signalled");
+}
+
+/// Hold is the first request of a replacement: a core silent on it has not shown that it answers, and Node never stops
+/// a daemon that does not answer. The run fails; the core is neither stopped nor signalled, and nothing is launched.
+#[test]
+fn a_core_that_accepts_the_hold_and_stays_silent_fails_the_run_and_is_left_running() {
+    let mut process = core_process();
+    let mut served = served_through(args("1.4.6", "b6"), process.id(), ("1.4.5", "b5", "serving"), "POST /mgmt/hold ", |_, watch, _| {
+        watch.advance(super::idle::ANSWER_IDLE);
+    });
+    let error = served.result.as_ref().unwrap_err();
+    assert_eq!(error.code(), "core-control", "{error}");
+    assert!(process.try_wait().unwrap().is_none(), "the core silent on hold was ended");
+    assert_given_up(&mut served);
+    drop(process.stdin.take());
+    process.wait().unwrap();
 }
 
 #[test]

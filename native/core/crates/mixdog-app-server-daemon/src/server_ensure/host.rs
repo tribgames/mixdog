@@ -110,15 +110,18 @@ pub trait CoreAccess {
     /// `GET /mgmt/status` answered by the core discovery names (the same `instanceId`): Node's proof of a daemon to reuse,
     /// its `/health` answered as the pid daemon.json names (`remote-install-daemon.ts` `readDaemonState`).
     fn answers(&self, core: &ServerCore) -> bool;
-    /// `POST /mgmt/hold{on}`.
+    /// `POST /mgmt/hold{on}`. A core that accepts it and stays silent is an error: nothing is stopped.
     fn hold(&self, core: &ServerCore, on: bool) -> Result<(), EnsureError>;
-    /// `POST /mgmt/stop{whenIdle, reason}`: idempotent on a core already draining.
+    /// `POST /mgmt/stop{whenIdle, reason}`: idempotent on a core already draining. `None` when the core accepted the
+    /// request and stayed silent past the stop limit (Node's `daemonRequest` resolving `null`).
     /// A replacement names the build that replaces the core (`replacement`); any other stop passes `None`.
-    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason, replacement: Option<&ReplacementBuild>) -> Result<DrainReport, EnsureError>;
-    /// `POST /mgmt/stop{abortConfirmed, reason, confirmToken}`.
-    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str, replacement: Option<&ReplacementBuild>) -> Result<(), EnsureError>;
+    fn stop_when_idle(&self, core: &ServerCore, reason: StopReason, replacement: Option<&ReplacementBuild>) -> Result<Option<DrainReport>, EnsureError>;
+    /// `POST /mgmt/stop{abortConfirmed, reason, confirmToken}`: whether the core answered it (see `stop_when_idle`).
+    fn stop_confirmed(&self, core: &ServerCore, reason: StopReason, confirm_token: &str, replacement: Option<&ReplacementBuild>) -> Result<bool, EnsureError>;
     /// Blocks until the OS reports the process (pid and start time) gone.
     fn wait_exit(&self, core: &ServerCore) -> Result<(), EnsureError>;
+    /// Node's `terminateProcess` for a core that stayed silent on its stop: SIGTERM, the grace, then SIGKILL.
+    fn terminate(&self, core: &ServerCore) -> Result<(), EnsureError>;
     /// Starts the core detached from this process's lifetime.
     fn launch(&self, launch: &Launch) -> Result<(), EnsureError>;
     /// Blocks until discovery names the launched core past `booting`, or it exits.

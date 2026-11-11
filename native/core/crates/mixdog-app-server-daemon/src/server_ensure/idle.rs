@@ -1,6 +1,6 @@
-//! The inactivity limit on the attachment probe: Node's `daemonRequest` (`remote-install-daemon.ts`) gives the core
-//! 1,500 ms without a byte before it treats the core as not answering. That is `http.request`'s `timeout`, a limit on an
-//! idle socket, so a core that answers slowly but steadily is still answering.
+//! The inactivity limit on every request to the core: Node's `daemonRequest` (`remote-install-daemon.ts`) gives the core
+//! 1,500 ms without a byte (3,000 ms for `/stop`) before it treats the core as not answering. That is `http.request`'s
+//! `timeout`, a limit on an idle socket, so a core that answers slowly but steadily is still answering.
 
 use std::io::Read;
 use std::net::TcpStream;
@@ -11,7 +11,10 @@ use std::sync::MutexGuard;
 use std::time::Duration;
 use std::time::Instant;
 
+/// `daemonRequest`'s default limit.
 pub const ANSWER_IDLE: Duration = Duration::from_millis(1500);
+/// The limit `stopDaemon` gives its `/stop` request.
+pub const STOP_IDLE: Duration = Duration::from_millis(3000);
 
 /// The clock the limit is measured on and the state of the exchange it watches. An exchange starts before the request
 /// is sent, as Node's timeout runs from the socket's creation.
@@ -34,6 +37,8 @@ struct State {
     #[cfg(test)]
     manual_now: Duration,
     last_activity: Duration,
+    /// The current exchange's inactivity limit.
+    limit: Duration,
     received: Vec<u8>,
     chunks: u64,
     ended: Option<std::io::Result<()>>,
@@ -72,17 +77,19 @@ impl IdleWatch {
         }
     }
 
-    pub fn begin(&self) -> Exchange {
+    /// An exchange whose answer may be silent for `limit` before it is given up.
+    pub fn begin(&self, limit: Duration) -> Exchange {
         let mut state = self.lock();
         state.exchange += 1;
         state.last_activity = self.now(&state);
+        state.limit = limit;
         state.received.clear();
         state.chunks = 0;
         state.ended = None;
         Exchange(state.exchange)
     }
 
-    /// `stream` read to its end, or `None` once it has been silent for [`ANSWER_IDLE`]. Either way the reader has
+    /// `stream` read to its end, or `None` once it has been silent for the exchange's limit. Either way the reader has
     /// finished and the connection is shut down when this returns: on the limit the socket is shut down, which ends
     /// the blocked read, and the reader is joined.
     pub fn read_to_end(self: &Arc<Self>, exchange: Exchange, mut stream: TcpStream) -> Option<std::io::Result<Vec<u8>>> {
@@ -92,7 +99,8 @@ impl IdleWatch {
         };
         // The join below cannot outlast one read even where a shutdown would not wake a blocked read: no single read
         // waits longer than the limit itself, which is a limit on inactivity like this one.
-        if let Err(e) = stream.set_read_timeout(Some(ANSWER_IDLE)) {
+        let limit = self.lock().limit;
+        if let Err(e) = stream.set_read_timeout(Some(limit)) {
             return Some(Err(e));
         }
         let watch = Arc::clone(self);
@@ -136,8 +144,8 @@ impl IdleWatch {
         outcome
     }
 
-    /// The current exchange's answer, or `None` once it has been silent for [`ANSWER_IDLE`] (the exchange is then given
-    /// up: its reader reports to nobody).
+    /// The current exchange's answer, or `None` once it has been silent for its limit (the exchange is then given up:
+    /// its reader reports to nobody).
     fn wait(&self) -> Option<std::io::Result<Vec<u8>>> {
         let mut state = self.lock();
         loop {
@@ -145,7 +153,7 @@ impl IdleWatch {
                 return Some(ended.map(|()| std::mem::take(&mut state.received)));
             }
             let now = self.now(&state);
-            let deadline = state.last_activity + ANSWER_IDLE;
+            let deadline = state.last_activity + state.limit;
             if now >= deadline {
                 state.exchange += 1;
                 return None;
