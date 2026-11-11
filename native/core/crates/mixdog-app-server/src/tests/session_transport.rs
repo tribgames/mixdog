@@ -413,9 +413,11 @@ async fn a_queued_submission_keeps_its_id_across_a_restart() {
     assert_eq!(stop["result"]["restoreText"], text, "{stop}");
 }
 
-/// steering-recovery case 139: a stop sent while many reads of the same thread are in flight is answered at once.
-/// Node answered all 64 reads; the core holds at most its in-flight limit of one client's ordinary calls (`Limits`, class
-/// C1) and refuses the rest with `inflightLimit` before running them; the stop is not one of them.
+/// steering-recovery case 139: a stop sent while 64 reads of the same thread are in flight is answered at once, and every
+/// read is answered, as Node answered them. The core holds at most its in-flight limit of one connection's C1 calls and
+/// refuses the rest with `inflightLimit`; the shipped client (`packages/protocol-client/src/client.ts` `run` and
+/// `awaitRetryTrigger`, SPEC R7) never shows that refusal: it resends the call once a C1 answer has arrived since it was
+/// sent. The replay is that client: what its caller sees is every read answered.
 #[tokio::test(start_paused = true)]
 async fn a_stop_is_answered_while_reads_are_in_flight() {
     let node = case("session-transport-steering-recovery", 139);
@@ -424,18 +426,80 @@ async fn a_stop_is_answered_while_reads_are_in_flight() {
     let options = &node["result"]["abortOptions"][0];
     let world = World::idle(&[(options["submissionId"].as_str().unwrap(), "queued prompt")]).await;
     let client = world.client(1);
-    for n in 0..reads {
-        client.client.request(100 + n, "thread/read", json!({ "threadId": world.id }));
+    let read = |n: i64| client.client.request(n, "thread/read", json!({ "threadId": world.id }));
+    // Each read's request id and the C1 answers seen when it was (re)sent.
+    let mut pending: Vec<(i64, usize)> = (0..reads).map(|n| (100 + n, 0)).collect();
+    for (id, _) in &pending {
+        read(*id);
     }
     let mut stop = options.clone();
     stop["threadId"] = json!(world.id);
     client.client.request(1, "turn/interrupt", stop);
-    let answered = |frames: &[Value]| frames.iter().filter(|frame| frame.get("id").is_some() && frame.get("method").is_none()).count() as i64;
-    let frames = sent_until(&client, |frames| answered(frames) == reads + 1).await;
-    let stop = frames.iter().find(|frame| frame["id"] == 1).unwrap();
+    let mut next = 1000;
+    let mut answered_reads = Vec::new();
+    let mut refused = 0;
+    let mut seen = 0;
+    for _ in 0..5_000 {
+        let frames = client.sent();
+        for frame in &frames[seen..] {
+            let Some(id) = frame["id"].as_i64() else { continue };
+            if id == 1 || frame.get("method").is_some() {
+                continue;
+            }
+            let at = pending.iter().position(|(sent, _)| *sent == id).expect("an answer to a pending read");
+            if frame.get("error").is_some() {
+                assert_eq!(reason(frame), "inflightLimit", "{frame}");
+                refused += 1;
+                pending[at].0 = -1 - pending[at].0;
+            } else {
+                answered_reads.push(frame.clone());
+                pending.remove(at);
+            }
+        }
+        seen = frames.len();
+        // The client's trigger: a C1 answer arrived since the refused call was sent.
+        let answers = answered_reads.len();
+        for entry in pending.iter_mut().filter(|(sent, _)| *sent < 0) {
+            if answers > entry.1 {
+                next += 1;
+                *entry = (next, answers);
+                read(next);
+            }
+        }
+        if pending.is_empty() && frames.iter().any(|frame| frame["id"] == 1) {
+            break;
+        }
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    let frames = client.sent();
+    let stop = frames.iter().find(|frame| frame["id"] == 1).expect("the stop is answered");
     assert!(stop.get("error").is_none(), "{stop}");
-    let refused: Vec<&Value> = frames.iter().filter(|frame| frame["id"].as_i64().is_some_and(|id| id >= 100) && frame.get("error").is_some()).collect();
-    assert!(refused.iter().all(|frame| reason(frame) == "inflightLimit"), "{refused:?}");
-    assert_eq!(json!(reads - refused.len() as i64), refused[0]["error"]["data"]["limit"], "the reads the core held are its limit");
+    assert_eq!(answered_reads.len() as i64, reads, "every read answered ({refused} refusals resent by the client)");
+    assert!(answered_reads.iter().all(|read| read["result"]["thread"]["id"] == json!(world.id)));
     assert_eq!(node["result"]["abortCalls"], 1);
+}
+
+/// call-contract case 156: the same call id from a second client process. Node scoped call ids per client and ran both.
+/// The core's op ids are scoped to the thread (`mixdog-core-session` session/ops.rs), and every caller mints them at
+/// random (UUIDv7 in `packages/protocol-client/src/client.ts` `call`, used by desktop and phone; the standalone CLI's
+/// `newOpId`; `Uuid::now_v7`/`new_v4` or a connection-scoped id inside the core), so two clients never send the same one:
+/// a repeat is one client retrying after a reconnect, which is answered once. Replayed as that: the second connection gets
+/// the first answer, and the prompt is neither stored nor run a second time.
+#[tokio::test(start_paused = true)]
+async fn the_same_op_from_another_connection_is_answered_once() {
+    let node = case("session-transport-call-contract", 156);
+    let prompt = node["result"]["serviceCalls"].as_array().unwrap().iter().find(|call| call["name"] == "session.submit").unwrap()["args"]["prompt"].as_str().unwrap().to_owned();
+    let world = World::started(echo()).await;
+    let (first, second) = (world.client(1), world.client(2));
+    let op = "018f0000-0000-7000-8000-000000000156";
+    let one = world.submit(&first, 1, op, &prompt).await;
+    sent_until(&first, |frames| frames.iter().any(|frame| frame["id"] == 1)).await;
+    let two = world.submit(&second, 1, op, &prompt).await;
+    assert!(one.get("error").is_none(), "{one}");
+    assert_eq!(two["result"], one["result"], "the second connection gets the first answer");
+    assert_eq!(world.prompts(&first, 2).await, [prompt.clone()], "stored once");
+    let read = world.call(&first, 3, "thread/read", json!({})).await;
+    let assistant: Vec<&Value> = read["result"]["items"].as_array().unwrap().iter().filter(|item| item["type"] == "agentMessage").collect();
+    assert_eq!(assistant.len(), 1, "run once: {assistant:?}");
 }
