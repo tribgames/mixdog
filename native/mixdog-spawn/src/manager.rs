@@ -963,7 +963,8 @@ fn launch_process(
     admission: Admission,
     request: SpawnRequest,
     options: SpawnOptions,
-) -> Result<SpawnedProcess, ProcessError> {
+    subscribe: bool,
+) -> Result<(SpawnedProcess, Option<crate::feed::Subscription>), ProcessError> {
     let launch = Launch::of(&request.command, &inner.config.default_shell);
     let env = environment(&request.env);
     if !request.cwd.as_path().is_dir() {
@@ -995,6 +996,8 @@ fn launch_process(
     } = started;
     let pid = root.pid();
     let feed = Feed::new(options.ring_bytes.unwrap_or(inner.config.ring_bytes));
+    // Before the reader threads start, so it holds the first byte (see `spawn_subscribed`).
+    let first = subscribe.then(|| feed.subscribe_oldest());
     let input = writer.is_some().then(|| InputQueue::new(inner.config.input_queue_bytes));
     let proc = Arc::new(Proc {
         handle: request.handle.clone(),
@@ -1065,7 +1068,7 @@ fn launch_process(
     }
     let handle = request.handle;
     admission.commit(&proc);
-    Ok(SpawnedProcess { handle, pid })
+    Ok((SpawnedProcess { handle, pid }, first))
 }
 
 #[derive(Clone)]
@@ -1099,6 +1102,27 @@ impl LocalProcessManager {
         request: SpawnRequest,
         options: SpawnOptions,
     ) -> Result<SpawnedProcess, ProcessError> {
+        Ok(self.launch(request, options, false).await?.0)
+    }
+
+    /// [`ProcessManager::spawn_subscribed`] with [`Self::spawn_with`]'s options.
+    pub async fn spawn_subscribed_with(
+        &self,
+        request: SpawnRequest,
+        options: SpawnOptions,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        match self.launch(request, options, true).await? {
+            (spawned, Some(first)) => Ok((spawned, Box::new(first))),
+            (_, None) => unreachable!("a subscribed launch returns its subscription"),
+        }
+    }
+
+    async fn launch(
+        &self,
+        request: SpawnRequest,
+        options: SpawnOptions,
+        subscribe: bool,
+    ) -> Result<(SpawnedProcess, Option<crate::feed::Subscription>), ProcessError> {
         let admission = self.inner.admit(&request.handle)?;
         // Dropping this future abandons the wait: a job still queued is dropped unrun, and a child
         // the job commits meanwhile is killed (see `Abandon`), so a cancelled spawn leaves no child
@@ -1116,11 +1140,11 @@ impl LocalProcessManager {
             .submit(&abandon.gone, move |_lane| {
                 #[cfg(feature = "core-test")]
                 crate::testing::launch_window();
-                let spawned = launch_process(&inner, admission, request, options)?;
+                let spawned = launch_process(&inner, admission, request, options, subscribe)?;
                 // Checked after the commit: a requester that left before it is found here, one that
                 // leaves after it finds the child in the table (`Abandon::drop`).
                 if gone.is_cancelled() {
-                    let _ = inner.lookup(&spawned.handle).and_then(|proc| proc.kill(KillReason::Requested));
+                    let _ = inner.lookup(&spawned.0.handle).and_then(|proc| proc.kill(KillReason::Requested));
                 }
                 #[cfg(feature = "core-test")]
                 crate::testing::answer_window();
@@ -1300,6 +1324,13 @@ impl LocalProcessManager {
 impl ProcessManager for LocalProcessManager {
     async fn spawn(&self, request: SpawnRequest) -> Result<SpawnedProcess, ProcessError> {
         self.spawn_with(request, SpawnOptions::default()).await
+    }
+
+    async fn spawn_subscribed(
+        &self,
+        request: SpawnRequest,
+    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+        self.spawn_subscribed_with(request, SpawnOptions::default()).await
     }
 
     fn subscribe(
