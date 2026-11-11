@@ -10,6 +10,7 @@ use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
 use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
 use windows_sys::Win32::Foundation::HANDLE;
+use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
 use windows_sys::Win32::System::JobObjects::IsProcessInJob;
 use windows_sys::Win32::System::JobObjects::JOBOBJECT_BASIC_PROCESS_ID_LIST;
 use windows_sys::Win32::System::JobObjects::JobObjectBasicProcessIdList;
@@ -20,6 +21,7 @@ use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
 use windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE;
 use windows_sys::Win32::System::Threading::QueryFullProcessImageNameW;
 use windows_sys::Win32::System::Threading::WaitForMultipleObjects;
+use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
 /// `MAXIMUM_WAIT_OBJECTS` (winnt.h): the most handles one `WaitForMultipleObjects` takes.
 const MAXIMUM_WAIT_OBJECTS: usize = 64;
@@ -32,12 +34,19 @@ pub(crate) const SETTLE_DEADLINE: Duration = Duration::from_secs(5);
 struct Member(HANDLE);
 
 impl Member {
-    /// Whether its image is `conhost.exe`. A name that cannot be read is not a console host.
-    fn is_console_host(&self) -> bool {
+    /// Whether it has signalled its exit.
+    fn exited(&self) -> bool {
+        (unsafe { WaitForSingleObject(self.0, 0) }) == WAIT_OBJECT_0
+    }
+
+    /// Whether it may be a console host on its way out: its image is `conhost.exe`, or its image can no longer be read,
+    /// which Windows answers for a process already tearing down (access denied, or a device error once its image is
+    /// unmapped). Either is waited on with the hosts; one that is in fact a survivor is still in the job at the deadline.
+    fn may_be_exiting_host(&self) -> bool {
         let mut path = [0u16; 1024];
         let mut len = path.len() as u32;
         if unsafe { QueryFullProcessImageNameW(self.0, PROCESS_NAME_WIN32, path.as_mut_ptr(), &mut len) } == 0 {
-            return false;
+            return true;
         }
         let path = String::from_utf16_lossy(&path[..len as usize]);
         path.rsplit('\\').next().is_some_and(|name| name.eq_ignore_ascii_case("conhost.exe"))
@@ -99,12 +108,17 @@ fn members(job: HANDLE) -> Option<Vec<Member>> {
     Some(members)
 }
 
-/// After a root that ended on its own: a job left holding nothing but console hosts is waited on until every one has
-/// exited, or for `deadline` at most; a job holding anything else has survivors and is not waited on. `before_wait` runs
+/// After a root that ended on its own: a job left holding nothing but console hosts and processes already exiting is
+/// waited on until every one has exited, or for `deadline` at most; a job holding anything else has survivors and is not
+/// waited on. `before_wait` runs
 /// once it is known there are hosts to wait for.
 pub(crate) fn settle(job: HANDLE, deadline: Duration, before_wait: impl FnOnce()) {
-    let Some(members) = members(job) else { return };
-    if members.is_empty() || members.len() > MAXIMUM_WAIT_OBJECTS || !members.iter().all(Member::is_console_host) {
+    let Some(mut members) = members(job) else {
+        return;
+    };
+    // A member that already signalled its exit is leaving the job and is no survivor.
+    members.retain(|member| !member.exited());
+    if members.is_empty() || members.len() > MAXIMUM_WAIT_OBJECTS || !members.iter().all(Member::may_be_exiting_host) {
         return;
     }
     before_wait();
