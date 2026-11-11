@@ -1,0 +1,263 @@
+{
+  "domain": "memory-recall-readiness",
+  "source": "src/runtime/memory/lib/recall-embedding-readiness.test.mjs",
+  "vector": [
+    0.25,
+    0.75
+  ],
+  "cases": [
+    {
+      "name": "ready recall embeds immediately as a query (test line 8)",
+      "scenario": {
+        "label": "ready recall embeds immediately as a query",
+        "query": "memory query",
+        "result": {
+          "vector": [
+            0.25,
+            0.75
+          ],
+          "state": "ready"
+        },
+        "calls": [
+          "isReady",
+          [
+            "embed",
+            "memory query",
+            {
+              "priority": true,
+              "inputType": "query"
+            }
+          ]
+        ],
+        "timers": []
+      }
+    },
+    {
+      "name": "cold recall waits for warmup and keeps dense retrieval in the same request (test line 31)",
+      "scenario": {
+        "label": "cold recall waits for warmup and keeps dense retrieval in the same request",
+        "query": "교차 language query",
+        "result": {
+          "vector": [
+            0.25,
+            0.75
+          ],
+          "state": "warmed"
+        },
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup",
+          [
+            "embed",
+            "교차 language query",
+            {
+              "priority": true,
+              "inputType": "query"
+            }
+          ]
+        ],
+        "timers": [
+          {
+            "armed": 50,
+            "cleared": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "cold recall reports warmup failure and preserves lexical fallback (test line 70)",
+      "scenario": {
+        "label": "cold recall reports warmup failure and preserves lexical fallback",
+        "query": "fallback query",
+        "result": {
+          "vector": null,
+          "state": "failed"
+        },
+        "errorMessage": "load failed",
+        "errorIsTheInjectedObject": true,
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup",
+          [
+            "onWarmupError",
+            "load failed"
+          ]
+        ],
+        "timers": [
+          {
+            "armed": 50,
+            "cleared": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "cold recall aborts without waiting for the timeout (test line 90)",
+      "scenario": {
+        "label": "cold recall aborts without waiting for the timeout",
+        "query": "cancel query",
+        "rejected": {
+          "name": "Error",
+          "message": "cancelled"
+        },
+        "rejectedWithTheInjectedReason": true,
+        "calls": [
+          "isReady",
+          "canWarmup",
+          "warmup"
+        ],
+        "timers": [
+          {
+            "armed": 5000,
+            "cleared": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "further shapes (beyond the test file)",
+      "scenarios": [
+        {
+          "label": "empty query",
+          "query": "   ",
+          "result": {
+            "vector": null,
+            "state": "empty"
+          },
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "null-ish query is empty",
+          "query": null,
+          "result": {
+            "vector": null,
+            "state": "empty"
+          },
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "cold recall that cannot warm up",
+          "query": "cannot warm",
+          "result": {
+            "vector": null,
+            "state": "unavailable"
+          },
+          "calls": [
+            "isReady",
+            "canWarmup"
+          ],
+          "timers": []
+        },
+        {
+          "label": "signal already aborted before the call",
+          "query": "aborted early",
+          "rejected": {
+            "name": "Error",
+            "message": "already cancelled"
+          },
+          "rejectedWithTheInjectedReason": true,
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "signal aborted without a reason",
+          "query": "aborted bare",
+          "rejected": {
+            "name": "AbortError",
+            "message": "This operation was aborted"
+          },
+          "rejectedWithTheInjectedReason": null,
+          "calls": [],
+          "timers": []
+        },
+        {
+          "label": "zero wait with an already-resolved warmup",
+          "query": "zero wait",
+          "result": {
+            "vector": [
+              0.25,
+              0.75
+            ],
+            "state": "warmed"
+          },
+          "calls": [
+            "isReady",
+            "canWarmup",
+            "warmup",
+            [
+              "embed",
+              "zero wait",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          ],
+          "timers": [
+            {
+              "armed": 0,
+              "cleared": true
+            }
+          ]
+        },
+        {
+          "label": "warmup completes after a deferred release, before the wait",
+          "query": "deferred warmup",
+          "result": {
+            "vector": [
+              0.25,
+              0.75
+            ],
+            "state": "warmed"
+          },
+          "calls": [
+            "isReady",
+            "canWarmup",
+            "warmup",
+            [
+              "embed",
+              "deferred warmup",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          ],
+          "timers": [
+            {
+              "armed": 60000,
+              "cleared": true
+            }
+          ]
+        },
+        {
+          "label": "query is trimmed before embedding",
+          "query": "  padded query  ",
+          "result": {
+            "vector": [
+              0.25,
+              0.75
+            ],
+            "state": "ready"
+          },
+          "calls": [
+            "isReady",
+            [
+              "embed",
+              "padded query",
+              {
+                "priority": true,
+                "inputType": "query"
+              }
+            ]
+          ],
+          "timers": []
+        }
+      ]
+    }
+  ]
+}
