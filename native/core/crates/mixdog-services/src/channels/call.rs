@@ -172,6 +172,9 @@ pub struct CallDispatch {
     intent_file: std::sync::OnceLock<IntentFile>,
     /// What is known of a stored session ([`Self::bind_session_presence`]); the restore drops a pin only to one known gone.
     session_presence: std::sync::OnceLock<SessionPresence>,
+    /// The session a manual ON in flight is activating: announced as acquired when the bridge connects
+    /// ([`Self::bridge_connected`]), not before.
+    activating: Mutex<Option<String>>,
 }
 
 /// What is known of the stored session with this id: `Some(true)` present, `Some(false)` known to be gone, `None`
@@ -199,7 +202,26 @@ impl CallDispatch {
             cancel: CancellationToken::new(),
             intent_file: std::sync::OnceLock::new(),
             session_presence: std::sync::OnceLock::new(),
+            activating: Mutex::new(None),
         })
+    }
+
+    /// Hears `runtime`'s bridge connect ([`Self::bridge_connected`]).
+    pub fn hear_bridge(self: &Arc<Self>, runtime: &super::runtime::ChannelRuntime) {
+        let calls = Arc::downgrade(self);
+        runtime.on_bridge_connected(Arc::new(move || {
+            if let Some(calls) = calls.upgrade() {
+                calls.bridge_connected();
+            }
+        }));
+    }
+
+    /// The bridge connected (`activateBridge` → `notifyRemoteAcquired`, owned-start.mjs:53-56): the manual ON in
+    /// flight is announced as acquired now, after the bridge connected and before its providers initialise.
+    pub fn bridge_connected(&self) {
+        let Some(session) = self.activating.lock().unwrap().clone() else { return };
+        let intent = self.binding.lock().unwrap().intent.clone();
+        self.set_binding(Binding { remote_acquired: true, pinned_session_id: Some(session), intent });
     }
 
     /// Binds the stored-session lookup the restore asks before it activates a pin.
@@ -412,11 +434,12 @@ impl CallDispatch {
             }));
         }
         if activating {
-            // Remote shows acquired before the bridge initialises its providers, as Node's daemon on the worker's
-            // `notifications/mixdog/remote` (`owned-start.mjs:56`, `remote-pointer.mjs` `acquireRemoteState`).
-            self.set_binding(Binding { remote_acquired: true, pinned_session_id: session.clone(), intent: binding.intent.clone() });
+            // Remote shows acquired once the bridge connects, before it initialises its providers, as Node's daemon on
+            // the worker's `notifications/mixdog/remote` (`owned-start.mjs:53-56`, `remote-pointer.mjs` `acquireRemoteState`).
+            *self.activating.lock().unwrap() = session.clone();
         }
         let result = Scope::new().cancel(&self.cancel).run(self.plain(client, req)).await.done();
+        self.activating.lock().unwrap().take();
         // A soft `isError` envelope is a failed call: it must leave the binding as it was.
         match &result {
             Some(Ok(value)) if !is_soft_error(value) => {
@@ -426,7 +449,8 @@ impl CallDispatch {
                         file.clear("explicit Remote OFF").await;
                     }
                 } else if activating {
-                    // Acquired and pinned were announced before the call; the pin only adds the saved intent.
+                    // Announced when the bridge connected; a bridge that was connected already is announced now.
+                    self.set_binding(Binding { remote_acquired: true, pinned_session_id: session.clone(), intent: binding.intent.clone() });
                     self.pin(session.expect("a manual ON names its session"), &req.args).await;
                 }
             }

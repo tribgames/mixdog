@@ -2893,6 +2893,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_services::channels::bridge::BridgeCalls::new(mixdog_services::channels::ToolDispatch::new(channel_runtime.clone(), channel_work.clone(), Box::new(|| false)))),
         channel_work.clone(),
     );
+    channel_calls.hear_bridge(&channel_runtime);
     // `hostState.remoteSession`: the session the bridge is pinned to, published now and at each change of the binding.
     let session_publisher = state.publisher.clone();
     channel_calls.observe_binding(Arc::new(move |remote| mixdog_core_domains::domains::host::publish_remote_session(session_publisher.as_ref(), remote.acquired, remote.pinned_session_id, remote.cwd)));
