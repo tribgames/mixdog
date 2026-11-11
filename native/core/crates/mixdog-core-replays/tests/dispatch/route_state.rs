@@ -24,8 +24,8 @@ use mixdog_store::schema::record::Header;
 use mixdog_testkit::exact::Exact;
 use serde_json::{Value, json};
 
-use super::inheritance_fit::tests::{TextOnly, seams};
-use super::inheritance_fit::{HostInheritanceFit, MeasuredThreads, RouteWindows};
+use super::inheritance_fit::{TextOnly, seams};
+use mixdog_core::run_host::inheritance_fit::{HostInheritanceFit, MeasuredThreads, RouteWindows};
 
 fn recording() -> Exact {
     Exact::load(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-route-state/recording.json"))
@@ -300,25 +300,37 @@ async fn the_inheritance_carry_answers_what_node_recorded() {
     let compacted = |target: &Exact| Compactor::Rows(vec![json!({ "role": "user", "content": target.get("messages").as_array()[0].get("content").as_str() })]);
     let preflight = plain(asked.get("preflight"));
     let mut scenarios = vec![
-        ("306 compacting", &heir_small, 20_000, compacted(pre.get("compacting").get("target")), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target")),
-        ("306 emptyCompaction", &heir_small, 20_000, Compactor::Nothing, vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target")),
-        ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target")),
-        ("372 compact", &heir_roomy, 500_000, compacted(asked.get("compact").get("target")), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target")),
-        ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target")),
-        ("372 empty", &heir_roomy, 500_000, Compactor::Nothing, vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target")),
+        ("306 compacting", &heir_small, 20_000, compacted(pre.get("compacting").get("target")), vec![None], plain(pre.get("compacting").get("fit")), vec![answer(pre.get("compacting").get("inherit"))], pre.get("compacting").get("target"), pre.get("compacting").try_get("calls")),
+        ("306 emptyCompaction", &heir_small, 20_000, Compactor::Nothing, vec![None, None], plain(pre.get("emptyCompaction").get("fit")), vec![answer(pre.get("emptyCompaction").get("first")), answer(pre.get("emptyCompaction").get("second"))], pre.get("emptyCompaction").get("target"), pre.get("emptyCompaction").try_get("calls")),
+        ("306 accepted", &heir_roomy, 500_000, Compactor::Unused, vec![None], plain(pre.get("accepted").get("fit")), vec![answer(pre.get("accepted").get("inherit"))], pre.get("accepted").get("target"), None),
+        ("372 compact", &heir_roomy, 500_000, compacted(asked.get("compact").get("target")), vec![Some(true)], preflight.clone(), vec![answer(asked.get("compact").get("inherit"))], asked.get("compact").get("target"), asked.get("compact").try_get("calls")),
+        ("372 failing", &heir_roomy, 500_000, Compactor::Throws, vec![Some(true)], preflight.clone(), vec![answer(asked.get("failing").get("inherit"))], asked.get("failing").get("target"), None),
+        ("372 empty", &heir_roomy, 500_000, Compactor::Nothing, vec![Some(true)], preflight.clone(), vec![answer(asked.get("empty").get("inherit"))], asked.get("empty").get("target"), None),
     ];
     for default in asked.get("default").as_array() {
         let args = default.get("args").as_array();
         let compact = args.first().map(|options| options.get("compact").as_bool());
-        scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target")));
+        scenarios.push(("372 default", &heir_roomy, 500_000, Compactor::Unused, vec![compact], preflight.clone(), vec![answer(default.get("inherit"))], default.get("target"), None));
     }
-    for (label, heir, window, compactor, calls, fit, answers, target) in scenarios {
+    for (label, heir, window, compactor, calls, fit, answers, target, recorded_calls) in scenarios {
         let carry = Carry::open(&conversation, heir, window, compactor, dir.path()).await;
         assert_eq!(Exact::plain(&carry.preflight().await), Exact::plain(&fit), "{label}: the preflight");
         for (compact, want) in calls.into_iter().zip(answers) {
             assert_eq!(Exact::plain(&carry.inherit(compact).await), Exact::plain(&want), "{label}: the answer");
         }
         assert_eq!(Exact::plain(&carry.messages().await), *target.get("messages"), "{label}: the heir's conversation");
+        // The compactor's calls: Node's mock counted them, and the ones that carry a budget carry the one it was asked for
+        // (`calls[n].budgetTokens`; an empty answer is asked again, as the recording's two calls show).
+        if let Some(calls) = recorded_calls {
+            let asked: Vec<u64> = mixdog_core_session::session::testing::lock(&carry._rig.compaction.heir_asked).iter().map(|(budget, _)| *budget).collect();
+            let budgets: Vec<Option<u64>> = calls.as_array().iter().map(|call| call.try_get("budgetTokens").map(|budget| budget.as_f64() as u64)).collect();
+            assert_eq!(asked.len(), budgets.len(), "{label}: how many times the compactor was asked");
+            for (n, (got, want)) in asked.iter().zip(&budgets).enumerate() {
+                if let Some(want) = want {
+                    assert_eq!(got, want, "{label}: the budget of call {n}");
+                }
+            }
+        }
     }
 }
 
