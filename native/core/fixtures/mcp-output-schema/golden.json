@@ -15181,6 +15181,764 @@
       ]
     },
     {
+      "name": "a reference loop behind a keyword Ajv evaluates lazily",
+      "tools": [
+        {
+          "name": "oneOf",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "$ref": "#"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oneOfLoop",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "oneOf": [
+              {
+                "required": [
+                  "a"
+                ]
+              },
+              {
+                "required": [
+                  "b"
+                ]
+              },
+              {
+                "$ref": "#"
+              }
+            ]
+          }
+        },
+        {
+          "name": "anyOf",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "anyOf": [
+              {
+                "required": [
+                  "a"
+                ]
+              },
+              {
+                "$ref": "#"
+              }
+            ]
+          }
+        },
+        {
+          "name": "anyOfAlways",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "anyOf": [
+              {
+                "required": [
+                  "a"
+                ]
+              },
+              {},
+              {
+                "$ref": "#"
+              }
+            ]
+          }
+        },
+        {
+          "name": "allOf",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "not": {
+              "allOf": [
+                {
+                  "required": [
+                    "a"
+                  ]
+                },
+                {
+                  "$ref": "#"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ifThenElse",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "if": {
+              "required": [
+                "a"
+              ]
+            },
+            "then": {
+              "$ref": "#"
+            },
+            "else": {
+              "required": [
+                "b"
+              ]
+            }
+          }
+        },
+        {
+          "name": "ifAlone",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "if": {
+              "$ref": "#"
+            }
+          }
+        },
+        {
+          "name": "not",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "i": {
+                "type": "number"
+              }
+            }
+          },
+          "outputSchema": {
+            "type": "object",
+            "not": {
+              "const": {},
+              "not": {
+                "$ref": "#"
+              }
+            }
+          }
+        }
+      ],
+      "results": {
+        "oneOf": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "two pass first"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "oneOfLoop": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "two pass first"
+              }
+            ],
+            "structuredContent": {
+              "a": 1,
+              "b": 2
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "reaches the loop"
+              }
+            ],
+            "structuredContent": {
+              "a": 1
+            }
+          }
+        ],
+        "anyOf": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "first passes"
+              }
+            ],
+            "structuredContent": {
+              "a": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "reaches the loop"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "anyOfAlways": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "a branch always passes"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "allOf": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "stops at required"
+              }
+            ],
+            "structuredContent": {}
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "reaches the loop"
+              }
+            ],
+            "structuredContent": {
+              "a": 1
+            }
+          }
+        ],
+        "ifThenElse": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "else, failing"
+              }
+            ],
+            "structuredContent": {}
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "else, passing"
+              }
+            ],
+            "structuredContent": {
+              "b": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "then reaches the loop"
+              }
+            ],
+            "structuredContent": {
+              "a": 1
+            }
+          }
+        ],
+        "ifAlone": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "if with neither clause"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ],
+        "not": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "stops at const"
+              }
+            ],
+            "structuredContent": {
+              "b": 1
+            }
+          },
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "reaches the loop"
+              }
+            ],
+            "structuredContent": {}
+          }
+        ]
+      },
+      "connect": null,
+      "outputs": [
+        {
+          "tool": "oneOf",
+          "i": 0,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Structured content does not match the tool's output schema: data must match exactly one schema in oneOf",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Structured content does not match the tool's output schema: data must match exactly one schema in oneOf",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "oneOfLoop",
+          "i": 0,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Structured content does not match the tool's output schema: data must match exactly one schema in oneOf",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Structured content does not match the tool's output schema: data must match exactly one schema in oneOf",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "oneOfLoop",
+          "i": 1,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "anyOf",
+          "i": 0,
+          "answer": {
+            "returned": "first passes"
+          },
+          "sdk": [
+            {
+              "returned": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "first passes"
+                  }
+                ],
+                "structuredContent": {
+                  "a": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "anyOf",
+          "i": 1,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "anyOfAlways",
+          "i": 0,
+          "answer": {
+            "returned": "a branch always passes"
+          },
+          "sdk": [
+            {
+              "returned": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "a branch always passes"
+                  }
+                ],
+                "structuredContent": {}
+              }
+            }
+          ]
+        },
+        {
+          "tool": "allOf",
+          "i": 0,
+          "answer": {
+            "returned": "stops at required"
+          },
+          "sdk": [
+            {
+              "returned": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "stops at required"
+                  }
+                ],
+                "structuredContent": {}
+              }
+            }
+          ]
+        },
+        {
+          "tool": "allOf",
+          "i": 1,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "ifThenElse",
+          "i": 0,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Structured content does not match the tool's output schema: data must have required property 'b', data must match \"else\" schema",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Structured content does not match the tool's output schema: data must have required property 'b', data must match \"else\" schema",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "ifThenElse",
+          "i": 1,
+          "answer": {
+            "returned": "else, passing"
+          },
+          "sdk": [
+            {
+              "returned": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "else, passing"
+                  }
+                ],
+                "structuredContent": {
+                  "b": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "ifThenElse",
+          "i": 2,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "ifAlone",
+          "i": 0,
+          "answer": {
+            "returned": "if with neither clause"
+          },
+          "sdk": [
+            {
+              "returned": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "if with neither clause"
+                  }
+                ],
+                "structuredContent": {}
+              }
+            }
+          ]
+        },
+        {
+          "tool": "not",
+          "i": 0,
+          "answer": {
+            "returned": "stops at const"
+          },
+          "sdk": [
+            {
+              "returned": {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "stops at const"
+                  }
+                ],
+                "structuredContent": {
+                  "b": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "tool": "not",
+          "i": 1,
+          "answer": {
+            "thrown": {
+              "$exact": "error",
+              "name": "McpError",
+              "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+              "code": -32602,
+              "props": {
+                "data": {
+                  "$exact": "undefined"
+                },
+                "name": "McpError"
+              }
+            }
+          },
+          "sdk": [
+            {
+              "thrown": {
+                "$exact": "error",
+                "name": "McpError",
+                "message": "MCP error -32602: Failed to validate structured content: Maximum call stack size exceeded",
+                "code": -32602,
+                "props": {
+                  "data": {
+                    "$exact": "undefined"
+                  },
+                  "name": "McpError"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "a chain of 100 references",
       "tools": [
         {

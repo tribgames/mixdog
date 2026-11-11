@@ -624,6 +624,53 @@ const CASES = [
     },
     calls: [['loop', 0], ['loop', 1]],
   },
+  {
+    // Ajv's generated code evaluates lazily: each loop is reached by one value and skipped by another, as Ajv's
+    // short-circuits have it (the branches of `oneOf` after the second that passes, of `anyOf` after the first, all of
+    // `anyOf` when a branch always passes, the clause `if` does not choose and `if` with neither clause, and, inside
+    // `not` and `if`, which Ajv compiles without `allErrors`, everything after the first failing keyword).
+    name: 'a reference loop behind a keyword Ajv evaluates lazily',
+    tools: [
+      { name: 'oneOf', inputSchema: input, outputSchema: { type: 'object', oneOf: [{ type: 'object' }, { type: 'object' }, { $ref: '#' }] } },
+      { name: 'oneOfLoop', inputSchema: input, outputSchema: { type: 'object', oneOf: [{ required: ['a'] }, { required: ['b'] }, { $ref: '#' }] } },
+      { name: 'anyOf', inputSchema: input, outputSchema: { type: 'object', anyOf: [{ required: ['a'] }, { $ref: '#' }] } },
+      { name: 'anyOfAlways', inputSchema: input, outputSchema: { type: 'object', anyOf: [{ required: ['a'] }, {}, { $ref: '#' }] } },
+      { name: 'allOf', inputSchema: input, outputSchema: { type: 'object', not: { allOf: [{ required: ['a'] }, { $ref: '#' }] } } },
+      { name: 'ifThenElse', inputSchema: input, outputSchema: { type: 'object', if: { required: ['a'] }, then: { $ref: '#' }, else: { required: ['b'] } } },
+      { name: 'ifAlone', inputSchema: input, outputSchema: { type: 'object', if: { $ref: '#' } } },
+      { name: 'not', inputSchema: input, outputSchema: { type: 'object', not: { const: {}, not: { $ref: '#' } } } },
+    ],
+    results: {
+      oneOf: [{ content: text('two pass first'), structuredContent: {} }],
+      oneOfLoop: [
+        { content: text('two pass first'), structuredContent: { a: 1, b: 2 } },
+        { content: text('reaches the loop'), structuredContent: { a: 1 } },
+      ],
+      anyOf: [
+        { content: text('first passes'), structuredContent: { a: 1 } },
+        { content: text('reaches the loop'), structuredContent: {} },
+      ],
+      anyOfAlways: [{ content: text('a branch always passes'), structuredContent: {} }],
+      allOf: [
+        { content: text('stops at required'), structuredContent: {} },
+        { content: text('reaches the loop'), structuredContent: { a: 1 } },
+      ],
+      ifThenElse: [
+        { content: text('else, failing'), structuredContent: {} },
+        { content: text('else, passing'), structuredContent: { b: 1 } },
+        { content: text('then reaches the loop'), structuredContent: { a: 1 } },
+      ],
+      ifAlone: [{ content: text('if with neither clause'), structuredContent: {} }],
+      not: [
+        { content: text('stops at const'), structuredContent: { b: 1 } },
+        { content: text('reaches the loop'), structuredContent: {} },
+      ],
+    },
+    calls: [
+      ['oneOf', 0], ['oneOfLoop', 0], ['oneOfLoop', 1], ['anyOf', 0], ['anyOf', 1], ['anyOfAlways', 0], ['allOf', 0], ['allOf', 1],
+      ['ifThenElse', 0], ['ifThenElse', 1], ['ifThenElse', 2], ['ifAlone', 0], ['not', 0], ['not', 1],
+    ],
+  },
   // Not between about 2500 and 6900 references: there Node's answer depends on how far V8 has optimized Ajv's code by
   // then (two runs answered a chain of 3000 differently).
   ...[100, 1000, 10000].map((n) => ({
@@ -705,6 +752,21 @@ try {
         normalized: [
           'cases["a reference to a remote address is never fetched"]: tools[remote].outputSchema.properties.v.$ref, connect and remote ' +
             'name the per-run listener as http://127.0.0.1:<port>; the replay moves it to a listener of its own',
+        ],
+        exclusions: [
+          'a chain of between about 2500 and 6900 references: Node b6f10295a compiles a chain of 1000 and overflows on 10000, and in ' +
+            "between its answer depends on how far V8 has optimized Ajv's code (a fresh process overflows from about 2500-2750, a warmed " +
+            'one from about 6900; two recordings answered a chain of 3000 differently), so no chain in that band is recorded. The core ' +
+            'cuts at 5000 (mixdog-mcp ajv_stack.rs STACK_LIMIT): a compile chain, or a validation path, of more than 5000 references ' +
+            "answers -32602 \"Failed to validate structured content: Maximum call stack size exceeded\", and one of 5000 or fewer validates.",
+        ],
+        bounds: [
+          'pattern backtracking: V8 has no bound (the recorded repetitions holding a lookaround take Node about a second on 24 ' +
+            'characters that fail, each more character doubling it). The core matches with fancy-regex bounded at 10,000,000,000 ' +
+            'backtracking steps (mixdog-mcp output_schema.rs BACKTRACK_LIMIT; about 32 such characters, which Node answers in some ' +
+            'minutes); every recorded case finishes well inside it and gives Node\'s answer. A match that runs out of steps has no ' +
+            'verdict, and the call answers -32602 "Failed to validate structured content: data<path>: its pattern needs more than ' +
+            '10000000000 backtracking steps".',
         ],
       },
     });
