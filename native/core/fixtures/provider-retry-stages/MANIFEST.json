@@ -20,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 105016,
+      "bytes": 111545,
       "path": "cases.json",
-      "sha256": "80910fa7adee3bc8c79f7c50a8525544f6a56b5fae0b502bb6d39f113a0c246a"
+      "sha256": "e484431cf261194ad58a4a51a6ec75a801d0f82dc6a954b5fe18c140693d9ee7"
     }
   ],
   "inputs": [
@@ -93,6 +93,10 @@
       "level": "wire"
     },
     {
+      "id": "anthropic-oauth-redacts-an-echoed-credential-in-a-429",
+      "level": "wire"
+    },
+    {
       "id": "opencode-go-gemini-raises-the-ladder-stage",
       "level": "wire"
     },
@@ -128,12 +132,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-retry-stages.mjs",
-  "recorderSha256": "ca8a69add19755a5330a27d42f80702943da78c4b77b30ad66aa68c006c25712",
+  "recorderSha256": "1ee33f41bb48d9a27ca8a982a5c62145571e42421102e15444b4637b6868cd7c",
   "replay": "Rust entry (pub): mixdog_ai::registry DefaultProviderBuilder::build(\"anthropic\" | \"xai\" | \"vertex-ai\" | \"anthropic-oauth\" | \"openrouter\" | \"grok-oauth\" | \"antigravity-oauth\" | \"devin-oauth\") and mixdog_ai::broker::ModelBroker::send (broker/send.rs), whose `reconnecting` stage each adapter declares (ProviderAdapter::send_stages).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-retry-stages",
-  "totalBytes": 105016,
+  "totalBytes": 111545,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

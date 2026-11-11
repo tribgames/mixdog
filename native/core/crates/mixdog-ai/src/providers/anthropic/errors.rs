@@ -112,7 +112,8 @@ pub(super) fn quota_error_text(response: &ErrorResponse) -> String {
         };
         format!(" retryAfter={shown}")
     });
-    let body = String::from_utf8_lossy(&response.body);
+    // Node scrubs the body (`provider.scrubTokens`) before the quota error cuts it to 200 characters.
+    let body = crate::oauth::scrub::scrub_oauth_secrets(&String::from_utf8_lossy(&response.body), &[]);
     let detail = if body.is_empty() { String::new() } else { format!(": {}", mixdog_js::slice_utf16(&body, 200)) };
     let quota = ["anthropic-ratelimit-unified-representative-claim", "anthropic-ratelimit-unified-overage-status"]
         .iter()
