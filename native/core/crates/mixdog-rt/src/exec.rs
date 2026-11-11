@@ -454,5 +454,7 @@ impl std::error::Error for BootError {}
 pub fn boot(config: RtConfig) -> Result<(Arc<Executors>, LaneTokens), BootError> {
     let executors = Arc::new(Executors::start(config).map_err(BootError::Start)?);
     let tokens = crate::install(executors.clone()).map_err(BootError::AlreadyInstalled)?;
+    #[cfg(feature = "test-support")]
+    crate::ticker::PRODUCTION_EXECUTORS.store(true, std::sync::atomic::Ordering::SeqCst);
     Ok((executors, tokens))
 }
