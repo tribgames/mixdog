@@ -139,7 +139,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/session-activity/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
 
     fn entry_of(spec: &Value) -> RuntimeEntry {
         RuntimeEntry {
@@ -167,13 +167,13 @@ mod tests {
 
     #[test]
     fn the_in_flight_stages_equal_node() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         assert_eq!(strings(&golden["inFlight"]["stages"]), IN_FLIGHT_STAGES.map(str::to_owned));
     }
 
     #[test]
     fn the_activity_of_every_recorded_case_equals_node() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         for case in golden["inFlight"]["cases"].as_array().unwrap() {
             let live = RuntimeLiveness::new();
             for (id, spec) in case["entries"].as_object().unwrap() {
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn a_session_dispatched_twice_works_until_both_runs_settle() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let steps = golden["inFlight"]["sequence"].as_array().unwrap();
         let live = RuntimeLiveness::new();
         let (first, second) = (live.dispatched("s"), live.dispatched("s"));

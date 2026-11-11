@@ -778,7 +778,7 @@ impl Tool for Loader {
 /// both (`fixtures/native-tool-search/golden.json`, the recorded Node results).
 #[tokio::test]
 async fn a_loading_tools_native_search_payload_rides_its_message_to_the_next_request() {
-    let golden: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/native-tool-search/golden.json")).unwrap();
+    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/native-tool-search/golden.json")).unwrap();
     let mut ran = 0;
     for case in golden["parse"].as_array().unwrap().iter().filter(|case| case["toolName"] != "read") {
         let mut spec = Echo::tool().spec().clone();
@@ -3204,7 +3204,7 @@ impl ToolGate for DenyAll {
 
 #[tokio::test]
 async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
-    let golden: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
+    let golden: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
     let mut compared = 0;
     for scenario in golden["scenarios"].as_array().unwrap() {
         let route = scenario["route"].as_str().unwrap();

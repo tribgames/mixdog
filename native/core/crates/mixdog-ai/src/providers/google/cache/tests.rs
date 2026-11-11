@@ -25,7 +25,7 @@ use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
 
-const GOLDEN: &str = include_str!("../../../../../../fixtures/providers/gemini-explicit-cache/cases.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/providers/gemini-explicit-cache/cases.json");
 
 struct Once(Option<Bytes>);
 
@@ -118,7 +118,7 @@ impl HttpSend for StallHttp {
 }
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).unwrap()
+    serde_json::from_str(&GOLDEN).unwrap()
 }
 
 fn system(case: u64) -> String {

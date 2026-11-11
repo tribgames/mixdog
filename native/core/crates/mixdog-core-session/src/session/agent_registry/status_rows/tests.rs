@@ -9,7 +9,7 @@ use mixdog_agent::agent_tool::progress::Snapshot;
 
 use super::*;
 
-const GOLDEN: &str = include_str!("../../../../../../fixtures/agent-status/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/agent-status/golden.json");
 
 fn ms(value: &Value, key: &str) -> i64 {
     value.get(key).and_then(Value::as_i64).unwrap_or(0)
@@ -43,7 +43,7 @@ fn awaiting(runtime: &Value) -> Option<Value> {
 
 #[test]
 fn the_worker_rows_are_the_rows_nodes_list_leaves_after_live_agent_status_row() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let now = golden["now"].as_i64().unwrap();
     let mut listed = Vec::new();
     for worker in golden["workers"].as_array().unwrap() {
@@ -75,7 +75,7 @@ fn the_worker_rows_are_the_rows_nodes_list_leaves_after_live_agent_status_row() 
 
 #[test]
 fn the_job_rows_are_the_rows_nodes_job_render_leaves_after_live_agent_status_row() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let now = golden["now"].as_i64().unwrap();
     let text = |value: &Value| value.as_str().map(str::to_owned);
     let mut seen = 0;

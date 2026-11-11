@@ -15,7 +15,7 @@ use serde_json::json;
 use super::*;
 
 fn golden() -> Value {
-    mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/skill-session/golden.json")).expect("fixture")
+    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/skill-session/golden.json")).expect("fixture")
 }
 
 fn thread() -> ThreadId {

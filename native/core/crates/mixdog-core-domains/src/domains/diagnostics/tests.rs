@@ -14,7 +14,7 @@ use mixdog_core_base::support::testing::scopes;
 use mixdog_core_base::support::testing::value;
 use mixdog_core_base::support::testing::with_op;
 
-const GOLDEN: &str = include_str!("../goldens/doctor.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/domains/goldens/doctor.json");
 
 /// The status contracts a case scripts; `{"$throw": true}` fails the reader, `{"$hang": true}`
 /// never answers, an absent key is a runtime without that status.
@@ -168,7 +168,7 @@ fn normal(mut result: Value, data: &std::path::Path) -> Value {
 
 #[tokio::test]
 async fn every_case_answers_what_the_node_doctor_answered() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let rig = rig(&golden, case).await;
@@ -192,7 +192,7 @@ async fn every_case_answers_what_the_node_doctor_answered() {
 
 #[tokio::test]
 async fn the_text_report_is_a_notice_only_when_asked_and_a_second_run_is_busy() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let case = &golden["cases"][0];
     let rig = rig(&golden, case).await;
     value(
@@ -250,7 +250,7 @@ async fn a_config_node_wrote_with_half_an_emoji_is_valid_to_the_doctor() {
 
 #[tokio::test]
 async fn a_repeated_op_runs_the_checks_once() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let rig = rig(&golden, &golden["cases"][0]).await;
     let params = with_op(json!({ "options": { "notice": true } }), 5);
     let first = value(

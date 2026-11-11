@@ -16,7 +16,7 @@ use crate::rooms::turn_host::{Failure, MemberLabel, RoomRecord, RoomTurnHost, Tu
 use crate::rooms::turn_prompt::RoomPrompt;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/room-member-turn/golden.json"))).unwrap()
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/room-member-turn/golden.json")).unwrap()
 }
 
 type Log = Arc<Mutex<Vec<Value>>>;

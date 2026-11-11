@@ -16,10 +16,10 @@ use crate::effort_judge::model::{JudgeModel, ModelConfig, OrtRuntime};
 use crate::effort_judge::tokenizer::BpeTokenizer;
 use crate::effort_judge::{EffortJudge, EffortJudgeModel};
 
-const GOLDEN: &str = include_str!("../../../../fixtures/tools/effort-judge/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/effort-judge/golden.json");
 
 fn golden() -> Value {
-    serde_json::from_str(GOLDEN).expect("golden parses")
+    serde_json::from_str(&GOLDEN).expect("golden parses")
 }
 
 /// The real judge and runtime, for the ignored integration tests only.
