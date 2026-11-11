@@ -4889,6 +4889,7 @@ dependencies = [
  "mixdog-app-protocol",
  "mixdog-core-api",
  "mixdog-core-base",
+ "mixdog-core-domains",
  "mixdog-exthost",
  "mixdog-fsio",
  "mixdog-graph",
