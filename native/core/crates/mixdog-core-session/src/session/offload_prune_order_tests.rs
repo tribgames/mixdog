@@ -63,6 +63,7 @@ use super::SessionDirectory;
 use super::SessionHandle;
 use super::actor::Inbox;
 use super::seams::RunOutcome;
+use super::seams::ThreadStore;
 use super::testing::Rig;
 use super::testing::lock;
 use super::testing::offload_replay::World;
@@ -655,6 +656,134 @@ async fn a_session_let_go_while_its_reconcile_lists_is_left_to_its_next_owner() 
     let _reopened = world.reopened(1).await;
     let after_resume = world.point("after-resume", false).await;
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_close, after_resume]), world.case);
+}
+
+/// A session an older core build stored as `transcript`: its header holds no reference set (the create's empty one is
+/// taken out again), its rows as recorded.
+async fn older_core_session(world: &World, id: &ThreadId, transcript: Value) {
+    let (header, rows) = migrated(transcript);
+    let sessions = SessionDirectory::new(world.rig.deps());
+    within("the session is created", sessions.create_with_id(id.clone(), header, json!({}))).await.expect("create");
+    let handle = within("the session opens", sessions.open_handle(id, &CallContext::internal("test"))).await.expect("open");
+    let params = json!({ "threadId": id, "set": {}, "unset": [mixdog_store::offload_sources::SOURCES] });
+    let unset = CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") };
+    within("its set is taken out", handle.request(unset)).await.expect("thread/header/patch");
+    world.rig.store.seed(id, rows.as_array().expect("rows").iter().enumerate().map(|(index, body)| item(format!("{}{index}", id.as_str()), body)).collect());
+    within("its directory shuts down", sessions.shutdown_for("test close")).await;
+}
+
+/// Node's `linkless-fork` with the fork an older core build stored (its header holds no set at all, not an empty one):
+/// its set is unknown, so the prune reads its transcript first and stores what it names (`record_offload_scan`); the
+/// fork keeps `named` as Node's check of a record without a set does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_stored_without_a_set_is_read_before_the_prune_and_its_set_stored() {
+    let world = world("linkless-fork").await;
+    let id = world.handle.id.as_str().to_owned();
+    let fork = &world.case["seed"]["fork"];
+    let fork_id = ThreadId::from(fork["sessionId"].as_str().expect("the fork id").to_owned());
+    older_core_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"])).await;
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+    let own = mixdog_store::offload_sources::segment_key(&mixdog_store::offload_sources::safe_segment(&id));
+    let scanned = lock(&world.rig.store.scans).get(fork_id.as_str()).map(|(_, sources)| sources.clone());
+    assert!(scanned.as_ref().is_some_and(|sources| sources.contains(&own)), "the fork's set, read from its transcript, is stored: {scanned:?}");
+}
+
+/// As above, with the fork's log unreadable (the catalog lists it as readable): its set cannot be known, so the open
+/// deletes nothing and the skip is logged once, naming the session and the fork. Readable again, the next open prunes as
+/// Node does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_without_a_set_that_cannot_be_read_stops_the_prune() {
+    logged();
+    let world = world("linkless-fork").await;
+    let id = world.handle.id.as_str().to_owned();
+    let fork = &world.case["seed"]["fork"];
+    let fork_id = ThreadId::from(fork["sessionId"].as_str().expect("the fork id").to_owned());
+    older_core_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"])).await;
+    lock(&world.rig.store.unscannable).insert(fork_id.as_str().to_owned());
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let skipped = || logged().lines().filter(|line| line.contains("offload prune skipped") && line.contains(id.as_str()) && line.contains(fork_id.as_str())).count();
+    let before = skipped();
+    let (directory, _handle) = world.reopened(1).await;
+    assert_eq!(world.point("after-clear", false).await, world.case["points"][0], "nothing is deleted while a session holding no set cannot be read");
+    assert_eq!(skipped() - before, 1, "the open's skip is logged once, naming the session and the one it could not read:\n{}", logged());
+    within("the directory shuts down", directory.shutdown_for("test close")).await;
+    lock(&world.rig.store.unscannable).remove(fork_id.as_str());
+    let _reopened = world.reopened(2).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+}
+
+/// Where an inheritance into an existing session (`carry_into`) fails.
+#[derive(Clone, Copy, Debug)]
+enum CarryFails {
+    /// Refused before anything is appended (the conversation does not fit and cannot be compacted).
+    Refused,
+    /// The append's batch fails, nothing written.
+    AppendRolledBack,
+    /// The append's batch is written and its sync fails: its rows are in the log.
+    AppendWritten,
+    /// The rows are stored; the header patch naming the source fails.
+    HeaderPatch,
+}
+
+/// Every failure point of an inheritance, in order, against the heir's reference set and copy mark on disk: the set
+/// (the heir's own, the source's and the source) stored before anything is copied is never taken back; the mark goes
+/// only when nothing was appended, and stays (stopping the source's prune) while rows of the copy may be in the log
+/// unread. A mark an earlier boot left (the process stopped) stops nothing: the heir is read, under its set.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_inheritance_that_fails_anywhere_never_takes_its_reference_set_back() {
+    use mixdog_store::offload_sources as sets;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::MetaRecord;
+    for point in [CarryFails::Refused, CarryFails::AppendRolledBack, CarryFails::AppendWritten, CarryFails::HeaderPatch] {
+        let world = world("copy-in-progress").await;
+        let source = world.handle.id.clone();
+        let heir = ThreadId::from(format!("{}_heir", source.as_str()));
+        within("the heir is created", world.directory.create_with_id(heir.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({}))).await.expect("create");
+        let appended = |record: &Record| !matches!(record, Record::Meta(_) | Record::Session(_));
+        let named = |record: &Record| matches!(record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("inheritedFromSessionId"));
+        match point {
+            CarryFails::Refused => *lock(&world.rig.inherit.basis) = Some((10, 100, false)),
+            CarryFails::AppendRolledBack => *lock(&world.rig.store.fail_when) = Some((Box::new(appended), false)),
+            CarryFails::AppendWritten => *lock(&world.rig.store.fail_when) = Some((Box::new(appended), true)),
+            CarryFails::HeaderPatch => *lock(&world.rig.store.fail_when) = Some((Box::new(named), false)),
+        }
+        let forked = json!({ "threadId": source, "opId": "op-inherit", "intoThreadId": heir });
+        let answer = within("the inheritance answers", world.handle.request(request("thread/fork", forked, "op-inherit"))).await;
+        assert!(answer.is_err(), "{point:?}: the inheritance fails: {answer:?}");
+        let header = world.rig.store.stored_header(&heir).expect("the heir's header");
+        assert!(sets::sources(&header).contains(&sets::safe_segment(source.as_str())), "{point:?}: the heir's set names the source: {header:?}");
+        let marked = sets::mark(&header);
+        let copies = world.rig.store.copies_of(&source).await;
+        match point {
+            CarryFails::Refused => {
+                assert_eq!(marked, None, "{point:?}: nothing was appended: no mark");
+                assert!(copies.is_ok_and(|found| found.copies == [heir.as_str()]), "{point:?}: the source's prune reads the heir");
+            }
+            _ => {
+                assert_eq!(marked, Some((source.as_str().to_owned(), sets::boot().to_owned())), "{point:?}: rows may be in the log: the mark stays");
+                let blocked = copies.expect_err("the source's prune is stopped");
+                assert!(format!("{blocked:?}").contains("is still inheriting"), "{point:?}: {blocked:?}");
+            }
+        }
+        // The process stopped: its mark names a boot that no longer owns the data dir.
+        within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+        let next = SessionDirectory::new(world.rig.deps());
+        let handle = within("the heir opens", next.open_handle(&heir, &CallContext::internal("test"))).await.expect("open");
+        let params = json!({ "threadId": heir, "set": { sets::INHERITING_BOOT: "an-earlier-boot" }, "unset": [] });
+        let earlier = CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") };
+        within("the mark is an earlier boot's", handle.request(earlier)).await.expect("thread/header/patch");
+        let found = world.rig.store.copies_of(&source).await.expect("an earlier boot's mark stops nothing");
+        assert_eq!(found.copies, [heir.as_str()], "{point:?}: the heir is read under its set");
+        within("the directory shuts down", next.shutdown_for("test close")).await;
+    }
 }
 
 /// Node's `thrown` (the save's fsync failed after its records were written): the barrier fails after its write.

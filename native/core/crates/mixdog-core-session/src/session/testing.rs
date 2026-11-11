@@ -314,6 +314,8 @@ pub struct MemStore {
     pub fail_next: Arc<AtomicBool>,
     /// The next barrier writes its records and then fails (a write whose sync failed: the records are in the log).
     pub fail_after_write: Arc<AtomicBool>,
+    /// The next batch holding a record the predicate takes fails (`FailWhen`).
+    pub fail_when: FailWhen,
     /// The next read of a thread's model context fails.
     pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
@@ -321,6 +323,11 @@ pub struct MemStore {
     /// The sessions whose log cannot be read (damaged on disk): reading their header or model context fails, and the
     /// catalog holds them as not readable (`copies_of` fails).
     pub damaged: Mutex<std::collections::BTreeSet<String>>,
+    /// The sessions whose log cannot be read although the catalog lists them as readable (their header and model
+    /// context reads fail; `copies_of` lists them as unknown).
+    pub unscannable: Mutex<std::collections::BTreeSet<String>>,
+    /// The scans of a transcript `record_offload_scan` stored: the session's record count then, and what it named.
+    pub scans: Mutex<HashMap<String, (i64, Vec<String>)>>,
     /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
     pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
     /// The next commit to an open log tells `.0` it arrived, then waits for `.1` before it commits.
@@ -347,13 +354,18 @@ impl MemStore {
         lock(&self.logs).entry(id.clone()).or_default().clone()
     }
 
+    /// The header of `id` as its records fold it, when it can be read.
+    pub fn stored_header(&self, id: &ThreadId) -> Option<Header> {
+        self.header_of(id).ok()
+    }
+
     fn unreadable(id: &str) -> CoreError {
         CoreError::Internal { incident_id: format!("session-store-copies: the session {id} cannot be read").into() }
     }
 
     /// The header of the session record, as `decode` takes it.
     fn header_of(&self, id: &ThreadId) -> Result<Header, CoreError> {
-        if lock(&self.damaged).contains(id.as_str()) {
+        if lock(&self.damaged).contains(id.as_str()) || lock(&self.unscannable).contains(id.as_str()) {
             return Err(Self::unreadable(id.as_str()));
         }
         let records = self.records(id);
@@ -392,10 +404,15 @@ fn wait_for_release(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
     go.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("{gate} was not released within 10s"));
 }
 
+/// What [`MemStore::fail_when`] holds: the batch holding a record the predicate takes fails once, after its records are
+/// written when `.1`.
+pub type FailWhen = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, bool)>>>;
+
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
     fail_after_write: Arc<AtomicBool>,
+    fail_when: FailWhen,
     commit_gate: CommitGate,
     header_gate: CommitGate,
     on_compaction: CompactionHook,
@@ -417,6 +434,17 @@ impl SessionLog for MemLog {
             return Err(BarrierError::Failed {
                 io_kind: "test".into(),
             });
+        }
+        let failing = {
+            let mut when = lock(&self.fail_when);
+            let hit = when.as_ref().is_some_and(|(takes, _)| batch.iter().any(|commit| takes(&commit.record)));
+            if hit { when.take().map(|(_, after_write)| after_write) } else { None }
+        };
+        if failing == Some(false) {
+            return Err(BarrierError::Failed { io_kind: "test".into() });
+        }
+        if failing == Some(true) {
+            self.fail_after_write.store(true, Ordering::SeqCst);
         }
         let sets_compaction = batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("compaction")));
         let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
@@ -532,32 +560,64 @@ impl ThreadStore for MemStore {
         Box::pin(async { Ok(Vec::new()) })
     }
 
-    /// Every thread not deleted whose header's reference set names `id`, in id order (as the index's `offload_refs`);
-    /// an error naming the first damaged session while one is, or the first of them a copy is still being made into.
-    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+    /// As the index's `offload_referencers`: every other thread not deleted whose set (its header's, else a current
+    /// scan's, else any earlier scan's) names `id`, and every one whose header holds no set without a scan at its
+    /// current length (a log the catalog lists but that cannot be read, `unscannable`, among them), in id order; an
+    /// error naming the first damaged session while one is, or the first copy naming `id` this boot is still making.
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
+        use mixdog_store::offload_sources as sets;
         let damaged = lock(&self.damaged).first().cloned();
         let answer = match damaged {
             Some(damaged) => Err(Self::unreadable(&damaged)),
             None => {
-                let segment = mixdog_store::offload_sources::safe_segment(id.as_str());
-                let threads: Vec<ThreadId> = lock(&self.logs).keys().cloned().collect();
-                let mut referencers: Vec<(String, bool)> = threads
-                    .into_iter()
-                    .filter(|thread| thread != id)
-                    .filter_map(|thread| {
-                        let header = self.header_of(&thread).ok().filter(|header| !mixdog_store::summary::is_deleted(header))?;
-                        let inheriting = header.get(mixdog_store::offload_sources::INHERITING).and_then(Value::as_str).is_some_and(|source| !source.is_empty());
-                        mixdog_store::offload_sources::sources(&header).contains(&segment).then(|| (thread.as_str().to_owned(), inheriting))
-                    })
-                    .collect();
-                referencers.sort();
-                match referencers.iter().find(|(_, inheriting)| *inheriting) {
-                    Some((heir, _)) => Err(CoreError::Internal { incident_id: format!("session-store-copies: the session {heir} is still inheriting the conversation").into() }),
-                    None => Ok(referencers.into_iter().map(|(session, _)| session).collect()),
+                let segment = sets::segment_key(&sets::safe_segment(id.as_str()));
+                let names = |sources: &[String]| sources.iter().any(|source| sets::segment_key(source) == segment);
+                let mut threads: Vec<ThreadId> = lock(&self.logs).keys().filter(|thread| *thread != id).cloned().collect();
+                threads.sort();
+                let mut found = super::seams::OffloadCopies::default();
+                let mut copying = None;
+                for thread in threads {
+                    let at = self.records(&thread).len() as i64;
+                    let scan = lock(&self.scans).get(thread.as_str()).cloned();
+                    let header = match self.header_of(&thread) {
+                        Ok(header) if mixdog_store::summary::is_deleted(&header) => continue,
+                        Ok(header) => header,
+                        Err(CoreError::ThreadNotFound { .. }) => continue,
+                        Err(_) => {
+                            found.unknown.push((thread.as_str().to_owned(), at));
+                            continue;
+                        }
+                    };
+                    let held = sets::holds_set(&header);
+                    let sources = if held { sets::sources(&header) } else { scan.as_ref().map(|(_, sources)| sources.clone()).unwrap_or_default() };
+                    if !held && scan.as_ref().is_none_or(|(scanned, _)| *scanned != at) {
+                        found.unknown.push((thread.as_str().to_owned(), at));
+                    }
+                    if !names(&sources) {
+                        continue;
+                    }
+                    if let Some((source, _)) = sets::mark(&header).filter(|(_, boot)| boot == sets::boot()) {
+                        copying.get_or_insert((thread.as_str().to_owned(), source));
+                    }
+                    found.copies.push(thread.as_str().to_owned());
+                }
+                match copying {
+                    Some((heir, source)) => Err(CoreError::Internal { incident_id: format!("session-store-copies: the session {heir} is still inheriting the conversation of {source}").into() }),
+                    None => Ok(found),
                 }
             }
         };
         Box::pin(async move { answer })
+    }
+
+    /// Stored when the session still has `ordinal` records and its header holds no set.
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let thread = ThreadId::from(session.to_owned());
+        let current = self.records(&thread).len() as i64 == ordinal && self.header_of(&thread).is_ok_and(|header| !mixdog_store::offload_sources::holds_set(&header));
+        if current {
+            lock(&self.scans).insert(session.to_owned(), (ordinal, sources));
+        }
+        Box::pin(async { Ok(()) })
     }
 
     fn context_io(
@@ -624,6 +684,7 @@ impl ThreadStore for MemStore {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
             fail_after_write: self.fail_after_write.clone(),
+            fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
@@ -646,6 +707,7 @@ impl ThreadStore for MemStore {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
             fail_after_write: self.fail_after_write.clone(),
+            fail_when: self.fail_when.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
@@ -787,7 +849,8 @@ impl ThreadStore for CallCounted {
         fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError>;
         fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>>;
         fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
-        fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+        fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>>;
+        fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
         fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError>;
         fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError>;
         fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError>;

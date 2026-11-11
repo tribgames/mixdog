@@ -463,7 +463,7 @@ fn tombstones_reach_their_one_session() {
 
 /// A copy of a conversation 1.4.5 made without a link to its source (a clear's fork) gets the reference set its
 /// transcript names (`tool-results/<segment>/`, its system prompt included, its own left out) in its header, which the
-/// prune's index reads; a session naming no other session's sidecars gets none.
+/// prune's index reads; a session naming no other session's sidecars gets an empty one (known: it is not scanned).
 #[test]
 fn a_copy_without_a_link_gets_the_reference_set_its_transcript_names() {
     let dir = tempfile::tempdir().unwrap();
@@ -491,7 +491,7 @@ fn a_copy_without_a_link_gets_the_reference_set_its_transcript_names() {
     };
     let sources = |id: &str| crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap().header.get("offloadSources").cloned();
     assert_eq!(sources("sess_fork"), Some(json!(["sess_other", "sess_src"])));
-    assert_eq!(sources("sess_b"), None);
+    assert_eq!(sources("sess_b"), Some(json!([])), "a session naming no other session's sidecars holds an empty set, not none");
 }
 
 /// A session saved again after its turn opened, with a route change in that turn: the

@@ -942,20 +942,24 @@ impl ThreadStore for StoreThreads {
         })
     }
 
-    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<super::seams::OffloadCopies, CoreError>> {
         let (projector, index, id) = (self.projector.clone(), self.index.clone(), id.as_str().to_owned());
         Box::pin(async move {
             projector.caught_up().await?;
-            let segment = mixdog_store::offload_sources::safe_segment(&id);
-            let (referencers, unreadable) = index.offload_referencers(&segment).await.map_err(|e| internal("copies", &e))?;
-            if let Some(unreadable) = unreadable {
+            let found = index.offload_referencers(&id, mixdog_store::offload_sources::boot()).await.map_err(|e| internal("copies", &e))?;
+            if let Some(unreadable) = found.unreadable {
                 return Err(internal("copies", &format!("the session {unreadable} cannot be read")));
             }
-            if let Some((heir, _)) = referencers.iter().find(|(_, inheriting)| *inheriting) {
-                return Err(internal("copies", &format!("the session {heir} is still inheriting the conversation")));
+            if let Some((heir, source)) = found.copying {
+                return Err(internal("copies", &format!("the session {heir} is still inheriting the conversation of {source}")));
             }
-            Ok(referencers.into_iter().map(|(session, _)| session).filter(|session| *session != id).collect())
+            Ok(super::seams::OffloadCopies { copies: found.sessions, unknown: found.unknown })
         })
+    }
+
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+        let (index, session) = (self.index.clone(), session.to_owned());
+        Box::pin(async move { index.record_offload_scan(&session, ordinal, sources).await.map_err(|e| internal("copies", &e)) })
     }
 
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {

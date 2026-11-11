@@ -1361,6 +1361,12 @@ impl DirInner {
         };
         let mut header = spec.header;
         header.insert("id".into(), Value::String(id.as_str().to_owned()));
+        // A new thread names no other session's sidecars yet: its reference set is known from its first record (Node's
+        // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
+        // rows names what they name: it holds none, and its transcript is scanned.
+        if spec.base.is_none() && !mixdog_store::offload_sources::holds_set(&header) {
+            header.insert(mixdog_store::offload_sources::SOURCES.into(), Value::Array(Vec::new()));
+        }
         let log_id = uuid::Uuid::new_v4().simple().to_string()[..24].to_owned();
         let op = match &spec.op {
             Some(op) => Some(mixdog_store::schema::record::OpRef {

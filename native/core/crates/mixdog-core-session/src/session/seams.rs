@@ -118,6 +118,14 @@ pub trait TurnIngest: Send + Sync + 'static {
 }
 
 /// A session's stored metadata as today's `readStoredSessionMetadata` gives it
+/// [`ThreadStore::copies_of`]: the sessions whose set names the session, and the sessions whose set is unknown with the
+/// ordinal each is projected to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OffloadCopies {
+    pub copies: Vec<String>,
+    pub unknown: Vec<(String, i64)>,
+}
+
 /// (`store-summary-reader.mjs:386`): each field is `x || null`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SessionMeta {
@@ -338,10 +346,16 @@ pub trait ThreadStore: Send + Sync + 'static {
 
     /// The copies of `id`'s conversation the catalog lists: the sessions whose reference set names `id`
     /// (`mixdog_store::offload_sources`: an inheritance's heir, a clear's fork, the copies of those, a session
-    /// migrated naming `id`'s sidecars), once the catalog holds every acked projection, without opening any session.
-    /// An error when the catalog cannot answer, holds a session it could not read (whether that one names `id` is not
-    /// known), or one of them is still being made (`offloadInheriting`).
-    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+    /// migrated naming `id`'s sidecars), once the catalog holds every acked projection, without opening any session;
+    /// and every other session whose set is unknown (its header holds none: an older build's), with the ordinal it is
+    /// projected to, for the caller to scan. An error when the catalog cannot answer, holds a session it could not
+    /// read (whether that one names `id` is not known), or a copy naming `id` is still being made (`offloadInheriting`
+    /// by this boot).
+    fn copies_of(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<OffloadCopies, CoreError>>;
+
+    /// Stores what a scan of `session`'s transcript at `ordinal` names (the sessions whose sidecars it may name), for a
+    /// session [`ThreadStore::copies_of`] answered as unknown.
+    fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>>;
 
     /// After a delete mark is acked: the index takes every projection acked so far, then the
     /// fork-aware purge removes each deleted session no live lineage reads (files and index
