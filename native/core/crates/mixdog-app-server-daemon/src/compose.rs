@@ -772,7 +772,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),
         #[cfg(feature = "replay-controls")]
-        stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone()),
+        stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone(), real.replay_writers.clone(), real.gateway_usage.clone(), real.ledgers.clone()),
         real,
         log,
         stop,

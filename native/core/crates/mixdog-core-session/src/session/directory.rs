@@ -610,23 +610,27 @@ impl SessionDirectory {
         handles
     }
 
-    /// Replay-only (the core's `replay/storesSettled` control): once every loaded thread's durability task has nothing
-    /// pending, that is once every record its actor accepted before this call was committed (or failed) and released
-    /// ([`Inbox::Settled`]). How many threads were loaded, or which one closed before it answered.
+    /// Replay-only (the core's `replay/storesSettled` control): once every thread loaded at this call has committed every
+    /// record its actor accepted before the call, and written every prompt-history append pushed before it ([`Inbox::Settled`]);
+    /// records accepted later neither hold nor hasten it, and a thread loaded later is not asked. A thread that unloads first
+    /// counts once its close flushed ([`super::control::ControlCell::flushed`]). How many threads were asked, or which one ended
+    /// with something unwritten.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn durability_settled(&self) -> Result<usize, String> {
         let mut waits = Vec::new();
         for handle in self.loaded_handles() {
             let (tx, rx) = oneshot::channel();
-            if handle.inbox.send(Inbox::Settled { tx }).await.is_err() {
-                return Err(format!("thread {} ended before it could be asked whether its records are durable", handle.id.as_str()));
-            }
-            waits.push((handle.id.clone(), rx));
+            let asked = handle.inbox.send(Inbox::Settled { tx }).await.is_ok();
+            waits.push((handle, asked.then_some(rx)));
         }
         let loaded = waits.len();
-        for (id, rx) in waits {
-            if rx.await.is_err() {
-                return Err(format!("thread {} ended with records not yet durable", id.as_str()));
+        for (handle, rx) in waits {
+            let answered = match rx {
+                Some(rx) => rx.await.is_ok(),
+                None => false,
+            };
+            if !answered && !handle.cell.flushed.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(format!("thread {} ended with records or prompt appends not yet written", handle.id.as_str()));
             }
         }
         Ok(loaded)
@@ -1313,6 +1317,8 @@ impl DirInner {
             busy: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            flushed: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),

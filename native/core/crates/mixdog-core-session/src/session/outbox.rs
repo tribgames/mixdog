@@ -130,6 +130,22 @@ impl Outbox {
         self.entries.is_empty()
     }
 
+    /// The id of the last entry accepted (0 before the first): the accept watermark the replay barrier captures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn last_accepted(&self) -> u64 {
+        self.next_id - 1
+    }
+
+    /// Every record accepted up to `mark` is committed — the store wrote and synced it and acked it ([`Self::acked`]) — or
+    /// failed and left the outbox. Entries after `mark` do not count.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn committed_through(&self, mark: u64) -> bool {
+        self.entries
+            .iter()
+            .take_while(|entry| entry.id <= mark)
+            .all(|entry| entry.durable.as_ref().is_none_or(|durable| matches!(durable.stage, Stage::Acked(_))))
+    }
+
     pub fn producer_room(&self) -> bool {
         self.entries.len() < self.limits.outbox_entries && self.has_room(Class::Normal)
     }
