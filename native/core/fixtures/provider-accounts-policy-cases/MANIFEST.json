@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -88,10 +88,9 @@
   "recorderSha256": "c7e94b8e0682a12efe178a7bed13e85310eb28b775b79e237021ce398ab468a4",
   "replay": {
     "compare": "mixdog-ai accounts/policy.rs (and the roster file reader/writer): replay the file edits and policy/auto writes (compare the pool view and the file keys), and the pure picks/limits on the recorded pools",
-    "entry": "Drive these public items on o1: mixdog-ai/src/accounts/policy.rs:337 choose_account; mixdog-ai/src/accounts/policy.rs:270 account_limit; mixdog-ai/src/accounts/policy.rs:308 account_exhausted_for_model_only.",
-    "missingOnO1": [
-      "the roster file reader and writer (registerProviderAccount, changeProviderAccounts, readProviderAccountPool; policy / auto mapping): no counterpart found"
-    ],
+    "entry": "Drive these public items on o1: mixdog-ai/src/accounts/policy.rs:337 choose_account; mixdog-ai/src/accounts/policy.rs:270 account_limit; mixdog-ai/src/accounts/policy.rs:308 account_exhausted_for_model_only; mixdog-ai/src/accounts/mod.rs:299 AccountStore::pool; mixdog-ai/src/accounts/mod.rs:368 AccountStore::register; mixdog-ai/src/accounts/mod.rs:405 AccountStore::change; mixdog-ai/src/accounts/mod.rs:503 AccountStore::record_usage.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
     "normalised": {
       "accountIds": "the registered account id is random: written <account-1> wherever it occurs (paths listed in normalised.paths)",
       "dataDir": "<data> wherever it occurs"
@@ -112,6 +111,26 @@
         "line": 308,
         "name": "account_exhausted_for_model_only",
         "path": "native/core/crates/mixdog-ai/src/accounts/policy.rs"
+      },
+      {
+        "line": 299,
+        "name": "AccountStore::pool",
+        "path": "native/core/crates/mixdog-ai/src/accounts/mod.rs"
+      },
+      {
+        "line": 368,
+        "name": "AccountStore::register",
+        "path": "native/core/crates/mixdog-ai/src/accounts/mod.rs"
+      },
+      {
+        "line": 405,
+        "name": "AccountStore::change",
+        "path": "native/core/crates/mixdog-ai/src/accounts/mod.rs"
+      },
+      {
+        "line": 503,
+        "name": "AccountStore::record_usage",
+        "path": "native/core/crates/mixdog-ai/src/accounts/mod.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
