@@ -316,30 +316,39 @@ impl SessionClose {
         self.providers.release_session(thread.as_str());
         self.directory.deps().deletion.release_mcp_scope(thread.as_str());
         if let Some(handle) = self.directory.handle(thread) {
-            let _ = handle.cell.ctl_tx.send(Ctl::Closed).await;
+            let (taken, took) = tokio::sync::oneshot::channel();
+            if handle.cell.ctl_tx.send(Ctl::Closed(taken)).await.is_ok() {
+                // An actor that ends first drops the answer: it is gone either way.
+                let _ = took.await;
+            }
         }
     }
 
-    /// The tombstone, written against the header it was computed from; `Ok(false)`: absent.
     async fn mark_closed(&self, thread: &ThreadId, reason: &str) -> Result<bool, PortError> {
-        loop {
-            let recorded = match self.threads.header(thread).await {
-                Ok(header) => header,
-                Err(PortError::NotFound { .. }) => return Ok(false),
-                Err(error) => return Err(error),
-            };
-            let set = tombstone(&recorded, reason, self.directory.deps().clock.now_ms());
-            let expect = ["closed", "status", "generation", "updatedAt", "cancelStatus", "cancelledAt"]
-                .into_iter()
-                .map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null)))
-                .collect();
-            match self.threads.patch_header_if(thread, expect, set, Vec::new()).await {
-                Ok(None) => return Ok(true),
-                // Another write moved the header meanwhile: computed again from what it holds now.
-                Ok(Some(_)) => continue,
-                Err(PortError::NotFound { .. }) => return Ok(false),
-                Err(error) => return Err(error),
-            }
+        write_close(&self.threads, thread, reason, self.directory.deps().clock.now_ms()).await
+    }
+}
+
+/// `markSessionClosed(id, reason)`: the tombstone, written against the header it was computed from. `Ok(false)`: no such
+/// session.
+pub(crate) async fn write_close(threads: &dyn ThreadState, thread: &ThreadId, reason: &str, now: i64) -> Result<bool, PortError> {
+    loop {
+        let recorded = match threads.header(thread).await {
+            Ok(header) => header,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let set = tombstone(&recorded, reason, now);
+        let expect = ["closed", "status", "generation", "updatedAt", "cancelStatus", "cancelledAt"]
+            .into_iter()
+            .map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null)))
+            .collect();
+        match threads.patch_header_if(thread, expect, set, Vec::new()).await {
+            Ok(None) => return Ok(true),
+            // Another write moved the header meanwhile: computed again from what it holds now.
+            Ok(Some(_)) => continue,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
         }
     }
 }

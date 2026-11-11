@@ -58,8 +58,9 @@ pub(crate) enum Ctl {
     /// The last subscriber left: an idle thread unloads.
     Unsubscribed,
     /// The thread's tombstone landed (`closeSession`): no Goal continues it, and once its turn
-    /// has ended it unloads (`_clearSessionRuntime`) even if it was never subscribed.
-    Closed,
+    /// has ended it unloads (`_clearSessionRuntime`) even if it was never subscribed. Answered once the actor took it,
+    /// so a write after the close finds either the live actor or none (it opens the thread again), never one ending.
+    Closed(tokio::sync::oneshot::Sender<()>),
     /// Core shutdown: the actor stops and hands back its memory ingest.
     Shutdown(tokio::sync::oneshot::Sender<futures::future::BoxFuture<'static, ()>>),
     /// `thread/delete`'s close (`closeSession(id, reason)`): the thread takes no more work, its

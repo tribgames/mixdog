@@ -88,7 +88,17 @@ pub(super) struct Real {
     /// The store, as the fence a listing waits on for the index writes acknowledged before it.
     pub(super) threads: Arc<super::StoreThreads>,
     mark: Arc<MarkHold>,
+    /// Whether each delete mark's durable write fails, and the marks written.
+    pub(super) marks: Arc<MarkFail>,
     pub(super) data: super::testing::DataDir,
+}
+
+/// Each durable write of a delete mark asks `plan` whether it fails (rolled back, nothing applied: Node's failed unlink of
+/// the session log) and is logged in `seen` with the answer.
+#[derive(Default)]
+pub(super) struct MarkFail {
+    pub(super) plan: std::sync::Mutex<Option<Box<dyn FnMut(&str) -> bool + Send>>>,
+    pub(super) seen: std::sync::Mutex<Vec<(String, bool)>>,
 }
 
 /// When armed, the next durable commit carrying the delete mark tells `.0` it was reached and waits for `.1` before it writes: Node's canonical close between its fence and the
@@ -99,11 +109,14 @@ type MarkHold = std::sync::Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mp
 struct HeldStore {
     store: Arc<dyn super::ThreadStore>,
     mark: Arc<MarkHold>,
+    marks: Arc<MarkFail>,
 }
 
 struct HeldLog {
     log: Box<dyn super::seams::SessionLog>,
+    id: ThreadId,
     mark: Arc<MarkHold>,
+    marks: Arc<MarkFail>,
 }
 
 impl super::seams::SessionLog for HeldLog {
@@ -121,6 +134,13 @@ impl super::seams::SessionLog for HeldLog {
                 tokio::task::block_in_place(wait);
             } else {
                 wait();
+            }
+        }
+        if marks {
+            let fails = lock(&self.marks.plan).as_mut().is_some_and(|plan| plan(self.id.as_str()));
+            lock(&self.marks.seen).push((self.id.as_str().to_owned(), fails));
+            if fails {
+                return Err(super::seams::BarrierError::Failed { io_kind: "EACCES".into() });
             }
         }
         self.log.commit(lane, batch)
@@ -179,21 +199,21 @@ impl super::ThreadStore for HeldStore {
     }
     fn open_log(&self, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, id: &ThreadId, at: super::seams::AppendPosition) -> Result<Box<dyn super::seams::SessionLog>, super::seams::BarrierError> {
         let log = self.store.open_log(lane, id, at)?;
-        Ok(Box::new(HeldLog { log, mark: self.mark.clone() }))
+        Ok(Box::new(HeldLog { log, id: id.clone(), mark: self.mark.clone(), marks: self.marks.clone() }))
     }
     fn create_log(&self, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, id: &ThreadId, session: &super::seams::CommitRecord) -> Result<(Box<dyn super::seams::SessionLog>, u64), super::seams::BarrierError> {
         let (log, ordinal) = self.store.create_log(lane, id, session)?;
-        Ok((Box::new(HeldLog { log, mark: self.mark.clone() }), ordinal))
+        Ok((Box::new(HeldLog { log, id: id.clone(), mark: self.mark.clone(), marks: self.marks.clone() }), ordinal))
     }
 }
 
 /// A thread whose delete is held at its mark: the close has fenced the thread and its durable write has not landed.
-struct HeldMark {
+pub(super) struct HeldMark {
     release: std::sync::mpsc::Sender<()>,
     delete: tokio::task::JoinHandle<Result<Reply, CoreError>>,
 }
 
-async fn begin_close(real: &Real, id: &ThreadId) -> HeldMark {
+pub(super) async fn begin_close(real: &Real, id: &ThreadId) -> HeldMark {
     let (reached, (release, held)) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
     *lock(&real.mark) = Some((reached.clone(), held));
     let handle = real.directory.handle(id).expect("loaded");
@@ -204,7 +224,7 @@ async fn begin_close(real: &Real, id: &ThreadId) -> HeldMark {
 }
 
 impl HeldMark {
-    async fn finish(self) -> bool {
+    pub(super) async fn finish(self) -> bool {
         self.release.send(()).expect("the mark is held");
         let reply = awaiting(|| "the close to finish".to_owned(), self.delete).await.expect("the delete task").expect("thread/delete");
         matches!(reply, Reply::Value(Value::Bool(true)))
@@ -229,10 +249,11 @@ pub(super) async fn real() -> Real {
         Arc::new(super::StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
     let store: Arc<dyn super::ThreadStore> = threads.clone();
     let mark = Arc::new(MarkHold::default());
+    let marks = Arc::new(MarkFail::default());
     let rig = Rig::new();
     rig.set_script(echo());
-    let directory = Arc::new(SessionDirectory::new(rig.deps_on(Arc::new(HeldStore { store, mark: mark.clone() }))));
-    Real { directory, rig, index, threads, mark, data }
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(Arc::new(HeldStore { store, mark: mark.clone(), marks: marks.clone() }))));
+    Real { directory, rig, index, threads, mark, marks, data }
 }
 
 /// A thread whose first turn landed, so the catalog lists it (a close acts on a listed session, `isAvailableSession`),
@@ -298,8 +319,11 @@ fn step(label: &Exact, answered: Option<bool>, rt: Option<Exact>, counts: Option
     Exact::Object(fields)
 }
 
+/// A client's delete: each call its own op, as a client issues a new op per request.
 pub(super) async fn delete(directory: &SessionDirectory, id: &str) -> Result<bool, CoreError> {
-    let reply = directory.request(request("thread/delete", json!({ "threadId": id, "opId": "op-close" }))).await?;
+    static OPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let op = format!("op-delete-{}", OPS.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+    let reply = directory.request(request("thread/delete", json!({ "threadId": id, "opId": op }))).await?;
     Ok(matches!(reply, Reply::Value(Value::Bool(true))))
 }
 

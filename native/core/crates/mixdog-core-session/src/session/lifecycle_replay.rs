@@ -41,7 +41,7 @@ async fn stored(real: &Real, id: &ThreadId) -> Exact {
 }
 
 /// `got` equals `want` whole (field order included); a mismatch names each field that differs and the field order of both.
-fn same(got: &Exact, want: &Exact, what: &str) {
+pub(super) fn same(got: &Exact, want: &Exact, what: &str) {
     let got = &messages_as_recorded(got, want);
     if got == want {
         return;
@@ -64,7 +64,7 @@ fn same(got: &Exact, want: &Exact, what: &str) {
     panic!("{what} differs:\n{}", lines.join("\n"));
 }
 
-fn close_of(real: &Real) -> SessionClose {
+pub(super) fn close_of(real: &Real) -> SessionClose {
     let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(super::switch_replay::NoProviders)));
     SessionClose::new(real.directory.clone(), providers, Arc::new(super::switch_replay::NoShells), Arc::new(mixdog_tools::fs::ReadState::new(None)))
 }
@@ -162,7 +162,7 @@ async fn fence(index: usize) {
 /// `record` with its `messages` field at the place `recorded` holds it (manifest: Node's live record keeps it where the
 /// session was made, its loader puts it after the header fields; the thread here holds the recorded messages as a header
 /// field). Every other field keeps the core's order.
-fn messages_as_recorded(record: &Exact, recorded: &Exact) -> Exact {
+pub(super) fn messages_as_recorded(record: &Exact, recorded: &Exact) -> Exact {
     let (messages, mut fields): (Vec<_>, Vec<_>) = record.entries().iter().cloned().partition(|(key, _)| key == "messages");
     let at = recorded.entries().iter().position(|(key, _)| key == "messages").unwrap_or(fields.len()).min(fields.len());
     for (offset, field) in messages.into_iter().enumerate() {
