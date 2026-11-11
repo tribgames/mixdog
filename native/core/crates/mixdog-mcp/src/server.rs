@@ -534,6 +534,20 @@ impl McpServer {
         self.call_ready(&ready, owner, tool, arguments, cancel, deadline).await
     }
 
+    /// Calls `tool` (the server's own name) and answers as the SDK's `Client.callTool` settles: the server's result once
+    /// its output schema passed, or the error. What [`Self::call_tool`] maps for the model.
+    pub async fn call_tool_settled(
+        &self,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<Value, CallError> {
+        let ready = self.ready()?;
+        self.settle(&ready, owner, tool, arguments, cancel, deadline).await
+    }
+
     async fn call_ready(
         &self,
         ready: &Ready,
@@ -543,6 +557,24 @@ impl McpServer {
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
+        let result = self.settle(ready, owner, tool, arguments, cancel, deadline).await?;
+        map_call_result(&result, self.policy, &self.spiller)
+            .await
+            .map_err(|mut reported| {
+                reported.text = scrub(&reported.text, &self.secrets);
+                CallError::Reported(reported)
+            })
+    }
+
+    async fn settle(
+        &self,
+        ready: &Ready,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<Value, CallError> {
         let permit = self.gate.acquire(owner, cancel, self.config.wait_timeout).await?;
         let from_deadline = deadline.map(|d| d.saturating_duration_since(Instant::now()));
         let max_total = match (self.config.max_total_timeout, from_deadline) {
@@ -557,12 +589,7 @@ impl McpServer {
         drop(permit);
         let result = result?;
         ready.outputs.check(tool, &result)?;
-        map_call_result(&result, self.policy, &self.spiller)
-            .await
-            .map_err(|mut reported| {
-                reported.text = scrub(&reported.text, &self.secrets);
-                CallError::Reported(reported)
-            })
+        Ok(result)
     }
 
     /// Removes model-visible secrets from a message about this server.

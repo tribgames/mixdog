@@ -2,8 +2,9 @@
 //! (`fixtures/mcp-output-schema`, recorded by `record-mcp-output-schema.mjs`): each recorded case
 //! is served by the mock server, connected, and every call is made through the model's tool, whose
 //! whole answer (what it returned, or the error it threw with its code, message and data) is compared
-//! with what Node's `executeMcpTool` returned or threw, and the data the core keeps with an error with
-//! what Node's SDK had.
+//! with what Node's `executeMcpTool` returned or threw, and again as the SDK's `callTool`, whose whole
+//! settlement (the result with its `isError`, content and structured content, or the error's code,
+//! message and data) is compared with what Node's SDK settled with.
 
 use std::sync::Arc;
 
@@ -56,17 +57,28 @@ fn ctx() -> ToolContext {
     }
 }
 
+/// The SDK's `McpError` as the recording stores a thrown one (through `exact`): `MCP error <code>: <message>`, the code,
+/// and the data (`undefined` when there is none).
+fn mcp_error(code: i64, message: &str, data: Option<Value>) -> Value {
+    json!({
+        "$exact": "error",
+        "name": "McpError",
+        "message": format!("MCP error {code}: {message}"),
+        "code": code,
+        "props": {"data": data.unwrap_or_else(|| json!({"$exact": "undefined"})), "name": "McpError"},
+    })
+}
+
 /// A call's whole answer in the form Node's recording stores `executeMcpTool`'s (through `exact`): `{"returned": …}`
 /// with the text, or every part in order when there is media; `{"thrown": …}` with the error's name, message (the
 /// model's text less its `Error: ` prefix), JSON-RPC code and data. A result the server marked `isError` Node returns as
 /// its `Error: …` text, not as a throw; the core fails the call with a server error without a code, and so it reads.
-/// Also the data the core keeps with a server's error, which the comparison holds against what Node's SDK had.
 fn node_view(
     answer: Result<
         mixdog_core_api::domain::tool::ToolOutput,
         mixdog_core_api::domain::tool::ToolError,
     >,
-) -> (Value, Value) {
+) -> Value {
     use base64::Engine;
     use mixdog_core_api::domain::tool::ToolErrorCode;
     let out = match answer {
@@ -74,27 +86,18 @@ fn node_view(
         Err(error) => {
             let message = error.message_for_model.strip_prefix("Error: ").unwrap_or(&error.message_for_model).to_owned();
             return match error.code {
-                ToolErrorCode::McpError { rpc_code: None, data, .. } => {
-                    (json!({"returned": error.message_for_model}), data.unwrap_or(Value::Null))
-                }
+                ToolErrorCode::McpError { rpc_code: None, .. } => json!({"returned": error.message_for_model}),
                 ToolErrorCode::McpError { rpc_code: Some(code), data, .. } => {
-                    let undefined = json!({"$exact": "undefined"});
-                    let thrown = json!({
-                        "$exact": "error",
-                        "name": "McpError",
-                        "message": message,
-                        "code": code,
-                        "props": {"data": data.clone().unwrap_or(undefined), "name": "McpError"},
-                    });
-                    (json!({"thrown": thrown}), data.unwrap_or(Value::Null))
+                    let reason = message.strip_prefix(&format!("MCP error {code}: ")).unwrap_or(&message);
+                    json!({"thrown": mcp_error(code, reason, data)})
                 }
-                _ => (json!({"thrown": {"$exact": "error", "name": "Error", "message": message, "props": {}}}), Value::Null),
+                _ => json!({"thrown": {"$exact": "error", "name": "Error", "message": message, "props": {}}}),
             };
         }
     };
     if out.parts.iter().all(|p| matches!(p, ToolPart::Text(_))) {
         let text: String = out.parts.iter().map(|p| if let ToolPart::Text(t) = p { t.as_str() } else { "" }).collect();
-        return (json!({"returned": text}), Value::Null);
+        return json!({"returned": text});
     }
     let parts: Vec<Value> = out
         .parts
@@ -107,21 +110,18 @@ fn node_view(
             other => json!({"unexpected": format!("{other:?}")}),
         })
         .collect();
-    (json!({"returned": {"content": parts}}), Value::Null)
+    json!({"returned": {"content": parts}})
 }
 
-/// The data the core must keep with a call's error, from Node's recording: a thrown McpError's own `data`, or the
-/// `structuredContent` of the last result the SDK returned marked `isError`; `null` when there is none.
-fn recorded_data(output: &Value) -> Value {
-    let thrown = &output["answer"]["thrown"];
-    if thrown["name"] == "McpError" {
-        let data = &thrown["props"]["data"];
-        return if data == &json!({"$exact": "undefined"}) { Value::Null } else { data.clone() };
-    }
-    let last = output["sdk"].as_array().and_then(|calls| calls.last()).map(|call| &call["returned"]);
-    match last {
-        Some(result) if result["isError"] == true => result.get("structuredContent").cloned().unwrap_or(Value::Null),
-        _ => Value::Null,
+/// How the SDK's `Client.callTool` settled, as the recording stores it: `{"returned": <the result, whole>}` once the
+/// output schema passed, or `{"thrown": <the McpError>}`.
+fn sdk_view(settled: Result<Value, mixdog_mcp::server::CallError>) -> Value {
+    use mixdog_mcp::rpc::RpcError;
+    use mixdog_mcp::server::CallError;
+    match settled {
+        Ok(result) => json!({"returned": result}),
+        Err(CallError::Rpc(RpcError::Server { code, message, data })) => json!({"thrown": mcp_error(code, &message, data)}),
+        Err(other) => json!({"thrown": {"$exact": "error", "name": "Error", "message": other.to_string(), "props": {}}}),
     }
 }
 
@@ -166,16 +166,21 @@ async fn replay(case: &Value, artifacts: &std::path::Path) -> Value {
     let mut outputs = Vec::new();
     for call in case["outputs"].as_array().unwrap() {
         let name = call["tool"].as_str().unwrap();
-        let (answer, data) = match hub.tool(&format!("mcp__srv__{name}")) {
-            Some(tool) => node_view(tool.call(&ctx(), json!({"i": call["i"]})).await),
-            // A server whose connect failed publishes no tool; Node's call of one throws so.
+        let (answer, sdk) = match hub.tool(&format!("mcp__srv__{name}")) {
+            Some(tool) => {
+                let answer = node_view(tool.call(&ctx(), json!({"i": call["i"]})).await);
+                // The SDK's own settlement of the same call, made again: the server answers each `i` alike.
+                let settled = server.call_tool_settled("replay", name, json!({"i": call["i"]}), &CancellationToken::new(), None).await;
+                (answer, json!([sdk_view(settled)]))
+            }
+            // A server whose connect failed publishes no tool; Node's call of one throws so, before the SDK.
             None if !connect.is_null() => (
                 json!({"thrown": {"$exact": "error", "name": "Error", "message": "MCP server \"srv\" not connected", "props": {}}}),
-                Value::Null,
+                json!([]),
             ),
             None => panic!("{}: {name} is not published", case["name"]),
         };
-        outputs.push(json!({"tool": name, "i": call["i"], "answer": answer, "data": data}));
+        outputs.push(json!({"tool": name, "i": call["i"], "answer": answer, "sdk": sdk}));
     }
     hub.close_all().await;
     let mut replayed = json!({"name": case["name"], "tools": case["tools"], "results": case["results"], "connect": connect, "outputs": outputs});
@@ -190,16 +195,6 @@ async fn replay(case: &Value, artifacts: &std::path::Path) -> Value {
     }
     replayed
 }
-
-/// Where the core answers otherwise on purpose: `(case, tool, call)`. A repetition holding a lookaround that backtracks
-/// exponentially on a failing string: V8 has no bound and answers `must match pattern` after about a second here (2^24
-/// steps; each more character doubles it), where the engine's backtracking stops at its bound and the call fails as a
-/// validator that threw (`output_schema.rs` `BACKTRACK_LIMIT`). Compared with that answer instead. Nested quantifiers
-/// without a lookaround inside the repetition the engine matches without backtracking, as V8 answers.
-const DEPARTURES: &[(&str, &str, u64)] = &[
-    ("pattern matches as a JavaScript regular expression with the u flag", "p23", 0),
-    ("pattern matches as a JavaScript regular expression with the u flag", "p24", 0),
-];
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_result_is_checked_against_its_tools_output_schema_as_node_does() {
@@ -221,29 +216,50 @@ async fn a_result_is_checked_against_its_tools_output_schema_as_node_does() {
         let (want, got) = (case["outputs"].as_array().unwrap(), replayed["outputs"].as_array().unwrap());
         assert_eq!(want.len(), got.len(), "{}: every recorded call is made", case["name"]);
         for (want, got) in want.iter().zip(got) {
-            let departs = DEPARTURES.iter().any(|(name, tool, i)| case["name"] == *name && want["tool"] == *tool && want["i"] == *i);
-            let answer = if departs {
-                let message = "MCP error -32602: Failed to validate structured content: data/v: its pattern needs more than 1000000 backtracking steps";
-                json!({"thrown": {"$exact": "error", "name": "McpError", "message": message, "code": -32602,
-                    "props": {"data": {"$exact": "undefined"}, "name": "McpError"}}})
-            } else {
-                want["answer"].clone()
-            };
-            if got["answer"] != answer || got["data"] != recorded_data(want) {
+            if got["answer"] != want["answer"] || got["sdk"] != want["sdk"] {
                 differ.push(format!(
-                    "{}: {}[{}]: want {} (data {}) got {} (data {})",
+                    "{}: {}[{}]: want {} (sdk {}) got {} (sdk {})",
                     case["name"],
                     want["tool"],
                     want["i"],
-                    answer,
-                    recorded_data(want),
+                    want["answer"],
+                    want["sdk"],
                     got["answer"],
-                    got["data"]
+                    got["sdk"]
                 ));
             }
         }
     }
     assert!(differ.is_empty(), "{differ:#?}");
+}
+
+/// The core's time on the recorded patterns that backtrack exponentially (`HOSTILE`: 24 characters, then one that fails
+/// them). A measurement, run on request: `-- --ignored hostile_patterns_take --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn hostile_patterns_take() {
+    use mixdog_mcp::output_schema::OutputValidators;
+    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let name = "pattern matches as a JavaScript regular expression with the u flag";
+    let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == name).unwrap();
+    let validators = OutputValidators::of(case["tools"].as_array().unwrap()).unwrap();
+    for tool in case["tools"].as_array().unwrap() {
+        let tool_name = tool["name"].as_str().unwrap();
+        for result in case["results"][tool_name].as_array().unwrap() {
+            if result["structuredContent"]["v"] != json!(format!("{}b", "a".repeat(24))) {
+                continue;
+            }
+            let started = std::time::Instant::now();
+            let verdict = validators.check(tool_name, result);
+            println!(
+                "{} {}: {:?} in {:.3} s",
+                tool_name,
+                tool["outputSchema"]["properties"]["v"]["pattern"],
+                verdict.err(),
+                started.elapsed().as_secs_f64()
+            );
+        }
+    }
 }
 
 /// The core's stack bound, at its edge: a chain of as many references as it allows compiles and validates on a test
