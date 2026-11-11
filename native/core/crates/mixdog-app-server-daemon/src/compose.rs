@@ -201,8 +201,9 @@ pub struct ComposedCore {
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// The ordered stop steps and the one run of them in progress. A stop that overlaps one in progress awaits that same run (Node's
-/// `disposeDesktopSessionHost` hands every caller the one `disposePromise`, session-host-lifecycle.ts): it never returns before the
-/// cleanup has ended, and nothing runs twice. A call after a run has ended runs only the steps registered since.
+/// `SessionHost.dispose` hands every caller the one `disposePromise`, `apps/desktop/src/main/session-host.ts:1209-1210`): it never
+/// returns before the cleanup has ended, and nothing runs twice. Pinned by `tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded`
+/// (below, with the real core) and the desktop's `session-host-lifecycle-replay.test.mjs`. A call after a run has ended runs only the steps registered since.
 #[derive(Default)]
 pub(crate) struct StopSteps {
     steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
@@ -898,6 +899,69 @@ mod tests {
             core.run_final_barriers();
             core.run_stop_steps().await;
             assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
+        });
+    }
+
+    /// The recorded case "every overlapping host disposal waits for the same attachment cleanup" (`session-host-lifecycle-cases`, Node's
+    /// memoised `SessionHost.dispose`, `apps/desktop/src/main/session-host.ts:1209`) through the real core's stop steps
+    /// (`ComposedCore::run_stop_steps`: the steps the real composition registered, then the attachment cleanup held until released). The
+    /// first stop runs as the release runs it (`supervise_async("stopSteps", ..)`, server.rs:248); a second stop made while the cleanup is
+    /// held (one poll joins the run in progress) waits for that same cleanup, which runs once. The whole run has one bound, `BUDGET`.
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    fn overlapping_stops_wait_for_the_same_cleanup_as_node_recorded() {
+        crate::compose_test_support::in_child(module_path!(), "overlapping_stops_wait_for_the_same_cleanup_as_node_recorded", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            const BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+            let text = mixdog_testkit::fixture!("../../fixtures/session-host-lifecycle-cases/golden.json");
+            let golden = mixdog_testkit::exact::Exact::decode(&serde_json::from_str::<serde_json::Value>(text).expect("golden.json")).expect("exact");
+            let observed = golden
+                .get("cases")
+                .as_array()
+                .iter()
+                .find(|case| case.get("case").as_str() == "every overlapping host disposal waits for the same attachment cleanup")
+                .expect("the recorded case")
+                .get("observed")
+                .clone();
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+            let core = Arc::new(compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap());
+            let events = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+            let closes = Arc::new(AtomicU64::new(0));
+            let (entered_tx, entered) = tokio::sync::oneshot::channel::<()>();
+            let (release, released) = tokio::sync::oneshot::channel::<()>();
+            let (log_events, count) = (events.clone(), closes.clone());
+            core.on_stop("attachment cleanup", async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                log_events.lock().unwrap().push("cleanup entered");
+                let _ = entered_tx.send(());
+                let _ = released.await;
+                log_events.lock().unwrap().push("cleanup returned");
+            });
+            core.set_stop_reason("test");
+            let (first_core, log_events) = (core.clone(), events.clone());
+            let first = tokio::spawn(async move {
+                let end = crate::lifecycle::supervise_async("stopSteps", BUDGET, async move { first_core.run_stop_steps().await }).await;
+                log_events.lock().unwrap().push("first dispose finished");
+                end
+            });
+            tokio::time::timeout(BUDGET, entered).await.expect("the stop to start the attachment cleanup").expect("entered");
+            let log_events = events.clone();
+            let mut second = std::pin::pin!(async {
+                core.run_stop_steps().await;
+                log_events.lock().unwrap().push("second dispose finished");
+            });
+            // The one poll that joins the run in progress: the second stop is then held by the cleanup until it is released.
+            assert!(futures::poll!(&mut second).is_pending(), "the second stop waits for the cleanup in progress");
+            events.lock().unwrap().push("cleanup released");
+            release.send(()).expect("the cleanup waits");
+            tokio::time::timeout(BUDGET, async {
+                assert_eq!(first.await.expect("the first stop"), crate::lifecycle::StepEnd::Finished, "the first stop ended within its budget");
+                second.await;
+            })
+            .await
+            .expect("both overlapping stops to finish");
+            let rust = serde_json::json!({ "events": *events.lock().unwrap(), "closes": closes.load(Ordering::SeqCst) });
+            assert_eq!(mixdog_testkit::exact::Exact::plain(&rust), observed);
         });
     }
 
