@@ -1,4 +1,5 @@
-//! Replay of `native/core/fixtures/memory-service-lifecycle` (memory-service-lifecycle.test.mjs, 18 cases) against
+//! Replay of `native/core/fixtures/memory-service-lifecycle` (memory-service-lifecycle.test.mjs, 18 cases, and the quit
+//! stop of memory-daemon-lifecycle.mjs as case 18) against
 //! `MemoryStack` (`memory/boot.rs`): the stack is built with `MemoryStack::start`, a memory request's database use
 //! (`stack.db().client()`, what every recall and ingest goes through) opens it, `MemoryStack::stop` stops it.
 //!
@@ -43,7 +44,7 @@ const OPENING: std::time::Duration = std::time::Duration::from_secs(120);
 
 #[test]
 fn every_recorded_case_has_a_replay() {
-    assert_case_count(&golden(SET), 18);
+    assert_case_count(&golden(SET), 19);
 }
 
 /// What the core does where Node's recorded call is, or `None` where the core has no owner for it (declared above).
@@ -658,5 +659,53 @@ mod pg {
             ("state", h.state()),
             ("calls", Exact::Array(calls[split..].to_vec())),
         ]));
+    }
+
+    /// Case 18: at quit the memory stop fails; the lines the host's quit stop writes to the memory worker's stderr against what Node's memory
+    /// process wrote. Only `[memory-service]` lines are compared (the core's own owners, scripted in Node, may write theirs); the "client grace
+    /// elapsed" line, `exitCodes` and `calls` are declared in the manifest.
+    #[tokio::test(flavor = "current_thread")]
+    async fn at_quit_the_last_client_leaves_and_the_memory_stop_fails() {
+        use mixdog_rt::node_log::{Channel, Origin};
+        let name = "at quit the last client leaves and the memory stop fails: what the memory process writes (memory-daemon-lifecycle.mjs:60-74)";
+        let g = golden(SET);
+        let c = case(&g, 18, name);
+        for quit in c.get("quits").as_array() {
+            let failing = quit.get("failing").as_str();
+            let _one = crate::memory::replays::service_lifecycle::pg::one_cluster().await;
+            let profile = Profile { dir: tempfile::tempdir().expect("dir") };
+            let h = Harness::over(&profile, vec![Plan::opens()]).await;
+            open(&h).await;
+            // The recorder's scripted endpoints: the same failure texts.
+            match failing {
+                "storage" => h.stack.stop_seam().fail_storage("database close failed"),
+                "worker stop and storage" => {
+                    h.stack.stop_seam().fail_background("worker termination failed");
+                    h.stack.stop_seam().fail_storage("database close failed");
+                }
+                other => panic!("{name}: a recorded failure this replay does not inject: {other}"),
+            }
+            let db = h.stack.db();
+            let checkpoint = async move { db.client().await?.batch_execute("CHECKPOINT").await.map_err(MemoryError::from) };
+            awaiting_for(OPENING, "the checkpoint before the stop", checkpoint).await.expect("the checkpoint before the stop");
+            let (lines, guard) = mixdog_rt::node_log::capture();
+            awaiting_for(OPENING, "the quit stop", h.stack.stop_for_quit()).await;
+            drop(guard);
+            let written: Vec<Exact> = lines
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(origin, channel, line)| *origin == Origin::MemoryWorker && *channel == Channel::Stderr && line.starts_with("[memory-service] "))
+                .map(|(_, _, line)| string(mixdog_rt::node_log::bare(line)))
+                .collect();
+            let want: Vec<Exact> = quit
+                .get("logs")
+                .as_array()
+                .iter()
+                .filter(|line| !line.as_str().starts_with("[memory-service] daemon client grace elapsed"))
+                .cloned()
+                .collect();
+            same(&format!("{name}: {failing}"), &Exact::Array(want), &Exact::Array(written));
+        }
     }
 }

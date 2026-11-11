@@ -705,6 +705,16 @@ impl MemoryStack {
         self.opened.get().is_some() && (!opening.stopped || opening.stop_running)
     }
 
+    /// The host's stop at quit (and at a failed composition): in Node the memory process stops when its last client is gone and writes a
+    /// failed stop to its stderr (`memory-daemon-lifecycle.mjs:66-71`, `log` = `__mixdogMemoryLog`, `index.mjs:170`), which the daemon's spawner
+    /// mirrors into `memory-runtime-proxy.log`. The core writes the same line to the memory worker's stderr. Node's preceding "client grace
+    /// elapsed" line names a timer the core does not have, and the separate process's exit code has no counterpart.
+    pub async fn stop_for_quit(&self) {
+        if let Err(error) = self.stop().await {
+            mixdog_rt::memory_stderr!("[memory-service] daemon client-grace shutdown failed: {}", error.message());
+        }
+    }
+
     /// `_stopRuntime`: background installs end, the pools drain, then the postmaster stops
     /// (a secondary process leaves the shared one running). A stack nobody used has nothing to stop.
     pub async fn stop(&self) -> Result<()> {

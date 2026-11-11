@@ -316,12 +316,8 @@ impl Real {
                 log.log(&format!("channels.stop failed: {error}"));
             }
         }));
-        let (memory, log) = (self.memory.clone(), self.log.clone());
-        let memory_step: StopStep = ("memory", Box::pin(async move {
-            if let Err(error) = memory.stop().await {
-                log.log(&format!("memory.stop failed: {error}"));
-            }
-        }));
+        let memory = self.memory.clone();
+        let memory_step: StopStep = ("memory", Box::pin(async move { memory.stop_for_quit().await }));
         let (lane, log) = (self.maintenance_io, self.log.clone());
         let voice: StopStep = ("voice installer locks", Box::pin(async move {
             // The release removes lock files: a blocking call, so a lane job.
@@ -1555,12 +1551,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?;
     // Every later failure of this composition stops the stack, PostgreSQL last (`memoryRuntime.stop`, `daemon.mjs:377,383`); a composed core stops it in its own stop step.
     b.acquired.on_release("memory", {
-        let (memory, log) = (memory.clone(), b.log.clone());
-        async move {
-            if let Err(error) = memory.stop().await {
-                log.log(&format!("memory.stop failed: {error}"));
-            }
-        }
+        let memory = memory.clone();
+        async move { memory.stop_for_quit().await }
     });
     // The one session-search writer of the memory service: `SessionDeps.search` and the import sessions ingest through it.
     let session_search = Arc::new(mixdog_core_session::session::SessionSearchTurns::new(memory.search()));
