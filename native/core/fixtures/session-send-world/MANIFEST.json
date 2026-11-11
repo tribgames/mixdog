@@ -10,8 +10,8 @@
   "files": [
     {
       "path": "golden.json",
-      "bytes": 140533,
-      "sha256": "5b9f0db57113919f8a681c879c7fd24f440691b37998b398bea623f42162521c"
+      "bytes": 129580,
+      "sha256": "345d67627a8d33bed83da1bdd03061d91b66aa2470243b718c871ee8c97a3ed4"
     }
   ],
   "product": {
@@ -66,7 +66,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/cases.mjs",
-        "sha256": "ee41cda28b8722cbd21b386e13c143116d7db709ebb6c661473df4c630ef6a33"
+        "sha256": "21f01b24798f78be598c653ca7766a7bdc63b3ba3e45a1401a4287a116cd3c8f"
       },
       {
         "path": "benchmarks/rust-core/recorders/session-send-world/daemon-clock.mjs",

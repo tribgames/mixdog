@@ -4,7 +4,8 @@
 // (`normalized`).
 //
 // The model endpoint answers each turn's request by what the request asks, never by its order:
-//   a tool's result     the model got a tool's answer: it ends its turn (`Done.`), or, for a `FAILNEXT` turn, the endpoint fails (HTTP 409)
+//   a tool's result     the model got a tool's answer: it ends its turn (`Done.`), or, for a `FAILNEXT` turn, the endpoint refuses the
+//                       request (HTTP 400, `invalid_request_error`): a failure no retry repeats, so the turn fails at once
 //   `NOTES:`            an earlier turn the model answers with the padding (`PAD`) a compaction summarizes: Node keeps the latest
 //                       request verbatim, and stores a prompt this long as an attachment the compaction does not measure
 //   a mark              the latest user message names the step: `KICK` calls the `session` tool with the case's `call` (aliases `@X` become
@@ -99,7 +100,7 @@ export function createModel(c) {
     }
     if (answer.status) {
       res.writeHead(answer.status, { 'content-type': 'application/json' });
-      return void res.end(JSON.stringify({ error: { message: 'The harness endpoint failed this turn.', type: 'server_error' } }));
+      return void res.end(JSON.stringify({ error: { message: 'The harness endpoint refused this turn.', type: 'invalid_request_error' } }));
     }
     const usage = { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 };
     const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: 'chatcmpl-send', object: 'chat.completion.chunk', created: 1700000000, model: MODEL.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
