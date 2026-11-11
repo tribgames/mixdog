@@ -1392,13 +1392,23 @@ fn end_tree_of(name: &str, pid: u32) -> Result<(), String> {
                 .creation_flags(0x0800_0000)
                 .spawn()
                 .map_err(|error| format!("{name}: taskkill did not start; the crash child {pid} is still alive: {error}"))?;
-            let (done, ended) = std::sync::mpsc::channel();
-            std::thread::spawn(move || drop(done.send(taskkill.wait())));
-            match ended.recv_timeout(END_TREE_DEADLINE) {
-                Ok(Ok(status)) if status.success() => Ok(()),
-                Ok(Ok(status)) => Err(format!("{name}: taskkill ended with {status}; the crash child {pid} and its processes may still be alive")),
-                Ok(Err(error)) => Err(format!("{name}: taskkill's status was not read ({error}); the crash child {pid} and its processes may still be alive")),
-                Err(_) => Err(format!("{name}: taskkill did not return within {} s; the crash child {pid} and its processes may still be alive", END_TREE_DEADLINE.as_secs())),
+            use std::os::windows::io::AsRawHandle;
+            let limit = u32::try_from(END_TREE_DEADLINE.as_millis()).unwrap_or(u32::MAX - 1);
+            // SAFETY: the handle is the running `taskkill`'s, owned here for the length of the call.
+            let ended = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(taskkill.as_raw_handle() as _, limit) } == 0;
+            if !ended {
+                // A `taskkill` that is itself stuck is ended and reaped here: nothing this call started outlives it.
+                let killed = taskkill.kill();
+                let reaped = taskkill.wait();
+                return Err(format!(
+                    "{name}: taskkill did not return within {} s and was ended (kill: {killed:?}, exit: {reaped:?}); the crash child {pid} and its processes may still be alive",
+                    END_TREE_DEADLINE.as_secs()
+                ));
+            }
+            match taskkill.wait() {
+                Ok(status) if status.success() => Ok(()),
+                Ok(status) => Err(format!("{name}: taskkill ended with {status}; the crash child {pid} and its processes may still be alive")),
+                Err(error) => Err(format!("{name}: taskkill's status was not read ({error}); the crash child {pid} and its processes may still be alive")),
             }
         }
         #[cfg(unix)]
