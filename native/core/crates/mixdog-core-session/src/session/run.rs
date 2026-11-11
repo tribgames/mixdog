@@ -72,6 +72,11 @@ impl ModelContext {
         let stored = self.sensitive.redacted(&self.thread, std::slice::from_ref(&call));
         stored.first().and_then(|message| message.pointer("/toolCalls/0/arguments")).cloned().unwrap_or_else(|| arguments.clone())
     }
+
+    /// `redactSensitiveText(sessionId, text)` for this thread.
+    pub fn redact_text(&self, text: &str) -> String {
+        self.sensitive.redact_text(&self.thread, text)
+    }
 }
 
 /// The model context of `thread`: its lineage's model rows since the last compaction, oldest

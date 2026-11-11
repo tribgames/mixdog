@@ -175,6 +175,8 @@ pub mod testing;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod sensitive_record_tests;
+#[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
 mod turn_admission_tests;

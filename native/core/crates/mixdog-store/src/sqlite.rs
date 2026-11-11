@@ -129,17 +129,20 @@ pub(crate) fn open_schema(path: &Path, ddl: &str, app_id: i32, user_version: i32
     Ok(conn)
 }
 
+/// How long [`truncate_wal`] lets SQLite's busy handler wait for the readers of older WAL frames.
+const TRUNCATE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// `wal_checkpoint(TRUNCATE)`: every WAL frame into the database, then the WAL emptied. A reader's snapshot holds
-/// the frames it may still read, so this waits for those readers (a read job is one bounded query).
+/// the frames it may still read, so SQLite's busy handler waits for those readers (each read job is one bounded
+/// query), up to [`TRUNCATE_WAIT`]; the connection's own zero timeout is put back after.
 fn truncate_wal(conn: &Connection) -> Result<(), String> {
-    for _ in 0..200 {
-        let busy: i64 = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-        if busy == 0 {
-            return Ok(());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+    conn.busy_timeout(TRUNCATE_WAIT).map_err(|e| e.to_string())?;
+    let busy = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get::<_, i64>(0));
+    conn.busy_timeout(std::time::Duration::ZERO).map_err(|e| e.to_string())?;
+    match busy.map_err(|e| e.to_string())? {
+        0 => Ok(()),
+        _ => Err(format!("the index WAL stayed in use by readers for {} s; it is truncated at the next attempt", TRUNCATE_WAIT.as_secs())),
     }
-    Err("the WAL stayed in use by readers for 2 s".to_owned())
 }
 
 /// The writer overwrites what it deletes (`secure_delete`): a row a sensitive rewrite replaces leaves no readable page.
@@ -535,6 +538,16 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
 
 type Ack = oneshot::Sender<Result<(), DbError>>;
 
+/// A session whose log a sensitive rewrite replaced (`log_rewrite`'s step 6): its rows to rebuild under `<data>/sessions`,
+/// then the blobs the old log named and the new one does not, deleted once no row names them (`blobs` holds the pins).
+pub struct Rewritten {
+    pub data: PathBuf,
+    pub session: String,
+    pub dirty: DirtyMark,
+    pub superseded: Vec<Digest>,
+    pub blobs: crate::blobs::BlobStore,
+}
+
 enum Command {
     Upsert { head: Box<CatalogHead>, dirty: DirtyMark, ack: Option<Ack> },
     MarkDirty { session: String, ack: Ack },
@@ -545,7 +558,7 @@ enum Command {
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
     /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
-    Reproject { data: PathBuf, session: String, dirty: DirtyMark, ack: Ack },
+    Reproject { rewrite: Rewritten, ack: Ack },
     /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
     /// written clean (`reconcile`). Answered on a channel the lane job blocks on.
     Reconcile {
@@ -599,7 +612,7 @@ struct Writer {
     /// Deleted sessions whose rows go in maintenance steps, oldest request first.
     purges: VecDeque<(String, Ack)>,
     /// Sessions whose rows are rebuilt from a rewritten log, once the projections queued before are in.
-    reprojects: VecDeque<(PathBuf, String, DirtyMark, Ack)>,
+    reprojects: VecDeque<(Rewritten, Ack)>,
     seq: u64,
     /// Rows per append transaction and per maintenance step (tests shrink them).
     append_rows: usize,
@@ -738,7 +751,7 @@ impl Writer {
                 self.projections.push_back(Pending { projection, next: 0, ack, seq });
             }
             Command::Purge { session, ack } => self.purges.push_back((session, ack)),
-            Command::Reproject { data, session, dirty, ack } => self.reprojects.push_back((data, session, dirty, ack)),
+            Command::Reproject { rewrite, ack } => self.reprojects.push_back((rewrite, ack)),
             other => self.small.push_back(other),
         }
     }
@@ -756,8 +769,10 @@ impl Writer {
     /// The rows of `session` rebuilt from its log, as a rebuild projects them (`project_session`), after its log was
     /// rewritten to take a value out (`log_rewrite`): the old rows go with the writer's `secure_delete`, so their content
     /// is overwritten in the pages that held it, and the WAL is checkpointed and truncated after, so no older page image
-    /// of them is left in it either.
-    fn reproject(&mut self, data: &Path, session: &str, dirty: DirtyMark) -> Result<(), String> {
+    /// of them is left in it either. Then each superseded blob no row names any more is deleted (`log_rewrite`'s step 6).
+    fn reproject(&mut self, rewrite: &Rewritten) -> Result<(), String> {
+        let Rewritten { data, session, dirty, superseded, blobs } = rewrite;
+        let (data, session, dirty) = (data.as_path(), session.as_str(), *dirty);
         let labels = self.labels.clone();
         let rows = (|| -> Result<(), String> {
             while !self.purge_rows(session).map_err(|e| e.to_string())? {}
@@ -776,15 +791,19 @@ impl Writer {
         })();
         // A fork view over these rows settles in the maintenance steps.
         self.views = true;
-        rows.and_then(|()| truncate_wal(&self.conn))
+        rows.and_then(|()| truncate_wal(&self.conn))?;
+        for digest in superseded {
+            blobs.remove_unreferenced(digest, &mut |d| blob_referenced_on(&self.conn, d)).map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     /// Every queued rebuild, once no projection is queued before it.
     fn reproject_step(&mut self) {
         while self.projections.is_empty()
-            && let Some((data, session, dirty, ack)) = self.reprojects.pop_front()
+            && let Some((rewrite, ack)) = self.reprojects.pop_front()
         {
-            let result = self.reproject(&data, &session, dirty);
+            let result = self.reproject(&rewrite);
             let _ = ack.send(result.map_err(DbError::Write));
         }
     }
@@ -1528,8 +1547,11 @@ impl SqliteStore {
         read_lane: InteractiveIo,
         data: &Path,
     ) -> Result<SqliteStore, DbError> {
-        // A log rewrite a stop cut short is settled first; one past its commit gets its rows rebuilt below.
-        let rewritten = crate::log_rewrite::recover(lane, data).map_err(|e| DbError::Write(e.to_string()))?;
+        // A log rewrite a stop cut short is settled first (`log_rewrite`'s step table); one past its swap gets its rows
+        // rebuilt and its superseded blobs deleted below, before any session opens. No writer exists yet, so a store
+        // of its own holds every pin there is (none).
+        let blobs = crate::blobs::BlobStore::new(data);
+        let rewritten = crate::log_rewrite::recover(lane, data, &crate::log::OsIo, &blobs).map_err(|e| DbError::Write(e.to_string()))?;
         let incomplete = remove_incomplete_dirs(lane, &data.join("sessions"))?;
         let path = data.join(INDEX_FILE);
         let path = path.as_path();
@@ -1546,8 +1568,11 @@ impl SqliteStore {
         };
         writer.boot_purge(lane, data, &incomplete)?;
         for session in rewritten {
-            writer.reproject(data, &session, DirtyMark::Clear).map_err(DbError::Write)?;
-            crate::log_rewrite::clear(lane, data, &session).map_err(|e| DbError::Write(e.to_string()))?;
+            crate::log_rewrite::finish(lane, data, &session, &mut |superseded| {
+                let rewrite = Rewritten { data: data.to_path_buf(), session: session.clone(), dirty: DirtyMark::Clear, superseded, blobs: blobs.clone() };
+                writer.reproject(&rewrite)
+            })
+            .map_err(|e| DbError::Write(e.to_string()))?;
         }
         let dirty: Vec<String> = writer
             .conn
@@ -1652,10 +1677,9 @@ impl SqliteStore {
     }
 
     /// The rows of `session` (under `<data>/sessions`) rebuilt from its rewritten log, the replaced rows overwritten in
-    /// the database and gone from the WAL; resolves once that is committed.
-    pub async fn reproject(&self, data: &Path, session: &str, dirty: DirtyMark) -> Result<(), DbError> {
-        let (data, session) = (data.to_path_buf(), session.to_owned());
-        self.ask(|ack| Command::Reproject { data, session, dirty, ack }).await
+    /// the database and gone from the WAL, then its superseded blobs no row names deleted; resolves once that is done.
+    pub async fn reproject(&self, rewrite: Rewritten) -> Result<(), DbError> {
+        self.ask(|ack| Command::Reproject { rewrite, ack }).await
     }
 
     /// The UI language changed: placeholder titles refold in maintenance steps.
