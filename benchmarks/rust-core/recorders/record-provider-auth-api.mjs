@@ -167,8 +167,7 @@ await run('account-roster-paints-immediately-one-usage-sweep', 197, { providers:
   out.usageCalls = calls.filter(([name]) => name === 'usage');
   calls.length = 0;
   api.getProviderAccounts('plain');
-  // Negative check: once the keychain step ran, 1 ms of virtual time (due timers run, microtasks drained) shows no sweep follows.
-  await until(() => calls.some(([name]) => name === 'keychain'), 'the plain roster reached the keychain step');
+  // Negative check, as the Node test does it: one event-loop turn (the virtual clock step runs the due timers and drains the microtasks) shows nothing follows.
   await rec.clock.advance(1);
   out.plainCalls = structuredClone(calls);
   return out;
