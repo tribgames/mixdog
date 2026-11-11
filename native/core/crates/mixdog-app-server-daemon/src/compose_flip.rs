@@ -2469,7 +2469,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|()| ComposeError::AlreadyBound("thread deletions"))?;
     workspace.set_host(b.host.clone());
     workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
-    // An unpair ends the device's grants and transfers at once and, once the relay confirmed it, its notification preferences.
+    // An unpair ends the device's grants, transfers and browser streams at once and, once the relay confirmed it, its notification
+    // preferences. The live view is composed below and fills its slot then.
+    let live_view_slot: Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>> = Arc::default();
     built_remote
         .events
         .bind(Arc::new(crate::domain_seams::remote::PairedDeviceCleanup {
@@ -2484,6 +2486,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 Arc::new(move || workspace.revoke_all_downloads())
             },
             config: config.clone(),
+            live_view: live_view_slot.clone(),
         }))
         .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
@@ -2610,18 +2613,49 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
     let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
-    // Start-up recover (flip-rooms-4): rooms whose exchange a dead process left running are marked interrupted; their summaries are republished.
-    if !live_rooms.start(&rooms).await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?.is_empty() {
-        republish();
-    }
+    // The rooms' first load (`agent-rooms.ts:353-362` `ready`), which every room call, a member forgotten and a member's relay await first: the rooms
+    // are hosted and members whose definition is proven deleted leave (`pruneDeleted`). A failed one is forgotten; the next caller loads again.
+    let rooms_ready = mixdog_core_rooms::rooms::ready::RoomsReady::new();
+    // The room ports a deleted agent leaves (the agent deletion's below, and the rooms' first load's).
+    let home_rooms = Arc::new(mixdog_core_rooms::rooms::sessions::SessionHomePorts::new(mcp.agents.clone(), room_sessions.clone(), rooms.clone(), room_host.clone(), room_runner.clone(), rooms_ready.clone()));
+    rooms_ready
+        .bind({
+            let (live, rooms, homes, log) = (live_rooms.clone(), rooms.clone(), Arc::downgrade(&home_rooms), room_log.clone());
+            move || {
+                let (live, rooms, homes, log) = (live.clone(), rooms.clone(), homes.clone(), log.clone());
+                async move {
+                    live.host_loaded(&rooms).await?;
+                    let Some(homes) = homes.upgrade() else { return Ok(()) };
+                    homes.prune_deleted(&*log).await
+                }
+            }
+        })
+        .map_err(ComposeError::AlreadyBound)?;
+    // Start-up `recover` (`agent-rooms.ts:465-480`), started and not awaited (`session-host.ts:430-432`): its failure is logged, not the core's start's.
+    // After the first load, rooms whose exchange a dead process left running are marked interrupted and republished (flip-rooms-4).
+    drop(mixdog_core_rooms::rooms::ready::recover(
+        rooms.clone(),
+        rooms_ready.clone(),
+        {
+            let (live, rooms, republish) = (live_rooms.clone(), rooms.clone(), republish.clone());
+            move || async move {
+                if !live.recover(&rooms).await?.is_empty() {
+                    republish();
+                }
+                Ok(())
+            }
+        },
+        room_log.clone(),
+    ));
     // The core is the attached room host (`registerAgentRoomHost(host.agentRoomHost())`, desktop-service.ts:788).
-    let room_host_registration = room_hosts.register(Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone())));
+    let room_host_registration = room_hosts.register(Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone(), rooms_ready.clone())));
     builder.register(Arc::new(mixdog_core_rooms::rooms::service::RoomService::new(
         rooms.clone(),
         room_host.clone(),
         room_runner.clone(),
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
         definition_names.clone(),
+        rooms_ready.clone(),
     )))?;
     // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
     // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and
@@ -2871,8 +2905,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     builder.register(Arc::new(mixdog_services::channels::ChannelService::new(channel_admin.clone(), channel_calls.clone())))?;
     // agent/*, lead, home: definitions with the connector and permission stores the tool gate holds, the Lead's appearance, and the bots' homes.
     // The home threads, one value for the home methods, the lifecycle of the definition calls and Mixy's status: the stored
-    // sessions the retire pass reads, and the room ports a deleted agent leaves.
-    let home_rooms = Arc::new(mixdog_core_rooms::rooms::sessions::SessionHomePorts::new(mcp.agents.clone(), room_sessions.clone(), rooms.clone(), room_host.clone(), room_runner.clone()));
+    // sessions the retire pass reads, and the room ports a deleted agent leaves (`home_rooms`, above).
     let agent_homes = mixdog_core_agents::agents::AgentHomeSessions::new(Arc::new(mixdog_core::run_host::agent_home_deps::SessionHomeDeps::new(
         mcp.agents.clone(),
         room_sessions.clone(),
@@ -3001,8 +3034,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let model_proxy = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService::new(proxy_runner, b.host.clone(), b.notifier.clone()));
     builder.register(model_proxy.clone())?;
-    // browser/stream, browser/webrtcSignal, browser/screenDisplays, host/browser/page: the phone's live view of Browser Use (SPEC R36).
-    let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone())))));
+    // browser/stream, browser/webrtcSignal, browser/screenDisplays, browser/streamAck, host/browser/page, host/browser/frame: the phone's live
+    // view of Browser Use (SPEC R36) and its JPEG view.
+    let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));
+    let _ = live_view_slot.set(Arc::downgrade(&live_view));
     builder.register(live_view.clone())?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();

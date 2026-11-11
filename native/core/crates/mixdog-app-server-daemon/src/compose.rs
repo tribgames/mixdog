@@ -274,6 +274,13 @@ impl ComposedCore {
         self.real.defaults_separation.clone()
     }
 
+    /// Whether the relay this core's leg is on delivers native pushes now: Node offered `nativePush` to a phone connection
+    /// only then (`remote-relay.ts:525` `caps.relayNativePlatforms().length > 0`, `remote-relay-client-lifecycle.ts:150`).
+    pub fn native_push_offered(&self) -> std::sync::Arc<dyn Fn() -> bool + Send + Sync> {
+        let runtime = self.real.remote.runtime.clone();
+        std::sync::Arc::new(move || !runtime.native_platforms().is_empty())
+    }
+
     /// The host media router: bind a stream's target here, then host/browser/viewFrames pictures reach it.
     pub fn host_media_router(&self) -> &Arc<HostMedia> {
         &self.host_media
