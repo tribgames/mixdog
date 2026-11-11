@@ -48,7 +48,7 @@ pub(crate) fn is_mutation(name: &str, args: &JsonValue) -> bool {
 }
 
 /// The file an edit targets, resolved and case-folded (`_editPathKey`); `None` when the call does not say.
-fn edit_path_key(args: &JsonValue, cwd: &Path) -> Option<String> {
+pub(crate) fn edit_path_key(args: &JsonValue, cwd: &Path) -> Option<String> {
     let raw = args.get("file_path").or_else(|| args.get("path")).or_else(|| args.get("file"))?.as_str()?;
     let text = mixdog_js::js_trim(raw);
     (!text.is_empty()).then(|| crate::tools::resolve_lexically(text, cwd).replace('\\', "/").to_lowercase())
@@ -126,10 +126,40 @@ impl Preceding {
     }
 }
 
+/// The edit tool's per-file lock (`withPathLock`, `tools/builtin/path-locks.mjs`) for the runs of one assistant turn: the
+/// runs of one file's edits, a group retry included, go one at a time in the order they reached it.
+#[derive(Clone, Default)]
+pub(crate) struct EditLocks(Arc<std::sync::Mutex<std::collections::HashMap<String, watch::Receiver<bool>>>>);
+
+/// A place at a file's lock; it is the holder's once `ready`, and the next place's when dropped.
+pub(crate) struct EditTurn {
+    before: Option<watch::Receiver<bool>>,
+    _mine: watch::Sender<bool>,
+}
+
+impl EditLocks {
+    /// Takes the place after the last one taken for `key`.
+    pub(crate) fn take(&self, key: &str) -> EditTurn {
+        let (mine, next) = watch::channel(false);
+        let before = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key.to_owned(), next);
+        EditTurn { before, _mine: mine }
+    }
+}
+
+impl EditTurn {
+    /// Waits until the place before this one is given up.
+    pub(crate) async fn ready(&mut self) {
+        if let Some(before) = &mut self.before {
+            let _ = before.wait_for(|_| false).await;
+        }
+    }
+}
+
 /// The calls of one assistant turn that have started.
 #[derive(Default)]
 pub(crate) struct Barriers {
     started: Vec<Started>,
+    pub(crate) locks: EditLocks,
 }
 
 impl Barriers {
@@ -174,5 +204,6 @@ impl Barriers {
 
     pub(crate) fn clear(&mut self) {
         self.started.clear();
+        self.locks = EditLocks::default();
     }
 }

@@ -460,10 +460,22 @@ impl Run {
         self.emit(RunEvent::Stage(Stage::Streaming));
         let mut shown_chars = 0usize;
         let mut reasoning_shown = false;
+        self.settle_gate.send_replace(false);
         loop {
-            let next = or_cancelled(&self.cancel, stream.next())
-                .await
-                .ok_or(AgentError::Aborted)?;
+            let mut pending = std::pin::pin!(stream.next());
+            let ready = std::future::poll_fn(|cx| std::task::Poll::Ready(std::future::Future::poll(pending.as_mut(), cx))).await;
+            let next = match ready {
+                std::task::Poll::Ready(next) => next,
+                std::task::Poll::Pending => {
+                    // Every byte received is handled and the response is still open (`crate::batch::settle_gate`).
+                    if !builder.completed() {
+                        self.settle_gate.send_replace(true);
+                    }
+                    let next = or_cancelled(&self.cancel, pending).await.ok_or(AgentError::Aborted)?;
+                    self.settle_gate.send_replace(false);
+                    next
+                }
+            };
             let event = match next {
                 None => break,
                 Some(Err(error)) => {

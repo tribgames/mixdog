@@ -351,9 +351,10 @@ pub struct Run {
     pub(crate) quiet_compact_retry_used: bool,
     pub(crate) cross_turn: crate::batch::CrossTurn,
     pub(crate) eager: std::collections::HashMap<String, tokio::task::JoinHandle<crate::tools::Executed>>,
-    /// Each streamed call's barrier signal until it is sent: by the call as it settles, or by the batch once the call's group retry
-    /// is done when the batch took the signal first.
+    /// What each streamed call and the batch tell each other about the call's group retry and its place at the file lock.
     pub(crate) eager_settles: std::collections::HashMap<String, crate::batch::SettleSlot>,
+    /// Whether a streamed edit's ambiguous settlement may be acted on now (`crate::batch::settle_gate`).
+    pub(crate) settle_gate: tokio::sync::watch::Sender<bool>,
     pub(crate) eager_sigs: std::collections::HashSet<String>,
     /// The calls started while the response streams, in call order: what a later conflicting call waits for.
     pub(crate) eager_started: Vec<crate::batch::EagerStarted>,
@@ -486,6 +487,7 @@ impl Run {
             cross_turn: crate::batch::CrossTurn::default(),
             eager: std::collections::HashMap::new(),
             eager_settles: std::collections::HashMap::new(),
+            settle_gate: tokio::sync::watch::Sender::new(true),
             eager_sigs: std::collections::HashSet::new(),
             eager_started: Vec::new(),
             barriers: crate::barriers::Barriers::default(),

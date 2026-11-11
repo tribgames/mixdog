@@ -1,14 +1,14 @@
 {
-  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --graph-bin <mixdog-graph executable>",
+  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --graph-bin <mixdog-graph executable> --patch-bin <mixdog-patch executable>",
   "excluded": [
     "agent-trace rows of kinds other than batch, tool and tool_slow (context: the request's context accounting; usage: the usage log): written by other call sites than the tool batch; their count per kind is recorded (others) and not compared"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 16911,
+      "bytes": 29779,
       "path": "golden.json",
-      "sha256": "a3f2182902382c7fdf6213fbbd9f134606ef363eb06c53843accd06302e8ed56"
+      "sha256": "a463ccce8f7627a45f135fdcc38efbb5f6c83119975ce8e91e1a97aa0263fece"
     }
   ],
   "inputs": [
@@ -18,7 +18,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/agent-trace-run-scenarios.mjs",
-      "sha256": "b7f6c575fbab5f3e2e5684674d35cc4f77dabea5b699a5fc6e1ded4b7dbb391a"
+      "sha256": "a5d538f05eba85213dd4f359032f364bbc8cce41f2c977b39aea07bdd70b994e"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -69,7 +69,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-trace-run.mjs",
-  "recorderSha256": "2db3bee626bdd4d228a99aee5d23cb2b424d60935cbdeae4957daf100fe83347",
+  "recorderSha256": "171e9597e4671254b2f622a98e5ed02895f459339b25255b0be87e7eedc4d303",
   "set": "agent-trace-run",
   "syntheticInputs": {
     "environment": [
@@ -90,13 +90,29 @@
           "MIXDOG_DIAGNOSTICS": "1"
         },
         "scenario": "an ambiguous edit retried in its batch group"
+      },
+      {
+        "env": {
+          "MIXDOG_DIAGNOSTICS": "1"
+        },
+        "scenario": "a same-anchor edit behind an ambiguous streamed edit"
+      },
+      {
+        "env": {
+          "MIXDOG_DIAGNOSTICS": "1"
+        },
+        "scenario": "a different-anchor edit behind an ambiguous streamed edit, then a retry that fails"
       }
     ],
     "graphBinary": {
       "builtFrom": "git archive b6f10295a2f698afc85332467192de28500bd146 native/mixdog-graph, cargo build --release; given to Node as MIXDOG_GRAPH_BIN (its resident search server serves glob)",
       "sha256": "5cb2fe69c41696f94195d9503b55343c8b9e6c3edd7da92308d67ac40c096195"
     },
-    "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/agent-trace-run-scenarios.mjs",
+    "patchBinary": {
+      "builtFrom": "git archive b6f10295a2f698afc85332467192de28500bd146 native/mixdog-patch, cargo build --release; given to Node as MIXDOG_PATCH_NATIVE_BIN (the engine its edit runs on, as an installed product's native-tools/mixdog-patch)",
+      "sha256": "99e54985d98ebf9597ac73b536f3e8162429287bdc421efe0674945da4b645fc"
+    },
+    "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/agent-trace-run-scenarios.mjs; a reply marked stream: 'settled' hands its calls to the send's onToolCall and returns once each call's early result notice (askSession's onToolResult) has arrived",
     "session": "sessionOptions (src/session-runtime/session-create/session-options.mjs) with the headless tool profile, no session profile, skipSkills true and workflow { id: headless, delegatesAgents: false }",
     "workspaceFiles": {
       "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
@@ -104,5 +120,5 @@
       "c.txt": "562db9b7dbd05bedf8f05dba56c17da47886d5eb878a939704463ccc105c1fe8"
     }
   },
-  "totalBytes": 16911
+  "totalBytes": 29779
 }

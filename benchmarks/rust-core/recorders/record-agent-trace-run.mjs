@@ -3,12 +3,13 @@
 // loop: `recordToolBatch`, session/loop/tool-phase.mjs:46, and `traceAgentTool`, session/tool-batch/finalize.mjs:226) against a
 // scripted provider (only the provider's `send` is scripted), with the local trace on (MIXDOG_DIAGNOSTICS). What is recorded per
 // scenario: the session's `batch`/`tool`/`tool_slow` rows of history/agent-trace.jsonl (normalised by lib/agent-trace-run-rows.mjs),
-// the count of its other row kinds, and its rows of history/tool-failures.jsonl (lib/tool-failure-rows.mjs).
+// the count of its other row kinds, its rows of history/tool-failures.jsonl (lib/tool-failure-rows.mjs), and the workspace files
+// as the run left them.
 //
 // Each scenario runs in a Node process of its own (its `env` laid over the process environment), twice, in two fresh profiles but
 // the same workspace path; the two recordings must be identical.
 //
-//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a with node_modules> --graph-bin <mixdog-graph executable built from native/mixdog-graph at b6f10295a> [--only <n>,<n>]
+//   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a with node_modules> --graph-bin <mixdog-graph executable built from native/mixdog-graph at b6f10295a> --patch-bin <mixdog-patch executable built from native/mixdog-patch at b6f10295a> [--only <n>,<n>]
 //
 // Output: native/core/fixtures/agent-trace-run/golden.json (+ MANIFEST.json); with --only the scenarios named are recorded and printed.
 import { createHash } from 'node:crypto';
@@ -52,13 +53,29 @@ if (process.argv[2] === '--child') {
   });
   const providerName = `agent-trace-run-${index}`;
   let sends = 0;
+  // The calls of a `stream: 'settled'` reply whose streamed run has not settled yet (Node's early result notice, entry.mjs).
+  let unsettled = null;
   const provider = {
     name: providerName,
     contextWindow: 128000,
-    async send() {
+    async send(_messages, _model, _tools, opts) {
       sends += 1;
-      return JSON.parse(JSON.stringify(reply(scenario.replies[sends - 1])));
+      const step = scenario.replies[sends - 1];
+      if (step.stream === 'settled') {
+        let settledAll;
+        const settled = new Promise((resolve) => { settledAll = resolve; });
+        unsettled = { ids: new Set(step.calls.map((c) => c.id)), settledAll };
+        for (const c of step.calls) opts.onToolCall(JSON.parse(JSON.stringify({ id: c.id, name: c.name, arguments: c.args })));
+        await deadline(settled, 120_000, `the streamed runs of ${[...unsettled.ids].join(', ')} settling`);
+        unsettled = null;
+      }
+      return JSON.parse(JSON.stringify(reply(step)));
     },
+  };
+  const onToolResult = (message) => {
+    if (!message?.__earlyNotify || !unsettled) return;
+    unsettled.ids.delete(message.toolCallId);
+    if (unsettled.ids.size === 0) unsettled.settledAll();
   };
   let sessionId;
   let outcome;
@@ -77,13 +94,14 @@ if (process.argv[2] === '--child') {
     const session = createSession({ ...built, skipSkills: true, workflow: { id: 'headless', delegatesAgents: false } });
     sessionId = session.id;
     try {
-      outcome = { answer: (await askSession(session.id, 'go', null, null, null, null, {})).content };
+      outcome = { answer: (await askSession(session.id, 'go', null, null, null, null, { onToolResult })).content };
     } catch (error) {
       outcome = { threw: error.message.split(sessionId).join('<session>') };
     }
   });
   await stopOwnedPgForShutdown({ timeoutMs: 120_000 });
-  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'results.json'), JSON.stringify({ name: scenario.name, session: sessionId, outcome, sends }));
+  const finalFiles = Object.fromEntries(readdirSync(workspace, { withFileTypes: true }).map((e) => (e.isFile() ? e.name : `${e.name}/`)).sort().map((name) => [name, name.endsWith('/') ? null : readFileSync(join(workspace, name), 'utf8')]));
+  writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'results.json'), JSON.stringify({ name: scenario.name, session: sessionId, outcome, sends, finalFiles }));
   // An ordinary exit, whose `exit` hooks write the rows still queued; the parent reads the files after it.
   process.exit(0);
 }
@@ -102,6 +120,11 @@ const tree = resolveTree(cli);
 // product does.
 const graphBin = cli.get('graph-bin');
 if (!graphBin || !existsSync(graphBin)) throw new Error('--graph-bin <mixdog-graph executable built from native/mixdog-graph at the Node commit> is required');
+// Node's edit runs on the native patch engine an installed product ships (native-tools/mixdog-patch); a source tree has none,
+// and Node then downloads one in the background (patch-binary-fetcher.mjs), so an edit takes the engine or the JavaScript
+// fallback by which finishes first, and their ambiguity texts differ.
+const patchBin = cli.get('patch-bin');
+if (!patchBin || !existsSync(patchBin)) throw new Error('--patch-bin <mixdog-patch executable built from native/mixdog-patch at the Node commit> is required');
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const { recorderProvenance } = await import('./lib/provenance.mjs');
 const SCENARIO_COUNT = scenarios().length;
@@ -111,7 +134,7 @@ const fileText = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 /** One scenario in its own profile under the run's folder, in a job object of its own (lib/job-run.mjs). */
 async function recordScenario(label, index, run, workspace) {
   const sandbox = join(run, `profile-${label}`);
-  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, RECORDER_SCENARIO: String(index), MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', MIXDOG_GRAPH_BIN: graphBin, ...scenarios()[index].env };
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, RECORDER_SCENARIO: String(index), MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', MIXDOG_GRAPH_BIN: graphBin, MIXDOG_PATCH_NATIVE_BIN: patchBin, ...scenarios()[index].env };
   for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
     env[name] = join(sandbox, name.toLowerCase());
     mkdirSync(env[name], { recursive: true });
@@ -137,11 +160,11 @@ async function recordScenario(label, index, run, workspace) {
   const sessions = Array.from({ length: SCENARIO_COUNT }, (_, k) => (k === index ? results.session : undefined));
   const trace = traceRowsByScenario(fileText(join(env.MIXDOG_DATA_DIR, 'history', 'agent-trace.jsonl')), sessions, workspace)[index];
   const failures = rowsByScenario(fileText(join(env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl')), sessions, workspace, env.MIXDOG_DATA_DIR)[index];
-  return { trace: trace.rows, others: trace.others, failures, results: { name: results.name, outcome: results.outcome, sends: results.sends } };
+  return { trace: trace.rows, others: trace.others, failures, finalFiles: results.finalFiles, results: { name: results.name, outcome: results.outcome, sends: results.sends } };
 }
 
 async function record(label, run, workspace) {
-  const out = { trace: Array(SCENARIO_COUNT).fill(null), others: Array(SCENARIO_COUNT).fill(null), failures: Array(SCENARIO_COUNT).fill(null), results: Array(SCENARIO_COUNT).fill(null) };
+  const out = { trace: Array(SCENARIO_COUNT).fill(null), others: Array(SCENARIO_COUNT).fill(null), failures: Array(SCENARIO_COUNT).fill(null), finalFiles: Array(SCENARIO_COUNT).fill(null), results: Array(SCENARIO_COUNT).fill(null) };
   for (const index of selected) {
     const one = await recordScenario(`${label}-${index}`, index, run, workspace);
     for (const key of Object.keys(out)) out[key][index] = one[key];
@@ -165,7 +188,7 @@ try {
   }
   const all = scenarios();
   const golden = {
-    note: 'the agent-trace rows of a run\'s tool batches (real askSession turns over a scripted provider, MIXDOG_DIAGNOSTICS on), recorded twice at b6f10295a: per scenario the session\'s batch/tool/tool_slow rows of history/agent-trace.jsonl (lib/agent-trace-run-rows.mjs), the count of its other kinds, and its history/tool-failures.jsonl rows (lib/tool-failure-rows.mjs)',
+    note: 'the agent-trace rows of a run\'s tool batches (real askSession turns over a scripted provider, MIXDOG_DIAGNOSTICS on), recorded twice at b6f10295a: per scenario the session\'s batch/tool/tool_slow rows of history/agent-trace.jsonl (lib/agent-trace-run-rows.mjs), the count of its other kinds, its history/tool-failures.jsonl rows (lib/tool-failure-rows.mjs) and the workspace files as the run left them (finalFiles)',
     workspaceLength: workspace.length,
     scenarios: all,
     files: FILES,
@@ -181,7 +204,7 @@ try {
     writeSetManifest(stage, {
       set: 'agent-trace-run',
       recorder,
-      command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <exact export of ${NODE_COMMIT}> --graph-bin <mixdog-graph executable>`,
+      command: `MIXDOG_RECORDER_SCRATCH=<scratch parent> node ${recorder} --tree <exact export of ${NODE_COMMIT}> --graph-bin <mixdog-graph executable> --patch-bin <mixdog-patch executable>`,
       identity,
       extra: {
         normalised: ['session_id', 'ts and each execution_intervals mark', 'batch ids (v4 UUIDs, by the order of their batch rows)', 'tool_ms and each payload.timing value', 'each local_search value named *_ms','workspace', 'data folder (tool-failures rows)'],
@@ -189,12 +212,16 @@ try {
         notCompared: ['others: the counts of the excluded kinds', 'results: the scripted turn\'s answer and send count, recorded to show the turn ended as scripted'],
         ...recorderProvenance(import.meta.url),
         syntheticInputs: {
-          provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/agent-trace-run-scenarios.mjs`,
+          provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/agent-trace-run-scenarios.mjs; a reply marked stream: 'settled' hands its calls to the send's onToolCall and returns once each call's early result notice (askSession's onToolResult) has arrived`,
           session: 'sessionOptions (src/session-runtime/session-create/session-options.mjs) with the headless tool profile, no session profile, skipSkills true and workflow { id: headless, delegatesAgents: false }',
           environment: all.map((s) => ({ scenario: s.name, env: s.env })),
           graphBinary: {
             builtFrom: `git archive ${NODE_COMMIT} native/mixdog-graph, cargo build --release; given to Node as MIXDOG_GRAPH_BIN (its resident search server serves glob)`,
             sha256: createHash('sha256').update(readFileSync(graphBin)).digest('hex'),
+          },
+          patchBinary: {
+            builtFrom: `git archive ${NODE_COMMIT} native/mixdog-patch, cargo build --release; given to Node as MIXDOG_PATCH_NATIVE_BIN (the engine its edit runs on, as an installed product's native-tools/mixdog-patch)`,
+            sha256: createHash('sha256').update(readFileSync(patchBin)).digest('hex'),
           },
           workspaceFiles: Object.fromEntries(Object.entries(FILES).map(([name, text]) => [name, createHash('sha256').update(text).digest('hex')])),
         },

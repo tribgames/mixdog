@@ -2,8 +2,10 @@
 // Drives a built `mixdogd` through the scenarios of native/core/fixtures/agent-trace-run/golden.json (one core per scenario, an
 // isolated profile, the scenario's `env` laid over its environment, a scripted OpenAI-chat provider, as in the recording) and
 // compares, whole and in order, with Node's: the provider request count, the scenario's batch/tool/tool_slow rows of
-// history/agent-trace.jsonl (normalised by lib/agent-trace-run-rows.mjs) and its history/tool-failures.jsonl rows (normalised by
-// lib/tool-failure-rows.mjs), as the recorder normalised Node's. The counts of the other trace kinds are not compared (MANIFEST.json).
+// history/agent-trace.jsonl (normalised by lib/agent-trace-run-rows.mjs), its history/tool-failures.jsonl rows (normalised by
+// lib/tool-failure-rows.mjs), as the recorder normalised Node's, and the workspace files as the run left them. The counts of the
+// other trace kinds are not compared (MANIFEST.json). A reply marked stream: 'settled' keeps its response open after the finish
+// chunk until the core has reported each call's early result (a tool item completed with its result).
 //   MIXDOG_RECORDER_SCRATCH=<the recording's scratch parent> node replay-agent-trace-run.mjs --mixdogd <exe> [--only <n>,<n>]
 // The exit code is 1 on any difference.
 import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
@@ -29,17 +31,41 @@ const deadline = (p, ms, what) => {
   return Promise.race([p, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms); })]).finally(() => clearTimeout(timer));
 };
 const sse = (res, chunks) => {
+  // One write: the response the core receives ends in the bytes that carry its calls (crate::batch::settle_gate).
   res.writeHead(200, { 'content-type': 'text/event-stream' });
-  for (const c of chunks) res.write(`data: ${typeof c === 'string' ? c : JSON.stringify(c)}\n\n`);
-  res.end();
+  res.end(chunks.map((c) => `data: ${typeof c === 'string' ? c : JSON.stringify(c)}\n\n`).join(''));
 };
 const chunk = (delta, finish = null) => ({ id: 's', object: 'chat.completion.chunk', created: 0, model: golden.model, choices: [{ index: 0, delta, finish_reason: finish }] });
 
-function provider(replies, counter) {
+/**
+ * The core's edit runs as they come and go, seen from outside: each run holds its file's advisory lock (a `<hash>.mixdog-lock`
+ * created and removed under LOCALAPPDATA\mixdog\locks), so a run that ended has added two names there. The core tells a client
+ * nothing of a streamed call before its response ends; an edit's barrier lets it start only once the edits before it settled,
+ * so the last edit of a reply having ended means every one before it settled.
+ */
+function editRuns(dir) {
+  let names = 0;
+  const waiters = [];
+  const watcher = watch(dir, { recursive: true }, (event, name) => {
+    if (event !== 'rename' || !String(name).endsWith('.mixdog-lock')) return;
+    names += 1;
+    for (const w of waiters.splice(0)) if (names >= w.at) w.resolve(); else waiters.push(w);
+  });
+  return {
+    /** Resolves once `runs` more edit runs have ended. */
+    ended(runs) {
+      const at = names + 2 * runs;
+      return names >= at ? Promise.resolve() : new Promise((resolve) => waiters.push({ at, resolve }));
+    },
+    close: () => watcher.close(),
+  };
+}
+
+function provider(replies, counter, runs) {
   const server = createServer((req, res) => {
     const body = [];
     req.on('data', (d) => body.push(d));
-    req.on('end', () => {
+    req.on('end', async () => {
       if (req.method === 'GET') {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ object: 'list', data: [{ id: golden.model, object: 'model' }] }));
@@ -48,7 +74,19 @@ function provider(replies, counter) {
       if (!step) return sse(res, [chunk({ role: 'assistant', content: 'extra' }), chunk({}, 'stop'), '[DONE]']);
       if (!step.calls.length) return sse(res, [chunk({ role: 'assistant', content: step.text }), chunk({}, 'stop'), '[DONE]']);
       const tool_calls = step.calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args) } }));
-      sse(res, [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls'), '[DONE]']);
+      if (step.stream !== 'settled') return sse(res, [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls'), '[DONE]']);
+      // The chat wire hands its calls over at the finish chunk; the response stays open until every call's run has settled.
+      if (!step.calls.every((c) => c.name === 'edit')) throw new Error('a settled reply holds edits only (their runs are what the replay sees end)');
+      const ended = runs.ended(step.calls.length);
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      for (const c of [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls')]) res.write(`data: ${JSON.stringify(c)}\n\n`);
+      try {
+        await deadline(ended, 60_000, `the core's streamed runs of ${step.calls.map((c) => c.id).join(', ')} ending`);
+      } catch (error) {
+        counter.failure = error;
+        return res.destroy();
+      }
+      res.end('data: [DONE]\n\n');
     });
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r({ baseURL: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((c) => { server.closeAllConnections(); server.close(c); }) })));
@@ -70,9 +108,11 @@ async function runScenario(scenario, root, ws, bin, libs) {
   let child;
   let exited;
   let client;
-  const counter = { sends: 0 };
+  const counter = { sends: 0, failure: null };
   try {
-    const prov = await deadline(provider(scenario.replies, counter), 30_000, 'the scripted provider listening');
+    const runs = editRuns(p.local);
+    cleanups.push(() => runs.close());
+    const prov = await deadline(provider(scenario.replies, counter, runs), 30_000, 'the scripted provider listening');
     cleanups.push(() => deadline(prov.close(), 30_000, 'the scripted provider closing'));
     writeFileSync(join(p.data, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { [CUSTOM]: { type: 'custom', name: 'atr', protocol: 'openai-chat', baseURL: prov.baseURL, auth: 'none', models: [{ id: golden.model }] } } } }));
     const exe = join(p.bin, 'mixdogd.exe');
@@ -126,6 +166,7 @@ async function runScenario(scenario, root, ws, bin, libs) {
     await deadline(client.resumeThread(threadId, { lastItems: 10 }), 30_000, 'thread/resume');
     await deadline(client.call('turn/start', { threadId, input: { prompt: 'go', options: {} } }), 60_000, 'turn/start');
     await deadline(completed, 120_000, 'the scripted turn completing');
+    if (counter.failure) throw counter.failure;
     await deadline(client.close(), 30_000, 'the client closing');
     client = null;
     // The stop's exit flush writes what is still queued, as Node's exit hooks did in the recording.
@@ -140,7 +181,9 @@ async function runScenario(scenario, root, ws, bin, libs) {
     const job = readJobReport(join(root, 'job.json'));
     if (job.exitCode !== 0) throw new Error(`the core exited with ${job.exitCode}`);
     const text = (name) => { const file = join(p.data, 'history', name); return existsSync(file) ? readFileSync(file, 'utf8') : ''; };
-    return { threadId, dataDir: p.data, trace: text('agent-trace.jsonl'), failures: text('tool-failures.jsonl'), sends: counter.sends };
+    // The workspace as the run left it, read as the recorder read Node's.
+    const finalFiles = Object.fromEntries(readdirSync(ws, { withFileTypes: true }).map((e) => (e.isFile() ? e.name : `${e.name}/`)).sort().map((name) => [name, name.endsWith('/') ? null : readFileSync(join(ws, name), 'utf8')]));
+    return { threadId, dataDir: p.data, trace: text('agent-trace.jsonl'), failures: text('tool-failures.jsonl'), sends: counter.sends, finalFiles };
   } finally {
     const problems = [];
     for (const cleanup of cleanups.reverse()) {
@@ -187,6 +230,8 @@ try {
     const sessions = golden.scenarios.map((_, k) => (k === i ? got.threadId : undefined));
     bad += compare(`${i} ${scenario.name}: trace`, traceRowsByScenario(got.trace, sessions, ws)[i].rows, golden.trace[i]);
     bad += compare(`${i} ${scenario.name}: failures`, rowsByScenario(got.failures, sessions, ws, got.dataDir)[i], golden.failures[i]);
+    const files = (f) => Object.entries(f).map(([name, content]) => JSON.stringify([name, content]));
+    bad += compare(`${i} ${scenario.name}: files`, files(got.finalFiles), files(golden.finalFiles[i]));
   }
 } catch (error) {
   failure = error;
