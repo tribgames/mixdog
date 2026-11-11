@@ -1,0 +1,5012 @@
+{
+  "set": "provider-mimo-oauth-wire",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "replays-stored-reasoning-never-invents",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:77",
+      "input": {
+        "history": [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_1",
+                "name": "read",
+                "arguments": {
+                  "path": "a"
+                }
+              }
+            ],
+            "reasoningContent": "plan the read"
+          },
+          {
+            "role": "tool",
+            "toolCallId": "call_1",
+            "content": "file text"
+          }
+        ],
+        "tools": [
+          {
+            "name": "read",
+            "description": "read a file",
+            "inputSchema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ]
+      },
+      "result": {
+        "first": {
+          "content": "done",
+          "model": "m",
+          "stopReason": "stop",
+          "reasoningContent": "thinking",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "prompt_tokens": 1,
+              "completion_tokens": 1,
+              "total_tokens": 2
+            }
+          },
+          "generationMs": 0
+        },
+        "second": {
+          "content": "done",
+          "model": "m",
+          "stopReason": "stop",
+          "reasoningContent": "thinking",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "prompt_tokens": 1,
+              "completion_tokens": 1,
+              "total_tokens": 2
+            }
+          },
+          "generationMs": 0
+        },
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "543"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "go"
+                },
+                {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_1",
+                      "type": "function",
+                      "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a\"}"
+                      }
+                    }
+                  ],
+                  "reasoning_content": "plan the read"
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_1",
+                  "content": "file text"
+                }
+              ],
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "read a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "507"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "go"
+                },
+                {
+                  "role": "assistant",
+                  "content": null,
+                  "tool_calls": [
+                    {
+                      "id": "call_1",
+                      "type": "function",
+                      "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a\"}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "call_1",
+                  "content": "file text"
+                }
+              ],
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "read a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "effort-maps-to-thinking-and-levels",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:97",
+      "input": {
+        "efforts": [
+          {
+            "effort": "minimal"
+          },
+          {
+            "effort": "xhigh"
+          },
+          {
+            "effort": "none"
+          },
+          {
+            "thinking": false
+          },
+          {}
+        ]
+      },
+      "result": {
+        "row": {
+          "id": "mimo-v2.6-pro",
+          "name": "mimo-v2.6-pro",
+          "provider": "mimo-oauth",
+          "contextWindow": 1048576,
+          "outputTokens": 131072,
+          "created": null,
+          "display": "MiMo-V2.6-Pro",
+          "inputCostPerM": 0.435,
+          "outputCostPerM": 0.87,
+          "cacheReadCostPerM": 0.0036,
+          "cacheWriteCostPerM": null,
+          "pricingTiers": [],
+          "pricingModel": "mimo-v2.6-pro",
+          "pricingProvider": "xiaomi",
+          "pricingSource": "models.dev",
+          "supportsVision": true,
+          "supportsFunctionCalling": true,
+          "supportsPromptCaching": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [],
+          "reasoningContentField": "reasoning_content",
+          "mode": null,
+          "reasoning": true,
+          "vision": true,
+          "inputModalities": [
+            "text",
+            "image"
+          ],
+          "reasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "effortOptions": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "229"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "thinking": {
+                "type": "enabled"
+              },
+              "reasoning_effort": "minimal",
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "226"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "thinking": {
+                "type": "enabled"
+              },
+              "reasoning_effort": "high",
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "201"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "thinking": {
+                "type": "disabled"
+              },
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "201"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "thinking": {
+                "type": "disabled"
+              },
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "sampling-defaults-output-clamp-tool-choice",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:125",
+      "input": {},
+      "result": {
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "302"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "read a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "301"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "read a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                }
+              ],
+              "temperature": 0.2,
+              "max_completion_tokens": 500,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "302"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "tools": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "read",
+                    "description": "read a file",
+                    "parameters": {
+                      "type": "object",
+                      "properties": {}
+                    }
+                  }
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "166"
+              ]
+            ],
+            "body": {
+              "model": "mimo-small",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 64000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "default-model-from-discovered-roster",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:164",
+      "input": {},
+      "result": {
+        "models": [
+          "mimo-v2.6-pro",
+          "mimo-x",
+          "mimo-v2.6-pro"
+        ],
+        "chooseDefault": [
+          "mimo-z",
+          "mimo-v2.6-pro"
+        ],
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-other"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-other"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "163"
+              ]
+            ],
+            "body": {
+              "model": "mimo-x",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-third"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-third"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "discovery-drops-speech-keeps-names-seed-fallback",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:195",
+      "input": {},
+      "result": {
+        "rows": [
+          {
+            "id": "mimo-v2.6-pro",
+            "name": "MiMo Pro",
+            "provider": "mimo-oauth",
+            "contextWindow": 1048576,
+            "outputTokens": 131072,
+            "created": null,
+            "display": "MiMo-V2.6-Pro",
+            "inputCostPerM": 0.435,
+            "outputCostPerM": 0.87,
+            "cacheReadCostPerM": 0.0036,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-pro",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          {
+            "id": "mimo-v2.6-flash",
+            "name": "mimo-v2.6-flash",
+            "provider": "mimo-oauth",
+            "contextWindow": 5000,
+            "outputTokens": 700,
+            "created": null,
+            "display": "MiMo-V2.6-Flash",
+            "inputCostPerM": 0.14,
+            "outputCostPerM": 0.28,
+            "cacheReadCostPerM": 0.0028,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-flash",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "cached": [
+          {
+            "id": "mimo-v2.6-pro",
+            "provider": "mimo-oauth",
+            "name": "MiMo Pro"
+          },
+          {
+            "id": "mimo-v2.6-flash",
+            "provider": "mimo-oauth",
+            "contextWindow": 5000,
+            "outputTokens": 700
+          }
+        ],
+        "metadata": {
+          "flashContext": 5000,
+          "proContext": 1048576
+        },
+        "fallbacks": {
+          "empty": [
+            {
+              "id": "mimo-v2.6-pro",
+              "name": "MiMo-V2.6-Pro",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Pro",
+              "inputCostPerM": 0.435,
+              "outputCostPerM": 0.87,
+              "cacheReadCostPerM": 0.0036,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-pro",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.6-flash",
+              "name": "MiMo-V2.6-Flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 5000,
+              "outputTokens": 700,
+              "created": null,
+              "display": "MiMo-V2.6-Flash",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-flash",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.6-pro-ultraspeed",
+              "name": "MiMo-V2.6-Pro-Ultraspeed",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Pro-UltraSpeed",
+              "inputCostPerM": 4.35,
+              "outputCostPerM": 8.7,
+              "cacheReadCostPerM": 0.036,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-pro-ultraspeed",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.5-pro",
+              "name": "MiMo-V2.5-Pro",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.5-Pro",
+              "inputCostPerM": 0.435,
+              "outputCostPerM": 0.87,
+              "cacheReadCostPerM": 0.0036,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.5-pro",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.5",
+              "name": "MiMo-V2.5",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.5",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.5",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2-pro",
+              "name": "MiMo-V2-Pro",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "mimo-v2-pro",
+              "pricingModel": "mimo-v2-pro",
+              "pricingProvider": "xiaomi",
+              "supportsVision": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2-omni",
+              "name": "MiMo-V2-Omni",
+              "provider": "mimo-oauth",
+              "contextWindow": 262144,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "mimo-v2-omni",
+              "pricingModel": "mimo-v2-omni",
+              "pricingProvider": "xiaomi",
+              "supportsVision": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ],
+          "down": [
+            {
+              "id": "mimo-v2.6-pro",
+              "name": "MiMo-V2.6-Pro",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Pro",
+              "inputCostPerM": 0.435,
+              "outputCostPerM": 0.87,
+              "cacheReadCostPerM": 0.0036,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-pro",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.6-flash",
+              "name": "MiMo-V2.6-Flash",
+              "provider": "mimo-oauth",
+              "contextWindow": 5000,
+              "outputTokens": 700,
+              "created": null,
+              "display": "MiMo-V2.6-Flash",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-flash",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.6-pro-ultraspeed",
+              "name": "MiMo-V2.6-Pro-Ultraspeed",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.6-Pro-UltraSpeed",
+              "inputCostPerM": 4.35,
+              "outputCostPerM": 8.7,
+              "cacheReadCostPerM": 0.036,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.6-pro-ultraspeed",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.5-pro",
+              "name": "MiMo-V2.5-Pro",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.5-Pro",
+              "inputCostPerM": 0.435,
+              "outputCostPerM": 0.87,
+              "cacheReadCostPerM": 0.0036,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.5-pro",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2.5",
+              "name": "MiMo-V2.5",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "MiMo-V2.5",
+              "inputCostPerM": 0.14,
+              "outputCostPerM": 0.28,
+              "cacheReadCostPerM": 0.0028,
+              "cacheWriteCostPerM": null,
+              "pricingTiers": [],
+              "pricingModel": "mimo-v2.5",
+              "pricingProvider": "xiaomi",
+              "pricingSource": "models.dev",
+              "supportsVision": true,
+              "supportsFunctionCalling": true,
+              "supportsPromptCaching": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2-pro",
+              "name": "MiMo-V2-Pro",
+              "provider": "mimo-oauth",
+              "contextWindow": 1048576,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "mimo-v2-pro",
+              "pricingModel": "mimo-v2-pro",
+              "pricingProvider": "xiaomi",
+              "supportsVision": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            {
+              "id": "mimo-v2-omni",
+              "name": "MiMo-V2-Omni",
+              "provider": "mimo-oauth",
+              "contextWindow": 262144,
+              "outputTokens": 131072,
+              "created": null,
+              "display": "mimo-v2-omni",
+              "pricingModel": "mimo-v2-omni",
+              "pricingProvider": "xiaomi",
+              "supportsVision": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [],
+              "reasoningContentField": "reasoning_content",
+              "mode": null,
+              "reasoning": true,
+              "vision": true,
+              "inputModalities": [
+                "text",
+                "image"
+              ],
+              "reasoningLevels": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            }
+          ]
+        },
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "stale-or-other-credential-discovery-not-published",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:239",
+      "input": {},
+      "result": {
+        "order": "request 2 answered first, then request 1; then the key switches while request 3 is in flight",
+        "newerRows": [
+          {
+            "id": "mimo-v2.6-flash",
+            "name": "mimo-v2.6-flash",
+            "provider": "mimo-oauth",
+            "contextWindow": 7000,
+            "outputTokens": 131072,
+            "created": null,
+            "display": "MiMo-V2.6-Flash",
+            "inputCostPerM": 0.14,
+            "outputCostPerM": 0.28,
+            "cacheReadCostPerM": 0.0028,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-flash",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "olderRows": [
+          {
+            "id": "mimo-v2.6-pro",
+            "name": "mimo-v2.6-pro",
+            "provider": "mimo-oauth",
+            "contextWindow": 7000,
+            "outputTokens": 131072,
+            "created": null,
+            "display": "MiMo-V2.6-Pro",
+            "inputCostPerM": 0.435,
+            "outputCostPerM": 0.87,
+            "cacheReadCostPerM": 0.0036,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-pro",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "afterOlder": {
+          "cachedIds": [
+            "mimo-v2.6-flash"
+          ],
+          "liveIds": [
+            "mimo-v2.6-flash"
+          ],
+          "rosterIds": [
+            "mimo-v2.6-flash"
+          ]
+        },
+        "switchedRows": [
+          {
+            "id": "mimo-v2.6-pro",
+            "name": "mimo-v2.6-pro",
+            "provider": "mimo-oauth",
+            "contextWindow": 7000,
+            "outputTokens": 131072,
+            "created": null,
+            "display": "MiMo-V2.6-Pro",
+            "inputCostPerM": 0.435,
+            "outputCostPerM": 0.87,
+            "cacheReadCostPerM": 0.0036,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-pro",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "afterSwitch": {
+          "cachedIds": [
+            "mimo-v2.6-flash"
+          ],
+          "liveIds": [
+            "mimo-v2.6-flash"
+          ],
+          "rosterIds": [
+            "mimo-v2.6-flash"
+          ]
+        },
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          },
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "token-plan-probe-sgp-ams-cn-persists",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:360",
+      "input": {},
+      "result": {
+        "first": {
+          "probed": "https://token-plan-cn.xiaomimimo.com/v1",
+          "urls": [
+            "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
+            "https://token-plan-ams.xiaomimimo.com/v1/chat/completions",
+            "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
+          ],
+          "distinctSignals": 3,
+          "auth": "Bearer tp-abc",
+          "regions": [
+            "https://token-plan-sgp.xiaomimimo.com/v1",
+            "https://token-plan-ams.xiaomimimo.com/v1",
+            "https://token-plan-cn.xiaomimimo.com/v1"
+          ]
+        },
+        "ensured": {
+          "apiKey": "tp-abc",
+          "uid": "u",
+          "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+          "source": "own",
+          "mtimeMs": "<token file mtime (real clock)>"
+        },
+        "persisted": {
+          "apiKey": "tp-abc",
+          "uid": "u",
+          "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+          "source": "own",
+          "mtimeMs": "<token file mtime (real clock)>"
+        },
+        "probesForNonTokenPlanOrKnownUrl": 0,
+        "nonAuth": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] Token Plan check failed (500): nope",
+            "status": 500,
+            "httpStatus": 500,
+            "detail": "nope"
+          }
+        }
+      }
+    },
+    {
+      "id": "caller-cannot-move-mimo-to-responses",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:408",
+      "input": {
+        "opts": {
+          "compatWireApi": "responses",
+          "responsesTransport": "ws"
+        }
+      },
+      "result": {
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "session-affinity-and-user-agent-headers",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:430",
+      "input": {},
+      "result": {
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-hdr"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "x-session-affinity",
+                "sess-1"
+              ],
+              [
+                "x-parent-session-id",
+                "sess-0"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-hdr"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "gateway-failures-keep-detail-relabel-quota-not-retried",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:452",
+      "input": {},
+      "result": {
+        "risk441": {
+          "error": {
+            "name": "Error",
+            "message": "Request blocked by risk control: prompt flagged",
+            "status": 400,
+            "headers": {},
+            "requestID": null,
+            "error": {
+              "code": 441,
+              "message": "generic",
+              "param": "prompt flagged"
+            },
+            "code": 441,
+            "param": "prompt flagged",
+            "mimoGatewayCode": "441",
+            "mimoGatewayParam": "prompt flagged"
+          }
+        },
+        "moderation421": {
+          "error": {
+            "name": "Error",
+            "message": "Request blocked by content moderation",
+            "status": 400,
+            "headers": {},
+            "requestID": null,
+            "error": {
+              "code": "421",
+              "message": "x"
+            },
+            "code": "421",
+            "mimoGatewayCode": "421"
+          }
+        },
+        "plain400": {
+          "error": {
+            "name": "Error",
+            "message": "plain text: temperature",
+            "status": 400,
+            "headers": {},
+            "requestID": null,
+            "error": {
+              "code": "bad",
+              "message": "plain text",
+              "param": "temperature"
+            },
+            "code": "bad",
+            "param": "temperature",
+            "mimoGatewayCode": "bad",
+            "mimoGatewayParam": "temperature"
+          }
+        },
+        "unauthorized401": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: key [REDACTED] is revoked",
+            "httpStatus": 401,
+            "status": 401,
+            "reauthRequired": true
+          }
+        },
+        "keyInMessage": false,
+        "quota": {
+          "error": {
+            "name": "Error",
+            "message": "out of quota",
+            "headers": {},
+            "requestID": null,
+            "error": {
+              "code": "insufficient_quota",
+              "message": "out of quota"
+            },
+            "code": "insufficient_quota",
+            "providerWireError": true,
+            "providerError": {
+              "code": "insufficient_quota",
+              "message": "out of quota"
+            },
+            "providerErrorCode": "insufficient_quota",
+            "partialContent": "",
+            "pendingToolUse": false,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "mimoGatewayCode": "insufficient_quota",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "mimo-oauth"
+          }
+        },
+        "quotaRequests": 1,
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-secret-key"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "158"
+              ]
+            ],
+            "body": {
+              "model": "m",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-secret-key"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "158"
+              ]
+            ],
+            "body": {
+              "model": "m",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-secret-key"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "158"
+              ]
+            ],
+            "body": {
+              "model": "m",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-secret-key"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "158"
+              ]
+            ],
+            "body": {
+              "model": "m",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-secret-key"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "158"
+              ]
+            ],
+            "body": {
+              "model": "m",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "plain-compat-provider-no-mimo-sampling-defaults",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:488",
+      "input": {},
+      "result": {
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "OpenAI/JS 6.49.0"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer k"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "123"
+              ]
+            ],
+            "body": {
+              "model": "deepseek-chat",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "regional-probe-continues-past-failure",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:499",
+      "input": {},
+      "result": {
+        "probed": "https://token-plan-ams.xiaomimimo.com/v1",
+        "urls": [
+          "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
+          "https://token-plan-ams.xiaomimimo.com/v1/chat/completions"
+        ],
+        "down": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] Token Plan check failed (503): gone",
+            "status": 503,
+            "httpStatus": 503,
+            "detail": "gone"
+          }
+        },
+        "aborted": {
+          "error": {
+            "name": "AbortError",
+            "message": "This operation was aborted"
+          }
+        }
+      }
+    },
+    {
+      "id": "topP-topK-forwarded",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:521",
+      "input": {},
+      "result": {
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "193"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "top_p": 0.9,
+              "top_k": 40,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "seeds-ultraspeed-lineage-limits",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:538",
+      "input": {},
+      "result": {
+        "seedUltraspeed": {
+          "id": "mimo-v2.6-pro-ultraspeed",
+          "display_name": "MiMo-V2.6-Pro-Ultraspeed",
+          "context_window": 1048576,
+          "max_output_tokens": 131072
+        },
+        "rows": [
+          {
+            "id": "mimo-v2.6-pro-ultraspeed",
+            "name": "mimo-v2.6-pro-ultraspeed",
+            "provider": "mimo-oauth",
+            "contextWindow": 1048576,
+            "outputTokens": 131072,
+            "created": null,
+            "display": "MiMo-V2.6-Pro-UltraSpeed",
+            "inputCostPerM": 4.35,
+            "outputCostPerM": 8.7,
+            "cacheReadCostPerM": 0.036,
+            "cacheWriteCostPerM": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-pro-ultraspeed",
+            "pricingProvider": "xiaomi",
+            "pricingSource": "models.dev",
+            "supportsVision": true,
+            "supportsFunctionCalling": true,
+            "supportsPromptCaching": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          {
+            "id": "mimo-v2.6-flash-20260101",
+            "name": "mimo-v2.6-flash-20260101",
+            "provider": "mimo-oauth",
+            "contextWindow": 1048576,
+            "outputTokens": 131072,
+            "created": null,
+            "pricingTiers": [],
+            "pricingModel": "mimo-v2.6-flash-20260101",
+            "pricingProvider": "xiaomi",
+            "supportsVision": true,
+            "supportsReasoning": true,
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoning": true,
+            "vision": true,
+            "inputModalities": [
+              "text",
+              "image"
+            ],
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          {
+            "id": "other",
+            "name": "other",
+            "provider": "mimo-oauth",
+            "contextWindow": 0,
+            "outputTokens": null,
+            "created": null,
+            "pricingTiers": [],
+            "pricingModel": "other",
+            "pricingProvider": "xiaomi",
+            "reasoningOptions": [],
+            "reasoningContentField": "reasoning_content",
+            "mode": null,
+            "reasoningLevels": [
+              "minimal",
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "method": "GET",
+            "url": "/v1/models",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "user-agent",
+                "node"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ]
+            ],
+            "body": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "org-project-env-never-sent",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:560",
+      "input": {
+        "env": {
+          "OPENAI_ORG_ID": "org-x",
+          "OPENAI_PROJECT_ID": "proj-x"
+        }
+      },
+      "result": {
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "three-regional-401s-typed-reauth",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:578",
+      "input": {},
+      "result": {
+        "three401": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":{\"message\":\"bad key [REDACTED]\"}}",
+            "httpStatus": 401,
+            "status": 401,
+            "reauthRequired": true
+          }
+        },
+        "busy": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] Token Plan check failed (503): x",
+            "status": 503,
+            "httpStatus": 503,
+            "detail": "x"
+          }
+        },
+        "send": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":{\"message\":\"bad key [REDACTED]\"}}",
+            "httpStatus": 401,
+            "status": 401,
+            "reauthRequired": true
+          }
+        },
+        "list": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] API key rejected (401) — open /providers in mixdog to sign in again: {\"error\":{\"message\":\"bad key [REDACTED]\"}}",
+            "httpStatus": 401,
+            "status": 401,
+            "reauthRequired": true
+          }
+        }
+      }
+    },
+    {
+      "id": "stored-key-redacted-in-logs-and-400",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:612",
+      "input": {
+        "key": "sk-very-secret-key-123"
+      },
+      "result": {
+        "first": {
+          "content": "done",
+          "model": "m",
+          "stopReason": "stop",
+          "reasoningContent": "thinking",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 1,
+            "raw": {
+              "prompt_tokens": 1,
+              "completion_tokens": 1,
+              "total_tokens": 2
+            }
+          },
+          "generationMs": 0
+        },
+        "stderr": "[mimo-oauth] retry attempt 2 after upstream rejected [REDACTED], delay 1892ms\n",
+        "keyInStderr": false,
+        "clockSteps": [
+          499,
+          1892,
+          2609
+        ],
+        "err": {
+          "name": "Error",
+          "message": "bad request for [REDACTED]: key [REDACTED]",
+          "status": 400,
+          "headers": {},
+          "requestID": null,
+          "error": {
+            "message": "bad request for [REDACTED]",
+            "param": "key [REDACTED]"
+          },
+          "param": "key sk-very-secret-key-123",
+          "mimoGatewayParam": "key [REDACTED]"
+        },
+        "keyInError": false,
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-very-secret-key-123"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-very-secret-key-123"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          },
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-very-secret-key-123"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "probe-finishing-after-newer-sign-in-does-not-overwrite",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:644",
+      "input": {},
+      "result": {
+        "stored": {
+          "apiKey": "sk-new",
+          "uid": "u",
+          "baseUrl": "https://new.example/v1",
+          "source": "own",
+          "mtimeMs": "<token file mtime (real clock)>"
+        }
+      }
+    },
+    {
+      "id": "deleted-token-file-signs-out",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:662",
+      "input": {},
+      "result": {
+        "after": {
+          "error": {
+            "name": "Error",
+            "message": "[mimo-oauth] credentials not found — open /providers in mixdog to sign in first"
+          }
+        },
+        "tokens": null,
+        "available": false,
+        "requests": [
+          {
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "headers": [
+              [
+                "host",
+                "<gw>"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "x-stainless-retry-count",
+                "0"
+              ],
+              [
+                "x-stainless-lang",
+                "js"
+              ],
+              [
+                "x-stainless-package-version",
+                "6.49.0"
+              ],
+              [
+                "x-stainless-os",
+                "Windows"
+              ],
+              [
+                "x-stainless-arch",
+                "x64"
+              ],
+              [
+                "x-stainless-runtime",
+                "node"
+              ],
+              [
+                "x-stainless-runtime-version",
+                "v22.20.0"
+              ],
+              [
+                "authorization",
+                "Bearer sk-wire"
+              ],
+              [
+                "x-mimo-source",
+                "mimocode-cli"
+              ],
+              [
+                "accept",
+                "application/json"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "user-agent",
+                "mimocode/1.4.5"
+              ],
+              [
+                "accept-language",
+                "*"
+              ],
+              [
+                "sec-fetch-mode",
+                "cors"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "content-length",
+                "170"
+              ]
+            ],
+            "body": {
+              "model": "mimo-v2.6-pro",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "temperature": 1,
+              "max_completion_tokens": 128000,
+              "stream": true,
+              "stream_options": {
+                "include_usage": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "abort-during-regional-probe-is-cancellation",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:684",
+      "input": {},
+      "result": {
+        "error": {
+          "name": "CallerCancel",
+          "message": "caller cancelled"
+        },
+        "isTheCallersReason": true,
+        "urls": [
+          "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
+          "https://token-plan-ams.xiaomimimo.com/v1/chat/completions"
+        ]
+      }
+    }
+  ],
+  "clockStartMs": 1794225600000
+}

@@ -1,0 +1,64 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-mimo-oauth-wire.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "entry": "src/runtime/agent/orchestrator/providers/mimo-oauth.mjs MimoOAuthProvider({ preconnect: false, ... }).send/.listModels/.isAvailable, mimo-oauth-tokens.mjs probeTokenPlanBaseUrl / ensureTokenPlanBaseUrl / loadTokens, mimo-oauth-profile.mjs chooseDefaultModel / SEED_MODELS, provider-catalog-cache.mjs providerCachedModelsSync, model-catalog.mjs getModelMetadataSync, runtime-core/effort.mjs effortOptionsFor, over a scripted loopback gateway (real fetch + the OpenAI SDK; credentials file MIMO_OAUTH_CREDENTIALS_PATH in the data directory). Not run: the widened stream waits and the private-hook supersession race (see the recorder header).",
+  "exclusions": [
+    "tokens.mtimeMs is the token file's real modification time, written as a marker (it is not part of the behaviour)",
+    "stream-wait widening assertions (mimo-oauth-wire.test.mjs:466): MiMo first-byte/idle windows are removed in the core (dec:47, dec:138)",
+    "enrichment-supersession subcases of the stale-publish test (:~345-395): private _inner hooks",
+    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
+    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 130985,
+      "path": "cases.json",
+      "sha256": "87719dfc2b75cf2c3e91ea4ee976c95ba89f9f57cbe86df44a6f7d0d59be484d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-gateway.mjs",
+      "sha256": "71cd970df23865e757d9331a19c6bd549c35807ddf13ce8d11a8d6387c08a6ce"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-mimo-oauth-wire.mjs",
+  "recorderSha256": "8f775f44863574ecd341ea1d6c1c8800a4e4cc2e90814037061f0eec80e6105a",
+  "replay": "mixdog-ai providers::compat (chat/options.rs, listing.rs, creds.rs, login/mimo.rs:51-107, error.rs:298-304, adapter.rs) and mixdog-ai catalog store.rs:201-205: replay each case's scripted answers and compare `requests` (method, url, header pairs, body) in order, the results/errors (message, status, reauthRequired, mimoGatewayCode), the cached roster and the credentials file. `requests[*].headers` are the headers the gateway received over the real client: host, connection, accept-encoding, accept-language, sec-fetch-mode and a `user-agent: node` come from undici, the rest from the product.",
+  "set": "provider-mimo-oauth-wire",
+  "totalBytes": 130985
+}
