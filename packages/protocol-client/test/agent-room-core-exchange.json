@@ -1,0 +1,29 @@
+{
+  "25": {
+    "onlyExchange": {
+      "result": {
+        "outcome": "done",
+        "rounds": 1,
+        "steps": 0,
+        "messages": 1
+      },
+      "spoken": [
+        "gh"
+      ],
+      "turns": [
+        {
+          "id": "gh",
+          "turn": {
+            "addressed": [
+              "gh"
+            ],
+            "instruction": "",
+            "mentionedBy": "",
+            "scene": "work"
+          }
+        }
+      ],
+      "steps": []
+    }
+  }
+}
