@@ -120,6 +120,104 @@ async fn an_abort_ends_the_wait_unconfirmed_and_leaves_the_survivor_running() {
     end_externally(sleeper);
 }
 
+/// A process this test starts outside the command's job, attached to the root's console: the console host then outlives the
+/// root for as long as this process runs, so a look made before the host has exited deterministically sees it.
+#[cfg(windows)]
+struct ConsoleClient(std::process::Child);
+
+#[cfg(windows)]
+impl ConsoleClient {
+    fn attach(root: u32) -> Self {
+        use std::io::BufRead;
+        use std::os::windows::process::CommandExt;
+        let script = format!(
+            "$o = [Console]::Out; $i = [Console]::In; \
+             Add-Type -Name C -Namespace W -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern bool FreeConsole(); [DllImport(\"kernel32.dll\")] public static extern bool AttachConsole(uint p);'; \
+             [void][W.C]::FreeConsole(); $o.WriteLine([W.C]::AttachConsole({root})); $o.Flush(); [void]$i.ReadLine()"
+        );
+        let mut child = std::process::Command::new("powershell")
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &script])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            // Without LOCALAPPDATA (an isolated test environment) PowerShell writes its module cache under the cwd.
+            .current_dir(std::env::temp_dir())
+            .spawn()
+            .unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.as_mut().unwrap()).read_line(&mut line).unwrap();
+        let client = Self(child);
+        assert_eq!(line.trim(), "True", "the client attached to the root's console");
+        client
+    }
+
+    /// Detaches by ending: its stdin closes and it exits on its own.
+    fn end(mut self) {
+        drop(self.0.stdin.take());
+        self.0.wait().unwrap();
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ConsoleClient {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// A root that ended on its own leaves its console host, which ends once its last console client has: that host is no
+/// survivor (`CONSOLE_HOST` of `lib/shell-descendants.mjs`). The settle waits for the host's own exit, not for a fixed time,
+/// so a host held longer than any fixed wait is still not reported.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_console_host_still_exiting_after_its_root_is_no_survivor() {
+    use mixdog_core_api::domain::process::ProcessEvent;
+    use mixdog_core_api::domain::process::ProcessManager;
+    let m = manager();
+    let watch = ProcessSurvivors::new(m.clone());
+    let h = handle("survivor-console-host");
+    let command = CommandSpec::Argv {
+        program: "powershell".to_owned(),
+        args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Write-Output \"ROOT=$PID\"; [void][Console]::In.ReadLine()"]
+            .map(str::to_owned)
+            .to_vec(),
+    };
+    m.spawn(mixdog_core_api::domain::process::SpawnRequest { stdin_piped: true, ..request(&h, command) }).await.unwrap();
+    let mut events = m.subscribe(&h, Some(0)).unwrap();
+    let mut out = Vec::new();
+    let root: u32 = loop {
+        match tokio::time::timeout(WAIT, events.next()).await.expect("the root prints its pid").expect("the feed is open") {
+            ProcessEvent::Output { bytes, .. } => out.extend(bytes),
+            ProcessEvent::Exited { .. } => panic!("the root ended before it printed its pid: {}", text(&out)),
+        }
+        let printed = text(&out);
+        if let Some(pid) = printed.split("ROOT=").nth(1).and_then(|rest| rest.lines().next()).and_then(|pid| pid.trim().parse().ok()) {
+            break pid;
+        }
+    };
+    let client = ConsoleClient::attach(root);
+    mixdog_spawn::testing::arm_settle_window();
+    let (entered, parked) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        mixdog_spawn::testing::wait_settle_window_entered();
+        let _ = entered.send(());
+    });
+    m.close_stdin(&h).unwrap();
+    parked
+        .recv_timeout(WAIT)
+        .expect("the settle of the ended root found only its console host left and waits for it");
+    client.end();
+    mixdog_spawn::testing::release_settle_window();
+    loop {
+        match tokio::time::timeout(WAIT, events.next()).await.expect("the root's exit is published").expect("the feed is open") {
+            ProcessEvent::Exited { .. } => break,
+            ProcessEvent::Output { .. } => {}
+        }
+    }
+    assert_eq!(watch.survivors(&h), None, "a console host that exited after its root is no survivor");
+}
+
 /// The cancel's own schedule (`killShellDescendants`): SIGTERM to the group first, and a survivor that ignores it is ended by
 /// the forced stop that follows, so the kill still reports every one gone.
 #[cfg(unix)]
