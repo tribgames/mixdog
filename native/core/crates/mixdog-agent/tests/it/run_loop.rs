@@ -2401,9 +2401,86 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     let second = seen[1].as_ref().expect("the judged effort is on the very next request");
     assert_eq!(second.updates.iter().collect::<Vec<_>>(), [(&2, &"high".to_owned())]);
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
-    // `currentTurnEffort`: the turn's own snapshot, then the step the judge re-marked.
-    let published: Vec<_> = h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).collect();
-    assert_eq!(published, [Some("low".to_owned()), Some("high".to_owned())]);
+}
+
+/// Sends through the provider, keeping what the run had published as the turn's effort when each request went out.
+struct SampledEffort {
+    provider: Arc<Scripted>,
+    observer: Arc<Observer>,
+    at_sends: Mutex<Vec<serde_json::Value>>,
+}
+#[async_trait]
+impl mixdog_agent::effort::EffortAdapter for SampledEffort {
+    async fn attempt_with(
+        &self,
+        request: Arc<ModelRequest>,
+        _: Option<mixdog_agent::effort::EffortProjection>,
+    ) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let published = self.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).last().flatten();
+        self.at_sends.lock().unwrap().push(json!(published));
+        self.provider.attempt(request).await
+    }
+}
+
+/// The step judgment the turn-effort recording's model answered: the effort Node marked on the step's tool result.
+struct RecordedStepJudge(Option<String>);
+#[async_trait]
+impl mixdog_agent::step_effort::StepEffortJudge for RecordedStepJudge {
+    async fn judge(&self, _: mixdog_agent::step_effort::StepInput) -> Option<mixdog_agent::step_effort::StepResult> {
+        self.0.clone().map(|effort| mixdog_agent::step_effort::StepResult { level: None, effort: Some(effort) })
+    }
+}
+
+/// `fixtures/turn-effort/*.json` (`record-turn-effort.mjs`): Node's exec turn over its real runtime, a tool call and a
+/// final reply on an Anthropic route that takes effort updates, with `runtime.turnEffort` read while each request was in
+/// flight and after the turn settled. The route's effort fixed (`high`), absent, and Auto at `medium` with a step judged
+/// after the tool call. The same turn here runs the loop with the route's effort wiring and the step judgment the
+/// recording's judge gave; what the run published last before each request, and last of all, is what Node's getter
+/// answered then. (The judge's distribution to effort is the step-ladder recording's; the judge here answers the effort.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_turn_effort_published_is_the_one_node_answered_at_each_request_and_after_settling() {
+    use mixdog_agent::effort::{EffortMode, EffortRoute, EffortSnapshot, EffortWiring};
+    for name in ["fixed", "none", "auto-step"] {
+        let recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{}/../../fixtures/turn-effort/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap()).unwrap();
+        assert_eq!(recorded["code"], 0, "{name}");
+        let effort = recorded["route"]["effort"].as_str().map(str::to_owned);
+        let model = recorded["route"]["model"].as_str().unwrap().to_owned();
+        let auto = recorded["autoEffort"] == "on";
+        let h = Harness::new(vec![
+            turn(vec![text("reading"), call("c1", "echo", json!({"path": "a.txt"})), done(StopReason::ToolUse)]),
+            turn(vec![text("all done"), done(StopReason::EndTurn)]),
+        ]);
+        let adapter = Arc::new(SampledEffort { provider: h.provider.clone(), observer: h.observer.clone(), at_sends: Mutex::new(Vec::new()) });
+        let mut cfg = config();
+        // The turn's snapshot `prepareTurnEffortConfiguration` stamps: none without an effort on the route.
+        cfg.effort = Some(EffortWiring {
+            route: EffortRoute {
+                provider: "anthropic".into(),
+                model: model.clone(),
+                mode: Some(EffortMode::Anthropic),
+                allowed: ["low", "medium", "high"].map(String::from).to_vec(),
+                seed: effort.clone().map(|e| EffortSnapshot { provider: "anthropic".into(), model: model.clone(), mode: EffortMode::Anthropic, initial_effort: e.clone(), effort: e }),
+                wire: Arc::new(|e| Some(e.to_owned())),
+            },
+            adapter: adapter.clone(),
+        });
+        let sends = recorded["sends"].as_array().unwrap();
+        let mut run = if auto {
+            cfg.step_auto_effort = Some(mixdog_agent::step_effort::StepAutoEffort { request: recorded["prompt"].as_str().unwrap().into(), base: effort.clone().unwrap() });
+            let mut run = h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())]);
+            run.set_step_judge(Arc::new(RecordedStepJudge(sends[1]["turnEffort"].as_str().map(str::to_owned))));
+            run
+        } else {
+            h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user(recorded["prompt"].as_str().unwrap())])
+        };
+        run.run().await.expect("run");
+        assert_eq!(h.provider.requests().len(), sends.len(), "{name}");
+        // The published value in force at each request, then at the end.
+        let current = h.observer.events().into_iter().filter_map(|e| match e { RunEvent::TurnEffort(effort) => Some(effort), _ => None }).last().flatten();
+        let node: Vec<_> = sends.iter().map(|send| send["turnEffort"].clone()).collect();
+        assert_eq!(*adapter.at_sends.lock().unwrap(), node, "{name}: at each request");
+        assert_eq!(json!(current), recorded["settled"]["turnEffort"], "{name}: after the turn settled");
+    }
 }
 struct Artifacts(Mutex<Vec<String>>);
 #[async_trait]
