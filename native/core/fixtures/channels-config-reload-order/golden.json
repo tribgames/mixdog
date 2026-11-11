@@ -1,0 +1,65 @@
+{
+  "domain": "channels-config-reload-order",
+  "source": "src/runtime/channels/lib/config-reload-watch.test.mjs",
+  "cases": [
+    {
+      "name": "a slower load of an older config never overwrites a newer one (test line 92)",
+      "steps": [
+        {
+          "step": "write channels revision 101 -> the watch calls reload; load #1 started",
+          "events": [
+            {
+              "event": "load started",
+              "id": 1
+            }
+          ]
+        },
+        {
+          "step": "write channels revision 102 -> load #2 started while #1 is pending",
+          "events": [
+            {
+              "event": "load started",
+              "id": 2
+            }
+          ]
+        },
+        {
+          "step": "load #2 resolves with {revision: 2} -> applied",
+          "events": [
+            {
+              "event": "setConfig",
+              "value": {
+                "revision": 2
+              }
+            },
+            {
+              "event": "scheduler.reloadConfig",
+              "schedules": [],
+              "options": {
+                "restart": true
+              }
+            },
+            {
+              "event": "syncWebhookAndEventRuntime",
+              "options": {
+                "reload": true
+              }
+            }
+          ],
+          "config": {
+            "revision": 2
+          }
+        },
+        {
+          "step": "load #1 (older) resolves with {revision: 1} last -> discarded; its caller got the newer reload",
+          "events": [],
+          "config": {
+            "revision": 2
+          },
+          "reload1SettledAfterReload2": true
+        }
+      ],
+      "loadCalls": 2
+    }
+  ]
+}
