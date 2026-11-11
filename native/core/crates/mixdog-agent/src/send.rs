@@ -460,10 +460,34 @@ impl Run {
         self.emit(RunEvent::Stage(Stage::Streaming));
         let mut shown_chars = 0usize;
         let mut reasoning_shown = false;
+        self.settle_gate.send_replace(false);
+        // Invariant (`crate::batch::settle_gate`): the gate is open only while a pending `next` waits for the wire. It is
+        // opened here, between polls of `next`, and closed by the stream itself inside the poll in which the wire's
+        // terminal event arrives, before that `next` goes on to the ledger's write: both run on this task, so a waiter
+        // never finds it open from the instant the response ended, whether the `next` that ends it began on the wire or not.
+        let wire_left = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        {
+            let (gate, left) = (self.settle_gate.clone(), Arc::clone(&wire_left));
+            stream.on_wire_left(Arc::new(move || {
+                left.store(true, std::sync::atomic::Ordering::Release);
+                gate.send_replace(false);
+            }));
+        }
         loop {
-            let next = or_cancelled(&self.cancel, stream.next())
-                .await
-                .ok_or(AgentError::Aborted)?;
+            let mut pending = std::pin::pin!(stream.next());
+            let ready = std::future::poll_fn(|cx| std::task::Poll::Ready(std::future::Future::poll(pending.as_mut(), cx))).await;
+            let next = match ready {
+                std::task::Poll::Ready(next) => next,
+                std::task::Poll::Pending => {
+                    // Every byte received is handled and the response is still open.
+                    if !builder.completed() && !wire_left.load(std::sync::atomic::Ordering::Acquire) {
+                        self.settle_gate.send_replace(true);
+                    }
+                    let next = or_cancelled(&self.cancel, pending).await.ok_or(AgentError::Aborted)?;
+                    self.settle_gate.send_replace(false);
+                    next
+                }
+            };
             let event = match next {
                 None => break,
                 Some(Err(error)) => {

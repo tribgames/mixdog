@@ -75,19 +75,19 @@
     "scripts": [
       {
         "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-        "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+        "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
-        "sha256": "bd6ee0cdc164ed875474cb2a112c6da86a272d7776b55f5669f7044a2f69625b"
+        "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
-        "sha256": "a21b148d3a3a470fd272151149aa40ffc9805641d802bd66c54b0e02d4fd2cf8"
+        "sha256": "07bec252644efbc5645c2e15ebf3aa3302b405deb7313637b712a26e719a9177"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
-        "sha256": "9b5e2b8d2d54770720acd87534d60f623472f2060b88cab56c8543dfbe0f457c"
+        "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
