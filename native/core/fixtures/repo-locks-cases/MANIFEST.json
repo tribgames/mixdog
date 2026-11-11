@@ -1,9 +1,7 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-repo-locks-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "keys: which spellings share one key; order: every snapshot of the events and every write's outcome",
-  "excluded": {
-    "a queued git repo lock aborts without running or blocking later work": "DIFFERENCE: the aborted write fails with Node's AbortError \"This operation was aborted\"; the core's RepoLocks::acquire fails with ScmFailure::Cancelled (\"cancelled\"); the order and outcomes are otherwise the same"
-  },
+  "excluded": {},
   "fileCount": 1,
   "files": [
     {
@@ -41,7 +39,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-repo-locks-cases.mjs",
-  "recorderSha256": "48eff9326a2a19e74f2dabfa553f336ec7b607cf45f6829dc14ce2b3de9700ec",
+  "recorderSha256": "79065f2a74647aa9c39a9c8b48b7e3171b482d43ba73ef0688322b3005c85382",
   "set": "repo-locks-cases",
   "totalBytes": 13043
 }
