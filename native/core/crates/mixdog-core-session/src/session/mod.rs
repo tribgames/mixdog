@@ -177,6 +177,8 @@ mod tests;
 #[cfg(test)]
 mod message_sanitize_replay;
 #[cfg(test)]
+mod address_replay;
+#[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
 mod turn_admission_tests;
