@@ -7,8 +7,9 @@
 //! clock reads wall-ms + V and moves only by `advance`.
 //!
 //! `advance <ms>` runs Node's idle event loop over `ms`: it turns at each timer list's expiry up to V+ms, in order, with V set to
-//! that expiry, and fires there what Node's `processTimers` fires, one timer at a time (timers armed meanwhile join their lists).
-//! After each timer, and at V+ms, it waits for the settle point below (RT-C and RT-W parked with empty queues, no lane job queued or
+//! that expiry, and fires there what Node's `processTimers` fires, one timer at a time (timers armed meanwhile join their lists),
+//! then the immediates of the turn (its check phase, below). After each timer and immediate, and at V+ms, it waits for the
+//! settle point below (RT-C and RT-W parked with empty queues, no lane job queued or
 //! running); then it answers `now <wall-ms>`. So everything those timers made runnable, across both runtimes and the lanes, has
 //! run until it waits on a later timer, on real I/O, or on a task that does.
 //!
@@ -72,6 +73,8 @@
 //! | 13 | lane job dropped unrun (cancelled at dequeue, refused, lane gone) | result sender dropped (row 1), bump, in-flight -1, bump | `InFlight`'s drop |
 //! | 14 | task spawned by a lane job | row 1 before row 12 | the job's body runs inside `InFlight` |
 //! | 15 | PTY job, a thread token's or a crate's own thread, `Handle::block_on` off the runtimes (mixdogd's `serve`) | not counted | real I/O; whatever they wake on a runtime is row 1 from its push on |
+//! | 16 | immediate queued | none: its task waits on it as on a timer | `check_phase`, run under `turn` by `advance` (each turn, and before it answers), by `wait` before it answers, and by `drive_checks` between commands |
+//! | 17 | immediate fired | row 4: row 1 from this clock's thread, then `settle` | `check_phase` |
 //!
 //! `tests/virtual_clock.rs` holds each counted transition half done at a pause point ([`pause`]: `lane-queued`, `lane-start`,
 //! `lane-sent`, `lane-bumped`, `lane-released`, `spawned <task>`, `polled <task>`, `parking <RT>`, `parked <RT>`,
@@ -89,26 +92,37 @@
 //!   expiry <= now; `listOnTimeout` fires its timers from the front while `now - _idleStart >= msecs`; at the first that is not
 //!   due it sets `expiry = max(_idleStart + msecs, now + 1)` and a new id (the list goes behind lists of the same expiry made
 //!   since), and an emptied list is deleted, so a later timer of that duration makes a new list.
-//! - `clearTimeout` of a refed timer deletes its list once empty (`unenroll`). An interval is re-inserted after its callback
-//!   returns, `msecs` from the `getLibuvNow()` read before it.
+//! - `clearTimeout` (`unenroll`) of a refed timer deletes its list once empty; of an unrefed one (`timer.unref()`, not `ref()`ed
+//!   since) it leaves the list queued, empty or not, with its expiry and id, so the next timer of that duration joins it and,
+//!   when its expiry comes, is re-queued behind the lists of its own expiry made since. `unref()` and `ref()` alone move nothing.
+//!   An interval is re-inserted after its callback returns, `msecs` from the `getLibuvNow()` read before it.
 //! - Between two timers only `process.nextTick` callbacks and microtasks run (`runNextTicks`); `setImmediate` callbacks and I/O
-//!   run after every timer of the turn.
+//!   run after every timer of the turn. The check phase (`processImmediate`) takes the queue as it is and runs it in order;
+//!   an immediate queued meanwhile waits for the next loop turn, whose timers phase comes first.
 //!
 //! So of timers due in the same millisecond, the one whose list is older fires first, which is not always the one armed first,
 //! and a timer armed while another fires never fires in the same turn. Here: a sleep (`sleep`, `timeout`) is a `setTimeout` of
 //! its duration; a deadline (`sleep_until`, `timeout_at`, `Sleep::reset`, a ticker `register`) is one of its distance to the
 //! nearest millisecond, ready at once when that is none; `interval_at` is a `setInterval` whose first tick is a deadline; a
-//! dropped sleep or a cancelled ticker deadline is a `clearTimeout`. The recording `native/core/fixtures/node-timer-order`
-//! (`benchmarks/rust-core/recorders/record-node-timer-order.mjs`, real Node timers on an idle loop turned at each list's expiry)
-//! is replayed case for case by `tests/virtual_clock.rs` `node_timer_order`.
+//! dropped sleep or a cancelled ticker deadline is a `clearTimeout`; `sleep_unrefed`, `sleep_until_unrefed` and
+//! `interval_at_unrefed` are those of an `unref()`ed Node timer. `mixdog_rt::time::immediate()` is `await new Promise((r) =>
+//! setImmediate(r))` and `check_phase()` the start of a task Node runs as `setImmediate(f)`: each is queued when made and fired by
+//! [`check_phase`] after the timers of the turn, one at a time with a settle after each; the immediates they queue run in the
+//! next turn, at the same V. An immediate queued between commands (by real I/O, or work an answer left behind) runs once the core
+//! is idle, from a thread of the clock's own; `advance` and `wait` answer only with no immediate left. The recording
+//! `native/core/fixtures/node-timer-order` (`benchmarks/rust-core/recorders/record-node-timer-order.mjs`, real Node timers on an
+//! idle loop turned at each list's expiry) is replayed case for case by `tests/virtual_clock.rs` `node_timer_order`.
 //!
-//! No counterpart here, so not replayed (the recording's `exclusions`): `setImmediate` (the core has no check phase: what a
-//! timer's code spawns runs before the next timer), `process.nextTick`'s priority over promise jobs (the tasks a timer's code
-//! spawns run in the order it spawned them, as a tick or promise job does when queued in that order), and unrefed timers (a
-//! cleared unrefed timer leaves its list queued). Also unlike Node: between two timers the core runs everything to the settle
-//! point, so a lane job one timer started has finished before the next timer of the turn; a task spawned by a timer's code runs
-//! before that timer's list is re-queued (Node re-queues it before its nextTicks), so a timer such a task arms for the same
-//! expiry as the re-queued list goes ahead of it; and durations over 2^31 - 1 ms stay as they are.
+//! Not replayed (the recording's `exclusions`): `process.nextTick`'s priority over promise jobs. The clock's guarantee is that
+//! everything a timer's or an immediate's code makes runnable runs to the settle point before the next one, which is what Node's
+//! `runNextTicks` drains between them; among it, tasks run in the order spawned on one runtime and unordered across the two.
+//! No core code can observe the priority: Node b6f10295a calls `process.nextTick` nowhere in `src/` outside tests, so no core
+//! code is its counterpart, and a Rust port orders its own continuations by program order inside one task, which the clock does
+//! not touch (`ticks-and-promises-between-timers`, ticks and promise jobs queued in order, is replayed). Also unlike Node:
+//! between two timers the core runs everything to the settle point, so a lane job one timer started has finished before the
+//! next timer of the turn; a task spawned by a timer's code runs before that timer's list is re-queued (Node re-queues it before
+//! its nextTicks), so a timer such a task arms for the same expiry as the re-queued list goes ahead of it; and durations over
+//! 2^31 - 1 ms stay as they are.
 //!
 //! # Time readers
 //!
@@ -201,6 +215,12 @@ struct Clock {
     /// V, mirrored from `timers` for lock-free readers.
     now: AtomicU64,
     timers: Mutex<Timers>,
+    /// Node's `immediateQueue`: queued and not yet fired, oldest first.
+    immediates: Mutex<VecDeque<Arc<Slot>>>,
+    /// Wakes the check driver ([`drive_checks`]) when an immediate is queued.
+    immediate_queued: Condvar,
+    /// Held by whoever runs Node's loop phases (an `advance`, a `wait`'s answer, the check driver): one at a time.
+    turn: Mutex<()>,
     log: Mutex<Log>,
     logged: Condvar,
     /// The commands read and not yet answered, oldest first.
@@ -237,13 +257,13 @@ struct List {
     msecs: u64,
     expiry: u64,
     id: u64,
-    /// In arming order, each with its start (`_idleStart`).
-    items: BTreeMap<Key, (u64, Entry)>,
+    /// In arming order, each with its start (`_idleStart`) and whether it is refed (`kRefed`).
+    items: BTreeMap<Key, (u64, bool, Entry)>,
 }
 
 impl Timers {
     /// Node's `insert(item, msecs, start)`: appends to the list of `msecs`, creating it (expiry `start + msecs`, the next id).
-    fn insert(&mut self, msecs: u64, start: u64, entry: Entry) -> Key {
+    fn insert(&mut self, msecs: u64, start: u64, refed: bool, entry: Entry) -> Key {
         let uid = match self.by_msecs.get(&msecs) {
             Some(uid) => *uid,
             None => {
@@ -258,17 +278,18 @@ impl Timers {
         };
         let key = self.next_key;
         self.next_key += 1;
-        self.lists.get_mut(&uid).expect("a queued list").items.insert(key, (start, entry));
+        self.lists.get_mut(&uid).expect("a queued list").items.insert(key, (start, refed, entry));
         self.armed.insert(key, uid);
         key
     }
 
-    /// Node's `unenroll` of a refed timer: removes it, and its list once that is empty.
+    /// Node's `unenroll`: removes the timer, and, when it is refed, its list once that is empty; an unrefed timer's list stays
+    /// queued, empty or not, with its expiry and id, and the next timer of its duration joins it.
     fn remove(&mut self, key: Key) -> bool {
         let Some(uid) = self.armed.remove(&key) else { return false };
         let list = self.lists.get_mut(&uid).expect("an armed timer's list");
-        list.items.remove(&key);
-        if list.items.is_empty() {
+        let (_, refed, _) = list.items.remove(&key).expect("an armed timer");
+        if refed && list.items.is_empty() {
             self.delete(uid);
         }
         true
@@ -293,7 +314,7 @@ impl Timers {
                 return None;
             }
             let list = self.lists.get_mut(&uid).expect("a queued list");
-            let Some((&key, &(start, _))) = list.items.first_key_value() else {
+            let Some((&key, &(start, ..))) = list.items.first_key_value() else {
                 self.delete(uid);
                 continue;
             };
@@ -305,7 +326,7 @@ impl Timers {
                 self.queue.insert((list.expiry, list.id, uid));
                 continue;
             }
-            let (_, entry) = list.items.remove(&key).expect("the first timer");
+            let (.., entry) = list.items.remove(&key).expect("the first timer");
             self.armed.remove(&key);
             return Some(entry);
         }
@@ -473,8 +494,8 @@ enum Due {
     From { msecs: u64, start: u64 },
 }
 
-/// Inserts `entry` into Node's lists; `Err` with it when it is due at once.
-fn arm(due: Due, entry: Entry) -> Result<(Key, u64), Entry> {
+/// Inserts `entry` into Node's lists, refed or not (`timer.unref()`); `Err` with it when it is due at once.
+fn arm(due: Due, refed: bool, entry: Entry) -> Result<(Key, u64), Entry> {
     let mut timers = lock(&clock().timers);
     let now = timers.now;
     let (msecs, start) = match due {
@@ -486,36 +507,45 @@ fn arm(due: Due, entry: Entry) -> Result<(Key, u64), Entry> {
     if due <= now {
         return Err(entry);
     }
-    Ok((timers.insert(msecs, start, entry), due))
+    Ok((timers.insert(msecs, start, refed, entry), due))
 }
 
-fn wake(due: Due) -> Armed {
+fn wake(due: Due, refed: bool) -> Armed {
     let slot = Arc::new(Slot::default());
-    match arm(due, Entry::Wake(slot.clone())) {
+    match arm(due, refed, Entry::Wake(slot.clone())) {
         Ok((key, due)) => Armed { key: Some(key), slot, due },
         Err(_) => Armed { key: None, slot: Slot::elapsed(), due: clock().now.load(SeqCst) },
     }
 }
 
-/// `sleep(delay)`: Node's `setTimeout(f, delay)`.
-pub(crate) fn wake_after(delay: Duration) -> Armed {
-    wake(Due::After(delay))
+/// `sleep(delay)`: Node's `setTimeout(f, delay)`, unrefed (`timer.unref()`) when not `refed`.
+pub(crate) fn wake_after(delay: Duration, refed: bool) -> Armed {
+    wake(Due::After(delay), refed)
 }
 
 /// `sleep_until(at)`, `at` on the calling thread's tokio clock.
-pub(crate) fn wake_at(at: tokio::time::Instant) -> Armed {
-    wake(Due::Until(at.saturating_duration_since(tokio::time::Instant::now())))
+pub(crate) fn wake_at(at: tokio::time::Instant, refed: bool) -> Armed {
+    wake(Due::Until(at.saturating_duration_since(tokio::time::Instant::now())), refed)
 }
 
 /// An interval's next tick: `period` from `start`, the V its last tick fired at.
-pub(crate) fn wake_from(start: u64, period: Duration) -> Armed {
-    wake(Due::From { msecs: node_ms(period), start })
+pub(crate) fn wake_from(start: u64, period: Duration, refed: bool) -> Armed {
+    wake(Due::From { msecs: node_ms(period), start }, refed)
+}
+
+/// Node's `setImmediate`: ready in the check phase ([`check_phase`]) after the turn that queued it.
+pub(crate) fn immediate() -> Arc<Slot> {
+    let clock = clock();
+    let slot = Arc::new(Slot::default());
+    lock(&clock.immediates).push_back(slot.clone());
+    clock.immediate_queued.notify_all();
+    slot
 }
 
 /// Runs `call` in a task on RT-C when a deadline `distance` from now comes (at once when that is V); `None` when it ran at
 /// once.
 pub(crate) fn call_after(distance: Duration, call: Box<dyn FnOnce() + Send>) -> Option<Key> {
-    match arm(Due::Until(distance), Entry::Call(call)) {
+    match arm(Due::Until(distance), true, Entry::Call(call)) {
         Ok((key, _)) => Some(key),
         Err(entry) => {
             run(clock(), entry);
@@ -609,6 +639,9 @@ pub(crate) fn start(on_control: impl FnOnce() + Send + 'static, on_work: impl Fn
         settle_within,
         now: AtomicU64::new(0),
         timers: Mutex::new(Timers::default()),
+        immediates: Mutex::new(VecDeque::new()),
+        immediate_queued: Condvar::new(),
+        turn: Mutex::new(()),
         log: Mutex::new(Log::default()),
         logged: Condvar::new(),
         unanswered: Mutex::new(VecDeque::new()),
@@ -621,6 +654,7 @@ pub(crate) fn start(on_control: impl FnOnce() + Send + 'static, on_work: impl Fn
     let (commands, received) = mpsc::channel();
     std::thread::Builder::new().name("mixdog-virtual-clock-reader".to_owned()).spawn(move || read(clock, reader, &commands))?;
     std::thread::Builder::new().name("mixdog-virtual-clock".to_owned()).spawn(move || serve(clock, &received, stream))?;
+    std::thread::Builder::new().name("mixdog-virtual-clock-check".to_owned()).spawn(move || drive_checks(clock))?;
     Ok(handles)
 }
 
@@ -773,8 +807,11 @@ fn advance(clock: &Clock, ms: u64) -> u64 {
     let Some((target, wall)) = now.checked_add(ms).and_then(|target| Some((target, clock.wall_origin.checked_add(target)?))).filter(|(_, wall)| wall_holds(*wall)) else {
         fail(format!("{during}: wall-ms {} + V {now} + {ms} is past {} ms, the largest wall clock this core's readers hold", clock.wall_origin, max_wall_ms()))
     };
+    let _turn = lock(&clock.turn);
     settle(clock, &during);
-    // An idle Node loop over `ms`: it turns at each list's expiry, in order, and fires what `processTimers` fires there.
+    check_phase(clock, &during);
+    // An idle Node loop over `ms`: it turns at each list's expiry, in order, fires what `processTimers` fires there, then runs
+    // the turn's check phase.
     loop {
         let next = lock(&clock.timers).queue.first().map(|&(expiry, _, _)| expiry).filter(|expiry| *expiry <= target);
         let Some(expiry) = next else { break };
@@ -784,11 +821,46 @@ fn advance(clock: &Clock, ms: u64) -> u64 {
         while fire_next(clock) {
             settle(clock, &during);
         }
+        check_phase(clock, &during);
     }
     if clock.now.load(SeqCst) < target {
         move_to(clock, target, &during);
+        check_phase(clock, &during);
     }
     wall
+}
+
+/// Node's check phase (`processImmediate`), from the settle point: fires the immediates queued so far, oldest first, settling
+/// after each; those they queue wait for the next loop turn, at the same V: its timers phase (`processTimers`), then its check
+/// phase, until no immediate is left.
+fn check_phase(clock: &Clock, during: &str) {
+    loop {
+        let queued = std::mem::take(&mut *lock(&clock.immediates));
+        if queued.is_empty() {
+            return;
+        }
+        for slot in queued {
+            slot.fire();
+            settle(clock, during);
+        }
+        while fire_next(clock) {
+            settle(clock, during);
+        }
+    }
+}
+
+/// Runs the check phase of immediates queued between commands (by real I/O, or by work an answer left waiting on one) once the
+/// core is idle, as Node's loop runs it after the poll phase that queued them.
+fn drive_checks(clock: &'static Clock) {
+    const DURING: &str = "the check phase between commands";
+    loop {
+        drop(clock.immediate_queued.wait_while(lock(&clock.immediates), |queued| queued.is_empty()).unwrap_or_else(PoisonError::into_inner));
+        // Unbounded and without the turn: real work may run for as long as it takes; an advance meanwhile drains the queue.
+        let _ = quiesce(clock, None);
+        let _turn = lock(&clock.turn);
+        settle(clock, DURING);
+        check_phase(clock, DURING);
+    }
 }
 
 /// `within` from now on this machine's clock; a span it cannot hold ends the process.
@@ -817,23 +889,35 @@ fn busy(clock: &Clock) -> Option<String> {
 /// Waits for the settle point (the invariant above), within the replay's settle bound.
 fn settle(clock: &Clock, during: &str) {
     let deadline = real_deadline(clock.settle_within, during);
+    if let Err(busy) = quiesce(clock, Some(deadline)) {
+        fail(format!("{during}: the core did not settle within {} ms: {busy}", clock.settle_within.as_millis()));
+    }
+}
+
+/// Waits for the settle point, until `deadline` if any; `Err` with what kept the core busy when it passed.
+fn quiesce(clock: &Clock, deadline: Option<std::time::Instant>) -> Result<(), String> {
     loop {
         let seen = ACTIVITY.epoch.load(SeqCst);
         let poked = pause::pokes();
         let busy = busy(clock);
         if busy.is_none() && ACTIVITY.epoch.load(SeqCst) == seen {
-            return;
+            return Ok(());
         }
         if let Some(busy) = &busy {
             pause::settle_waits(busy);
         }
         let guard = lock(&ACTIVITY.lock);
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        if left.is_zero() {
-            let busy = busy.unwrap_or_else(|| "its activity never stopped".to_owned());
-            fail(format!("{during}: the core did not settle within {} ms: {busy}", clock.settle_within.as_millis()));
+        let unchanged = |_: &mut ()| ACTIVITY.epoch.load(SeqCst) == seen && pause::pokes() == poked;
+        match deadline {
+            None => drop(ACTIVITY.changed.wait_while(guard, unchanged)),
+            Some(deadline) => {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    return Err(busy.unwrap_or_else(|| "its activity never stopped".to_owned()));
+                }
+                drop(ACTIVITY.changed.wait_timeout_while(guard, left, unchanged));
+            }
         }
-        drop(ACTIVITY.changed.wait_timeout_while(guard, left, |_| ACTIVITY.epoch.load(SeqCst) == seen && pause::pokes() == poked));
     }
 }
 
@@ -997,7 +1081,10 @@ fn serve(clock: &'static Clock, commands: &mpsc::Receiver<Command>, mut stream: 
             Command::Advance(ms) => format!("now {}", advance(clock, ms)),
             Command::Wait { within, line } => match wait_log(clock, Duration::from_millis(within), &line) {
                 Ok(seen) => {
-                    settle(clock, &format!("wait for {line:?}"));
+                    let during = format!("wait for {line:?}");
+                    let _turn = lock(&clock.turn);
+                    settle(clock, &during);
+                    check_phase(clock, &during);
                     format!("seen {seen}")
                 }
                 Err(missed) => missed,

@@ -302,12 +302,13 @@ impl Pool {
     }
 
     /// `chosen` ready to be written to: a socket that was used is written to after one turn of the scheduler, so a close
-    /// that has arrived by then is seen and another one is chosen (`client-h1.js` `scheduleIdleSocketValidation`).
+    /// that has arrived by then is seen and another one is chosen (`client-h1.js` `scheduleIdleSocketValidation`, a
+    /// `setImmediate`: on a replay's clock, the check phase after every timer of this turn).
     /// Without a connection nothing waits: the caller dials within the same poll.
     pub async fn validated(self: &Arc<Self>, key: &str, mut chosen: Option<Taken>) -> Option<Taken> {
         loop {
             let taken = chosen?;
-            tokio::task::yield_now().await;
+            mixdog_rt::time::immediate().await;
             match taken {
                 Taken::H1(conn) if conn.is_closed() => {
                     drop(conn);

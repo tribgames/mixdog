@@ -58,7 +58,7 @@
           "then": []
         }
       ],
-      "attempts": 1,
+      "attempts": 2,
       "events": [
         [
           "x50",
@@ -241,7 +241,7 @@
           ]
         }
       ],
-      "attempts": 1,
+      "attempts": 2,
       "events": [
         [
           "k10",
@@ -460,7 +460,7 @@
     },
     {
       "name": "a-promise-queued-before-a-tick",
-      "core": "process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them",
+      "core": "process.nextTick runs before promise jobs whatever their order; the core runs the tasks a timer spawns in the order it spawned them, and no core code is a counterpart of process.nextTick (Node b6f10295a calls it nowhere in src/ outside tests)",
       "script": [
         {
           "timeout": "a",
@@ -502,7 +502,7 @@
     },
     {
       "name": "immediates-after-all-timers-of-a-turn",
-      "core": "setImmediate runs after every timer of the turn; the core has no check phase (a task a timer spawns runs before the next timer)",
+      "core": true,
       "script": [
         {
           "timeout": "a",
@@ -527,7 +527,7 @@
           "then": []
         }
       ],
-      "attempts": 1,
+      "attempts": 2,
       "events": [
         [
           "a",
@@ -543,10 +543,215 @@
         ],
         [
           "a-immediate",
-          11
+          10
         ],
         [
           "c",
+          11
+        ]
+      ]
+    },
+    {
+      "name": "immediates-queued-by-immediates-run-a-loop-turn-later",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i1",
+              "then": [
+                {
+                  "immediate": "i2",
+                  "then": [
+                    {
+                      "timeout": "n1",
+                      "ms": 1,
+                      "then": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "timeout": "n0",
+              "ms": 1,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "ib"
+            }
+          ]
+        },
+        {
+          "timeout": "c",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "attempts": 1,
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "b",
+          10
+        ],
+        [
+          "i1",
+          10
+        ],
+        [
+          "ib",
+          10
+        ],
+        [
+          "i2",
+          10
+        ],
+        [
+          "c",
+          11
+        ],
+        [
+          "n0",
+          11
+        ],
+        [
+          "n1",
+          11
+        ]
+      ]
+    },
+    {
+      "name": "an-immediate-from-the-start-before-a-1ms-timer",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 1,
+          "then": []
+        },
+        {
+          "immediate": "i0"
+        }
+      ],
+      "attempts": 1,
+      "events": [
+        [
+          "i0",
+          0
+        ],
+        [
+          "a",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "immediates-of-two-lists-in-the-order-queued",
+      "core": true,
+      "script": [
+        {
+          "timeout": "x",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "ix"
+            }
+          ]
+        },
+        {
+          "timeout": "y",
+          "ms": 5,
+          "then": [
+            {
+              "timeout": "z",
+              "ms": 5,
+              "then": [
+                {
+                  "immediate": "iz"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "attempts": 1,
+      "events": [
+        [
+          "y",
+          5
+        ],
+        [
+          "x",
+          10
+        ],
+        [
+          "z",
+          10
+        ],
+        [
+          "ix",
+          10
+        ],
+        [
+          "iz",
+          10
+        ]
+      ]
+    },
+    {
+      "name": "a-timer-armed-by-an-immediate",
+      "core": true,
+      "script": [
+        {
+          "timeout": "a",
+          "ms": 10,
+          "then": [
+            {
+              "immediate": "i",
+              "then": [
+                {
+                  "timeout": "n0",
+                  "ms": 0,
+                  "then": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "timeout": "b",
+          "ms": 11,
+          "then": []
+        }
+      ],
+      "attempts": 1,
+      "events": [
+        [
+          "a",
+          10
+        ],
+        [
+          "i",
+          10
+        ],
+        [
+          "b",
+          11
+        ],
+        [
+          "n0",
           11
         ]
       ]
@@ -652,7 +857,7 @@
           ]
         }
       ],
-      "attempts": 3,
+      "attempts": 1,
       "events": [
         [
           "x",
@@ -698,13 +903,70 @@
     },
     {
       "name": "clearing-an-unrefed-timer-keeps-its-list",
-      "core": "an unrefed timer cleared from its list leaves the list (and its place) in the queue; the core has no unrefed timers",
+      "core": true,
       "script": [
         {
           "timeout": "u",
           "ms": 100,
           "then": [],
           "unref": true
+        },
+        {
+          "timeout": "k",
+          "ms": 10,
+          "then": [
+            {
+              "clear": "u"
+            },
+            {
+              "timeout": "v",
+              "ms": 100,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "r",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "s",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "attempts": 3,
+      "events": [
+        [
+          "k",
+          10
+        ],
+        [
+          "r",
+          20
+        ],
+        [
+          "s",
+          110
+        ],
+        [
+          "v",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "clearing-a-reref-ed-timer-recreates-its-list",
+      "core": true,
+      "script": [
+        {
+          "timeout": "u",
+          "ms": 100,
+          "then": [],
+          "unref": true,
+          "ref": true
         },
         {
           "timeout": "k",
@@ -741,6 +1003,123 @@
         [
           "r",
           20
+        ],
+        [
+          "v",
+          110
+        ],
+        [
+          "s",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "a-rearmed-unrefed-watchdog-joins-its-old-list",
+      "core": true,
+      "script": [
+        {
+          "timeout": "w1",
+          "ms": 100,
+          "then": [],
+          "unref": true
+        },
+        {
+          "timeout": "k",
+          "ms": 10,
+          "then": [
+            {
+              "clear": "w1"
+            },
+            {
+              "timeout": "w2",
+              "ms": 100,
+              "then": [],
+              "unref": true
+            }
+          ]
+        },
+        {
+          "timeout": "r",
+          "ms": 20,
+          "then": [
+            {
+              "timeout": "s",
+              "ms": 90,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "attempts": 1,
+      "events": [
+        [
+          "k",
+          10
+        ],
+        [
+          "r",
+          20
+        ],
+        [
+          "s",
+          110
+        ],
+        [
+          "w2",
+          110
+        ]
+      ]
+    },
+    {
+      "name": "clearing-an-unrefed-interval-keeps-its-list",
+      "core": true,
+      "script": [
+        {
+          "interval": "w",
+          "ms": 50,
+          "times": 99,
+          "unref": true
+        },
+        {
+          "timeout": "k",
+          "ms": 60,
+          "then": [
+            {
+              "clear": "w"
+            },
+            {
+              "timeout": "v",
+              "ms": 50,
+              "then": []
+            }
+          ]
+        },
+        {
+          "timeout": "r",
+          "ms": 70,
+          "then": [
+            {
+              "timeout": "s",
+              "ms": 40,
+              "then": []
+            }
+          ]
+        }
+      ],
+      "attempts": 1,
+      "events": [
+        [
+          "w",
+          50
+        ],
+        [
+          "k",
+          60
+        ],
+        [
+          "r",
+          70
         ],
         [
           "s",

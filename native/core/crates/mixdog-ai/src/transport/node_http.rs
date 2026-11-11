@@ -536,7 +536,11 @@ impl NodeClient {
             // before this task yields finds it busy, one after it finds it free ([`Pool::hold_h1`]). Only the request
             // that claims the hold waits for it ([`Pool::claim_hold`]).
             let held = self.pool.claim_hold(&key);
-            if streamed || held {
+            if held {
+                // The held socket is resumed by undici's `setImmediate(client[kResume])` (`client-h1.js:846`): on a replay's
+                // clock, in the check phase after every timer of this turn.
+                mixdog_rt::time::immediate().await;
+            } else if streamed {
                 tokio::task::yield_now().await;
             }
             if held {
