@@ -8,6 +8,7 @@ mod project_id;
 mod query_ranking;
 mod recall_fusion;
 mod scope_filter;
+mod session_ingest_projection;
 mod tokenizer;
 
 use mixdog_testkit::Exact;
