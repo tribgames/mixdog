@@ -195,6 +195,10 @@ impl TurnRunner {
     /// Runs the turn and settles everything around it; a failed turn is its message.
     pub async fn run(&self, plan: TurnPlan, context: Option<NotifyContext>, job: Option<Arc<JobHandle>>) -> Result<WorkerResult, String> {
         let context = context.unwrap_or_default();
+        // The sessions the turn's report and handoffs reach (the review's owners): the worker's sensitive values follow.
+        for owner in [context.caller_session_id.as_deref(), plan.parent_session_id.as_deref(), context.owner_session_id.as_deref(), plan.session_owner_id.as_deref()].into_iter().flatten() {
+            self.sessions.carry_marks(&plan.session_id, owner);
+        }
         let claim = self.turns.claim(&plan.session_id, job.clone());
         let spawn = plan.kind == TurnKind::Spawn;
         // A send's follow-up is reviewed like a spawn's: its edits join the owner's turn review.

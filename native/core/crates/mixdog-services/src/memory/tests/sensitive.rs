@@ -75,3 +75,33 @@ fn only_sensitive_browser_fills_are_remembered_and_listeners_hear_each_new_value
         drop(subscription);
     }
 }
+
+/// A carry makes a session's values, those it holds and those it gains later, its target's, and on along the target's
+/// own carries; the target's listeners hear it, the carried listener is told each session that gained one, and a cycle
+/// of carries ends.
+#[test]
+fn a_carried_session_takes_the_values_its_source_holds_and_gains_up_the_chain() {
+    let fill = |text: &str| serde_json::json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": text } } });
+    let store = Arc::new(SensitiveStore::default());
+    let told: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let sink = told.clone();
+    assert!(store.on_carried(move |session| sink.lock().unwrap().push(session.to_owned())));
+    assert!(!store.on_carried(|_| {}), "one carried listener");
+    let heard = Arc::new(AtomicU64::new(0));
+    let _parent = {
+        let heard = heard.clone();
+        store.on_marked("parent", move |version| heard.store(version, Ordering::SeqCst))
+    };
+    assert!(store.remember("child", &[fill("before")]));
+    store.carry("child", "parent");
+    assert_eq!(store.redact_text("parent", "before"), "[redacted]", "what the source held is carried");
+    store.carry("grandchild", "child");
+    store.carry("parent", "child");
+    assert!(store.remember("grandchild", &[fill("after")]));
+    for session in ["grandchild", "child", "parent"] {
+        assert_eq!(store.redact_text(session, "before after"), if session == "grandchild" { "before [redacted]" } else { "[redacted] [redacted]" }, "{session}");
+    }
+    assert_eq!(heard.load(Ordering::SeqCst), store.version("parent"));
+    assert_eq!(*told.lock().unwrap(), ["parent", "child", "parent"]);
+    assert_eq!(store.redact_text("unrelated", "after"), "after");
+}

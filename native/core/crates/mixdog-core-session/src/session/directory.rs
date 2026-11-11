@@ -313,7 +313,31 @@ impl SessionDirectory {
             }
         }));
         *lock(&inner.goal_events) = Some(subscription);
+        let me = Arc::downgrade(&inner);
+        inner.deps.sensitive.on_carried(Box::new(move |thread| {
+            let Some(directory) = me.upgrade() else { return };
+            let thread = thread.clone();
+            drop(mixdog_rt::spawn("sensitive-carried", mixdog_rt::TaskClass::Work, async move {
+                SessionDirectory::over(directory).carried(&thread).await;
+            }));
+        }));
         Self { inner }
+    }
+
+    /// A value marked in a session whose text `thread` holds reached it (`SensitiveMarks::carry`): the thread rewrites what
+    /// it stored as for a mark of its own; one not loaded is opened for it (its files hold the text).
+    async fn carried(&self, thread: &ThreadId) {
+        let handle = match self.inner.loaded(thread) {
+            Some(handle) => handle,
+            None => match self.inner.open(thread, &CallContext::internal("sensitive-carried")).await {
+                Ok(handle) => handle,
+                Err(error) => {
+                    tracing::warn!(%thread, "a carried sensitive value could not open the thread that holds it: {error:?}");
+                    return;
+                }
+            },
+        };
+        let _ = handle.inbox.send(Inbox::SensitiveCarried).await;
     }
 
     /// Woken whenever a thread leaves the directory.

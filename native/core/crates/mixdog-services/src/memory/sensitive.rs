@@ -49,16 +49,22 @@ struct Known {
 
 type Listener = Arc<dyn Fn(u64) + Send + Sync>;
 
+/// Told the id of a session that gained values carried from another one (`carry`).
+type CarriedListener = Arc<dyn Fn(&str) + Send + Sync>;
+
 #[derive(Default)]
 struct Inner {
     by_session: HashMap<String, Known>,
     listeners: HashMap<String, Vec<(u64, Listener)>>,
     next_listener: u64,
+    /// Session → the sessions its text went to (`carry`): every value it gains goes there too.
+    carries: HashMap<String, BTreeSet<String>>,
 }
 
 #[derive(Default)]
 pub struct SensitiveStore {
     inner: Mutex<Inner>,
+    carried: std::sync::OnceLock<CarriedListener>,
 }
 
 /// Stops its listener when dropped.
@@ -372,12 +378,66 @@ impl SensitiveStore {
         if session.is_empty() || values.is_empty() {
             return false;
         }
-        let (version, listeners) = {
+        self.gain(session, values)
+    }
+
+    /// Text of `from` went to `to` (a worker's report to its owner): every value `from` holds, and every value it gains
+    /// later, is `to`'s too, and so on along `to`'s own carries. `to` is told as by a mark of its own, and the carried
+    /// listener ([`Self::on_carried`]) is told each session that gained a value this way.
+    pub fn carry(&self, from: &str, to: &str) {
+        if from.is_empty() || to.is_empty() || from == to {
+            return;
+        }
+        let values: Vec<String> = {
+            let mut inner = self.lock();
+            inner.carries.entry(from.to_owned()).or_default().insert(to.to_owned());
+            inner.by_session.get(from).map(|known| known.values.iter().cloned().collect()).unwrap_or_default()
+        };
+        if !values.is_empty() {
+            self.gain_carried(&[to.to_owned()], values, from);
+        }
+    }
+
+    /// The one listener told the id of every session that gains values carried from another (the session directory,
+    /// which runs that session's rewrite whether it is loaded, running or not). A second one is refused.
+    pub fn on_carried(&self, listener: impl Fn(&str) + Send + Sync + 'static) -> bool {
+        self.carried.set(Arc::new(listener)).is_ok()
+    }
+
+    /// `values` marked for `session`, then carried along its carries. True when `session` gained one.
+    fn gain(&self, session: &str, values: Vec<String>) -> bool {
+        let Some(next) = self.add(session, &values) else { return false };
+        self.gain_carried(&next, values, session);
+        true
+    }
+
+    /// `values` reach every session of `targets` and, from each that gains one, its own carries; never back to
+    /// `origin` or to a session reached already.
+    fn gain_carried(&self, targets: &[String], values: Vec<String>, origin: &str) {
+        let mut seen: BTreeSet<String> = BTreeSet::from([origin.to_owned()]);
+        let mut queue: Vec<String> = targets.to_vec();
+        while let Some(session) = queue.pop() {
+            if !seen.insert(session.clone()) {
+                continue;
+            }
+            if let Some(next) = self.add(&session, &values) {
+                if let Some(listener) = self.carried.get() {
+                    listener(&session);
+                }
+                queue.extend(next);
+            }
+        }
+    }
+
+    /// Adds `values` to `session`, tells its listeners when one is new and returns the sessions it carries to; `None`
+    /// when it gained nothing.
+    fn add(&self, session: &str, values: &[String]) -> Option<Vec<String>> {
+        let (version, listeners, carries) = {
             let mut inner = self.lock();
             let known = inner.by_session.entry(session.to_owned()).or_default();
             let fresh: Vec<&String> = values.iter().filter(|v| !known.values.contains(*v)).collect();
             if fresh.is_empty() {
-                return false;
+                return None;
             }
             let mut ordered: Vec<String> = known.spellings.clone();
             for value in &fresh {
@@ -398,12 +458,13 @@ impl SensitiveStore {
             let version = known.version;
             let listeners: Vec<Listener> =
                 inner.listeners.get(session).map(|l| l.iter().map(|(_, f)| f.clone()).collect()).unwrap_or_default();
-            (version, listeners)
+            let carries: Vec<String> = inner.carries.get(session).map(|to| to.iter().cloned().collect()).unwrap_or_default();
+            (version, listeners, carries)
         };
         for listener in listeners {
             listener(version);
         }
-        true
+        Some(carries)
     }
 
     /// Calls `listener` whenever `session` gains a sensitive value, until the

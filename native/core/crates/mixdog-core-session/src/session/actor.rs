@@ -217,6 +217,9 @@ pub(crate) enum Inbox {
     /// The job board's activity signal: a job of this thread was added or finished
     /// (`agent_activity.rs`).
     AgentActivity,
+    /// A value marked in a session whose text this thread holds reached it (`SensitiveMarks::carry`): what the thread
+    /// stored goes as for a mark of its own, whether a turn runs or not.
+    SensitiveCarried,
     Request {
         req: CoreRequest,
         tx: Waiter,
@@ -2308,6 +2311,7 @@ impl SessionActor {
             }
             FromDurability::Pending(pending) => self.pending = pending,
             FromDurability::Retried(result) => self.indeterminate = result.is_err(),
+            FromDurability::Redacted => {}
         }
     }
 
@@ -3914,6 +3918,14 @@ impl SessionActor {
                 live,
             } => self.task_notification(&surface, task_id, status, text, origin, live),
             Inbox::AgentActivity => self.agent_activity(),
+            Inbox::SensitiveCarried => {
+                self.redact_prompts();
+                // The log now (a queued batch rewrites it before it appends anyway); the search rows once what is
+                // queued is durable. A running turn's own listener does the same; the second pass finds nothing.
+                let _ = self.ch.dur_tx.try_send(ToDurability::Redact);
+                let ack = self.ingest_when_durable();
+                self.outbox.push(None, Change::Barrier, Vec::new(), vec![Effect::ItemAck(ack)]);
+            }
             Inbox::ForkPlan { tx } => {
                 let plan = text(&self.log_id, "logId").map(|log_id| {
                     (

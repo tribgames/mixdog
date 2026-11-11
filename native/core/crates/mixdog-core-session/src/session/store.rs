@@ -397,6 +397,10 @@ impl SessionLog for StoreLog {
     fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {
         self.writer.as_mut().ok_or_else(writer_lost)?.retry_storage(lane).map_err(barrier)
     }
+
+    fn redact(&mut self, lane: &InLane<DurabilityIo>) {
+        self.redact_written(lane);
+    }
 }
 
 /// [`ThreadStore`] over `<data>/sessions/<id>`, the blob store and the index.
@@ -949,6 +953,14 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
 
     fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool {
         self.store.remember(thread.as_str(), calls)
+    }
+
+    fn carry(&self, from: &ThreadId, to: &ThreadId) {
+        self.store.carry(from.as_str(), to.as_str());
+    }
+
+    fn on_carried(&self, listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
+        self.store.on_carried(move |session| listener(&ThreadId::from(session)))
     }
 
     fn stored(&self, thread: &ThreadId, record: &mixdog_store::schema::record::Record) -> Option<mixdog_store::schema::record::Record> {

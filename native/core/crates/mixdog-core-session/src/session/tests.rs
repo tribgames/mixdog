@@ -4504,6 +4504,67 @@ async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_mo
     assert_eq!(list, ["[redacted] is the code from the mail"]);
 }
 
+/// A value a worker marks after its report reached its owner leaves the owner's stored files, and on up the chain: a
+/// grandchild's mark is carried to the child whose report quoted it and on to the parent (`carry`, as the worker's turn
+/// sets it up), and each of them, idle, rewrites its log, index rows and prompt history as for a mark of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_a_worker_marks_after_its_report_leaves_every_owner_up_the_chain() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    const CODE: &str = "482913";
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let deps = rig.deps_parts(threads.clone());
+    assert!(threads.redact_with(deps.sensitive.clone()).is_ok());
+    let marks = deps.sensitive.clone();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let row = ItemCommit { iid: ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "role": "assistant", "content": "noted" }), prompt: None };
+            run.port.commit_item(row).await.expect("assistant row");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let (parent, child, grandchild) = (start_thread(&directory).await, start_thread(&directory).await, start_thread(&directory).await);
+    // The reports as delivered before the mark: the child's quoted the value to the parent, the grandchild's to the child.
+    turn(&parent, &format!("the child reported {CODE}"), "op-p").await;
+    turn(&child, &format!("the grandchild reported {CODE}"), "op-c").await;
+    let all = [&parent, &child, &grandchild];
+    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped], || all.iter().all(|h| idle(h)).then_some(())).await;
+    threads.projected().await;
+    let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
+    let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                if entry.path().is_dir() { stack.push(entry.path()) } else { out.push(entry.path()) }
+            }
+        }
+        out
+    };
+    let held = || files(data.path()).into_iter().filter(|path| holds(path)).collect::<Vec<_>>();
+    assert!(!held().is_empty(), "the reports are stored before the mark");
+    // As each worker's turn sets it up (`TurnRunner::run`), then the grandchild marks the value.
+    marks.carry(&grandchild.id, &child.id);
+    marks.carry(&child.id, &parent.id);
+    let fill = json!({ "id": "c1", "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": CODE } } });
+    assert!(rig.sensitive.remember(grandchild.id.as_str(), &[fill]));
+    eventually_on!(&[&parent.cell.stepped, &child.cell.stepped, &*rig.prompts_wrote], || held().is_empty().then_some(())).await;
+    assert!(all.iter().all(|h| idle(h)), "no turn ran for it");
+    assert_eq!(rig.sensitive.redact_text(parent.id.as_str(), CODE), "[redacted]", "the parent holds the mark");
+}
+
 /// The memory ingest of an unloading thread (`ingestSessionIntoMemory`) goes to a database on disk: a value the thread
 /// marked sensitive goes there as the marker, though the model context holds it whole (Node bug, fixed on both sides:
 /// `memory-ingest.mjs` passes the loaded session's messages as they are).

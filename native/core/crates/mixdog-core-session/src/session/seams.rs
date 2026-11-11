@@ -102,6 +102,10 @@ pub trait SessionLog: Send + 'static {
     /// The user's "Retry storage" (SM §8): the `PendingRollback` truncation alone. A writer in
     /// `Clean` answers `Ok`.
     fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError>;
+
+    /// The rewrite a mark owes what the log stored before it (`redactSessionFiles`), with no batch to commit: what
+    /// [`Self::commit`] runs before it appends. Nothing for a log that redacts nothing.
+    fn redact(&mut self, _lane: &InLane<DurabilityIo>) {}
 }
 
 /// Store-private result of open job J1 (catalog row, reverse scan, tail bytes).
@@ -172,6 +176,15 @@ pub trait SensitiveMarks: Send + Sync + 'static {
     /// `calls` (`{name, arguments}` objects, the execution view) carry are marked for `thread`, before any of the calls is
     /// committed or runs. True when the thread gained a value.
     fn remember(&self, thread: &ThreadId, calls: &[Value]) -> bool;
+
+    /// Text of `from` went to `to` (a worker's turn reports to its owner): `from`'s values, now and later, are marked
+    /// for `to` and on along `to`'s own carries (`SensitiveStore::carry`).
+    fn carry(&self, _from: &ThreadId, _to: &ThreadId) {}
+
+    /// The one listener told every thread that gained a value carried from another; `false` when one is set already.
+    fn on_carried(&self, _listener: Box<dyn Fn(&ThreadId) + Send + Sync>) -> bool {
+        false
+    }
 
     /// `record` as the log stores it (`_messageForDisk`, `store/serialize.mjs:33`): every message body it carries (an item's
     /// body and prompt text, an amend's body, a compaction's replacement entries) through the sensitive projection

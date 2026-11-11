@@ -1,0 +1,331 @@
+diff --git a/src/runtime/agent/orchestrator/session/manager/ask-turn-state.mjs b/src/runtime/agent/orchestrator/session/manager/ask-turn-state.mjs
+index 1f403c0..cd10d89 100644
+--- a/src/runtime/agent/orchestrator/session/manager/ask-turn-state.mjs
++++ b/src/runtime/agent/orchestrator/session/manager/ask-turn-state.mjs
+@@ -4,7 +4,8 @@
+ // canonicalizes the transcript when the turn is interrupted.
+ import { captureTurnCheckpointContextState, createTurnCheckpointRecorder } from './turn-checkpoint.mjs';
+ import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
+-import { onSensitiveValuesMarked } from '../sensitive-values.mjs';
++import { onSensitiveValuesCarried, onSensitiveValuesMarked } from '../sensitive-values.mjs';
++import { getSession } from './session-crud.mjs';
+ import { saveSessionAsync } from '../store.mjs';
+ import { setTranscriptSnapshotHook } from '../store/transcript-durability.mjs';
+ import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
+@@ -13,6 +14,31 @@ import { ingestSessionTurn } from '../../../../session-search/session-search-ing
+ // delta since the previous one, so the window just bounds syscalls.
+ const TURN_CHECKPOINT_THROTTLE_MS = 150;
+ 
++// A value marked in a session whose text this one holds (a worker's report,
++// sensitive-values.mjs carrySensitiveValues) reaches it whether a turn runs on
++// it or not: its stored copies are written again with the value replaced and
++// its search rows replaced, as for a mark of its own. A running turn's own
++// listener (below) does the same; the second save finds nothing due.
++// Resolves once the session's files are rewritten (false when it is gone or
++// the save failed).
++export function redactCarriedSession(sessionId) {
++  const session = getSession(sessionId);
++  if (!session) return Promise.resolve(false);
++  ingestSessionTurn(session);
++  return saveSessionAsync(session).then(
++    () => true,
++    (err) => {
++      try {
++        process.stderr.write(`[session] carried sensitive-value save failed session=${sessionId}: ${err?.message || err}\n`);
++      } catch {
++        // stderr may be closed; the save failure is only reported
++      }
++      return false;
++    }
++  );
++}
++onSensitiveValuesCarried(redactCarriedSession);
++
+ /** What one turn mutates while it runs; every helper reads the live values. */
+ export function createAskTurnState(session) {
+   return {
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-carry.test.mjs b/src/runtime/agent/orchestrator/session/sensitive-carry.test.mjs
+new file mode 100644
+index 0000000..2488cba
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/sensitive-carry.test.mjs
+@@ -0,0 +1,69 @@
++// A value marked sensitive in a session is redacted in every text that leaves
++// it for another session: a worker's report reaches its owner with the
++// worker's values as the marker, and a value the worker marks after a report
++// carried it leaves the owner's stored files too, up the chain of owners
++// (sensitive-values.mjs carrySensitiveValues).
++import assert from 'node:assert/strict';
++import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import test from 'node:test';
++
++const dataRoot = mkdtempSync(join(tmpdir(), 'mixdog-sensitive-carry-'));
++const previousDataDir = process.env.MIXDOG_DATA_DIR;
++process.env.MIXDOG_DATA_DIR = dataRoot;
++test.after(async () => {
++  (await import('./store.mjs')).drainSessionStore();
++  if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
++  else process.env.MIXDOG_DATA_DIR = previousDataDir;
++  rmSync(dataRoot, { recursive: true, force: true });
++});
++
++const { carrySensitiveValues, onSensitiveValuesCarried, onSensitiveValuesMarked, redactSensitiveText, rememberSensitiveValues, sensitiveValuesVersion } =
++  await import('./sensitive-values.mjs');
++const { saveSessionAsync } = await import('./store.mjs');
++const { redactCarriedSession } = await import('./manager/ask-turn-state.mjs');
++
++const fill = (text) => ({ name: 'browser', arguments: { action: 'fill', input: { text, sensitive: true } } });
++
++test('a carried session takes the values its source holds and gains, on up the chain', (t) => {
++  const told = [];
++  t.after(onSensitiveValuesCarried((id) => told.push(id)));
++  let heard = 0;
++  t.after(onSensitiveValuesMarked('c-parent', (version) => (heard = version)));
++  assert.equal(rememberSensitiveValues('c-child', [fill('before')]), true);
++  carrySensitiveValues('c-child', 'c-parent');
++  assert.equal(redactSensitiveText('c-parent', 'before'), '[redacted]', 'what the source held is carried');
++  carrySensitiveValues('c-grandchild', 'c-child');
++  carrySensitiveValues('c-parent', 'c-child');
++  assert.equal(rememberSensitiveValues('c-grandchild', [fill('after')]), true);
++  assert.equal(redactSensitiveText('c-grandchild', 'before after'), 'before [redacted]');
++  assert.equal(redactSensitiveText('c-child', 'before after'), '[redacted] [redacted]');
++  assert.equal(redactSensitiveText('c-parent', 'before after'), '[redacted] [redacted]');
++  assert.equal(heard, sensitiveValuesVersion('c-parent'));
++  assert.deepEqual(told, ['c-parent', 'c-child', 'c-parent']);
++  assert.equal(redactSensitiveText('c-unrelated', 'after'), 'after');
++});
++
++test("a value a worker marks after its report leaves the owner's stored files, idle owners up the chain included", async (t) => {
++  const CODE = '482913';
++  const logPath = (id) => join(dataRoot, 'sessions', `${id}.log.jsonl`);
++  const parent = { id: 'carry-parent', messages: [{ role: 'user', content: 'Ask the child.' }, { role: 'tool', toolCallId: 'A', content: `The child reported ${CODE}.` }] };
++  const child = { id: 'carry-child', messages: [{ role: 'tool', toolCallId: 'B', content: `The grandchild reported ${CODE}.` }] };
++  await saveSessionAsync(parent);
++  await saveSessionAsync(child);
++  for (const session of [parent, child]) assert.match(readFileSync(logPath(session.id), 'utf8'), new RegExp(CODE));
++  // The product's listener (registered by ask-turn-state.mjs), with each rewrite it starts kept to be awaited.
++  const rewrites = [];
++  onSensitiveValuesCarried((id) => rewrites.push(redactCarriedSession(id)));
++  t.after(() => onSensitiveValuesCarried(redactCarriedSession));
++  carrySensitiveValues('carry-grandchild', child.id);
++  carrySensitiveValues(child.id, parent.id);
++  rememberSensitiveValues('carry-grandchild', [fill(CODE)]);
++  assert.deepEqual(await Promise.all(rewrites), [true, true]);
++  for (const session of [parent, child]) {
++    const log = readFileSync(logPath(session.id), 'utf8');
++    assert.doesNotMatch(log, new RegExp(CODE), session.id);
++    assert.match(log, /reported \[redacted\]/, session.id);
++  }
++});
+diff --git a/src/runtime/agent/orchestrator/session/sensitive-values.mjs b/src/runtime/agent/orchestrator/session/sensitive-values.mjs
+index 00d7fcf..568fc90 100644
+--- a/src/runtime/agent/orchestrator/session/sensitive-values.mjs
++++ b/src/runtime/agent/orchestrator/session/sensitive-values.mjs
+@@ -31,6 +31,10 @@ const MARKERS = [MARKER, SAVED_LOGIN_MARKER];
+ const bySession = new Map();
+ /** sessionId → Set(listener) notified synchronously when the session gains a value. */
+ const listeners = new Map();
++/** sessionId → Set(sessionId) its text went to (carrySensitiveValues): every value it gains goes there too. */
++const carries = new Map();
++/** Told the id of each session that gained values carried from another. */
++let carriedListener = null;
+ 
+ function fillValues(call) {
+   let args = call?.arguments;
+@@ -56,9 +60,66 @@ function fillValues(call) {
+ export function rememberSensitiveValues(sessionId, calls) {
+   const values = (Array.isArray(calls) ? calls : []).flatMap(fillValues);
+   if (!sessionId || !values.length) return false;
++  const next = addValues(sessionId, values);
++  if (!next) return false;
++  gainCarried(next, values, sessionId);
++  return true;
++}
++
++/** Text of `fromSessionId` went to `toSessionId` (a worker's report to its
++ *  owner): every value the source holds, and every value it gains later, is
++ *  the target's too, and so on along the target's own carries. The target is
++ *  told as by a mark of its own, and the carried listener is told each session
++ *  that gained a value this way. */
++export function carrySensitiveValues(fromSessionId, toSessionId) {
++  if (!fromSessionId || !toSessionId || fromSessionId === toSessionId) return;
++  const to = carries.get(fromSessionId) ?? new Set();
++  to.add(toSessionId);
++  carries.set(fromSessionId, to);
++  const values = [...(bySession.get(fromSessionId)?.values || [])];
++  if (values.length) gainCarried([toSessionId], values, fromSessionId);
++}
++
++/** Calls `listener(sessionId)` for every session that gains values carried
++ *  from another (the session manager, which rewrites that session's files
++ *  whether a turn runs on it or not); returns the function that stops it. */
++export function onSensitiveValuesCarried(listener) {
++  carriedListener = typeof listener === 'function' ? listener : null;
++  return () => {
++    if (carriedListener === listener) carriedListener = null;
++  };
++}
++
++/** `values` reach every session of `targets` and, from each that gains one,
++ *  its own carries; never back to `origin` or a session reached already. */
++function gainCarried(targets, values, origin) {
++  const seen = new Set([origin]);
++  const queue = [...targets];
++  while (queue.length) {
++    const sessionId = queue.pop();
++    if (seen.has(sessionId)) continue;
++    seen.add(sessionId);
++    const next = addValues(sessionId, values);
++    if (!next) continue;
++    try {
++      carriedListener?.(sessionId);
++    } catch (error) {
++      try {
++        process.stderr.write(`[sensitive-values] carried listener failed session=${sessionId}: ${error?.message || error}\n`);
++      } catch {
++        // stderr may be closed; the listener failure is only reported
++      }
++    }
++    queue.push(...next);
++  }
++}
++
++/** Adds `values` to `sessionId`, tells its listeners when one is new and
++ *  returns the sessions it carries to; null when it gained nothing. */
++function addValues(sessionId, values) {
+   const known = bySession.get(sessionId) ?? { version: 0, values: new Set(), spellings: [] };
+   const fresh = values.filter((value) => !known.values.has(value));
+-  if (!fresh.length) return false;
++  if (!fresh.length) return null;
+   const spellings = new Set(known.spellings);
+   for (const value of fresh) {
+     known.values.add(value);
+@@ -79,7 +140,7 @@ export function rememberSensitiveValues(sessionId, calls) {
+       }
+     }
+   }
+-  return true;
++  return [...(carries.get(sessionId) || [])];
+ }
+ 
+ /** Calls `listener` whenever `sessionId` gains a sensitive value; returns the
+diff --git a/src/session-runtime/services/agent-tool/send-flow.mjs b/src/session-runtime/services/agent-tool/send-flow.mjs
+index 93bd92a..5a44872 100644
+--- a/src/session-runtime/services/agent-tool/send-flow.mjs
++++ b/src/session-runtime/services/agent-tool/send-flow.mjs
+@@ -33,6 +33,7 @@ import { rebindDelegation } from '../../../runtime/agent/orchestrator/session/hu
+ import { whileTurnDispatched } from '../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
+ import { takeStoppedShellJobs } from '../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
+ import { turnReportText } from '../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
++import { carrySensitiveValues, redactSensitiveText } from '../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
+ 
+ function workerResultIdentity({ session, tag, sessionId }) {
+   return { tag, sessionId, agent: session.agent || null, provider: session.provider, model: session.model };
+@@ -84,7 +85,8 @@ export function createSendFlow({
+       const abnormalError = abnormalEmptyFinishError(result, session.agent || sendAgent);
+       return {
+         ...workerResultIdentity({ session, tag, sessionId }),
+-        content: turnReportText(result),
++        // The report leaves the worker: its sensitive values as the marker.
++        content: redactSensitiveText(sessionId, turnReportText(result)),
+         ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
+         ...(abnormalError ? { error: abnormalError } : {}),
+       };
+@@ -133,6 +135,10 @@ export function createSendFlow({
+     const turn = spawnFlow.workerTurns.claim(session, job);
+     const turnReview = createTurnReviewCollector(session, tag, sendAgent, notifyContext || {});
+     const completionValue = completionValueFor({ session, tag, sessionId, sendAgent });
++    // The sessions the turn's report and handoffs reach: a value the worker marks, now or later, is theirs too.
++    for (const owner of [notifyContext?.callerSessionId, session.parentSessionId, notifyContext?.ownerSessionId, session.ownerSessionId]) {
++      if (owner) carrySensitiveValues(sessionId, owner);
++    }
+     let finalStatus = 'idle';
+     let handoffMsgStart = 0;
+     // A cancelled turn reports the output it produced before it stopped.
+@@ -140,7 +146,7 @@ export function createSendFlow({
+       finalStatus = 'cancelled';
+       reconcileJobCancelled(job, {
+         ...workerResultIdentity({ session, tag, sessionId }),
+-        content: turnPartialHandoff(error, mgr.getSession(sessionId), handoffMsgStart) || result?.content || '',
++        content: redactSensitiveText(sessionId, turnPartialHandoff(error, mgr.getSession(sessionId), handoffMsgStart) || result?.content || ''),
+       });
+     };
+     try {
+@@ -161,6 +167,7 @@ export function createSendFlow({
+       }
+       return finalValue;
+     } catch (error) {
++      if (typeof error?.message === 'string') error.message = redactSensitiveText(sessionId, error.message);
+       if (job?.status === 'cancelled') {
+         settleCancelled(error);
+         throw error;
+@@ -170,7 +177,7 @@ export function createSendFlow({
+         finalStatus = 'idle';
+         const value = {
+           ...workerResultIdentity({ session, tag, sessionId }),
+-          content: watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(sessionId)),
++          content: redactSensitiveText(sessionId, watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(sessionId))),
+           stallAbort: true,
+         };
+         if (job) job._terminalResultValue = value;
+diff --git a/src/session-runtime/services/agent-tool/spawn-flow/spawn-run.mjs b/src/session-runtime/services/agent-tool/spawn-flow/spawn-run.mjs
+index 1b08a17..6246e2d 100644
+--- a/src/session-runtime/services/agent-tool/spawn-flow/spawn-run.mjs
++++ b/src/session-runtime/services/agent-tool/spawn-flow/spawn-run.mjs
+@@ -26,6 +26,7 @@ import { handoffContent } from '../../../handoff-attachments.mjs';
+ import { whileTurnDispatched } from '../../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
+ import { takeStoppedShellJobs } from '../../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
+ import { turnReportText } from '../../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
++import { carrySensitiveValues, redactSensitiveText } from '../../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
+ 
+ export function createSpawnRunner({
+   mgr,
+@@ -54,7 +55,8 @@ export function createSpawnRunner({
+       tag,
+       sessionId: session.id,
+       ...presetDescriptor(agent, preset, presetName),
+-      content: turnReportText(result),
++      // The report leaves the worker: its sensitive values as the marker.
++      content: redactSensitiveText(session.id, turnReportText(result)),
+       ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
+       ...(abnormalError ? { error: abnormalError } : {}),
+     };
+@@ -90,6 +92,10 @@ export function createSpawnRunner({
+     const turn = workerTurns.claim(session, job);
+     const turnReview = createTurnReviewCollector(session, tag, agent, notifyContext || {});
+     const completionValue = completionValueFor(prepared);
++    // The sessions the turn's report and handoffs reach: a value the worker marks, now or later, is theirs too.
++    for (const owner of [notifyContext?.callerSessionId, session.parentSessionId, notifyContext?.ownerSessionId, session.ownerSessionId]) {
++      if (owner) carrySensitiveValues(session.id, owner);
++    }
+     let finalStatus = 'idle';
+     // SubagentStart: a worker session is about to run its first turn.
+     emitSubagentEvent('start', agent, { session_id: session.id, tag });
+@@ -101,7 +107,7 @@ export function createSpawnRunner({
+         tag,
+         sessionId: session.id,
+         ...presetDescriptor(agent, preset, presetName),
+-        content: turnPartialHandoff(error, mgr.getSession(session.id), handoffMsgStart) || result?.content || '',
++        content: redactSensitiveText(session.id, turnPartialHandoff(error, mgr.getSession(session.id), handoffMsgStart) || result?.content || ''),
+       });
+     };
+     try {
+@@ -142,6 +148,7 @@ export function createSpawnRunner({
+       }
+       return finalValue;
+     } catch (error) {
++      if (typeof error?.message === 'string') error.message = redactSensitiveText(session.id, error.message);
+       if (job?.status === 'cancelled') {
+         settleCancelled(error);
+         throw error;
+@@ -153,7 +160,7 @@ export function createSpawnRunner({
+           tag,
+           sessionId: session.id,
+           ...presetDescriptor(agent, preset, presetName),
+-          content: watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(session.id)),
++          content: redactSensitiveText(session.id, watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(session.id))),
+           stallAbort: true,
+         };
+         if (job) job._terminalResultValue = value;
