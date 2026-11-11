@@ -1502,6 +1502,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     if store_threads.redact_with(sensitive_marks.clone()).is_err() {
         unreachable!("the thread store is bound once, here");
     }
+    // Before any thread is served (no directory can open a log yet): marks a previous run journaled and did not apply
+    // everywhere are marked again and their sessions rewritten.
+    store_threads.settle_marks(b.tokens.durability_io).await.map_err(|e| ComposeError::Config(format!("sensitive marks: {e:?}")))?;
     // The stored sessions, shared with the search backfill and `StoredConsumers`; the snapshot cleanups, built once.
     let session_lanes = || mixdog_core_session::session::SessionLanes { cpu: b.tokens.cpu_interactive, io: b.tokens.interactive_io, durability: b.tokens.durability_io };
     let stored_sessions = Arc::new(mixdog_core_session::session::search_backfill::StoredSearchSessions::new(

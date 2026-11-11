@@ -61,10 +61,20 @@ struct Inner {
     carries: HashMap<String, BTreeSet<String>>,
 }
 
+/// Where the marks outlive the process: a carry is written before [`SensitiveStore::carry`] returns, and a gain before any
+/// listener hears of it (so before the call that made the mark runs).
+pub trait MarkJournal: Send + Sync {
+    /// Text of `from` reached `to`.
+    fn carried(&self, from: &str, to: &str);
+    /// `values` marked for `origin` reached `sessions`, each holding them from the version given.
+    fn marked(&self, origin: &str, values: &[String], sessions: &[(String, u64)]);
+}
+
 #[derive(Default)]
 pub struct SensitiveStore {
     inner: Mutex<Inner>,
     carried: std::sync::OnceLock<CarriedListener>,
+    journal: std::sync::OnceLock<Arc<dyn MarkJournal>>,
 }
 
 /// Stops its listener when dropped.
@@ -388,13 +398,16 @@ impl SensitiveStore {
         if from.is_empty() || to.is_empty() || from == to {
             return;
         }
-        let values: Vec<String> = {
+        let (fresh, values) = {
             let mut inner = self.lock();
-            inner.carries.entry(from.to_owned()).or_default().insert(to.to_owned());
-            inner.by_session.get(from).map(|known| known.values.iter().cloned().collect()).unwrap_or_default()
+            let fresh = inner.carries.entry(from.to_owned()).or_default().insert(to.to_owned());
+            (fresh, inner.by_session.get(from).map(|known| known.values.iter().cloned().collect::<Vec<String>>()).unwrap_or_default())
         };
+        if let (true, Some(journal)) = (fresh, self.journal.get()) {
+            journal.carried(from, to);
+        }
         if !values.is_empty() {
-            self.gain_carried(&[to.to_owned()], values, from);
+            self.spread(from, &[to.to_owned()], values);
         }
     }
 
@@ -404,34 +417,65 @@ impl SensitiveStore {
         self.carried.set(Arc::new(listener)).is_ok()
     }
 
+    /// The one journal the marks are written to (bound by the thread store); a second one is refused.
+    pub fn journal_with(&self, journal: Arc<dyn MarkJournal>) -> bool {
+        self.journal.set(journal).is_ok()
+    }
+
+    /// `values` marked for `session` as a mark of its own (a mark the journal kept from an earlier run). True when it gained one.
+    pub fn restore(&self, session: &str, values: &[String]) -> bool {
+        let values: Vec<String> = values.iter().filter(|v| !v.is_empty()).cloned().collect();
+        !session.is_empty() && !values.is_empty() && self.gain(session, values)
+    }
+
     /// `values` marked for `session`, then carried along its carries. True when `session` gained one.
     fn gain(&self, session: &str, values: Vec<String>) -> bool {
-        let Some(next) = self.add(session, &values) else { return false };
-        self.gain_carried(&next, values, session);
-        true
+        self.spread(session, &[session.to_owned()], values)
     }
 
     /// `values` reach every session of `targets` and, from each that gains one, its own carries; never back to
-    /// `origin` or to a session reached already.
-    fn gain_carried(&self, targets: &[String], values: Vec<String>, origin: &str) {
-        let mut seen: BTreeSet<String> = BTreeSet::from([origin.to_owned()]);
+    /// `origin` unless it is a target, nor to a session reached already. The journal is told every session that gained
+    /// one before any listener is; the carried listener hears each but `origin`. True when one gained.
+    fn spread(&self, origin: &str, targets: &[String], values: Vec<String>) -> bool {
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        if !targets.iter().any(|t| t == origin) {
+            seen.insert(origin.to_owned());
+        }
         let mut queue: Vec<String> = targets.to_vec();
+        let mut gained: Vec<(String, u64, Vec<Listener>)> = Vec::new();
         while let Some(session) = queue.pop() {
             if !seen.insert(session.clone()) {
                 continue;
             }
-            if let Some(next) = self.add(&session, &values) {
-                if let Some(listener) = self.carried.get() {
-                    listener(&session);
-                }
+            if let Some((version, listeners, next)) = self.add(&session, &values) {
                 queue.extend(next);
+                gained.push((session, version, listeners));
             }
         }
+        if gained.is_empty() {
+            return false;
+        }
+        if let Some(journal) = self.journal.get() {
+            let sessions: Vec<(String, u64)> = gained.iter().map(|(session, version, _)| (session.clone(), *version)).collect();
+            journal.marked(origin, &values, &sessions);
+        }
+        for (session, version, listeners) in &gained {
+            for listener in listeners {
+                listener(*version);
+            }
+            if session != origin
+                && let Some(listener) = self.carried.get()
+            {
+                listener(session);
+            }
+        }
+        true
     }
 
-    /// Adds `values` to `session`, tells its listeners when one is new and returns the sessions it carries to; `None`
+    /// Adds `values` to `session` and returns its new version, its listeners and the sessions it carries to; `None`
     /// when it gained nothing.
-    fn add(&self, session: &str, values: &[String]) -> Option<Vec<String>> {
+    #[allow(clippy::type_complexity)]
+    fn add(&self, session: &str, values: &[String]) -> Option<(u64, Vec<Listener>, Vec<String>)> {
         let (version, listeners, carries) = {
             let mut inner = self.lock();
             let known = inner.by_session.entry(session.to_owned()).or_default();
@@ -461,10 +505,7 @@ impl SensitiveStore {
             let carries: Vec<String> = inner.carries.get(session).map(|to| to.iter().cloned().collect()).unwrap_or_default();
             (version, listeners, carries)
         };
-        for listener in listeners {
-            listener(version);
-        }
-        Some(carries)
+        Some((version, listeners, carries))
     }
 
     /// Calls `listener` whenever `session` gains a sensitive value, until the

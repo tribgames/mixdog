@@ -186,6 +186,16 @@ pub trait SensitiveMarks: Send + Sync + 'static {
         false
     }
 
+    /// `values` marked for `thread` again (a mark an earlier run journaled), carried as a new mark is.
+    fn restore(&self, _thread: &ThreadId, _values: &[String]) -> bool {
+        false
+    }
+
+    /// The journal the marks and carries are written to before they take effect; `false` when one is bound already.
+    fn journal_with(&self, _journal: Arc<dyn mixdog_services::memory::sensitive::MarkJournal>) -> bool {
+        false
+    }
+
     /// `record` as the log stores it (`_messageForDisk`, `store/serialize.mjs:33`): every message body it carries (an item's
     /// body and prompt text, an amend's body, a compaction's replacement entries) through the sensitive projection
     /// (`redactSensitiveMessage`, `sensitive-projection.mjs:69`); `None` when it is stored as it is. A body the projection
@@ -388,6 +398,12 @@ pub trait ThreadStore: Send + Sync + 'static {
     /// fork-aware purge removes each deleted session no live lineage reads (files and index
     /// rows). The ids it removed.
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>>;
+
+    /// Resolves once no sensitive rewrite holds the reads: a read awaits it before it takes an io-interactive thread, so
+    /// reads issued during a rewrite wait off the lane instead of filling it. Stores that never rewrite resolve at once.
+    fn unheld(&self) -> futures::future::BoxFuture<'static, ()> {
+        Box::pin(std::future::ready(()))
+    }
 
     /// The cpu step of a model-context read.
     fn context_cpu(
