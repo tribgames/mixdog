@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
+import { exact, exactArgs, fromExact } from './exact.mjs';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, orderedStringify, parseArgs, resolveTree, stageSet, writeSetManifest, writeText, within } from './common.mjs';
 import { recorderProvenance } from './provenance.mjs';
 
@@ -17,7 +18,7 @@ crypto.randomUUID = (...args) => { const uuid = realRandomUuid(...args); generat
 syncBuiltinESMExports();
 
 export const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
-export { importFrom, within };
+export { importFrom, within, exact, exactArgs, fromExact };
 
 /** The virtual clock: `Date.now()` and `new Date()` stand still at `ms` for the whole run (every step of it is an input of the recording). */
 export function freezeClock(ms) {
@@ -47,45 +48,32 @@ export function plain(value) {
   return value;
 }
 
-const typedArrays = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array];
 /**
- * Exact, lossless JSON copy: every value a recording holds must come back identical. Tagged forms (declared in each manifest
- * under `encoding`): {$undefined}, {$number: "NaN"|"Infinity"|"-Infinity"|"-0"}, {$bigint}, {$date: ISO|"Invalid Date"},
- * {$bytes: {type, hex}} (Buffer and typed arrays), {$set}, {$map}, {$error: {name, message, code, ...own fields}}.
- * A type it does not know (function, symbol, class instance) throws: nothing is dropped silently.
+ * Encodes the leaves of a golden once. Values a recorder already passed through exact() are tagged objects ({"$exact": kind, ...})
+ * and are kept as they are (exact() on a tag would tag the tag); every other leaf goes through exact(), so a raw undefined, NaN,
+ * Date, Map or Error in a hand-built golden is tagged rather than lost, and a type exact() refuses stops the recording. All tag
+ * forms are exact.mjs's: this function only walks plain objects and arrays.
  */
-export function exact(value) {
-  if (value === undefined) return { $undefined: true };
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (Object.is(value, -0)) return { $number: '-0' };
-    return Number.isFinite(value) ? value : { $number: String(value) };
+export function encodeOnce(value, path = 'golden') {
+  const isTag = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && typeof v.$exact === 'string' && Object.getPrototypeOf(v) === Object.prototype;
+  if (isTag(value)) return value;
+  if (Array.isArray(value)) {
+    if (Object.keys(value).length !== value.length) return exact(value);
+    return value.map((item, i) => encodeOnce(item, path + '[' + i + ']'));
   }
-  if (typeof value === 'bigint') return { $bigint: String(value) };
-  if (value instanceof Date) return { $date: Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString() };
-  if (value instanceof Error) {
-    const own = Object.fromEntries(Object.entries(value).filter(([k]) => k !== 'name' && k !== 'message' && k !== 'code').map(([k, v]) => [k, exact(v)]));
-    return { $error: { name: value.name, message: value.message, code: value.code === undefined ? null : exact(value.code), ...own } };
+  if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    if (Object.hasOwn(value, '$exact') || Object.hasOwn(value, '__proto__')) return exact(value);
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, encodeOnce(v, path + '.' + k)]));
   }
-  if (Buffer.isBuffer(value)) return { $bytes: { type: 'Buffer', hex: value.toString('hex') } };
-  const typed = typedArrays.find((T) => value instanceof T);
-  if (typed) return { $bytes: { type: typed.name, hex: Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('hex') } };
-  if (value instanceof ArrayBuffer) return { $bytes: { type: 'ArrayBuffer', hex: Buffer.from(value).toString('hex') } };
-  if (value instanceof Set) return { $set: [...value].map(exact) };
-  if (value instanceof Map) return { $map: [...value].map(([k, v]) => [exact(k), exact(v)]) };
-  if (Array.isArray(value)) return value.map(exact);
-  const proto = Object.getPrototypeOf(value);
-  if (typeof value === 'object' && (proto === Object.prototype || proto === null)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, exact(v)]));
-  throw new Error(`exact(): no encoding for ${typeof value === 'object' ? value.constructor?.name : typeof value}`);
+  return exact(value);
 }
-export const ENCODING = 'exact() in lib/mc-record.mjs: {$undefined:true}, {$number:"NaN"|"Infinity"|"-Infinity"|"-0"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording';
 
 /** Runs `fn`: `{ result }` or `{ error: { $error } }` (name, message, code and own fields), the product's own error text. */
 export async function capture(fn) {
   try {
     return { result: exact(await fn()) };
   } catch (error) {
-    return { error: exact(error instanceof Error ? error : new Error(String(error))).$error };
+    return { error: exact(error) };
   }
 }
 
@@ -104,7 +92,7 @@ export function finish(ctx, { url, set, golden, extra, flags = '', files = {} })
   const stage = stageSet(final);
   // Random UUIDs (index revisions) are named by order of first appearance in the file, so two recordings are byte-identical.
   const seen = new Map();
-  const goldenText = orderedStringify(exact(golden)).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (uuid) => {
+  const goldenText = orderedStringify(encodeOnce(golden)).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (uuid) => {
     if (!generatedUuids.has(uuid)) return uuid;
     if (!seen.has(uuid)) seen.set(uuid, `<uuid-${seen.size + 1}>`);
     return seen.get(uuid);
@@ -117,7 +105,7 @@ export function finish(ctx, { url, set, golden, extra, flags = '', files = {} })
     recorder: provenance.recorder,
     command: `node ${flags}${provenance.recorder} --tree <git archive of ${NODE_COMMIT} with node_modules>`.replace('  ', ' '),
     identity: ctx.identity,
-    extra: { ...provenance, encoding: ENCODING, ...extra, uuidsNormalised: seen.size ? `golden.json: ${seen.size} UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)` : 'none',
+    extra: { ...provenance, values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)', ...extra, uuidsNormalised: seen.size ? `golden.json: ${seen.size} UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)` : 'none',
       timezone: 'UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)' },
   });
   commitStage(stage, final);
