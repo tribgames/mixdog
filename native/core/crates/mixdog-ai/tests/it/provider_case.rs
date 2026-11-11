@@ -628,8 +628,10 @@ fn reason(status: u16) -> &'static str {
 }
 
 impl Endpoint {
-    /// Opens the endpoint on 127.0.0.1 and holds the (paused) clock: no auto-advance while it lives.
+    /// Opens the endpoint on 127.0.0.1 and holds the (paused) clock: no auto-advance while it lives. Local time is
+    /// UTC for the process, as the recorders set `TZ=UTC` (`lib/provider-case-recorder.mjs:65`).
     pub async fn start() -> Self {
+        let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::UTC);
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind the loopback endpoint");
         let addr = listener.local_addr().expect("its address");
         let inner = Arc::new(Inner { state: Mutex::new(State::default()), events: watch::channel(0).0 });
