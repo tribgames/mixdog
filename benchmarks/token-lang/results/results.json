@@ -225,5 +225,60 @@
         "Hindi": 9094
       }
     }
+  ],
+  "models": [
+    {
+      "name": "GPT 6.1",
+      "provider": "openai-oauth",
+      "model": "gpt-6.1-sol",
+      "effort": "low"
+    },
+    {
+      "name": "Opus 5.5",
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-5-5",
+      "effort": "low"
+    },
+    {
+      "name": "Gemini 3.8 Flash",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash"
+    },
+    {
+      "name": "DeepSeek V4.1 Flash",
+      "provider": "opencode-go",
+      "model": "deepseek-v4.1-flash"
+    },
+    {
+      "name": "Kimi K3",
+      "provider": "opencode-go",
+      "model": "kimi-k3"
+    },
+    {
+      "name": "GLM 5.3 Flash",
+      "provider": "opencode-go",
+      "model": "glm-5.3-flash"
+    },
+    {
+      "name": "Qwen 3.8 Flash",
+      "provider": "opencode-go",
+      "model": "qwen3.8-flash"
+    },
+    {
+      "name": "Muse Spark 1.3",
+      "provider": "opencode-go",
+      "model": "muse-spark-1.3-contributor"
+    },
+    {
+      "name": "Grok 4.7",
+      "provider": "opencode-go",
+      "model": "grok-4.7"
+    }
+  ],
+  "unmeasured": [
+    {
+      "name": "Qwen 3.8 Flash",
+      "reason": "no measurement was recorded: the recorded run (Node measure.mjs, c0a57a47e) has no row for this model; it is in that script's model list but was not measured or its row was not kept. Re-run measure-exec.mjs --models qwen to record it."
+    }
   ]
 }

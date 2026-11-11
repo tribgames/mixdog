@@ -18,6 +18,7 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -56,6 +57,44 @@ pub fn wait_for_exit(identity: ProcessIdentity) -> io::Result<()> {
         return Ok(());
     };
     wait::wait(&Interrupt::new()?, None, Some(&exit)).map(drop)
+}
+
+/// How long Node's `terminateProcess` waits after its SIGKILL.
+const KILL_WAIT: Duration = Duration::from_secs(5);
+
+/// Node's `terminateProcess(pid, graceMs)` (`remote-install-daemon.ts`): SIGTERM, `grace` for the exit, then SIGKILL
+/// and [`KILL_WAIT`] more; each exit confirmed by the OS on the identity, so a reused pid is never signalled or waited
+/// on. `Ok(false)` when the process outlived both. A failed signal is ignored, as Node's `try { process.kill } catch {}`.
+pub fn terminate(identity: ProcessIdentity, grace: Duration) -> io::Result<bool> {
+    let Some(exit) = ExitWatch::open_to_end(identity)? else {
+        return Ok(true);
+    };
+    for (kill, within) in [(false, grace), (true, KILL_WAIT)] {
+        let _ = exit.signal(kill);
+        if exited_within(&exit, within)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Whether the watched process exits within `within`: the wait for its exit, woken by a timer at the end of `within`.
+fn exited_within(exit: &ExitWatch, within: Duration) -> io::Result<bool> {
+    let interrupt = Arc::new(Interrupt::new()?);
+    let (cancel, cancelled) = std::sync::mpsc::channel::<()>();
+    let timer = {
+        let interrupt = Arc::clone(&interrupt);
+        std::thread::spawn(move || {
+            if cancelled.recv_timeout(within) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                let _ = interrupt.signal();
+            }
+        })
+    };
+    let woke = wait::wait(&interrupt, None, Some(exit));
+    // Ends the timer at once when the exit came first.
+    drop(cancel);
+    let _ = timer.join();
+    Ok(woke? == Wake::Exited)
 }
 
 /// What `B` alone decides (the claim-lock rows of LR §3.1).
