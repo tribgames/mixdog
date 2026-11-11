@@ -1,9 +1,12 @@
 //! `pruneCompactedOffloads` against what joins the session while a committed compaction waits to prune: the
-//! session's actor checks it is idle and reads what it references only when it prunes, and handles nothing else
-//! until the deletes are done. A message queued after the compaction's snapshot keeps the sidecar it names; a
-//! turn started meanwhile stops the prune (Node prunes an idle session only).
+//! session's actor checks it is idle, then the old sidecars are listed, then it reads what it references and
+//! deletes, handling nothing else from the read to the last delete. A message queued after the compaction's
+//! snapshot keeps the sidecar it names; a turn started first is not pruned and its sidecars are not listed (Node
+//! prunes an idle session only); a turn started while they are listed stops the prune.
 
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use mixdog_core_api::ids::ItemId;
 use mixdog_store::schema::record::HeaderChange;
@@ -32,6 +35,11 @@ struct World {
 }
 
 const SIDECARS: [&str; 3] = ["kept.txt", "queued.txt", "stray.txt"];
+
+/// `wait`, failing with `what` when it has not ended within ten seconds.
+async fn within<T>(what: &str, wait: impl Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(10), wait).await.unwrap_or_else(|_| panic!("no answer within 10s: {what}"))
+}
 
 #[allow(clippy::disallowed_methods, reason = "test setup writes fixture sidecars")]
 async fn world() -> World {
@@ -76,7 +84,7 @@ impl World {
             })
             .await
             .expect("the actor runs");
-        eventually_on!(&[&self.handle.cell.stepped], || (!self.handle.cell.queued.load().is_empty()).then_some(())).await;
+        within("the message is queued", eventually_on!(&[&self.handle.cell.stepped], || (!self.handle.cell.queued.load().is_empty()).then_some(()))).await;
     }
 
     /// A completion that wakes the thread: its turn runs, until `release`.
@@ -93,7 +101,7 @@ impl World {
             })
             .await
             .expect("the actor runs");
-        eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(())).await;
+        within("the turn starts", eventually_on!(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(()))).await;
     }
 
     /// The listing step of the prune, after the compaction is durable, waits: `.0` tells it arrived, `.1` lets it go.
@@ -103,6 +111,20 @@ impl World {
         (arrived, go)
     }
 
+    /// The batch of the compaction's header waits before it is durable: `.0` tells it arrived, `.1` lets it go.
+    fn hold_durable(&self) -> (Arc<Notify>, std::sync::mpsc::Sender<()>) {
+        let (release, held) = std::sync::mpsc::channel();
+        let arrived = Arc::new(Notify::new());
+        *lock(&self.rig.store.header_gate) = Some((arrived.clone(), held));
+        (arrived, release)
+    }
+
+    fn header() -> CompactionHeader {
+        let mut set = serde_json::Map::new();
+        set.insert("compaction".into(), json!({ "compactCount": 1, "lastStage": "manual" }));
+        Box::new(move |_, _| HeaderChange { set, unset: Vec::new() })
+    }
+
     #[allow(clippy::disallowed_methods, reason = "test reads the sidecar dir")]
     fn left(&self) -> Vec<&'static str> {
         SIDECARS.into_iter().filter(|name| self.dir.path().join(name).exists()).collect()
@@ -110,33 +132,68 @@ impl World {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_message_queued_after_the_snapshot_keeps_the_sidecar_it_names() {
+async fn a_message_queued_while_the_sidecars_are_listed_keeps_the_sidecar_it_names() {
     let world = world().await;
     let (arrived, go) = world.hold_listing();
     let mut commit = Box::pin(world.directory.commit_compaction(&world.handle.id, Vec::new(), World::compaction(), None));
     // The compaction is durable and its prune lists the old sidecars; the session takes a message meanwhile.
-    tokio::select! {
-        () = arrived.notified() => {}
-        answered = &mut commit => panic!("answered before the prune listed: {answered:?}"),
-    }
+    within("the prune lists the sidecars", async {
+        tokio::select! {
+            () = arrived.notified() => {}
+            answered = &mut commit => panic!("answered before the prune listed: {answered:?}"),
+        }
+    })
+    .await;
     world.queue_naming_a_sidecar().await;
     go.notify_one();
-    assert_eq!(commit.await.expect("answered"), CompactionCommit::Applied);
+    assert_eq!(within("the commit answers", commit).await.expect("answered"), CompactionCommit::Applied);
     assert_eq!(world.left(), vec!["kept.txt", "queued.txt"]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_turn_started_before_the_prune_decides_stops_it() {
+async fn a_turn_started_while_the_sidecars_are_listed_stops_the_prune() {
     let world = world().await;
     let (arrived, go) = world.hold_listing();
     let mut commit = Box::pin(world.directory.commit_compaction(&world.handle.id, Vec::new(), World::compaction(), None));
-    tokio::select! {
-        () = arrived.notified() => {}
-        answered = &mut commit => panic!("answered before the prune listed: {answered:?}"),
-    }
+    within("the prune lists the sidecars", async {
+        tokio::select! {
+            () = arrived.notified() => {}
+            answered = &mut commit => panic!("answered before the prune listed: {answered:?}"),
+        }
+    })
+    .await;
     world.start_turn().await;
     go.notify_one();
-    assert_eq!(commit.await.expect("answered"), CompactionCommit::Applied);
+    assert_eq!(within("the commit answers", commit).await.expect("answered"), CompactionCommit::Applied);
+    assert_eq!(world.left(), SIDECARS.to_vec(), "a session that is not idle is not pruned");
+    assert!(lock(&world.rig.compaction.pruned).is_empty());
+    world.release.notify_one();
+}
+
+/// A turn that started before the compaction was durable: the idle check comes first, so nothing is listed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_started_before_the_idle_check_is_not_listed_or_pruned() {
+    let world = world().await;
+    let (durable_arrived, durable) = world.hold_durable();
+    let (listed, _go) = world.hold_listing();
+    let mut commit = Box::pin(world.directory.commit_compaction(&world.handle.id, Vec::new(), World::compaction(), Some(World::header())));
+    within("the compaction reaches the store", async {
+        tokio::select! {
+            () = durable_arrived.notified() => {}
+            answered = &mut commit => panic!("answered before the compaction was durable: {answered:?}"),
+        }
+    })
+    .await;
+    world.start_turn().await;
+    durable.send(()).expect("release");
+    let answered = within("the commit answers", async {
+        tokio::select! {
+            () = listed.notified() => panic!("the sidecars of a session that is not idle were listed"),
+            answered = &mut commit => answered,
+        }
+    })
+    .await;
+    assert_eq!(answered.expect("answered"), CompactionCommit::Applied);
     assert_eq!(world.left(), SIDECARS.to_vec(), "a session that is not idle is not pruned");
     assert!(lock(&world.rig.compaction.pruned).is_empty());
     world.release.notify_one();
@@ -147,20 +204,18 @@ async fn a_turn_started_before_the_prune_decides_stops_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_message_queued_before_the_compaction_is_durable_keeps_the_sidecar_it_names() {
     let world = world().await;
-    let (release, held) = std::sync::mpsc::channel();
-    let arrived = Arc::new(Notify::new());
-    *lock(&world.rig.store.header_gate) = Some((arrived.clone(), held));
-    let mut set = serde_json::Map::new();
-    set.insert("compaction".into(), json!({ "compactCount": 1, "lastStage": "manual" }));
-    let header: CompactionHeader = Box::new(move |_, _| HeaderChange { set, unset: Vec::new() });
-    let mut commit = Box::pin(world.directory.commit_compaction(&world.handle.id, Vec::new(), World::compaction(), Some(header)));
+    let (arrived, release) = world.hold_durable();
+    let mut commit = Box::pin(world.directory.commit_compaction(&world.handle.id, Vec::new(), World::compaction(), Some(World::header())));
     // The compaction's batch is at the store, not durable: its snapshot is taken.
-    tokio::select! {
-        () = arrived.notified() => {}
-        answered = &mut commit => panic!("answered before the compaction was durable: {answered:?}"),
-    }
+    within("the compaction reaches the store", async {
+        tokio::select! {
+            () = arrived.notified() => {}
+            answered = &mut commit => panic!("answered before the compaction was durable: {answered:?}"),
+        }
+    })
+    .await;
     world.queue_naming_a_sidecar().await;
     release.send(()).expect("release");
-    assert_eq!(commit.await.expect("answered"), CompactionCommit::Applied);
+    assert_eq!(within("the commit answers", commit).await.expect("answered"), CompactionCommit::Applied);
     assert_eq!(world.left(), vec!["kept.txt", "queued.txt"]);
 }

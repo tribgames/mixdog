@@ -510,21 +510,17 @@ impl SessionActor {
             Box::new(move |current: &_| header(current, &appended)) as super::super::run::DeferredHeader
         });
         compaction.replacement.extend(appended);
-        let (engine, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
+        let jobs = self.jobs_tx.clone();
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.
         self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, header, ack });
         tokio::spawn(async move {
             let answer = match durable.await {
                 Ok(Ok(())) => {
-                    // `pruneCompactedOffloads(session)`: the old sidecars are listed, then the actor decides and deletes
-                    // (`prune_offloads`), reading what the session references only then.
-                    let candidates = engine.offload_candidates(&thread).await;
-                    if !candidates.is_empty() {
-                        let (told, pruned) = oneshot::channel();
-                        if jobs.send(JobDone::PruneOffloads(candidates, told)).is_ok() {
-                            let _ = pruned.await;
-                        }
+                    // `pruneCompactedOffloads(session)` on the actor (`prune_offloads`); the commit answers after it.
+                    let (told, pruned) = oneshot::channel();
+                    if jobs.send(JobDone::PruneOffloads(told)).is_ok() {
+                        let _ = pruned.await;
                     }
                     Ok(CompactionCommit::Applied)
                 }
