@@ -3,15 +3,19 @@
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-mcp-oauth-control-session-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "no network, no real MCP server or browser",
-    "runs": "desktop SessionHostTransport.invokeControlResult -> standalone session-service.mjs createSessionService -> session-runtime/resource-api.mjs createResourceApi (the sign-in registry is real); the MCP client is fake"
+    "runs": "desktop SessionHostTransport.invokeControlResult -> standalone session-service.mjs createSessionService -> session-runtime/resource-api.mjs createResourceApi (the sign-in registry is real); the MCP client is fake",
+    "scripted": {
+      "source": "crypto.randomUUID answers 00000000-0000-4000-8000-<counter, 12 digits> from 1, in call order",
+      "why": "the daemon session ids are sess_daemon_<ms>_<uuid without dashes>"
+    }
   },
   "exclusions": {},
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1871,
+      "bytes": 6122,
       "path": "golden.json",
-      "sha256": "ea34e7a1017142b35025b8f206efbd0efb1040a0dd5f004f4be8bf656b280254"
+      "sha256": "81606837bba708b985195208ba9f328c8eaa63e64d29caad6f4294c7b1fbefea"
     }
   ],
   "inputs": [
@@ -38,16 +42,25 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
       "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-uuid.mjs",
+      "sha256": "0cf4749b3295d336ec5fd90b3378bff11f609d47798a842019155a9327fdc895"
     }
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
     "paths": [
-      "$.cases[0].observed.begun.flowId",
-      "$.cases[0].observed.statusAfterReplace.flowId",
-      "$.cases[0].observed.statusAfterInvalidPaste.flowId",
-      "$.cases[0].observed.correctedPaste.flowId",
-      "$.cases[0].observed.finalStatus.flowId"
+      "$.cases[0].observed.begun.value.flowId",
+      "$.cases[0].observed.begun.result.value.flowId",
+      "$.cases[0].observed.statusAfterReplace.value.flowId",
+      "$.cases[0].observed.statusAfterReplace.result.value.flowId",
+      "$.cases[0].observed.statusAfterInvalidPaste.value.flowId",
+      "$.cases[0].observed.statusAfterInvalidPaste.result.value.flowId",
+      "$.cases[0].observed.correctedPaste.value.flowId",
+      "$.cases[0].observed.correctedPaste.result.value.flowId",
+      "$.cases[0].observed.finalStatus.value.flowId",
+      "$.cases[0].observed.finalStatus.result.value.flowId"
     ],
     "reason": "per-run temp path (or generated name) replaced by a placeholder"
   },
@@ -69,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-oauth-control-session-cases.mjs",
-  "recorderSha256": "13a2ea3da5660cb5aa72c0a688b0c4ded627692992f2635161f98ca0dd565843",
+  "recorderSha256": "a00be0344fc0717cdef7609025e852cf2442c36d98de2544f825caffc80ccc2b",
   "replay": {
     "compare": "mixdog-app-server / mixdog-mcp: the sign-in flow keeps its pending/complete state across control-session replacement; compare each result with the flow id and session ids abstracted",
     "entry": "Drive these public items on o1: mixdog-app-protocol/src/methods.rs: McpBeginMcpOAuthLogin (:2204), McpGetMcpOAuthLoginStatus (:2141), McpCompleteMcpOAuthLogin (:2222), McpSignOutMcpServer (:2231).",
@@ -86,6 +99,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "mcp-oauth-control-session-cases",
-  "totalBytes": 1871,
+  "totalBytes": 6122,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
