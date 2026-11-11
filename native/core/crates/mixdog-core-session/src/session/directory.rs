@@ -218,6 +218,40 @@ pub(crate) struct CreateSpec {
     pub starting: Option<Starting>,
 }
 
+/// [`SessionDirectory::durability_settled`]: each thread loaded at the call with its stores' [`mixdog_rt::WriteMarks`] and
+/// the accepted count of each taken then — the thread's records, then its prompt-history appends.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone)]
+pub struct DurabilitySettling {
+    threads: Vec<(ThreadId, [(Arc<mixdog_rt::WriteMarks>, u64); 2])>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl DurabilitySettling {
+    /// How many threads were loaded at the call, once every store of each committed what it accepted before; an error naming
+    /// the thread and the store when one of those writes failed (a thread that ended first fails what it had not written).
+    pub fn wait(&self) -> impl std::future::Future<Output = Result<usize, String>> + Send + 'static {
+        let threads = self.threads.clone();
+        async move {
+            let waits = threads.iter().flat_map(|(id, marks)| {
+                marks.iter().map(move |(marks, mark)| async move { marks.reached(*mark).await.map_err(|error| format!("thread {}: {error}", id.as_str())) })
+            });
+            futures::future::try_join_all(waits).await?;
+            Ok(threads.len())
+        }
+    }
+
+    /// The thread and store of each write from before the call still neither committed nor failed.
+    pub fn pending(&self) -> Vec<String> {
+        self.threads
+            .iter()
+            .flat_map(|(id, marks)| {
+                marks.iter().filter(|(marks, mark)| marks.check(*mark).is_none()).map(move |(marks, _)| format!("thread {}: {}", id.as_str(), marks.store()))
+            })
+            .collect()
+    }
+}
+
 pub struct SessionDirectory {
     inner: Arc<DirInner>,
 }
@@ -608,6 +642,27 @@ impl SessionDirectory {
             .collect();
         handles.sort_by_key(|handle| handle.loaded_seq);
         handles
+    }
+
+    /// Replay-only (the core's `replay/storesSettled` control): the positions of every thread loaded now, taken here, without
+    /// the actors — each one's durable records accepted ([`super::control::ControlCell::record_marks`]) and prompt-history
+    /// appends pushed ([`super::control::ControlCell::prompt_marks`]). [`DurabilitySettling::wait`] then waits for each to be
+    /// committed: what is accepted later neither holds nor hastens it, and a thread loaded later is not asked.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn durability_settled(&self) -> DurabilitySettling {
+        let threads = self
+            .loaded_handles()
+            .into_iter()
+            .map(|handle| {
+                let cell = &handle.cell;
+                let marks = [cell.record_marks.clone(), cell.prompt_marks.clone()].map(|marks| {
+                    let mark = marks.accepted();
+                    (marks, mark)
+                });
+                (handle.id.clone(), marks)
+            })
+            .collect();
+        DurabilitySettling { threads }
     }
 
     /// Whether a thread is being created now (`getSessionCreatePromise()`).
@@ -1293,6 +1348,10 @@ impl DirInner {
             ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
+            #[cfg(any(test, feature = "test-support"))]
+            record_marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),

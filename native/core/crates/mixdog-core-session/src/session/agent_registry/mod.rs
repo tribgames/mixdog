@@ -33,6 +33,8 @@ pub mod signals;
 pub mod status_rows;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod write_marks_tests;
 
 pub use self::sessions::AgentOwnerTeardown;
 pub use self::sessions::AgentSessions;
@@ -1188,16 +1190,15 @@ pub struct StoreWorkers {
     index: SqliteStore,
     threads: Arc<dyn ThreadState>,
     writes: mpsc::UnboundedSender<WriteOp>,
+    /// Each write numbered as it is queued, reported once its patch was applied or failed.
+    marks: Arc<mixdog_rt::WriteMarks>,
     io: InteractiveIo,
     /// `registry.onWorkerRowsChange` (`agent-tool.mjs`), bound once by the composition.
     signals: std::sync::OnceLock<Arc<dyn signals::StatusSignals>>,
 }
 
-/// What the writer task is asked: one session's map, or to say when everything before it was applied.
-enum WriteOp {
-    Write(String, Option<Row>),
-    Barrier(tokio::sync::oneshot::Sender<()>),
-}
+/// What the writer task is asked: one session's map, with its number in [`StoreWorkers::marks`].
+struct WriteOp(String, Option<Row>, u64);
 
 /// Whether `path` names a directory.
 #[allow(clippy::disallowed_methods, reason = "runs on the interactive-io lane job (lane proof argument)")]
@@ -1210,19 +1211,14 @@ impl StoreWorkers {
     pub fn new(index: SqliteStore, threads: Arc<dyn ThreadState>, io: InteractiveIo) -> Self {
         let (writes, mut rx) = mpsc::unbounded_channel::<WriteOp>();
         let patcher = threads.clone();
+        let marks = Arc::new(mixdog_rt::WriteMarks::new("the agent index"));
+        let reported = marks.clone();
         drop(mixdog_rt::spawn("agent-worker-writes", TaskClass::Work, async move {
-            while let Some(op) = rx.recv().await {
-                let (session, worker) = match op {
-                    WriteOp::Write(session, worker) => (session, worker),
-                    WriteOp::Barrier(done) => {
-                        let _ = done.send(());
-                        continue;
-                    }
-                };
+            while let Some(WriteOp(session, worker, mark)) = rx.recv().await {
                 let thread = ThreadId::from(session.as_str());
                 // A failed patch leaves the registry's own copy in force; it is retried by the
                 // next write of the session.
-                let _ = match worker {
+                let patched = match worker {
                     Some(map) => {
                         let mut set = Map::new();
                         set.insert("worker".into(), Value::Object(map));
@@ -1230,9 +1226,13 @@ impl StoreWorkers {
                     }
                     None => patcher.patch_header(&thread, Map::new(), vec!["worker".into()]).await,
                 };
+                match patched {
+                    Ok(()) => reported.written(mark),
+                    Err(error) => reported.failed(mark, format!("the worker row of {session}: {error:?}")),
+                }
             }
         }));
-        Self { index, threads, writes, io, signals: std::sync::OnceLock::new() }
+        Self { index, threads, writes, marks, io, signals: std::sync::OnceLock::new() }
     }
 }
 
@@ -1263,7 +1263,10 @@ impl WorkerStore for StoreWorkers {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
-        let _ = self.writes.send(WriteOp::Write(session.to_owned(), worker));
+        let mark = self.marks.accept();
+        if self.writes.send(WriteOp(session.to_owned(), worker, mark)).is_err() {
+            self.marks.withdrawn(mark);
+        }
         // Node's registry announces a row change where it makes it, not when the file settles.
         if let Some(signals) = self.signals.get() {
             signals.worker_rows(session);
@@ -1272,13 +1275,10 @@ impl WorkerStore for StoreWorkers {
 }
 
 impl StoreWorkers {
-    /// Resolves once every write made before the call is applied to the headers: the exit path awaits
-    /// it after `AgentRegistry::flush_active_worker_rows` (Node's `store.flushSync()`).
-    pub async fn settled(&self) {
-        let (done, applied) = tokio::sync::oneshot::channel();
-        if self.writes.send(WriteOp::Barrier(done)).is_ok() {
-            let _ = applied.await;
-        }
+    /// The writes' numbers: a barrier takes `accepted()` when it arrives and waits for `reached` of it, every write made
+    /// before it applied to the headers (after `AgentRegistry::flush_active_worker_rows`, Node's `store.flushSync()`).
+    pub fn marks(&self) -> &mixdog_rt::WriteMarks {
+        &self.marks
     }
 
     /// Binds the status signals; a second bind is refused.

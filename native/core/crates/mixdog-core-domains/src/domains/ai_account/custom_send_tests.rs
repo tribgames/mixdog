@@ -27,13 +27,13 @@ async fn every_scenario_ends_as_it_does_in_node() {
         if !extra.is_empty() {
             input["extraApiKeys"] = json!(extra);
         }
-        let saved = w.admin.save(input).await.unwrap();
+        let saved = w.admin.save(input, 0).await.unwrap();
         let mut probe = json!({ "id": saved["id"], "schemaVersion": 2, "name": name, "protocol": "openai-chat", "baseURL": base });
         // The test's own unsaved settings (keyless, environment key) decide who sends.
         for (key, value) in case["probe"].as_object().into_iter().flatten() {
             probe[key] = value.clone();
         }
-        let answer = w.admin.test(probe).await;
+        let answer = w.admin.test(probe, 0).await;
         match (answer, case["error"].as_str()) {
             (Ok(result), None) => {
                 let shown = result.to_string().replace(saved["extraApiKeys"][0]["id"].as_str().unwrap_or("\0"), "<key1>");

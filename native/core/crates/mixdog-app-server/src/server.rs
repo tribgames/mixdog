@@ -31,6 +31,7 @@ use mixdog_app_protocol::Mutation;
 use mixdog_app_protocol::RequestClass;
 use mixdog_app_protocol::RequestId;
 use mixdog_app_protocol::decode_inbound_text;
+use mixdog_app_protocol::free_text;
 use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_protocol::limits::LimitsViolation;
 use mixdog_app_protocol::v1;
@@ -127,6 +128,11 @@ pub enum Inbound {
     /// Close the connection with `code` once the frames already queued are written.
     Close(CloseCode),
 }
+
+/// Replay-only (`replay-controls`): a request a replay sends before it looks at the core's files, answered once every store a
+/// call writes in the background has written what it was given (the core's service for it says which).
+#[cfg(feature = "replay-controls")]
+pub const REPLAY_STORES_SETTLED: &str = "replay/storesSettled";
 
 /// The method-table origin of a registered connection, `None` for one that is gone or was
 /// never registered (the transport's `ConnectionHub::origin_of`). Asked on every request.
@@ -310,7 +316,7 @@ impl Shared {
 
     // ---- requests
 
-    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, request: JsonRpcRequest) -> Inbound {
+    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, mut request: JsonRpcRequest) -> Inbound {
         let id = request.id.clone();
         // No origin is no scope to judge the call by: refuse, never assume one.
         let Some(origin) = (self.origin_of)(conn.id) else {
@@ -319,6 +325,11 @@ impl Shared {
         };
         if conn.session().is_none() && request.method != INITIALIZE {
             self.reject(conn, &id, &ErrorData::NotInitialized);
+            return Inbound::Continue;
+        }
+        #[cfg(feature = "replay-controls")]
+        if request.method == REPLAY_STORES_SETTLED {
+            self.replay_stores_settled(conn, id, origin);
             return Inbound::Continue;
         }
         let Some(spec) = method_index().get(request.method.as_str()).copied() else {
@@ -359,9 +370,15 @@ impl Shared {
             self.reject(conn, &id, &data);
             return Inbound::Continue;
         }
+        if let Some(at) = free_text::refused(free_text::Kind::Request, spec.method, &request.lone_surrogates) {
+            drop(slot);
+            self.reject(conn, &id, &lone_refusal(&format!("{}.params", spec.method), at));
+            return Inbound::Continue;
+        }
         // The owner decodes its own params from the raw value; the table decode below only
         // validates them and yields the scope and op.
         let params = request.params.clone();
+        let lone_surrogates = std::mem::take(&mut request.lone_surrogates);
         let typed = match ClientRequest::from_jsonrpc(request) {
             Ok(typed) => typed,
             Err(error) => {
@@ -378,7 +395,7 @@ impl Shared {
         let params = params.unwrap_or_else(empty_result);
         // What the call keeps until its answer is queued ends right after `finish` queues it, or with the request if it never is.
         let after = AfterAnswer::default();
-        match self.dispatch(conn, &id, origin, typed, params, spec, &after) {
+        match self.dispatch(conn, &id, origin, typed, (params, lone_surrogates), spec, &after) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
                 self.finish(conn, &id, outcome);
@@ -410,6 +427,26 @@ impl Shared {
             }
         }
         Inbound::Continue
+    }
+
+    /// [`REPLAY_STORES_SETTLED`]: answered by the service the core registers for it, outside the method table (no ordinary build
+    /// has it), on the work runtime; a core that registers none answers it unclaimed.
+    #[cfg(feature = "replay-controls")]
+    fn replay_stores_settled(self: &Arc<Self>, conn: &Arc<Connection>, id: RequestId, origin: Origin) {
+        let (shared, owner, core) = (Arc::clone(self), Arc::clone(conn), Arc::clone(&self.core));
+        let request = CoreRequest {
+            method: Method(REPLAY_STORES_SETTLED),
+            params: empty_result(),
+            op: None,
+            ctx: CallContext::connection(conn.id, origin, conn.cancel.clone()),
+        };
+        mixdog_rt::spawn("replay-stores-settled", TaskClass::Work, async move {
+            let outcome = match core.domain_for(REPLAY_STORES_SETTLED) {
+                Some(domain) => domain.call(request).await,
+                None => Err(unclaimed(REPLAY_STORES_SETTLED)),
+            };
+            shared.finish(&owner, &id, outcome);
+        });
     }
 
     /// Refuses what the core's lifecycle does not serve. C0 controls always pass, so a client
@@ -569,7 +606,7 @@ impl Shared {
         id: &RequestId,
         origin: Origin,
         request: ClientRequest,
-        params: Value,
+        (params, lone_surrogates): (Value, Vec<mixdog_app_protocol::rpc::LoneAt>),
         spec: &'static MethodSpec,
         after: &AfterAnswer,
     ) -> Dispatch {
@@ -658,7 +695,7 @@ impl Shared {
             }
             _ => {
                 let op = request.op().map(|(_, op)| op.clone());
-                self.route(conn, origin, spec, params, op, after)
+                self.route(conn, origin, spec, (params, lone_surrogates), op, after)
             }
         }
     }
@@ -673,12 +710,13 @@ impl Shared {
         conn: &Connection,
         origin: Origin,
         spec: &'static MethodSpec,
-        params: Value,
+        (params, lone_surrogates): (Value, Vec<mixdog_app_protocol::rpc::LoneAt>),
         op: Option<OpId>,
         after: &AfterAnswer,
     ) -> Dispatch {
         let mut ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
         ctx.after_answer = after.clone();
+        ctx.lone_surrogates = lone_surrogates;
         let namespace = namespace(spec.method);
         let thread = THREAD_NAMESPACES
             .contains(&namespace)
@@ -881,14 +919,25 @@ impl Shared {
         let Some(session) = conn.session() else {
             return;
         };
-        let JsonRpcResponse { id, result } = response;
-        let Err(Ok(result)) = conn.complete_host_request(&id, Ok(result)) else {
+        let JsonRpcResponse { id, result, lone_surrogates } = response;
+        // A `host/*` answer that held a lone surrogate outside its free-text fields ([`free_text`]) fails its request.
+        let free = conn.host_request_method(&id).is_some_and(|method| free_text::refused(free_text::Kind::Answer, method.as_str(), &lone_surrogates).is_none());
+        let (reply, decision) = if lone_surrogates.is_empty() || free { (Ok(result), None) } else { (Err(lone_answer()), Some(result)) };
+        let Err(back) = conn.complete_host_request(&id, reply) else {
+            return;
+        };
+        let Some(result) = decision.or_else(|| back.ok()) else {
             return;
         };
         let request = ServerRequestId(id.to_string());
-        let Some(thread) = self.outgoing.owner_for_response(&request, conn.id) else {
+        let Some((thread, method)) = self.outgoing.owner_for_response(&request, conn.id) else {
             return;
         };
+        // A decision holding a lone surrogate outside its free-text fields decides nothing: the request stays open.
+        if let Some(at) = free_text::refused(free_text::Kind::Answer, method.as_str(), &lone_surrogates) {
+            let _ = conn.sink.send_control(error_notification_frame(&lone_refusal("result", at)));
+            return;
+        }
         let Some(handle) = self.core.threads().get(&thread) else {
             return;
         };
@@ -915,10 +964,16 @@ impl Shared {
     /// An error response of a client does not resolve a server request (P §8.4 step 6); for a
     /// `host/*` request it is the request's failure.
     fn on_error_response(&self, conn: &Connection, response: JsonRpcError) {
-        let failed = HostError::Rpc {
-            code: response.error.code,
-            message: response.error.message.clone(),
-            data: response.error.data.clone(),
+        // An error answer has no free-text field: one that held a lone surrogate fails its request as a refused answer does,
+        // so no consumer reads its U+FFFD-substituted message or data.
+        let failed = if response.lone_surrogates.is_empty() {
+            HostError::Rpc {
+                code: response.error.code,
+                message: response.error.message.clone(),
+                data: response.error.data.clone(),
+            }
+        } else {
+            lone_answer()
         };
         let _ = conn.complete_host_request(&response.id, Err(failed));
     }
@@ -939,6 +994,10 @@ impl Shared {
         if spec.method == "initialized" {
             return Inbound::Continue;
         }
+        // A notification holding a lone surrogate outside its free-text fields is dropped: it has no effect.
+        if free_text::refused(free_text::Kind::Notification, spec.method, &notification.lone_surrogates).is_some() {
+            return Inbound::Continue;
+        }
         let Some(domain) = self.core.domain_for(spec.method) else {
             return Inbound::Continue;
         };
@@ -947,6 +1006,26 @@ impl Shared {
             Admit::Accepted => Inbound::Continue,
             Admit::Pause(resume) => Inbound::Pause(resume),
         }
+    }
+}
+
+/// The refusal of a frame that held a lone surrogate outside its free-text fields ([`free_text`]): no shipped client sends one
+/// there, so the frame is refused whole and nothing acts on it (decisions.md "frame-lone-surrogate"). `what` names the payload;
+/// a place outside it (the id) keeps its own pointer.
+fn lone_refusal(what: &str, at: &str) -> ErrorData {
+    let path = at.strip_prefix('#').map_or_else(|| format!("{what}{at}"), str::to_owned);
+    // The sentence names the field: it is what a client shows a person (remote-protocol-files.ts `failure`, protocol-client
+    // `ClientFailure`), and the person has to know which text to fix.
+    let expected = format!("text without unpaired surrogates (a lone \\ud800-\\udfff escape) in {path}");
+    ErrorData::InvalidParams { path, expected }
+}
+
+/// The failure of a `host/*` request whose answer held a lone surrogate outside its free-text fields.
+fn lone_answer() -> HostError {
+    HostError::Rpc {
+        code: mixdog_app_protocol::error::INVALID_PARAMS,
+        message: "The answer contains unpaired Unicode surrogates.".into(),
+        data: None,
     }
 }
 

@@ -225,6 +225,51 @@ async fn cases_chunk(chunk: usize) {
     }
 }
 
+const HELD: std::time::Duration = std::time::Duration::from_secs(10);
+
+async fn writer_in(dir: &std::path::Path) -> GatewayUsage {
+    let clock = Arc::new(TestClock(AtomicI64::new(1)));
+    GatewayUsage::new(dir, mixdog_rt::testing::tokens().durability_io, clock, pricing(&json!({})).await, Arc::new(Manual::default()))
+}
+
+fn record_one(usage: &GatewayUsage) {
+    usage.record(&json!({ "provider": "p", "model": "m" }), &json!({}), &json!({}), Some(1.0), Map::new());
+}
+
+/// The replay's barrier on the usage events: an event recorded before it holds it until its append ran, events recorded
+/// after it, still buffered on their timer, do not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_barrier_waits_for_the_events_before_it_and_not_the_later_ones() {
+    use futures::FutureExt;
+    let dir = tempfile::tempdir().unwrap();
+    let usage = writer_in(dir.path()).await;
+    record_one(&usage);
+    let mark = usage.marks().accepted();
+    let mut settled = Box::pin(usage.marks().reached(mark));
+    assert!(settled.as_mut().now_or_never().is_none(), "the event from before the barrier is still buffered");
+    usage.flush();
+    record_one(&usage);
+    record_one(&usage);
+    let answer = tokio::time::timeout(HELD, settled).await.expect("the barrier did not answer within 10 s although the earlier event was appended");
+    assert_eq!(answer, Ok(()));
+    assert_eq!((usage.marks().committed(), usage.marks().accepted()), (mark, mark + 2), "the later events are still unwritten");
+}
+
+/// An append that failed before the barrier is its error, naming the store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_append_before_the_barrier_is_its_error() {
+    let dir = tempfile::tempdir().unwrap();
+    // The data directory is a file: the store's lock cannot be taken under it.
+    let data = dir.path().join("not-a-directory");
+    std::fs::write(&data, "x").unwrap();
+    let usage = writer_in(&data).await;
+    record_one(&usage);
+    usage.flush();
+    let answer = tokio::time::timeout(HELD, usage.marks().reached(usage.marks().accepted())).await.expect("the barrier did not answer within 10 s");
+    let error = answer.expect_err("the failed append is the barrier's error");
+    assert!(error.starts_with("the gateway usage events: write 1, accepted before the barrier, failed: "), "{error}");
+}
+
 #[test]
 fn the_chunks_cover_the_recording() {
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();

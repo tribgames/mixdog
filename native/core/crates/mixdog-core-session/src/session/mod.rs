@@ -83,6 +83,8 @@ mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
 #[cfg(test)]
+mod durability_settled_tests;
+#[cfg(test)]
 mod mcp_failure_tests;
 #[cfg(test)]
 mod route_config_tests;
@@ -204,6 +206,8 @@ use mixdog_rt::InteractiveIo;
 
 pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::SessionDirectory;
+#[cfg(any(test, feature = "test-support"))]
+pub use self::directory::DurabilitySettling;
 pub use self::model_switch::record_model_switch;
 pub use self::handle::SessionHandle;
 pub use self::prompt_history::FilePromptHistory;
