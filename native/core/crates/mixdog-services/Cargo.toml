@@ -7,6 +7,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# A replay's core: the memory store's postmaster on the port the replay assigned (pg/cluster.rs `assigned_port`). Never in an ordinary build.
+assigned-pg-port = []
+
 [dependencies]
 mixdog-ai = { workspace = true }
 mixdog-tools = { workspace = true }

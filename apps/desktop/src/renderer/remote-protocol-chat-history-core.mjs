@@ -175,9 +175,19 @@ export function alignHistory(node, core) {
   return differences;
 }
 
+/** A loopback port the OS just handed out, outside every core's scanned memory-store range (cluster.rs DEFAULT_PORT 55432 .. +200). */
+async function assignedPort() {
+  for (;;) {
+    const server = createServer();
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    await new Promise((resolve) => server.close(resolve));
+    if (port < 55432 || port > 55632) return port;
+  }
+}
+
 /** Runs one case against the core binary `bin`; returns `{ name, pass, failure?, core: log }`. */
-export async function replayCase(name, { bin, harness, deadlineMs = 120_000, seeded = async () => undefined, booting = async () => () => undefined }) {
-  let endBoot = () => undefined;
+export async function replayCase(name, { bin, harness, deadlineMs = 120_000, seeded = async () => undefined }) {
   const c = ABORT_CASES.find((x) => x.name === name);
   if (!c) throw new Error(`no case ${JSON.stringify(name)}`);
   const recording = nodeHistory(name);
@@ -292,14 +302,11 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       clockSocket.write(`${command}\n`);
       return deadline.race(reply.promise, `the core's clock to answer ${command}`).then((line) => Number(/^now (\d+)$/.exec(line)?.[1]));
     };
-    // One core boots at a time, up to its PostgreSQL listening: side-by-side cores scanning the same ports (cluster.rs DEFAULT_PORT,
-    // PORT_SPAN) took one port twice, and the loser's cluster was started again when a turn needed it, its readiness polls then waiting
-    // on a clock that moves only with Node's inputs (a hang no user meets: theirs runs).
-    // Each earlier case ends its turn by its own deadline; this case's deadline starts once its turn has come.
-    endBoot = await booting();
-    deadline.clear();
-    deadline = createDeadline(deadlineMs, message);
-    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}` }), cwd: paths.envRoot });
+    // The core's PostgreSQL listens on a port assigned here (mixdog-services pg/cluster.rs `assigned_port`), outside the range every core
+    // scans (cluster.rs DEFAULT_PORT + PORT_SPAN): a core beside this one, scanning, could take a scanned port between the probe and
+    // the bind, and the loser's cluster would be started again when a turn needed it, its readiness polls waiting on the frozen clock.
+    const pgPort = await assignedPort();
+    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}`, MIXDOG_ASSIGNED_PG_PORT: String(pgPort) }), cwd: paths.envRoot });
     await deadline.race(clockLine.promise, 'the core to connect to the replay clock (a mixdogd built with --features virtual-clock)');
     const daemonDoc = () => {
       const file = join(paths.runtimeRoot, 'daemon.json');
@@ -327,7 +334,6 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     check();
     const doc = await deadline.race(served.promise, 'the core to serve');
     await deadline.race(pgListening.promise, "the core's PostgreSQL to listen");
-    endBoot();
     const endpoint = parseDiscovery(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
     // Frozen once the core serves, as Node's clocks froze once its host was attached; from here it moves with Node's recorded moves.
     const frozenAt = await clock('freeze');
@@ -490,8 +496,6 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   } finally {
     // A case that failed before seeding still lets the others past the barrier.
     if (!hasSeeded) void seeded();
-    // A case that failed while booting lets the next core boot.
-    endBoot();
     deadline.clear();
     const ending = createDeadline(60_000, () => `ending the world of ${name}; core pid ${core?.pid}`);
     try {
@@ -532,15 +536,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   let left = names.length;
   const all = Promise.withResolvers();
   const seeded = () => { left -= 1; if (left === 0) all.resolve(); return all.promise; };
-  // The boot turn: resolves with the function that ends it once every earlier case's has ended.
-  let booted = Promise.resolve();
-  const booting = () => {
-    const turn = Promise.withResolvers();
-    const before = booted;
-    booted = turn.promise;
-    return before.then(() => () => turn.resolve());
-  };
-  const results = await Promise.all(names.map((name) => replayCase(name, { bin, harness, seeded, booting })));
+  const results = await Promise.all(names.map((name) => replayCase(name, { bin, harness, seeded })));
   const out = process.env.HISTORY_CORE_OUT;
   if (out) writeFileSync(out, `${JSON.stringify({ binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), builtFrom: built, results }, null, 1)}\n`);
   const brief = (v) => (JSON.stringify(v) ?? 'absent').slice(0, 300);
