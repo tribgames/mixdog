@@ -1,7 +1,8 @@
-// Which terminal output reaches which paired phone, against a real mixdogd (MIXDOGD_BIN), compared whole with Node (b6f10295a):
-// apps/mobile/fixtures/terminal-lane-reach/golden.json, recorded by benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs. A tab the
-// desktop or another phone opens reaches every phone reading the terminal lane from its first output, and an unpaired phone whose socket
-// is still open gets what Node sent it.
+// What each paired phone receives on the terminal lane, against a real mixdogd (MIXDOGD_BIN, built with
+// `--features "terminal-lease-clock replay-controls"`), compared whole with Node (b6f10295a): apps/mobile/fixtures/terminal-lane-reach/golden.json,
+// recorded by benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs. Per phone, every termData (exact text, envelope `droppable`),
+// termActivity and termSizeOwner in order: tabs the desktop or a phone opens, a phone leaving and coming back, a phone joining mid-output,
+// a tab whose shell ends and one disposed while it runs, and an unpaired phone whose socket is still open.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';

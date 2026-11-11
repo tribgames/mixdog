@@ -33,6 +33,23 @@ pub fn profile() -> SpawnProfile {
     }
 }
 
+/// Set (non-empty) in the environment of a `mixdogd` built with `scripted-shell`: every terminal tab runs [`profile`] over pipes in place
+/// of the shell it planned. The tab layer (shell plan, marker scanner, replay buffer, exit line, relay framing) runs unchanged on what the
+/// scripted shell writes; Node's recording runs the same program in place of node-pty (benchmarks/rust-core/recorders/lib/scripted-pty.mjs).
+#[cfg(feature = "scripted-shell")]
+pub const SCRIPTED_SHELL_VAR: &str = "MIXDOG_TERMINAL_SCRIPTED_SHELL";
+
+/// `request` with the scripted shell over pipes in place of its program and PTY, while [`SCRIPTED_SHELL_VAR`] is set.
+#[cfg(feature = "scripted-shell")]
+pub(crate) fn in_place_of(request: &mut mixdog_core_api::domain::process::SpawnRequest) {
+    if std::env::var_os(SCRIPTED_SHELL_VAR).is_none_or(|value| value.is_empty()) {
+        return;
+    }
+    let shell = profile();
+    request.command = mixdog_core_api::domain::process::CommandSpec::Argv { program: shell.path, args: shell.args };
+    request.pty = None;
+}
+
 /// Sends `lines` to the tab and returns once its feed carried them back, so the replay window holds them.
 pub async fn say(tabs: &TerminalTabs, manager: &LocalProcessManager, id: &str, lines: &[&str]) {
     let wanted: String = lines.iter().map(|line| format!("{line}\r\n")).collect();

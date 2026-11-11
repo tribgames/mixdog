@@ -1259,6 +1259,12 @@ impl TerminalTabs {
             },
             time_limit: None,
         };
+        #[cfg(feature = "scripted-shell")]
+        let spawn = {
+            let mut spawn = spawn;
+            crate::scripted::in_place_of(&mut spawn);
+            spawn
+        };
         let on_exit: ExitHook = {
             let tab = Arc::clone(&tab);
             Box::new(move |exit| tab.exited(exit))

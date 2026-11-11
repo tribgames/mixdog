@@ -1,8 +1,9 @@
-// The replay of record-terminal-lane-reach.mjs against a built mixdogd: per recorded world a freshly started core that dials a scripted relay,
-// a desktop connection (loopback) that opens a tab and types into it, and two paired phones behind the relay, each the phone's own terminal
-// adapter (apps/desktop/src/renderer/remote-protocol-terminal.ts) and lane feeds (apps/mobile/src/phone-lanes.ts) over its protocol client,
-// reading the terminal lane. The same steps as the recording; each world's values are computed the recording's way (lib/terminal-lane-reach.mjs)
-// and compared whole with Node's.
+// The replay of record-terminal-lane-reach.mjs against a built mixdogd (`--features "terminal-lease-clock replay-controls"`): per recorded
+// world a freshly started core whose tabs run the scripted shell (MIXDOG_TERMINAL_SCRIPTED_SHELL, the program Node's recording ran in place
+// of node-pty) and that dials a scripted relay, a desktop connection (loopback) that opens tabs and types into them, and three paired phones
+// behind the relay, each the page's own terminal adapter (apps/desktop/src/renderer/remote-protocol-terminal.ts) and lane feeds
+// (apps/mobile/src/phone-lanes.ts) over its protocol client. The same steps as the recording, with the same waits; each phone's
+// termData, termActivity and termSizeOwner events are recorded the recording's way and each world is compared whole with Node's.
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,9 +12,13 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
 import { endCore } from './core-stop.mjs';
+import { exact } from './exact.mjs';
 import { startCore } from './phone-files-replay.mjs';
 import { assertNoPowerShellProfile, isolatedProfile } from './shell-isolation.mjs';
-import { LANE_REACH_CREDENTIALS, LANE_REACH_MARKS, LANE_REACH_TABS, reachOf } from './terminal-lane-reach.mjs';
+import { LANE_EVENTS, LANE_REACH_CREDENTIALS, LANE_REACH_TABS, echoed, normaliseKilledExit, typed } from './terminal-lane-reach.mjs';
+
+/** The terminal lane's feed (remote-protocol-terminal.ts LANE_FEED): its `process/outputDelta` frames are the phone's termData. */
+const LANE_FEED = 'process:relay';
 
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 /** One wait for something the core sends. */
@@ -54,6 +59,8 @@ async function startRelay(E2EE) {
     const waiting = [];
     const phone = {
       closedByDesktop: null,
+      /** The envelope `droppable` of each terminal lane output frame, in order. */
+      laneDroppable: [],
       arrived(frame) {
         if (frame.type === 'close-client') phone.closedByDesktop = frame.reason ?? '';
         const next = waiting.shift();
@@ -78,7 +85,11 @@ async function startRelay(E2EE) {
           for (;;) {
             const frame = await next();
             if (frame.type === 'close-client') return sink.closed(1000, frame.reason ?? '');
-            receiving = receiving.then(async () => sink.frame(JSON.stringify(await channel.decryptJson(frame.data))));
+            receiving = receiving.then(async () => {
+              const message = await channel.decryptJson(frame.data);
+              if (message?.method === 'process/outputDelta' && message?.feed?.id === LANE_FEED) phone.laneDroppable.push(frame.droppable);
+              sink.frame(JSON.stringify(message));
+            });
           }
         })();
         return {
@@ -133,7 +144,7 @@ export async function replayLaneReach({ exe, golden }) {
       const cwd = join(root, `cwd-${n}`);
       mkdirSync(cwd, { recursive: true });
       relay.world(recorded.relayConfirms, Object.values(LANE_REACH_CREDENTIALS));
-      const core = await startCore(exe, join(root, `core-${n}`), relay, true, env);
+      const core = await startCore(exe, join(root, `core-${n}`), relay, true, { ...env, MIXDOG_TERMINAL_SCRIPTED_SHELL: '1' });
       try {
         await relay.leg();
         const desktop = await within(connect(base(createWsConnector(async () => core.endpoint), 'desktop', 'mixdog-replay-desktop')), 'the desktop connection');
@@ -153,26 +164,30 @@ export async function replayLaneReach({ exe, golden }) {
             }),
             what
           );
-        /** A phone reading the terminal lane: its adapter, its lanes, and the text each tab's output gave its page. */
+        /** A phone: its adapter, its lanes, and every terminal-lane event its page got (the recording's `got`). */
         const openPhone = async (name, credential) => {
           const { connector, phone } = await relay.openPhone(`${name}-${n}`, credential, pairing);
           const client = await within(connect(base(connector, 'phone', 'mixdog-phone')), `the phone ${name}'s connection`);
           clients.push(client);
-          // The lanes' subscriptions, so the replay goes on once the core has answered them (the recording waited for `setRemoteLanes`'s answer).
-          const subscribed = [];
+          // The lanes' (un)subscriptions, so a lane change goes on once the core has answered it (the recording waited for `setRemoteLanes`'s answer).
+          let pending = [];
           const call = client.call.bind(client);
           client.call = (method, params) => {
             const answer = call(method, params);
-            if (method === 'feed/subscribe') subscribed.push(answer);
+            if (method === 'feed/subscribe' || method === 'feed/unsubscribe') pending.push(answer);
             return answer;
           };
           const lanes = createLaneFeeds(client);
-          const text = {};
+          const got = Object.fromEntries(LANE_EVENTS.map((event) => [event, []]));
+          const record = (event) => (payload) => {
+            got[event].push(event === 'termData' ? { payload, droppable: phone.laneDroppable[got.termData.length] } : { payload });
+            changed();
+          };
           const ctx = {
-            activeLanes: new Set(['terminal']),
-            termListeners: new Set([(event) => ((text[event.id] = (text[event.id] ?? '') + event.data), changed())]),
-            termActivityListeners: new Set(),
-            termSizeOwnerListeners: new Set(),
+            activeLanes: new Set(),
+            termListeners: new Set([record('termData')]),
+            termActivityListeners: new Set([record('termActivity')]),
+            termSizeOwnerListeners: new Set([record('termSizeOwner')]),
             folderChangeListeners: new Set(),
             terminalRunListeners: new Set(),
             fanOut: (listeners, value) => listeners.forEach((listener) => listener(value)),
@@ -181,40 +196,91 @@ export async function replayLaneReach({ exe, golden }) {
           const host = { ctx, client: () => client, declareLane: lanes.declare, onClient: (listener) => (listener(client), () => undefined) };
           const router = createProtocolRouter([adapter], { host, started: async () => undefined, synced: async () => undefined, probe() {}, silentSince: () => false });
           router.install();
-          lanes.use(['terminal']);
-          await within(Promise.all(subscribed), `the phone ${name}'s lane subscriptions`);
-          return { router, phone, text: (tab) => text[tab] ?? '' };
+          return {
+            router,
+            phone,
+            got,
+            /** The page's `setRemoteLanes`: the lanes it reads now (remote-shim-phone.ts publishLanes). */
+            async lanes(read) {
+              if (read) ctx.activeLanes.add('terminal');
+              else ctx.activeLanes.delete('terminal');
+              lanes.use(ctx.activeLanes);
+              const answers = pending;
+              pending = [];
+              await within(Promise.all(answers), `the phone ${name}'s lane ${read ? 'subscription' : 'unsubscription'}`);
+            },
+            text: (tab) =>
+              got.termData
+                .filter((entry) => entry.payload.id === tab)
+                .map((entry) => entry.payload.data)
+                .join(''),
+          };
         };
-        const p1 = await openPhone('p1', LANE_REACH_CREDENTIALS.p1);
-        const p2 = await openPhone('p2', LANE_REACH_CREDENTIALS.p2);
-        const both = (tab, seen) => until(() => [p1, p2].every((phone) => phone.text(tab).includes(seen)), `both phones to get ${seen} on ${tab}`);
-        const reach = async (tab, seen) => {
-          // The desktop's attach answers the tab's replay buffer, Node's `termSnapshot` text.
-          const { replay } = await ask('terminal/attach', { tabId: tab });
-          return { p1: reachOf(replay, p1.text(tab), seen), p2: reachOf(replay, p2.text(tab), seen) };
+        const all = { p1: await openPhone('p1', LANE_REACH_CREDENTIALS.p1), p2: await openPhone('p2', LANE_REACH_CREDENTIALS.p2), p3: await openPhone('p3', LANE_REACH_CREDENTIALS.p3) };
+        const reading = new Set();
+        const lanes = async (name, read) => {
+          await all[name].lanes(read);
+          if (read) reading.add(name);
+          else reading.delete(name);
         };
+        const barrier = (name) => within(all[name].router.call('termProfiles', []), `the answer to ${name}'s termProfiles`);
+        /** The recording's `reached`: `text` reached every phone reading the lane on `tab`; each other phone has had a call answered after. */
+        const reached = async (tab, text) => {
+          await until(() => [...reading].every((name) => all[name].text(tab).includes(text)), `${[...reading].join(', ')} to get ${JSON.stringify(text)} on ${tab}`);
+          for (const name of Object.keys(all)) if (!reading.has(name)) await barrier(name);
+        };
+        const desktopTypes = async (tab, line) => {
+          desktop.notify('terminal/input', { tabId: tab, data: typed(line) });
+          await reached(tab, echoed(line));
+        };
+        const EXITED = '[process exited with code';
+        await lanes('p1', true);
+        await lanes('p2', true);
+        await lanes('p3', false);
 
         await ask('terminal/ensure', { tabId: LANE_REACH_TABS.desktop, options: { cwd } });
-        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.desktop, data: LANE_REACH_MARKS.desktop.typed });
-        await both(LANE_REACH_TABS.desktop, LANE_REACH_MARKS.desktop.seen);
-        const desktopTab = await reach(LANE_REACH_TABS.desktop, LANE_REACH_MARKS.desktop.seen);
+        await desktopTypes(LANE_REACH_TABS.desktop, 'lane-desk-1');
 
-        await within(p2.router.call('termEnsure', [LANE_REACH_TABS.phone, cwd, null]), "the answer to the second phone's termEnsure");
-        p2.router.fire('termWrite', [LANE_REACH_TABS.phone, LANE_REACH_MARKS.phone.typed]);
-        await both(LANE_REACH_TABS.phone, LANE_REACH_MARKS.phone.seen);
-        const phoneTab = await reach(LANE_REACH_TABS.phone, LANE_REACH_MARKS.phone.seen);
+        await within(all.p2.router.call('termEnsure', [LANE_REACH_TABS.phone, cwd, null]), "the answer to p2's termEnsure");
+        all.p2.router.fire('termWrite', [LANE_REACH_TABS.phone, typed('lane-ph-1')]);
+        await reached(LANE_REACH_TABS.phone, echoed('lane-ph-1'));
+
+        await lanes('p2', false);
+        await desktopTypes(LANE_REACH_TABS.desktop, 'lane-desk-2');
+        await lanes('p2', true);
+        await desktopTypes(LANE_REACH_TABS.desktop, 'lane-desk-3');
+
+        await lanes('p3', true);
+        await desktopTypes(LANE_REACH_TABS.desktop, 'lane-desk-4');
+
+        await ask('terminal/ensure', { tabId: LANE_REACH_TABS.ends, options: { cwd } });
+        await desktopTypes(LANE_REACH_TABS.ends, 'lane-end-1');
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.ends, data: typed('@exit 3') });
+        await reached(LANE_REACH_TABS.ends, EXITED);
+        await ask('terminal/dispose', { tabId: LANE_REACH_TABS.ends });
+        for (const name of Object.keys(all)) await barrier(name);
+
+        all.p2.router.fire('termWrite', [LANE_REACH_TABS.phone, typed('lane-ph-2')]);
+        await reached(LANE_REACH_TABS.phone, echoed('lane-ph-2'));
+        await within(all.p2.router.call('termDispose', [LANE_REACH_TABS.phone]), "the answer to p2's termDispose");
+        await reached(LANE_REACH_TABS.phone, EXITED);
+        for (const name of Object.keys(all)) await barrier(name);
 
         await ask('remoteAccess/revokeClient', { opId: op(), clientId: LANE_REACH_CREDENTIALS.p1 }).catch(() => undefined);
-        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.desktop, data: LANE_REACH_MARKS.unpair.typed });
-        const seen = LANE_REACH_MARKS.unpair.seen;
-        await until(() => p2.text(LANE_REACH_TABS.desktop).includes(seen), `the second phone to get ${seen}`);
-        // Node's unpaired phone got it (its frame went with the second phone's); one that did not is read once a call of it is answered.
-        const got = recorded.unpair.unpairedPhoneGotOutput
-          ? await until(() => p1.text(LANE_REACH_TABS.desktop).includes(seen), `the unpaired phone to get ${seen}, as Node's did`).then(() => true, () => false)
-          : await within(p1.router.call('termProfiles', []), "the answer to the unpaired phone's termProfiles").then(() => p1.text(LANE_REACH_TABS.desktop).includes(seen));
-        const unpair = { unpairedPhoneGotOutput: got, desktopClosedUnpairedPhone: p1.phone.closedByDesktop };
-        for (const tab of Object.values(LANE_REACH_TABS)) await ask('terminal/dispose', { tabId: tab });
-        const replayed = { name: recorded.name, relayConfirms: recorded.relayConfirms, desktopTab, phoneTab, unpair };
+        reading.delete('p1');
+        await desktopTypes(LANE_REACH_TABS.desktop, 'lane-desk-5');
+
+        const phones = normaliseKilledExit(
+          Object.fromEntries(Object.entries(all).map(([name, phone]) => [name, { ...exact(phone.got), closedByDesktop: exact(phone.phone.closedByDesktop) }])),
+          LANE_REACH_TABS.phone
+        );
+        for (const [name, phone] of Object.entries(all)) {
+          if (phone.phone.laneDroppable.length !== phone.got.termData.length) {
+            differences.push(`${recorded.name}: ${name} got ${phone.phone.laneDroppable.length} terminal lane output frame(s) for ${phone.got.termData.length} termData event(s)`);
+          }
+        }
+        await ask('terminal/dispose', { tabId: LANE_REACH_TABS.desktop });
+        const replayed = { name: recorded.name, relayConfirms: recorded.relayConfirms, phones };
         if (!isDeepStrictEqual(replayed, recorded)) differences.push(`${recorded.name}: Node ${JSON.stringify(recorded)}, core ${JSON.stringify(replayed)}`);
       } finally {
         for (const client of clients) client.close?.();
