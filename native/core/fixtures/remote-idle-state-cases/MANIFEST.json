@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -68,6 +68,7 @@
   "replay": {
     "compare": "mixdog-app-server feeds (idle session state frames): replay the 30 pulses against the Rust encoder and compare which pulses deliver a frame and each delivered wire whole; goal snapshot cases mixdog-core-domains goal state",
     "entry": "Drive these public items on o1: mixdog-core-goal/src/goal/state.rs:315 active_elapsed_ms; mixdog-core-goal/src/goal/state.rs:330 public_goal; mixdog-core-goal/src/goal/state.rs:361 goal_state_snapshot.",
+    "existsButNotPublicOnO1": [],
     "missingOnO1": [
       "the snapshot delta encoder / decoder (compact and plain wire, isNoDelta, markCompactWire) and the pulse delivery: no counterpart found"
     ],
