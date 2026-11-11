@@ -7,19 +7,12 @@
       "id": "whole-call-without-finish",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:28",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn1dfX1dfQoK"
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -55,18 +48,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn1dfX1dfQoK"
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -78,6 +84,59 @@
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"}]}}]}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -85,19 +144,12 @@
       "id": "one-complete-one-unfinished-0",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:39",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn0seyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19XX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"},{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -121,18 +173,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn0seyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19XX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -144,6 +209,59 @@
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"},{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -151,19 +269,12 @@
       "id": "one-complete-one-unfinished-1",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:39",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19LHsiZnVuY3Rpb25DYWxsIjp7ImlkIjoibmF0aXZlLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmaXh0dXJlIn19LCJ0aG91Z2h0U2lnbmF0dXJlIjoibmF0aXZlLXNpZ25hdHVyZSJ9XX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}},{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -187,18 +298,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19LHsiZnVuY3Rpb25DYWxsIjp7ImlkIjoibmF0aXZlLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmaXh0dXJlIn19LCJ0aG91Z2h0U2lnbmF0dXJlIjoibmF0aXZlLXNpZ25hdHVyZSJ9XX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -210,6 +334,59 @@
               }
             }
           ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}},{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"}]}}]}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -217,19 +394,12 @@
       "id": "one-complete-one-unfinished-2",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:39",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn0seyJmdW5jdGlvbkNhbGwiOnsibmFtZSI6InJlYWQiLCJwYXJ0aWFsQXJncyI6W3sianNvblBhdGgiOiIkLnBhdGgiLCJzdHJpbmdWYWx1ZSI6ImYifV19fV19fV19Cgo="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"},{\"functionCall\":{\"name\":\"read\",\"partialArgs\":[{\"jsonPath\":\"$.path\",\"stringValue\":\"f\"}]}}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -253,18 +423,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn0seyJmdW5jdGlvbkNhbGwiOnsibmFtZSI6InJlYWQiLCJwYXJ0aWFsQXJncyI6W3sianNvblBhdGgiOiIkLnBhdGgiLCJzdHJpbmdWYWx1ZSI6ImYifV19fV19fV19Cgo="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -277,25 +460,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"},{\"functionCall\":{\"name\":\"read\",\"partialArgs\":[{\"jsonPath\":\"$.path\",\"stringValue\":\"f\"}]}}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "several-complete-calls-without-finish",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:55",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn0seyJmdW5jdGlvbkNhbGwiOnsibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJzZWNvbmQifX19XX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"},{\"functionCall\":{\"name\":\"read\",\"args\":{\"path\":\"second\"}}}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -339,18 +568,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn0seyJmdW5jdGlvbkNhbGwiOnsibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJzZWNvbmQifX19XX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -363,25 +605,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"},{\"functionCall\":{\"name\":\"read\",\"args\":{\"path\":\"second\"}}}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "no-finish-text-only",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:69",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiaGFsZiBhbiBhbnN3ZXIifV19fV19Cgo="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"half an answer\"}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -412,18 +700,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiaGFsZiBhbiBhbnN3ZXIifV19fV19Cgo="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -436,25 +737,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"half an answer\"}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "no-finish-thoughts-only",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:69",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiaG1tIiwidGhvdWdodCI6dHJ1ZX1dfX1dfQoK"
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hmm\",\"thought\":true}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -478,18 +825,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiaG1tIiwidGhvdWdodCI6dHJ1ZX1dfX1dfQoK"
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -502,25 +862,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hmm\",\"thought\":true}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "no-finish-partial-functionCall",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:69",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19XX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -544,18 +950,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19XX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -568,25 +987,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "no-finish-empty-candidate",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:69",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbXX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -610,18 +1075,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbXX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -634,25 +1112,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "native-tool-chunks-replayable",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:77",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19XX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -676,18 +1200,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJwYXJ0aWFsLWlkIiwibmFtZSI6InJlYWQiLCJhcmdzIjp7InBhdGgiOiJmcmFnIn0sIndpbGxDb250aW51ZSI6dHJ1ZX19XX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -700,25 +1237,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "visible-text-then-native-chunk",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:94",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoidmlzaWJsZSJ9XX19XX0KCmRhdGE6IHsiY2FuZGlkYXRlcyI6W3siY29udGVudCI6eyJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoicGFydGlhbC1pZCIsIm5hbWUiOiJyZWFkIiwiYXJncyI6eyJwYXRoIjoiZnJhZyJ9LCJ3aWxsQ29udGludWUiOnRydWV9fV19fV19Cgo="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"visible\"}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -750,18 +1333,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoidmlzaWJsZSJ9XX19XX0KCmRhdGE6IHsiY2FuZGlkYXRlcyI6W3siY29udGVudCI6eyJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoicGFydGlhbC1pZCIsIm5hbWUiOiJyZWFkIiwiYXJncyI6eyJwYXRoIjoiZnJhZyJ9LCJ3aWxsQ29udGludWUiOnRydWV9fV19fV19Cgo="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -774,25 +1370,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"visible\"}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"partial-id\",\"name\":\"read\",\"args\":{\"path\":\"frag\"},\"willContinue\":true}}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "leaked-call-held-back",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:118",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiPGludm9rZSBuYW1lPVwicmVhZFwiPjxwYXJhbWV0ZXIgbmFtZT1cInBhdGhcIj5hLnR4dDwvcGFyYW1ldGVyPjwvaW52b2tlPiJ9XX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"<invoke name=\\\"read\\\"><parameter name=\\\"path\\\">a.txt</parameter></invoke>\"}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -840,18 +1482,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiPGludm9rZSBuYW1lPVwicmVhZFwiPjxwYXJhbWV0ZXIgbmFtZT1cInBhdGhcIj5hLnR4dDwvcGFyYW1ldGVyPjwvaW52b2tlPiJ9XX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -889,25 +1544,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"<invoke name=\\\"read\\\"><parameter name=\\\"path\\\">a.txt</parameter></invoke>\"}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "leaked-call-dispatched",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:118",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiPGludm9rZSBuYW1lPVwicmVhZFwiPjxwYXJhbWV0ZXIgbmFtZT1cInBhdGhcIj5hLnR4dDwvcGFyYW1ldGVyPjwvaW52b2tlPiJ9XX19XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"<invoke name=\\\"read\\\"><parameter name=\\\"path\\\">a.txt</parameter></invoke>\"}]}}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -965,18 +1666,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InBhcnRzIjpbeyJ0ZXh0IjoiPGludm9rZSBuYW1lPVwicmVhZFwiPjxwYXJhbWV0ZXIgbmFtZT1cInBhdGhcIj5hLnR4dDwvcGFyYW1ldGVyPjwvaW52b2tlPiJ9XX19XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -1014,25 +1728,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"<invoke name=\\\"read\\\"><parameter name=\\\"path\\\">a.txt</parameter></invoke>\"}]}}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "ordered-parts-and-signatures",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:140",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJ0ZXh0IjoiYW5zd2VyIn1dfX1dfQoKZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn1dfSwiZmluaXNoUmVhc29uIjoiU1RPUCJ9XX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+          ]
         }
       },
       "result": {
@@ -1075,18 +1835,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJ0ZXh0IjoiYW5zd2VyIn1dfX1dfQoKZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvbkNhbGwiOnsiaWQiOiJuYXRpdmUtaWQiLCJuYW1lIjoicmVhZCIsImFyZ3MiOnsicGF0aCI6ImZpeHR1cmUifX0sInRob3VnaHRTaWduYXR1cmUiOiJuYXRpdmUtc2lnbmF0dXJlIn1dfSwiZmluaXNoUmVhc29uIjoiU1RPUCJ9XX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -1099,25 +1872,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"functionCall\":{\"id\":\"native-id\",\"name\":\"read\",\"args\":{\"path\":\"fixture\"}},\"thoughtSignature\":\"native-signature\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "in-band-error-before-text",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:168",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJlcnJvciI6eyJjb2RlIjo0MjksInN0YXR1cyI6IlJFU09VUkNFX0VYSEFVU1RFRCIsIm1lc3NhZ2UiOiJxdW90YSBnb25lIiwiZGV0YWlscyI6W3siQHR5cGUiOiJ0eXBlLmdvb2dsZWFwaXMuY29tL2dvb2dsZS5ycGMuUmV0cnlJbmZvIiwicmV0cnlEZWxheSI6IjVzIn1dfX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"quota gone\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"5s\"}]}}\n\n"
+          ]
         }
       },
       "result": {
@@ -1160,18 +1979,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJlcnJvciI6eyJjb2RlIjo0MjksInN0YXR1cyI6IlJFU09VUkNFX0VYSEFVU1RFRCIsIm1lc3NhZ2UiOiJxdW90YSBnb25lIiwiZGV0YWlscyI6W3siQHR5cGUiOiJ0eXBlLmdvb2dsZWFwaXMuY29tL2dvb2dsZS5ycGMuUmV0cnlJbmZvIiwicmV0cnlEZWxheSI6IjVzIn1dfX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -1184,25 +2016,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"quota gone\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"5s\"}]}}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "in-band-error-after-stop",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:174",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJ0ZXh0Ijoib2sifV19LCJmaW5pc2hSZWFzb24iOiJTVE9QIn1dfQoKZGF0YTogeyJlcnJvciI6eyJjb2RlIjo0MjksInN0YXR1cyI6IlJFU09VUkNFX0VYSEFVU1RFRCIsIm1lc3NhZ2UiOiJxdW90YSBnb25lIiwiZGV0YWlscyI6W3siQHR5cGUiOiJ0eXBlLmdvb2dsZWFwaXMuY29tL2dvb2dsZS5ycGMuUmV0cnlJbmZvIiwicmV0cnlEZWxheSI6IjVzIn1dfX0KCg=="
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: {\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"quota gone\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"5s\"}]}}\n\n"
+          ]
         }
       },
       "result": {
@@ -1251,18 +2129,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJjYW5kaWRhdGVzIjpbeyJjb250ZW50Ijp7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJ0ZXh0Ijoib2sifV19LCJmaW5pc2hSZWFzb24iOiJTVE9QIn1dfQoKZGF0YTogeyJlcnJvciI6eyJjb2RlIjo0MjksInN0YXR1cyI6IlJFU09VUkNFX0VYSEFVU1RFRCIsIm1lc3NhZ2UiOiJxdW90YSBnb25lIiwiZGV0YWlscyI6W3siQHR5cGUiOiJ0eXBlLmdvb2dsZWFwaXMuY29tL2dvb2dsZS5ycGMuUmV0cnlJbmZvIiwicmV0cnlEZWxheSI6IjVzIn1dfX0KCg=="
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -1275,25 +2166,71 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\ndata: {\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"quota gone\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"5s\"}]}}\n\n"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "in-band-error-unterminated-tail",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:185",
       "input": {
-        "response": {
-          "$response": {
-            "status": 200,
-            "statusText": "",
-            "headers": [],
-            "bodyChunks": [
-              {
-                "$exact": "bytes",
-                "type": "Buffer",
-                "base64": "ZGF0YTogeyJlcnJvciI6eyJjb2RlIjo1MDMsInN0YXR1cyI6IlVOQVZBSUxBQkxFIn19"
-              }
-            ]
-          }
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [
+            "data: {\"error\":{\"code\":503,\"status\":\"UNAVAILABLE\"}}"
+          ]
         }
       },
       "result": {
@@ -1321,18 +2258,31 @@
           "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "$response": {
-                "status": 200,
-                "statusText": "",
-                "headers": [],
-                "bodyChunks": [
-                  {
-                    "$exact": "bytes",
-                    "type": "Buffer",
-                    "base64": "ZGF0YTogeyJlcnJvciI6eyJjb2RlIjo1MDMsInN0YXR1cyI6IlVOQVZBSUxBQkxFIn19"
-                  }
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
                 ]
-              }
+              ]
             },
             {
               "label": "fixture",
@@ -1345,254 +2295,195 @@
             }
           ]
         }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
+          ],
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"code\":503,\"status\":\"UNAVAILABLE\"}}"
+            ]
+          }
+        }
       ]
     },
     {
       "id": "first-chunk-window-follows-caller-and-names-phase",
       "source": "src/runtime/agent/orchestrator/providers/gemini-stream.test.mjs:197",
       "input": {
-        "endpoint": "accepts the request, never writes a byte",
-        "clock": "every armed timer in due order until the send ends"
+        "served": {
+          "status": 200,
+          "contentType": "text/event-stream",
+          "chunks": [],
+          "hold": true
+        },
+        "options": {
+          "label": "fixture",
+          "firstByteTimeoutMs": 25
+        },
+        "advanceMs": 25
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "ProviderTimeoutError",
-          "message": "Gemini REST first byte timed out after 60000ms",
-          "code": "EPROVIDERTIMEOUT",
+          "name": "GeminiTimeoutError",
+          "message": "fixture first byte timed out after 25ms",
+          "code": "EGEMINITIMEOUT",
           "props": {
-            "name": "ProviderTimeoutError",
-            "providerRecoveryExhausted": true,
-            "providerRecoveryTerminal": true,
-            "providerRecoveryOwner": "withRetry",
-            "providerRecoveryAttempts": 10
+            "name": "GeminiTimeoutError",
+            "timeoutPhase": "first-chunk"
           }
         }
       },
       "calls": [
         {
-          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs.consumeGeminiRestStreamResponse",
           "args": [
             {
-              "apiKey": "fixture-key"
+              "status": 200,
+              "statusText": "OK",
+              "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "text/event-stream"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            {
+              "label": "fixture",
+              "firstByteTimeoutMs": 25
             }
-          ]
-        },
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
-          "args": [
-            [
-              {
-                "role": "user",
-                "content": "hi"
-              }
-            ],
-            "gemini-2.5-pro",
-            [],
-            {}
           ]
         }
       ],
       "clock": [
         {
-          "advanceMs": 499,
+          "advanceMs": 0,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 0
+        },
+        {
+          "advanceMs": 25,
           "fromMs": 0,
           "fired": [
             {
-              "dueMs": 499
+              "dueMs": 25
             }
           ],
-          "toMs": 499
-        },
+          "toMs": 25
+        }
+      ],
+      "requests": [
         {
-          "advanceMs": 60000,
-          "fromMs": 499,
-          "fired": [
-            {
-              "dueMs": 60499
-            }
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "2"
+            ]
           ],
-          "toMs": 60499
-        },
-        {
-          "advanceMs": 4307,
-          "fromMs": 60499,
-          "fired": [
-            {
-              "dueMs": 64806
-            }
-          ],
-          "toMs": 64806
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 64806,
-          "fired": [
-            {
-              "dueMs": 124806
-            }
-          ],
-          "toMs": 124806
-        },
-        {
-          "advanceMs": 12952,
-          "fromMs": 124806,
-          "fired": [
-            {
-              "dueMs": 137758
-            }
-          ],
-          "toMs": 137758
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 137758,
-          "fired": [
-            {
-              "dueMs": 197758
-            }
-          ],
-          "toMs": 197758
-        },
-        {
-          "advanceMs": 15365,
-          "fromMs": 197758,
-          "fired": [
-            {
-              "dueMs": 213123
-            }
-          ],
-          "toMs": 213123
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 213123,
-          "fired": [
-            {
-              "dueMs": 273123
-            }
-          ],
-          "toMs": 273123
-        },
-        {
-          "advanceMs": 36864,
-          "fromMs": 273123,
-          "fired": [
-            {
-              "dueMs": 309987
-            }
-          ],
-          "toMs": 309987
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 309987,
-          "fired": [
-            {
-              "dueMs": 369987
-            }
-          ],
-          "toMs": 369987
-        },
-        {
-          "advanceMs": 34624,
-          "fromMs": 369987,
-          "fired": [
-            {
-              "dueMs": 404611
-            }
-          ],
-          "toMs": 404611
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 404611,
-          "fired": [
-            {
-              "dueMs": 464611
-            }
-          ],
-          "toMs": 464611
-        },
-        {
-          "advanceMs": 27010,
-          "fromMs": 464611,
-          "fired": [
-            {
-              "dueMs": 491621
-            }
-          ],
-          "toMs": 491621
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 491621,
-          "fired": [
-            {
-              "dueMs": 551621
-            }
-          ],
-          "toMs": 551621
-        },
-        {
-          "advanceMs": 27681,
-          "fromMs": 551621,
-          "fired": [
-            {
-              "dueMs": 579302
-            }
-          ],
-          "toMs": 579302
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 579302,
-          "fired": [
-            {
-              "dueMs": 639302
-            }
-          ],
-          "toMs": 639302
-        },
-        {
-          "advanceMs": 37827,
-          "fromMs": 639302,
-          "fired": [
-            {
-              "dueMs": 677129
-            }
-          ],
-          "toMs": 677129
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 677129,
-          "fired": [
-            {
-              "dueMs": 737129
-            }
-          ],
-          "toMs": 737129
-        },
-        {
-          "advanceMs": 36290,
-          "fromMs": 737129,
-          "fired": [
-            {
-              "dueMs": 773419
-            }
-          ],
-          "toMs": 773419
-        },
-        {
-          "advanceMs": 60000,
-          "fromMs": 773419,
-          "fired": [
-            {
-              "dueMs": 833419
-            }
-          ],
-          "toMs": 833419
+          "body": "{}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [],
+            "hold": true
+          }
         }
       ]
     }
