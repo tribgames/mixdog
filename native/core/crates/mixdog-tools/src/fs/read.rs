@@ -1606,10 +1606,10 @@ impl ReadTool {
         Ok(Body { parts: blocks, rich: true, ..Body::default() })
     }
 
-    /// `imageBlocksFromBuffer` for a notebook image: its resize note and the resized image, or nothing when it
+    /// `imageBlocksFromBuffer` (after Node's `Buffer.from(b64, 'base64')`) for a notebook image: its resize note and the resized image, or nothing when it
     /// cannot be resized (the cell keeps its placeholder).
     async fn notebook_image(&self, ctx: &ToolContext, source: &str, b64: &str, mime: &'static str) -> Vec<ToolPart> {
-        let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64.trim()) else { return Vec::new() };
+        let bytes = node_base64(b64);
         let Some(images) = &self.images else { return Vec::new() };
         if bytes.is_empty() {
             return Vec::new();
@@ -2322,4 +2322,30 @@ fn split_glob(raw: &str) -> (String, String) {
     let base = parts[..first].join("/");
     let pattern = parts[first..].join("/");
     (if base.is_empty() { ".".to_owned() } else { base }, pattern)
+}
+
+/// Node's `Buffer.from(text, 'base64')`: the standard and URL-safe alphabets, every other character (line breaks
+/// included) skipped, decoding ended by the first `=`; a trailing lone sextet carries no byte.
+fn node_base64(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for b in text.bytes() {
+        let v = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => break,
+            _ => continue,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    out
 }

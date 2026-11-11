@@ -476,6 +476,12 @@ async fn read_renders_or_refuses_a_notebook_as_node_does() {
     replay_fs_search("read-shapes").await;
 }
 
+/// A notebook image whose base64 is wrapped with line breaks is decoded as Node's `Buffer.from(b64, 'base64')`.
+#[tokio::test]
+async fn read_decodes_a_wrapped_notebook_image_as_node_does() {
+    replay_fs_search("read-ipynb-image").await;
+}
+
 /// A missing `list` / `grep` path carries Node's recovery hints.
 #[tokio::test]
 async fn list_and_grep_answer_a_missing_path_as_node_does() {
