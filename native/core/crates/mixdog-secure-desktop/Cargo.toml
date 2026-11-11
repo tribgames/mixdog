@@ -1,0 +1,57 @@
+# The core's build of `native/mixdog-secure-desktop`'s library, inside the workspace root so its package id (and every
+# crate's above it) does not contain the checkout's path; see crates/mixdog-spawn/Cargo.toml. Node's own build of the
+# package is unchanged. [package], [lib] name, [features] and the dependencies must stay those of
+# `native/mixdog-secure-desktop/Cargo.toml` (mixdog-testkit `tests/native_mirrors.rs`). No build script: the original's
+# only work is the version resource of its executable.
+[package]
+name = "mixdog-secure-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+description = "Secure-desktop (UAC/lock screen) capture and input bridge for the Mixdog remote-desktop feature"
+license = "Apache-2.0"
+publish = false
+build = false
+
+[lib]
+name = "mixdog_secure_desktop"
+path = "../../../mixdog-secure-desktop/src/lib.rs"
+# Its tests run in Node's build of the package.
+test = false
+doctest = false
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+base64 = "0.22.1"
+rand = "0.9.3"
+hmac = "0.12"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authentication_Identity",
+  "Win32_Security_Authorization",
+  "Win32_Security_Cryptography",
+  "Win32_Security_Cryptography_Catalog",
+  "Win32_Security_Cryptography_Sip",
+  "Win32_Security_WinTrust",
+  "Win32_Globalization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Pipes",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_System_RemoteDesktop",
+  "Win32_System_Services",
+  "Win32_System_StationsAndDesktops",
+  "Win32_System_SystemInformation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }

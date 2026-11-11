@@ -17,6 +17,7 @@ pub mod common;
 pub mod error;
 #[cfg(feature = "codegen")]
 pub mod export;
+pub mod free_text;
 pub mod inventory;
 pub mod limits;
 pub mod media;

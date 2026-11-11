@@ -3,15 +3,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5375834,
+      "bytes": 5375813,
       "path": "golden.json",
-      "sha256": "8809ec0523ab5ce28c5ba92fbdbc208a6cd50576ebcee6806d4d59cb905c1f12"
+      "sha256": "6daaadc21a52321334352dd4ceb9380278d953306a782e6712448c7c0bf3daf9"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "1effe442db273be9927f41e9dcba0e2ceb356dc84d14a57c27aeee4a0bc3aeaa"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
@@ -19,16 +19,24 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
-      "sha256": "2ef0eccc36ee425eae793d6f406b61775533ab3253604c83f4b29de57aea7523"
+      "sha256": "1e531c667316f360f1556cd87799ae6378468d2ed574995a489885b5805d34f9"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
-      "sha256": "9b5e2b8d2d54770720acd87534d60f623472f2060b88cab56c8543dfbe0f457c"
+      "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/core-stop.mjs",
+      "sha256": "c3e584cfa44431a8d7b51ce7b5e7a2516bbcd5984a35ad385312a566404f379e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+      "sha256": "c21b47dd1896f6245063ad1765a84b4f5faf4c8f5d472881b3c1d094ae1051a6"
     }
   ],
   "nodeVersion": "v22.20.0",
   "notes": {
-    "fileMtimeMs": "A comparison rule, applied to both sides: a step's `fileMtimeMs` (only on a writeProjectFile that succeeded) is not compared; the replay removes it from Node's step and from the core's before comparing (benchmarks/rust-core/recorders/lib/phone-files-replay.mjs:221-222). It is the mtime the answer carried, which the operating system stamps at the write (Node: apps/desktop/src/main/project-files.ts:407 `handle.stat()` after the rewrite, :601 `stat(file)` after the write), so it differs between any two runs, of Node as of the core. It is checked independently on each side instead: `play` (benchmarks/rust-core/recorders/lib/phone-files-script.mjs:426-427) fails the run unless the answer's mtimeMs equals the written file's mtime on disk right after the call, and the answer keeps `{$fileMtime: true}` in its place, which is compared; every other field of the step is compared as recorded."
+    "fileMtimeMs": "A step's `fileMtimeMs` (only on a writeProjectFile that succeeded) is a fixed input of the script, not the OS stamp: the recorder's driver sets the written file's modification time right after the call to FIXED_NOW_MS + n minutes (FIXED_NOW_MS = the virtual clock of phone-files-script.mjs, 2026-06-07T08:09:10Z; n = 1, 2, ... counts the successful writes of a scenario) and the answer's mtimeMs is that instant, because the OS stamps a write with the real clock and nothing injects it (Node: apps/desktop/src/main/project-files.ts:407 `handle.stat()` after the rewrite, :601 `stat(file)` after the write). `play` still fails the run unless the answer's mtimeMs equals the file's mtime on disk right after the call, and the answer keeps `{$fileMtime: true}` in its place. phone-files-replay.mjs (the step comparison, `const { fileMtimeMs: _node, ...nodeStep } = node`) still drops `fileMtimeMs` before comparing (the core's driver does not pin), so the replay does not compare it."
   },
   "product": {
     "appsSha256": "841fa7c35d344615b8c4d139f864e24916cc50a69a289456cc94232a23d2c85d",
@@ -57,8 +65,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-files.mjs",
-  "recorderSha256": "b0a0828e80340b0b2b1da9a388d54402fa2db16937c4d715f4b52c9721c4c267",
+  "recorderSha256": "0570c9c3ebe467cdbac6989e460d27d068eb96260d6fe9160e1813cadc3566ff",
   "set": "phone-files",
   "steps": 252,
-  "totalBytes": 5375834
+  "totalBytes": 5375813
 }

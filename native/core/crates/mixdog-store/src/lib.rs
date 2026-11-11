@@ -6,6 +6,7 @@ pub mod context;
 pub mod message_facets;
 pub mod message_index;
 pub mod message_state;
+pub mod offload_sources;
 pub mod routine_result;
 pub mod session_text;
 pub mod user_message_kind;

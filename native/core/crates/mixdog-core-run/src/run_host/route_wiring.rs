@@ -372,11 +372,11 @@ pub fn effort_value(e: &EffortSnapshot) -> Value {
 mod tests {
     use super::*;
 
-    const GOLDEN: &str = include_str!("golden/route_wiring.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/golden/route_wiring.json");
 
     #[test]
     fn an_uncatalogued_id_gets_nodes_generation_floor() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let gates = golden["gates"].as_array().unwrap();
         assert_eq!(gates.len(), 27);
         for row in gates {
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn every_configuration_equals_nodes() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let cases = golden["cases"].as_array().unwrap();
         assert_eq!(cases.len(), 936);
         let unsupported = UnsupportedEfforts::default();

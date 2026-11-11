@@ -388,7 +388,7 @@ impl Inner {
             // logged; the next wait is computed from now, never replayed.
             while let Some(slot) = expected {
                 let wait = (slot - inner.clock.now()).num_milliseconds();
-                tokio::time::sleep(std_delay(wait.min(MAX_BEAT_WAIT_MS))).await;
+                mixdog_rt::time::sleep(std_delay(wait.min(MAX_BEAT_WAIT_MS))).await;
                 let plan = plan_beat(slot, whole_seconds(inner.clock.now()), MISSED_TOLERANCE_MS, |d| {
                     expr.next_after(d, tz)
                 });
@@ -425,7 +425,7 @@ impl Inner {
                 if wait <= 0 {
                     break;
                 }
-                tokio::time::sleep(std_delay(wait)).await;
+                mixdog_rt::time::sleep(std_delay(wait)).await;
             }
             inner.fire_one_shot(&n).await;
         });
@@ -523,7 +523,7 @@ impl Inner {
                 Err(err) => {
                     mixdog_rt::node_stderr!("mixdog scheduler: {name} markDone failed (attempt {attempt}/3): {err}");
                     if attempt < 3 {
-                        tokio::time::sleep(StdDuration::from_millis(250)).await;
+                        mixdog_rt::time::sleep(StdDuration::from_millis(250)).await;
                     }
                 }
             }

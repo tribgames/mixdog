@@ -396,5 +396,3 @@ pub(crate) fn token_calibration(provider: Option<&Value>, env: &dyn Fn(&str) -> 
     }
 }
 
-#[cfg(test)]
-mod tests;

@@ -17,7 +17,13 @@ use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::progress::Progress;
 use mixdog_agent::agent_tool::progress::ProgressInput;
 use mixdog_agent::agent_tool::progress::frozen_progress;
+use mixdog_agent::agent_tool::progress::WatchdogPolicy;
 use mixdog_agent::agent_tool::progress::progress_fields;
+use mixdog_agent::agent_tool::watchdog::AgentKind;
+use mixdog_agent::agent_tool::watchdog::Overrides;
+use mixdog_agent::agent_tool::watchdog::resolve_policy;
+use mixdog_core_config::config::hidden_agents::hidden_agent_stall_cap_idle_seconds;
+use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::scope::positive_int;
 use mixdog_agent::agent_tool::stamp::iso_from_ms;
@@ -78,6 +84,45 @@ fn row_state(session: &Row, runtime_stage: Option<&str>) -> (String, String) {
     (status, stage)
 }
 
+/// `resolveAgentWatchdogPolicy(role)` with no overrides, the internal role's own idle cap included.
+fn resolve_role_policy(role: &str) -> WatchdogPolicy {
+    let kind = AgentKind {
+        name: Some(role),
+        hidden: hidden_agent_traits(role).is_some(),
+        stall_cap_idle_seconds: hidden_agent_stall_cap_idle_seconds(role),
+    };
+    resolve_policy(kind, Overrides::default(), &|name: &str| std::env::var(name).ok())
+}
+
+/// The role policies a status read uses (`session-progress.mjs rolePolicies`): a read never
+/// resolves one itself. A role's first read finds none and has it resolved once the read is over
+/// (Node's `setImmediate`); later reads use the resolved one.
+#[derive(Default)]
+pub struct RolePolicies {
+    held: std::sync::Mutex<std::collections::HashMap<String, Option<WatchdogPolicy>>>,
+}
+
+impl RolePolicies {
+    /// `rolePolicy(role, true)`; a role first seen is queued in `pending`.
+    pub fn get(&self, role: &str, pending: &mut Vec<String>) -> Option<WatchdogPolicy> {
+        let mut held = self.held.lock().unwrap();
+        if let Some(policy) = held.get(role) {
+            return *policy;
+        }
+        held.insert(role.to_owned(), None);
+        pending.push(role.to_owned());
+        None
+    }
+
+    /// `resolveRolePolicy(role)` for each role a read queued.
+    pub fn resolve(&self, pending: Vec<String>) {
+        for role in pending {
+            let policy = resolve_role_policy(&role);
+            self.held.lock().unwrap().insert(role, Some(policy));
+        }
+    }
+}
+
 /// `sessionProgressExtras(.., { loaded })`, the fields a status row keeps.
 fn progress_of(session_status: Option<&str>, live: &WorkerLive, task_status: Option<&str>, now: i64) -> Progress {
     progress_fields(&ProgressInput {
@@ -132,8 +177,12 @@ pub fn worker_status_row(input: &WorkerStatus<'_>) -> Map<String, Value> {
     row.insert("tag".into(), json!(input.tag));
     row.insert("sessionId".into(), or_null(session, "id"));
     row.insert("agent".into(), or_null(session, "agent"));
-    row.insert("provider".into(), session.get("provider").cloned().unwrap_or(Value::Null));
-    row.insert("model".into(), session.get("model").cloned().unwrap_or(Value::Null));
+    // `provider: session.provider`: a session without one leaves the key out of the published JSON.
+    for key in ["provider", "model"] {
+        if let Some(value) = session.get(key) {
+            row.insert(key.into(), value.clone());
+        }
+    }
     row.insert("preset".into(), or_null(session, "presetName"));
     row.insert("effort".into(), or_null(session, "effort"));
     row.insert("fast".into(), json!(session.get("fast") == Some(&Value::Bool(true))));
@@ -269,15 +318,24 @@ pub struct AgentToolStatus {
     directory: Arc<SessionDirectory>,
     jobs: Arc<dyn WaitedJobs>,
     clock: Arc<dyn Clock>,
+    role_policies: RolePolicies,
 }
 
 impl AgentToolStatus {
     pub fn new(registry: Arc<AgentRegistry>, board: JobBoard, directory: Arc<SessionDirectory>, jobs: Arc<dyn WaitedJobs>, clock: Arc<dyn Clock>) -> Self {
-        Self { registry, board, directory, jobs, clock }
+        Self { registry, board, directory, jobs, clock, role_policies: RolePolicies::default() }
     }
 
-    fn live(&self, id: &str, now: i64) -> WorkerLive {
-        self.directory.worker_live(&ThreadId::from(id), now, &*self.jobs)
+    /// The worker's progress state, its policy the armed watchdog's own, else the role's
+    /// (`watchdogState.policy || rolePolicy(role, true)`).
+    fn live(&self, id: &str, role: Option<&str>, now: i64, pending: &mut Vec<String>) -> WorkerLive {
+        let mut live = self.directory.worker_live(&ThreadId::from(id), now, &*self.jobs);
+        if live.policy.is_none()
+            && let Some(role) = role.filter(|r| !r.is_empty())
+        {
+            live.policy = self.role_policies.get(role, pending);
+        }
+        live
     }
 
     /// `session.messages.length` of the session in memory: the conversation the model context holds
@@ -317,9 +375,10 @@ impl AgentStatus for AgentToolStatus {
         let now = self.clock.now_ms();
         self.registry.refresh_tags_from_sessions(false, &scope).await;
         let mut workers = Vec::new();
+        let mut pending = Vec::new();
         for (tag, session) in self.registry.session_entries(false, &scope) {
             let id = mixdog_js::js_trim(session.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
-            let live = self.live(&id, now);
+            let live = self.live(&id, text(&session, "agent").as_deref(), now, &mut pending);
             let (status, stage) = row_state(&session, live.runtime_stage.as_deref());
             // Listed by status and stage alone, as `createAgentList` lists.
             if !is_active_worker(&status, &stage) {
@@ -342,7 +401,8 @@ impl AgentStatus for AgentToolStatus {
         for job in self.board.list_jobs_for_client(&scope, &worker_pid) {
             let id = job.meta.session_id.clone().filter(|id| !id.is_empty());
             let session = id.as_deref().and_then(|id| self.directory.handle(&ThreadId::from(id))).map(|h| h.cell.header.load_full());
-            let live = id.as_deref().map(|id| self.live(id, now)).unwrap_or_default();
+            // A finished job's row is frozen: no progress is read, so no role policy is asked for.
+            let live = id.as_deref().filter(|_| !is_terminal(&job.status)).map(|id| self.live(id, job.meta.agent.as_deref(), now, &mut pending)).unwrap_or_default();
             jobs.push(Value::Object(job_status_row(&JobStatus {
                 job: &job,
                 session: session.as_deref(),
@@ -351,6 +411,7 @@ impl AgentStatus for AgentToolStatus {
                 now,
             })));
         }
+        self.role_policies.resolve(pending);
         // statusFor: a session's agents are scoped to that owner session, else to the hosting process.
         ThreadAgents { agent_workers: workers, agent_jobs: jobs, agent_scope: Some(agent_scope(thread, &handle.cell.header.load())) }
     }
@@ -368,3 +429,5 @@ pub(crate) fn agent_scope(thread: &ThreadId, header: &Map<String, Value>) -> Val
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod live_rows_usage_tests;

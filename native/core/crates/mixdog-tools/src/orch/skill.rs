@@ -196,7 +196,7 @@ mod tests {
     /// for byte; an unchanged repeat load injects no body.
     #[tokio::test]
     async fn the_result_reads_as_node_words_it() {
-        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/skill-session/golden.json")).expect("fixture");
+        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/skill-session/golden.json")).expect("fixture");
         for case in golden["arm"].as_array().expect("arm cases") {
             let lines = case["notice"]["lines"].as_array().expect("lines").iter().map(|line| line.as_str().expect("line").to_owned()).collect();
             let native = Some(case["notice"]["native"].clone()).filter(|native| !native.is_null());

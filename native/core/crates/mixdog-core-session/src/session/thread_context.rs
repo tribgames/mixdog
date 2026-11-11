@@ -200,7 +200,7 @@ mod tests {
     /// Node's recorded statuses come back through the handler byte for byte.
     #[tokio::test]
     async fn answers_nodes_status() {
-        let text = include_str!("../../../../fixtures/context-status/golden.json");
+        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
         let golden: Value = serde_json::from_str(text).expect("golden json");
         let cases: Vec<(String, Value)> =
             golden["cases"].as_array().expect("cases").iter().map(|c| (c["name"].as_str().expect("name").to_owned(), c["status"].clone())).collect();
@@ -293,7 +293,7 @@ mod tests {
     /// a session that is not loaded is `null`.
     #[tokio::test]
     async fn live_gauge_equals_nodes_for_empty_transcripts() {
-        let text = include_str!("../../../../fixtures/context-status/golden.json");
+        let text = mixdog_testkit::fixture!("../../fixtures/context-status/golden.json");
         let golden: Value = serde_json::from_str(text).expect("golden json");
         let host = LiveContextStatus::new(Arc::new(GoldenWorld(golden.clone())));
         let mut compared = 0;

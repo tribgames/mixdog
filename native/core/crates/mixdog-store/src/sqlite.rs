@@ -101,7 +101,7 @@ pub enum DbError {
 pub(crate) fn open_connection(path: &Path) -> Result<Connection, DbError> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "FULL")?;
+    conn.pragma_update(None, "synchronous", crate::fsio::sqlite_synchronous())?;
     conn.pragma_update(None, "wal_autocheckpoint", 0)?;
     conn.pragma_update(None, "foreign_keys", "OFF")?;
     conn.busy_timeout(std::time::Duration::ZERO)?;
@@ -311,6 +311,17 @@ pub enum DirtyMark {
     Clear,
 }
 
+/// [`SqliteStore::offload_referencers`].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct OffloadReferencers {
+    pub sessions: Vec<String>,
+    pub unreadable: Option<String>,
+    /// A copy still being made: the copy and the session it copies.
+    pub copying: Option<(String, String)>,
+    /// The sessions whose set is unknown, with the ordinal each is projected to.
+    pub unknown: Vec<(String, i64)>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
     Ok,
@@ -340,7 +351,10 @@ const PURGEABLE_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
     AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id) LIMIT 1";
 
 /// The tables holding a session's rows, with their keys: a purge step deletes by key.
-const PURGE_TABLES: [(&str, &str); 14] = [
+const PURGE_TABLES: [(&str, &str); 17] = [
+    ("offload_refs", "source, session"),
+    ("offload_known", "session"),
+    ("offload_marks", "session"),
     ("history", "session, ordinal"),
     ("model_switches", "session, ordinal"),
     ("amends", "session, ordinal"),
@@ -448,6 +462,7 @@ fn upsert_edge(
     labels: &PlaceholderLabels,
     watch: bool,
 ) -> rusqlite::Result<(usize, Option<RowEdge>)> {
+    write_offload_refs(tx, head)?;
     // A fork whose inherited state is still being computed keeps its row until it is done.
     if crate::message_index::has_pending_view(tx, &head.session)? {
         return Ok((0, None));
@@ -466,6 +481,52 @@ fn upsert_edge(
     let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted, user_name: row.user_name.clone() };
     let edge = (watch && before.as_ref() != Some(&after)).then(|| RowEdge { id: row.id.clone(), before, after });
     Ok((row.summary.len(), edge))
+}
+
+/// The session's reference set and copy mark as its header holds them now (`offload_sources`). A header holding a set
+/// makes the session known under the present rules and its set the rows; one holding none, or one of earlier rules
+/// (whose rows join), leaves it unknown but for a scan of its transcript at the ordinal it is projected to under the
+/// present rules (`offload_known`), and leaves the rows it had (a set only grows).
+fn write_offload_refs(tx: &Transaction<'_>, head: &CatalogHead) -> rusqlite::Result<()> {
+    use crate::offload_sources as sets;
+    tx.prepare_cached("DELETE FROM offload_marks WHERE session = ?1")?.execute([&head.session])?;
+    if let Some((source, boot)) = sets::mark(&head.header) {
+        tx.prepare_cached("INSERT INTO offload_marks (session, source, boot) VALUES (?1, ?2, ?3)")?.execute(params![head.session, source, boot])?;
+    }
+    if sets::holds_set(&head.header) {
+        tx.prepare_cached("DELETE FROM offload_refs WHERE session = ?1")?.execute([&head.session])?;
+        for source in sets::sources(&head.header) {
+            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
+        }
+        tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, NULL, ?2) ON CONFLICT(session) DO UPDATE SET ordinal = NULL, rules = excluded.rules")?
+            .execute(params![head.session, sets::RULES])?;
+    } else {
+        for source in sets::sources(&head.header) {
+            tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(&source), head.session])?;
+        }
+        tx.prepare_cached("DELETE FROM offload_known WHERE session = ?1 AND ordinal IS NULL")?.execute([&head.session])?;
+    }
+    Ok(())
+}
+
+/// A scan of the transcript of `session`, a session whose header holds no set under the present rules, at `ordinal`:
+/// its `sources` join its rows and it is known at that ordinal under those rules, unless it was projected past it
+/// meanwhile (or gained a set) - then the next prune scans it again.
+fn record_offload_scan(tx: &Transaction<'_>, session: &str, ordinal: i64, sources: &[String]) -> rusqlite::Result<()> {
+    use crate::offload_sources as sets;
+    let current: Option<i64> = tx.prepare_cached("SELECT projected_ordinal FROM sessions WHERE id = ?1")?.query_row([session], |r| r.get(0)).optional()?;
+    let from_header: bool = tx
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM offload_known WHERE session = ?1 AND ordinal IS NULL AND rules = ?2)")?
+        .query_row(params![session, sets::RULES], |r| r.get(0))?;
+    if current != Some(ordinal) || from_header {
+        return Ok(());
+    }
+    for source in sources {
+        tx.prepare_cached("INSERT OR IGNORE INTO offload_refs (source, session) VALUES (?1, ?2)")?.execute(params![sets::segment_key(source), session])?;
+    }
+    tx.prepare_cached("INSERT INTO offload_known (session, ordinal, rules) VALUES (?1, ?2, ?3) ON CONFLICT(session) DO UPDATE SET ordinal = excluded.ordinal, rules = excluded.rules")?
+        .execute(params![session, ordinal, sets::RULES])?;
+    Ok(())
 }
 
 fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &PlaceholderLabels) -> rusqlite::Result<()> {
@@ -524,6 +585,7 @@ enum Command {
     Delete { session: String, ack: Ack },
     Project { projection: Projection, ack: Option<Ack> },
     Labels { labels: PlaceholderLabels, ack: Ack },
+    OffloadScan { session: String, ordinal: i64, sources: Vec<String>, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
     /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
@@ -911,6 +973,10 @@ impl Writer {
                         meta.execute([REFOLD_JOB, "0"])?;
                         self.labels = labels;
                         self.refold = true;
+                        acks.push(ack);
+                    }
+                    Command::OffloadScan { session, ordinal, sources, ack } => {
+                        record_offload_scan(&tx, &session, ordinal, &sources)?;
                         acks.push(ack);
                     }
                     #[cfg(any(test, feature = "test-support"))]
@@ -1729,6 +1795,50 @@ impl SqliteStore {
                 .optional()?)
         })
         .await
+    }
+
+    /// What the index knows of the sessions that may name the sidecars of session `own` (no session log is opened):
+    /// the sessions whose reference set names it, in id order, a deleted one and `own` left out; the first session it
+    /// holds as not readable (`status` other than `ok`); a copy whose set names it that the process of boot `boot` is
+    /// still making; and every other listed session whose set is unknown (its header holds none and no scan of its
+    /// transcript is current), with the ordinal it is projected to.
+    pub async fn offload_referencers(&self, own: &str, boot: &str) -> Result<OffloadReferencers, DbError> {
+        let (own, boot) = (own.to_owned(), boot.to_owned());
+        let segment = crate::offload_sources::segment_key(&crate::offload_sources::safe_segment(&own));
+        self.read(move |c| {
+            let unreadable: Option<String> =
+                c.prepare_cached("SELECT id FROM sessions WHERE deleted = 0 AND status <> 'ok' ORDER BY id LIMIT 1")?.query_row([], |r| r.get(0)).optional()?;
+            let mut rows = c.prepare_cached(
+                "SELECT r.session FROM offload_refs r LEFT JOIN sessions s ON s.id = r.session
+                 WHERE r.source = ?1 AND r.session <> ?2 AND coalesce(s.deleted, 0) = 0 ORDER BY r.session",
+            )?;
+            let sessions = rows.query_map(params![segment, own], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+            let copying = c
+                .prepare_cached(
+                    "SELECT m.session, m.source FROM offload_marks m JOIN offload_refs r ON r.session = m.session AND r.source = ?1
+                     WHERE m.boot = ?2 AND m.session <> ?3 ORDER BY m.session LIMIT 1",
+                )?
+                .query_row(params![segment, boot, own], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .optional()?;
+            let mut rows = c.prepare_cached(
+                "SELECT s.id, s.projected_ordinal FROM sessions s LEFT JOIN offload_known k ON k.session = s.id
+                 WHERE s.deleted = 0 AND s.status = 'ok' AND s.log_id <> '' AND s.id <> ?1
+                   AND (k.session IS NULL OR k.rules <> ?2 OR (k.ordinal IS NOT NULL AND k.ordinal <> s.projected_ordinal))
+                 ORDER BY s.id",
+            )?;
+            let unknown = rows
+                .query_map(params![own, crate::offload_sources::RULES], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(OffloadReferencers { sessions, unreadable, copying, unknown })
+        })
+        .await
+    }
+
+    /// Stores what a scan of the transcript of `session` (a session whose header holds no set) at `ordinal` names
+    /// (`record_offload_scan`).
+    pub async fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> Result<(), DbError> {
+        let session = session.to_owned();
+        self.ask(|ack| Command::OffloadScan { session, ordinal, sources, ack }).await
     }
 
     /// The raw header `title` of a session (1.4.5 `readStoredSessionMetadata`'s

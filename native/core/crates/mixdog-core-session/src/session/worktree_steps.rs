@@ -265,7 +265,7 @@ impl Inner {
         }
         let Some(entry) = entry else { return Ok(with_fields(result, vec![("removed", JsonValue::Null)])) };
         let revision = result["revision"].as_u64().unwrap_or(previous.revision);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(hook) = self.before_remove.lock().unwrap().take() {
             hook();
         }

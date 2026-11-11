@@ -117,6 +117,7 @@ async fn compactor_equals_node() {
                 trigger: CompactTrigger::Auto,
                 require_reduction: false,
                 reference_latest_attachments: false,
+                latest_user_prefix: "",
             })
             .await
             .unwrap_or_else(|e| panic!("{name}: {e:?}"));
@@ -136,7 +137,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for SlowHandoff {
         _: &[mixdog_agent::message::AgentMessage],
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
-        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(40)).await;
         Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, summary_ms: 33.0 })
     }
 }
@@ -185,6 +186,7 @@ async fn the_pipeline_time_spans_the_summary_and_the_summary_time_is_its_own() {
                 trigger: CompactTrigger::Auto,
                 require_reduction: false,
                 reference_latest_attachments: false,
+                latest_user_prefix: "",
             })
             .await
             .expect("compact");

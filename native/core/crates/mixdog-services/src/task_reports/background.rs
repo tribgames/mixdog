@@ -47,7 +47,7 @@ mod tests {
 
     use super::*;
 
-    const GOLDEN: &str = include_str!("../../../../fixtures/session-activity/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/session-activity/golden.json");
 
     struct Fixed;
     impl Clock for Fixed {
@@ -62,7 +62,7 @@ mod tests {
 
     /// The recorded registrations on a board; only the agent surface lives there.
     fn recorded_board() -> (JobBoard, Value) {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let background = golden["backgroundTasks"].clone();
         let board = JobBoard::new(Arc::new(Fixed), None, None);
         for spec in background["registered"].as_array().unwrap().iter().filter(|s| s["surface"] == "agent") {

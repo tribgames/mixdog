@@ -15,7 +15,7 @@ use mixdog_remote::transport::TransportError;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-const VECTORS: &str = include_str!("../../../../fixtures/remote-transport/vectors.json");
+const VECTORS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/remote-transport/vectors.json");
 
 fn make_box(seq: u64, len: usize, kind: &str) -> Vec<u8> {
     let mut out = vec![0u8; len];
@@ -401,7 +401,7 @@ fn assembly(result: Result<Assembly, TransportError>) -> Value {
 
 #[test]
 fn the_stream_core_reproduces_every_recorded_operation() {
-    let vectors: Value = serde_json::from_str(VECTORS).unwrap();
+    let vectors: Value = serde_json::from_str(&VECTORS).unwrap();
     let ops = vectors["ops"].as_array().unwrap();
     assert!(ops.len() > 700, "{} operations", ops.len());
     let mut world = World::default();

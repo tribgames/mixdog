@@ -59,7 +59,7 @@ mod tests {
             }
         });
         let request = url.as_str().into_client_request().unwrap();
-        let outcome = tokio::time::timeout(Duration::from_secs(90), connect(request, None)).await;
+        let outcome = mixdog_rt::time::timeout(Duration::from_secs(90), connect(request, None)).await;
         assert!(
             matches!(outcome, Ok(Err(_))),
             "the dial deadline ends it, the test timeout does not"

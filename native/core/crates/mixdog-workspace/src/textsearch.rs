@@ -25,6 +25,8 @@ const PREVIEW_UNITS: usize = 1_000;
 #[derive(Clone, Debug, Default)]
 pub struct TextQuery {
     pub query: String,
+    /// The query held an unpaired surrogate escape on the wire, read as U+FFFD ([`Pattern::compile`]).
+    pub lone: bool,
     pub regex: bool,
     pub match_case: bool,
     pub whole_word: bool,
@@ -76,7 +78,14 @@ impl Pattern {
     /// A pattern is checked by `mixdog_js::js_regex_error` (V8's message, byte for byte; the flags
     /// shown are the ones Node's search builds) and then compiled by `regress`, whose
     /// ECMAScript syntax keeps the matching semantics.
+    ///
+    /// A plain-text query that held a lone surrogate matches nothing: Node's is a `u` RegExp of the lone code point, which text
+    /// decoded from UTF-8 never holds (workspace-search.ts:107), while the core's U+FFFD would match every real one. A regex
+    /// query keeps U+FFFD (decisions.md "frame-lone-surrogate").
     pub fn compile(query: &TextQuery) -> WsResult<Self> {
+        if query.lone && !query.regex {
+            return Ok(Self(regress::Regex::with_flags("[]", "u").expect("the empty class compiles")));
+        }
         let source = if query.regex { query.query.clone() } else { escape_literal(&query.query) };
         let shown = if query.match_case { "gu" } else { "giu" };
         if let Some(message) = mixdog_js::js_regex_error(&source, shown) {
@@ -374,5 +383,19 @@ mod tests {
         let plan = plan_replace(&root, &TextQuery { match_case: true, ..q("hello") }, "bye", None, &|| false).unwrap();
         assert_eq!(plan.writes.len(), 2);
         assert_eq!(plan.replacements, 3);
+    }
+
+    /// Node finds nothing for a plain-text query holding a lone surrogate, and replaces nothing with it (recorded as
+    /// native/core/fixtures/inbound-lone-surrogate `search-lone-query`, `replace-lone-query`); a real U+FFFD is found.
+    #[test]
+    fn a_plain_query_that_held_a_lone_surrogate_matches_nothing() {
+        let dir = project();
+        fs::write(dir.path().join("r.txt"), "a\u{fffd}b\n").unwrap();
+        let root = crate::pathguard::canonical(dir.path()).unwrap();
+        let lone = TextQuery { lone: true, ..q("\u{fffd}") };
+        let found = search(&root, &lone, &|| false).unwrap();
+        assert_eq!((found.files.len(), found.match_count, found.limit_hit), (0, 0, false));
+        assert!(plan_replace(&root, &lone, "x", None, &|| false).unwrap().writes.is_empty());
+        assert_eq!(search(&root, &q("\u{fffd}"), &|| false).unwrap().match_count, 1);
     }
 }

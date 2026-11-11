@@ -398,7 +398,7 @@ async fn run(
         Ok(setup) => setup,
         Err(fault) => return emit(LiveViewEvent::Failed(fault)),
     };
-    let setup_deadline = tokio::time::sleep(peer::SETUP_BUDGET);
+    let setup_deadline = mixdog_rt::time::sleep(peer::SETUP_BUDGET);
     tokio::pin!(setup_deadline);
     let opened = budget
         .step("open", peer::open(&config, Some(setup)))

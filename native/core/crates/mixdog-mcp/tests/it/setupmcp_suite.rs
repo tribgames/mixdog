@@ -115,7 +115,7 @@ impl SetupRuntime for Facade {
 
 #[tokio::test]
 async fn every_setup_action_calls_and_answers_what_node_does() {
-    let golden: Value = serde_json::from_str(include_str!("../golden/setupmcp.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/setupmcp.json")).unwrap();
     let fixtures = &golden["fixtures"];
     let facade = Facade {
         status: fixtures["STATUS"].clone(),

@@ -187,7 +187,7 @@ async fn prune_open(store: &dyn SweepStore, now: i64, mut candidates: Vec<(&Swee
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
+    mixdog_rt::wall_clock!()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
 }
@@ -256,7 +256,7 @@ mod tests {
         }
     }
 
-    const GOLDEN: &str = include_str!("../../../fixtures/idle-sweep/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/idle-sweep/golden.json");
 
     fn ids(value: &serde_json::Value) -> Vec<String> {
         value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
@@ -266,7 +266,7 @@ mod tests {
     /// for them over a real store (`record-idle-sweep.mjs`).
     #[tokio::test]
     async fn every_recorded_node_sweep_is_answered_the_same() {
-        let golden: serde_json::Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: serde_json::Value = serde_json::from_str(&GOLDEN).unwrap();
         for (name, scenario) in golden["scenarios"].as_object().unwrap() {
             let rows = scenario["rows"]
                 .as_array()

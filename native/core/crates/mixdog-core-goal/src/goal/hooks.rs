@@ -42,6 +42,8 @@ pub trait GoalContinuationHooks: Send + Sync {
 pub trait GoalViewHooks: Send + Sync {
     /// The visible Goal (arming its deadline).
     async fn goal_status(&self, thread: &ThreadId) -> GoalResult<Option<Goal>>;
+    /// `readStoredGoalSnapshot`: the Goal as its file shows it, what a Goal reminder reads.
+    async fn stored_goal(&self, thread: &ThreadId) -> GoalResult<Option<Goal>>;
     /// The user's control request (`/goal …` string or request object); the answer is Node's
     /// `{ ok, action, goal, message }`.
     async fn goal_control(&self, thread: &ThreadId, request: Value) -> GoalResult<Value>;
@@ -78,6 +80,9 @@ impl GoalContinuationHooks for GoalRuntime {
 impl GoalViewHooks for GoalRuntime {
     async fn goal_status(&self, thread: &ThreadId) -> GoalResult<Option<Goal>> {
         self.snapshot(thread.as_str()).await
+    }
+    async fn stored_goal(&self, thread: &ThreadId) -> GoalResult<Option<Goal>> {
+        self.read_stored_snapshot(thread.as_str()).await
     }
     async fn goal_control(&self, thread: &ThreadId, request: Value) -> GoalResult<Value> {
         self.control(thread.as_str(), request).await
