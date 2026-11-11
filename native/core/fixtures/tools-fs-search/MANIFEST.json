@@ -2,7 +2,8 @@
   "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with the --patch fixes applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-code-graph-self-federation.patch,benchmarks/rust-core/recorders/node-patches/node-fix-glob-verbatim-path.patch --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
   "exclusions": [
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
-    "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
+    "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)",
+    "in a stand-in call's `compare` (the real server's answer to each request beside the stand-in's, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call's comparisons, which are stored sorted, as its concurrent requests reach the server in any order"
   ],
   "fileCount": 28,
   "files": [
@@ -102,9 +103,9 @@
       "sha256": "56e34a75678376d9862693d22aea95013599fe444d9f60663c9053455f80fc6a"
     },
     {
-      "bytes": 36730,
+      "bytes": 255449,
       "path": "grep-timeout.json",
-      "sha256": "1936ba55fefd6639e2c4dda105d578ac53e7a02f729f60256319ccf02b5a418d"
+      "sha256": "0f0a18477025ff3e4311fdfca51e4888bf46ae28e4801a8490b99d25f40c1bed"
     },
     {
       "bytes": 8255,
@@ -207,7 +208,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "0d287eade66ca9f41a9b4894c527eaca0ab6a0fa9bd378c761f8c090d55ff078",
+  "recorderSha256": "9c75900afa12f12b27eba59697759eabf3a23d62e8f9b13dfd50d061e06f1dee",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -239,5 +240,5 @@
     "path-arg-shapes"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 2666940
+  "totalBytes": 2885659
 }
