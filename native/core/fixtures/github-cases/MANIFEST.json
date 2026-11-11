@@ -91,7 +91,7 @@
     "normalised": {
       "cwd": "the process cwd is not recorded",
       "tempDirs": "temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest",
-      "textBytes": "textBytes and boundedBytes count the UTF-8 bytes of the text as stored (after the temp-folder normalisation above), so they do not depend on the recording host's temp folder; a replay counts its own text after the same normalisation"
+      "textBytes": "textBytes and boundedBytes are recorder-derived, not reported by Node's product: executeGithubTool returns only the text (tool.mjs measures Buffer.byteLength only to decide whether a text fits its cap, src/runtime/github/tool.mjs:247, and reports no number). The recorder computes them (record-github-cases.mjs storedBytes) as the UTF-8 byte length of the recorded `text` field as stored, i.e. after the temp-folder normalisation above, so they do not depend on the recording host's temp folder. They measure the length of the text the model reads with every temp path written as its placeholder; a replay counts its own text after the same normalisation and compares the number as recorded"
     },
     "protocolMethods": [
       "github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`)"
