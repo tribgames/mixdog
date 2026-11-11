@@ -20,7 +20,7 @@ use mixdog_services::effort_judge::install::Manifest;
 use mixdog_services::local_provider::assets::Fetcher;
 use mixdog_services::local_provider::installations::wait;
 use mixdog_services::local_provider::provider::LocalProvider;
-use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
+use mixdog_services::memory::embed::config::EmbedEnv;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
 use mixdog_services::tidy::InstallJob;
 use mixdog_services::tidy::core_install::CoreInstall;
@@ -134,7 +134,7 @@ impl ToolModulesHost for ServicesToolModulesHost {
         let embedder = parts.embedder.clone();
         // The info readers stat and read files.
         let read = parts.read_lane.submit(&CancellationToken::new(), move |_| {
-            (embedder.map_or_else(|| EmbeddingProvider::info_unbuilt(DEFAULT_MODEL_ID, None), |embedder| embedder.info()), judge.status(), which("git", None, None).is_some())
+            (embedder.map_or_else(|| { let env = EmbedEnv::from_process(); EmbeddingProvider::info_unbuilt(&env.model_id(), env.dtype.as_deref()) }, |embedder| embedder.info()), judge.status(), which("git", None, None).is_some())
         });
         // A full or stopped lane reads as nothing installed; the next tick reads again.
         let nothing = || {
