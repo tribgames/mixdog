@@ -154,7 +154,3 @@ impl LeadPrompt {
         self.lead_prompt_parts(mode, agent_mode, &agent_id).await
     }
 }
-
-#[cfg(test)]
-#[path = "catalog_tests.rs"]
-mod tests;

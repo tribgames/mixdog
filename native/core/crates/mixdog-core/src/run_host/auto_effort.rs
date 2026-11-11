@@ -133,9 +133,9 @@ pub trait EffortDiagnostics: Send + Sync {
     fn warn(&self, line: &str);
 }
 
-/// The jobs a test awaits: appends, and the rotations they start.
-#[cfg(test)]
-type Pending = Arc<Mutex<Vec<futures::future::BoxFuture<'static, ()>>>>;
+/// What a test awaits: how many appends, and rotations they started, are still running.
+#[cfg(any(test, feature = "test-support"))]
+type Pending = Arc<tokio::sync::watch::Sender<usize>>;
 
 /// [`EffortDiagnostics`] writing the decision log (`recordEffortDecision`), and warning on stderr. A log
 /// redirected by `MIXDOG_EFFORT_DECISIONS_LOG` is one plain file with every line; the data directory's
@@ -149,8 +149,27 @@ pub struct EffortDecisionLog {
     segment_bytes: u64,
     /// One entry per data-directory log file, as Node's `decisionLog(file)`.
     logs: Mutex<HashMap<PathBuf, Arc<decision_log::Segments>>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pending: Pending,
+}
+
+/// One append or rotation that is running: counted from its submission until its lane job has run or been dropped.
+#[cfg(any(test, feature = "test-support"))]
+struct Running(Pending);
+
+#[cfg(any(test, feature = "test-support"))]
+impl Running {
+    fn begin(pending: &Pending) -> Self {
+        pending.send_modify(|running| *running += 1);
+        Self(pending.clone())
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.send_modify(|running| *running -= 1);
+    }
 }
 
 impl EffortDecisionLog {
@@ -163,28 +182,28 @@ impl EffortDecisionLog {
             maintenance,
             segment_bytes: decision_log::DECISION_SEGMENT_BYTES,
             logs: Mutex::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             pending: Pending::default(),
         }
     }
 
     /// With a smaller segment than Node's 4 MiB.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the code around it is the same as in a test build"))]
     fn with_segment_bytes(mut self, segment_bytes: u64) -> Self {
         self.segment_bytes = segment_bytes;
         self
     }
 
     /// Returns once every append recorded so far, and every rotation one started, has finished.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the code around it is the same as in a test build"))]
     async fn appended(&self) {
-        loop {
-            let pending = std::mem::take(&mut *self.pending.lock().unwrap());
-            if pending.is_empty() {
-                return;
-            }
-            mixdog_core_session::session::testing::awaiting(|| "every effort-decision append and rotation to finish".to_owned(), futures::future::join_all(pending)).await;
-        }
+        let mut running = self.pending.subscribe();
+        mixdog_core_session::session::testing::awaiting(|| "every effort-decision append and rotation to finish".to_owned(), async move {
+            let _ = running.wait_for(|running| *running == 0).await;
+        })
+        .await;
     }
 
     /// `process.env.MIXDOG_EFFORT_DECISIONS_LOG`, else the data directory's own log
@@ -207,38 +226,40 @@ impl EffortDiagnostics for EffortDecisionLog {
     fn record(&self, entry: Map<String, Value>) {
         let line = format!("{}\n", Value::Object(entry));
         // The log is diagnostic only: a failed append, or a rotation the lane refuses, is dropped.
+        // What a test awaits (`appended`) is a count of the jobs running, held by the jobs themselves: nothing is kept
+        // for a build that never asks.
+        #[cfg(any(test, feature = "test-support"))]
+        let appending = Running::begin(&self.pending);
         let submitted = match self.destination() {
             Ok(redirected) => self.lane.submit(&CancellationToken::new(), move |lane: &mixdog_rt::InLane<DurabilityIo>| {
+                #[cfg(any(test, feature = "test-support"))]
+                let _appending = appending;
                 let _ = mixdog_statefile::append_file(lane, &redirected, line.as_bytes());
             }),
             Err(own) => {
                 let (segments, maintenance) = (self.segments(own), self.maintenance);
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 let pending = self.pending.clone();
                 self.lane.submit(&CancellationToken::new(), move |lane: &mixdog_rt::InLane<DurabilityIo>| {
+                    #[cfg(any(test, feature = "test-support"))]
+                    let _appending = appending;
                     if !segments.append(lane, &line) {
                         return;
                     }
                     let rotating = segments.clone();
-                    match maintenance.submit(&CancellationToken::new(), move |lane: &mixdog_rt::InLane<MaintenanceIo>| rotating.rotate(lane)) {
-                        #[cfg(test)]
-                        Ok(rotation) => pending.lock().unwrap().push(Box::pin(async move {
-                            let _ = rotation.await;
-                        })),
-                        #[cfg(not(test))]
-                        Ok(_) => {}
-                        Err(_) => segments.rotation_refused(),
+                    #[cfg(any(test, feature = "test-support"))]
+                    let rotation = Running::begin(&pending);
+                    let submitted = maintenance.submit(&CancellationToken::new(), move |lane: &mixdog_rt::InLane<MaintenanceIo>| {
+                        #[cfg(any(test, feature = "test-support"))]
+                        let _rotation = rotation;
+                        rotating.rotate(lane)
+                    });
+                    if submitted.is_err() {
+                        segments.rotation_refused();
                     }
                 })
             }
         };
-        #[cfg(test)]
-        if let Ok(append) = submitted {
-            self.pending.lock().unwrap().push(Box::pin(async move {
-                let _ = append.await;
-            }));
-        }
-        #[cfg(not(test))]
         drop(submitted);
     }
 

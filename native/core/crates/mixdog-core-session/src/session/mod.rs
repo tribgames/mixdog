@@ -34,13 +34,11 @@ mod stop;
 mod resumed_tools_tests;
 #[cfg(test)]
 mod room_questions_tests;
-#[cfg(test)]
-pub(crate) mod fixture_fs;
+#[cfg(any(test, feature = "test-support"))]
+pub mod fixture_fs;
 pub mod delete;
 pub mod purge;
 pub mod sub_agent_retention;
-#[cfg(test)]
-mod sub_agent_retention_tests;
 #[cfg(test)]
 mod thread_list_overlay_tests;
 pub mod heartbeat_catalog;
@@ -117,14 +115,10 @@ mod reads;
 mod routine_turn;
 pub mod room_member;
 pub mod room_approval;
-#[cfg(test)]
-mod k1_grants_replay;
 pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
-#[cfg(test)]
-mod quota_lane_tests;
 mod usage_books;
 mod usage_metadata;
 pub mod goal_recovery_host;
@@ -176,8 +170,8 @@ mod agent_control_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
-#[cfg(test)]
-mod tests;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests;
 #[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]

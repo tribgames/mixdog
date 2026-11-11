@@ -165,7 +165,7 @@ struct Pass {
     /// for it instead of starting another, as Node's `tick()` answers `running`.
     running: Mutex<Option<watch::Receiver<bool>>>,
     /// Holds a permit once a tick has found a pass in flight and begun waiting for it.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     joined: tokio::sync::Notify,
 }
 
@@ -315,7 +315,7 @@ impl Pass {
         };
         match leader {
             Err(mut done) => {
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 self.joined.notify_one();
                 // Ends when the leader's release signals, or when the leader is dropped, or at stop.
                 let _ = Scope::new().cancel(&self.cancel).run(done.wait_for(|finished| *finished)).await;
@@ -414,12 +414,13 @@ impl QuotaResumeScheduler {
         auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
         log: ResumeLog,
     ) -> Self {
-        let pass = Pass { store, host, clock, auto_resume, log, cancel: CancellationToken::new(), not_before: Mutex::default(), running: Mutex::default(), #[cfg(test)] joined: tokio::sync::Notify::new() };
+        let pass = Pass { store, host, clock, auto_resume, log, cancel: CancellationToken::new(), not_before: Mutex::default(), running: Mutex::default(), #[cfg(any(test, feature = "test-support"))] joined: tokio::sync::Notify::new() };
         Self { pass: Arc::new(pass), started: Mutex::new(None) }
     }
 
     /// Returns once a tick has found a pass in flight and is waiting for it.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) async fn joined(&self) {
         self.pass.joined.notified().await;
     }

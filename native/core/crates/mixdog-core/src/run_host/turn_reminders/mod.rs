@@ -6,13 +6,11 @@
 //! with the meta the reminders leave on it. [`Reminders::revisions`] is what the actor acknowledges once the turn
 //! was accepted (`session::reminders::acknowledge`, `ask-turn-settle.mjs:148-164`).
 
-mod clock;
-mod deferred;
-mod listing;
+pub(crate) mod clock;
+pub(crate) mod deferred;
+pub(crate) mod listing;
 mod retained;
 mod zone_names;
-#[cfg(test)]
-mod tests;
 
 use mixdog_core_prompt::prompt::notice;
 use mixdog_core_session::session::prompt_notice::Revisions;
