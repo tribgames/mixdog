@@ -5,13 +5,16 @@
 // the call after that runs in the next standby and does not see that global (a standby runs one command, then exits);
 // a call from another folder does not use the standby parked for the first (its environment differs) and runs cold.
 // Commands of 1 MiB, 1 MiB + 1 byte, one that fits under 1 MiB until the hand-off prelude is put in front of it, and
-// 5 MiB, run whole, cold and warm. A variable of the recorder's own environment changed after a standby was parked reaches
-// the next command, which does not take that standby.
+// 5 MiB each run whole twice: cold (from the folder whose standby is not parked) and warm (taken). A variable of the
+// recorder's own environment changed after a standby was parked reaches the next command, which does not take that standby.
 // Each call is `executeBuiltinTool('shell', input, ws)` through the native spawn server; before each warm call the
 // recorder waits until a standby is parked, as a model's pace allows. The Rust replay makes the same calls.
 //
-//   node benchmarks/rust-core/recorders/record-shell-warm-standby.mjs --tree <git archive export of b6f10295a> \
-//        --spawn-bin <mixdog-spawn.exe built from b6f10295a:native/mixdog-spawn>
+//   node benchmarks/rust-core/recorders/record-shell-warm-standby.mjs --tree <git archive export of b6f10295a with the patch> \
+//        --patch benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch \
+//        --spawn-bin <mixdog-spawn.exe built from that tree's native/mixdog-spawn>
+//
+// The patch (see record-shell-pwsh-bootstrap.mjs) frames the fed script with its length, which the bootstrap checks.
 //
 // Output: native/core/fixtures/shell-warm-standby/golden.json (+ MANIFEST.json). Paths are written as <A>, <B> (the two
 // folders) and <TEMP> (the TEMP the cold call printed).
@@ -30,7 +33,7 @@ delete process.env.MIXDOG_SHELL_WARM_STANDBY;
 process.env.MIXDOG_TOOL_FAILURE_LOG_PATH = join(sandbox, 'failures.jsonl');
 // Every standby is parked with this value; one call changes it after its standby was parked.
 process.env.MIXDOG_STANDBY_PROBE = 'parked';
-const { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest } =
+const { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest } =
   await import('./lib/common.mjs');
 const { recorderProvenance } = await import('./lib/provenance.mjs');
 
@@ -39,9 +42,10 @@ const recorder = 'benchmarks/rust-core/recorders/record-shell-warm-standby.mjs';
 const SHELL = 'pwsh';
 const args = parseArgs();
 const tree = resolveTree(args);
-const identity = exactProductIdentity(tree, NODE_COMMIT);
+if (!args.get('patch')) throw new Error('pass --patch benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch, the fix the tree carries');
+const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
 const spawnBin = args.get('spawn-bin');
-if (!spawnBin) throw new Error('--spawn-bin <mixdog-spawn.exe of b6f10295a> is required');
+if (!spawnBin) throw new Error('--spawn-bin <mixdog-spawn.exe of the patched tree> is required');
 const { _setNativeSpawnBinaryForTest } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
 _setNativeSpawnBinaryForTest(spawnBin);
 const { setConfiguredShell } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs');
@@ -69,12 +73,25 @@ const CALLS = [
   },
   { ws: 'A', parked: true, command: 'Write-Output "next|[$global:mixdogMark]|$((Get-Location).ProviderPath)"' },
   { ws: 'B', parked: true, command: 'Write-Output "drift|$((Get-Location).ProviderPath)"' },
-  // The standby parked for B does not serve A: this runs cold, as the next (back in B) does.
+  // Each size cold, then warm. The standby parked for B does not serve A: a call from A runs cold and parks one for A,
+  // which the next call from B does not take either; a call from B after one from B is taken. So each size runs from A
+  // (cold), then from B (cold: the standby is A's), then from B again (warm).
+  // 1 MiB.
   { ws: 'A', parked: true, size: 1048576 },
+  { ws: 'B', parked: true, size: 1048576 },
+  { ws: 'B', parked: true, size: 1048576 },
+  // 1 MiB + 1 byte.
+  { ws: 'A', parked: true, size: 1048577 },
   { ws: 'B', parked: true, size: 1048577 },
-  // Taken: the hand-off prelude (three scratch variables, at least 60 bytes each, and the folder) pushes it past 1 MiB.
+  { ws: 'B', parked: true, size: 1048577 },
+  // Under 1 MiB until, taken, the hand-off prelude (three scratch variables, at least 60 bytes each, and the folder) is
+  // put in front of it.
+  { ws: 'A', parked: true, size: 1048576 - 128 },
   { ws: 'B', parked: true, size: 1048576 - 128 },
-  // Five times the helper's input queue, taken: Node hands the helper any length.
+  { ws: 'B', parked: true, size: 1048576 - 128 },
+  // Five times the helper's input queue: Node hands the helper any length.
+  { ws: 'A', parked: true, size: 5 * 1048576 },
+  { ws: 'B', parked: true, size: 5 * 1048576 },
   { ws: 'B', parked: true, size: 5 * 1048576 },
   { ws: 'B', parked: true, setAfterPark: 'claimed', command: 'Write-Output "env|$env:MIXDOG_STANDBY_PROBE"' },
 ];
@@ -131,7 +148,7 @@ try {
   writeSetManifest(stage, {
     set: 'shell-warm-standby',
     recorder,
-    command: `node ${recorder} --tree <tree> --spawn-bin <mixdog-spawn.exe of b6f10295a>`,
+    command: `node ${recorder} --tree <b6f10295a with the patch> --patch ${identity.patch.file} --spawn-bin <mixdog-spawn.exe of that tree>`,
     identity,
     extra: recorderProvenance(import.meta.url),
   });

@@ -1,11 +1,11 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-shell-warm-standby.mjs --tree <tree> --spawn-bin <mixdog-spawn.exe of b6f10295a>",
+  "command": "node benchmarks/rust-core/recorders/record-shell-warm-standby.mjs --tree <b6f10295a with the patch> --patch benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch --spawn-bin <mixdog-spawn.exe of that tree>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2702,
+      "bytes": 4252,
       "path": "golden.json",
-      "sha256": "26f773b588794ed6bc48ff7ed3623ef6a9ace08604868096e23a2cd414419e95"
+      "sha256": "694195bd219292b134e170e920d99689cdc09101cfb7cff2a3a772277f3a2577"
     }
   ],
   "inputs": [
@@ -21,23 +21,33 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-partial-script.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/tools/lib/shell-run-spawn.mjs",
+        "src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.mjs",
+        "src/runtime/agent/orchestrator/tools/lib/shell-warm-standby.slow.test.mjs"
+      ],
+      "sha256": "39b7bed6e2337b97e35dbf0ff37d6dd30ebc11cf7cfadeb04d6a268dff682eac"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 3
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "867c8ff32ca0380fd5f47840cf8257f13fc9bce519b0f9ed6527d67b556a6adc",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-shell-warm-standby.mjs",
-  "recorderSha256": "ea3b5766576a6e0995be048e5236fb59de6cefa8c84004cad538ca06b4a3e318",
+  "recorderSha256": "e1f52be13766689647d29923ffeabc7a0e84c3f05fedc29743133097de7f148e",
   "set": "shell-warm-standby",
-  "totalBytes": 2702
+  "totalBytes": 4252
 }
