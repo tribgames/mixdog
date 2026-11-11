@@ -105,16 +105,16 @@ async fn closing_a_session_cancels_running_and_queued_writes() {
         .await
         .expect("join");
     ingest.ingest_turn(IngestSession { id: "closing".into(), messages: queued, agent_only: false });
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
 
     let closing = {
         let ingest = ingest.clone();
         tokio::spawn(async move { ingest.close_session("closing").await })
     };
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(200)).await;
     assert!(!closing.is_finished(), "close waits for the running write to settle");
     release_tx.send(()).expect("release");
-    tokio::time::timeout(Duration::from_secs(10), closing).await.expect("close settles").expect("join");
+    mixdog_rt::time::timeout(Duration::from_secs(10), closing).await.expect("close settles").expect("join");
 
     assert!(db.search("giraffe", 10).await.expect("search").is_empty(), "a queued write never starts after close");
 
@@ -131,7 +131,7 @@ async fn closing_a_session_cancels_running_and_queued_writes() {
         messages: vec![json!({ "role": "user", "content": "later turn flamingo" })],
         agent_only: false,
     });
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    mixdog_rt::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(db.search("flamingo", 10).await.expect("search").len(), 1);
 }
 

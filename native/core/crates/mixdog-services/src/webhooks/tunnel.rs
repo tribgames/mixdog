@@ -197,7 +197,7 @@ enum Replay {
 
 /// One step of the exchange, idle for no longer than [`LOCAL_TIMEOUT`] (Node's socket timeout).
 async fn within<T>(step: impl Future<Output = T>) -> Result<T, Replay> {
-    tokio::time::timeout(LOCAL_TIMEOUT, step).await.map_err(|_| Replay::Failed("local webhook timeout".to_owned()))
+    mixdog_rt::time::timeout(LOCAL_TIMEOUT, step).await.map_err(|_| Replay::Failed("local webhook timeout".to_owned()))
 }
 
 type RequestBody = BoxBody<Bytes, Infallible>;

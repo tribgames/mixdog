@@ -3924,6 +3924,7 @@ dependencies = [
  "mixdog-app-protocol",
  "mixdog-js",
  "mixdog-protocol",
+ "mixdog-rt",
  "mixdog-workspace-hack",
  "rand 0.9.5",
  "serde",
@@ -4819,10 +4820,28 @@ name = "mixdog-rt"
 version = "1.4.5"
 dependencies = [
  "arc-swap",
+ "chrono",
  "crossbeam-channel",
  "libc",
  "mixdog-rt",
  "mixdog-workspace-hack",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mixdog-rt-feature-off"
+version = "1.4.5"
+dependencies = [
+ "arc-swap",
+ "chrono",
+ "crossbeam-channel",
+ "libc",
+ "mixdog-rt-feature-off",
+ "mixdog-workspace-hack",
+ "serde_json",
  "tokio",
  "tokio-util",
  "windows-sys 0.61.2",
@@ -5172,9 +5191,7 @@ dependencies = [
  "form_urlencoded",
  "futures",
  "futures-channel",
- "futures-core",
  "futures-io",
- "futures-sink",
  "futures-task",
  "futures-util",
  "generic-array",

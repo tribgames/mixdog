@@ -1844,7 +1844,7 @@ async fn a_detached_eager_run_ends_with_the_turns_cancellation() {
     assert!(!released.load(Ordering::SeqCst), "not cancelled: it is left to finish, as in Node");
     h.cancel.cancel();
     while !released.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(1)).await;
     }
 }
 

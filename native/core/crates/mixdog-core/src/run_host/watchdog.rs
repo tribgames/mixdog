@@ -100,7 +100,8 @@ impl Watchdog {
             // arming however soon the task first runs; taken inside the task, the period would count from its first poll.
             let first = tokio::time::Instant::now() + SWEEP;
             Self(mixdog_rt::spawn("agent-progress-watchdog", TaskClass::Control, async move {
-                let mut sweep = tokio::time::interval_at(first, SWEEP);
+                // Node's interval is `unref()`ed (`agent-dispatch/watchdog.mjs:37`).
+                let mut sweep = mixdog_rt::time::interval_at_unrefed(first, SWEEP);
                 loop {
                     sweep.tick().await;
                     if signal.is_aborted() {

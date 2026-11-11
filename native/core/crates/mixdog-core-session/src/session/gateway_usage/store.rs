@@ -53,7 +53,7 @@ pub struct TokioScheduler;
 impl Scheduler for TokioScheduler {
     fn after(&self, delay_ms: u64, job: Box<dyn FnOnce() + Send>) -> Cancel {
         let task = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            mixdog_rt::time::sleep(Duration::from_millis(delay_ms)).await;
             job();
         });
         Box::new(move || task.abort())

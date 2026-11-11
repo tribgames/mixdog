@@ -35,7 +35,7 @@ impl Unary {
         tokio::select! {
             biased;
             () = cancel.cancelled() => Err(Ended::Cancelled),
-            () = tokio::time::sleep(self.total) => Err(Ended::Expired),
+            () = mixdog_rt::time::sleep(self.total) => Err(Ended::Expired),
             done = work => Ok(done),
         }
     }
@@ -83,7 +83,7 @@ where
         tokio::select! {
             biased;
             () = cancel.cancelled() => return Err(DownloadError::Cancelled),
-            () = tokio::time::sleep(wait) => {}
+            () = mixdog_rt::time::sleep(wait) => {}
         }
     }
     Err(DownloadError::Cancelled)

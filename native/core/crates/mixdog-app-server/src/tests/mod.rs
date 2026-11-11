@@ -529,7 +529,7 @@ pub(crate) struct Arrivals<T>(tokio::sync::mpsc::UnboundedReceiver<(Value, T)>);
 impl<T> Arrivals<T> {
     /// The next frame queued to the connection; `awaited` names it in the failure when none comes within `deadline`.
     pub(crate) async fn next(&mut self, deadline: std::time::Duration, awaited: &str) -> (Value, T) {
-        tokio::time::timeout(deadline, self.0.recv())
+        mixdog_rt::time::timeout(deadline, self.0.recv())
             .await
             .unwrap_or_else(|_| panic!("no frame within {deadline:?}: awaited {awaited}"))
             .unwrap_or_else(|| panic!("the connection closed: awaited {awaited}"))
@@ -616,7 +616,7 @@ impl Client {
 /// a bare yield may return before they have done anything.
 async fn pause() {
     tokio::task::yield_now().await;
-    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    mixdog_rt::time::sleep(std::time::Duration::from_millis(1)).await;
 }
 
 /// `error.data.reason` of an error frame.

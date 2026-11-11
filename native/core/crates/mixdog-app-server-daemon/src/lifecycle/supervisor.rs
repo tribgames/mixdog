@@ -67,7 +67,7 @@ pub async fn supervise_async(
         tracing::error!(step = name, %error, "a release step thread did not start");
         return StepEnd::Panicked;
     }
-    match tokio::time::timeout(budget, finished).await {
+    match mixdog_rt::time::timeout(budget, finished).await {
         Ok(Ok(())) => StepEnd::Finished,
         // The sender dropped without sending: the step unwound.
         Ok(Err(_)) => panicked(name),

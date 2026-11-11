@@ -200,7 +200,7 @@ impl ServerProcess {
     }
 
     async fn exits_within_stop_timeout(&self, state: &ChildState) -> bool {
-        let _ = tokio::time::timeout(self.stop_timeout, async {
+        let _ = mixdog_rt::time::timeout(self.stop_timeout, async {
             while !state.has_exited() {
                 let notified = state.exited.notified();
                 if state.has_exited() {
@@ -312,7 +312,7 @@ impl ServerProcess {
             let startup = startup.clone();
             let timeout = self.start_timeout;
             tokio::spawn(async move {
-                tokio::time::sleep(timeout).await;
+                mixdog_rt::time::sleep(timeout).await;
                 startup.cancel();
             })
         };
@@ -369,7 +369,7 @@ impl ServerProcess {
                 return Ok(json!({"baseURL": state.base_url, "apiKey": state.api_key}));
             }
             tokio::select! {
-                _ = tokio::time::sleep(self.poll) => {}
+                _ = mixdog_rt::time::sleep(self.poll) => {}
                 _ = wait.cancelled() => return Err("aborted".into()),
             }
         }
@@ -699,7 +699,7 @@ mod tests {
         // Output and the exit code arrive through the manager's events; env is passed on.
         let echo = if cfg!(windows) { "echo out %MIXDOG_PROBE% & echo err 1>&2 & exit 7" } else { "echo out $MIXDOG_PROBE; echo err >&2; exit 7" };
         let process = launcher.launch(shell, &[flag.into(), echo.into()], &cwd, &[("MIXDOG_PROBE".into(), "hello".into())], sink(&text)).await.unwrap();
-        let exit = tokio::time::timeout(Duration::from_secs(20), process.wait()).await.unwrap();
+        let exit = mixdog_rt::time::timeout(Duration::from_secs(20), process.wait()).await.unwrap();
         assert_eq!((exit.exit_code, exit.signal), (Some(7), None));
         let seen = text.lock().unwrap().clone();
         assert!(seen.contains("out hello") && seen.contains("err"), "{seen}");
@@ -707,7 +707,7 @@ mod tests {
         let sleeper = if cfg!(windows) { "ping -n 60 127.0.0.1 >nul" } else { "sleep 60" };
         let process = launcher.launch(shell, &[flag.into(), sleeper.into()], &cwd, &[], sink(&text)).await.unwrap();
         process.kill();
-        tokio::time::timeout(Duration::from_secs(20), process.wait()).await.unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(20), process.wait()).await.unwrap();
         // A missing program is a launch error, not a panic.
         let missing = launcher.launch("definitely-not-a-binary-xyz", &[], &cwd, &[], sink(&text)).await.err().unwrap();
         assert!(missing.contains("not found"), "{missing}");
@@ -789,7 +789,7 @@ mod tests {
             let s = s.clone();
             tokio::spawn(async move { s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), None).await })
         };
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(50)).await;
         s.stop().await.unwrap();
         assert_eq!(pending.await.unwrap().unwrap_err(), "aborted");
         let token = CancellationToken::new();

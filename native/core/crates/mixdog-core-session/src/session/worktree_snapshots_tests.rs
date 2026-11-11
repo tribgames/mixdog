@@ -26,7 +26,7 @@ async fn a_stop_ends_the_retries_of_its_session_only_and_the_snapshot_is_left_fo
 
     // Another session's stop leaves it retrying.
     cleanups.cancel_hook()(Some("worker-2"));
-    assert!(tokio::time::timeout(Duration::from_millis(300), &mut run).await.is_err());
+    assert!(mixdog_rt::time::timeout(Duration::from_millis(300), &mut run).await.is_err());
     assert_eq!(cleanups.running(), 1);
 
     cleanups.cancel_hook()(Some("worker-1"));

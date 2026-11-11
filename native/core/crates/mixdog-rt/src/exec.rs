@@ -233,18 +233,26 @@ pub struct Executors {
 impl Executors {
     pub fn start(config: RtConfig) -> io::Result<Self> {
         let priority_failures = Arc::new(AtomicU64::new(0));
-        let control_runtime = runtime(
-            "mixdog-rt-c",
-            config.control_threads,
-            CONTROL_PRIORITY,
-            &priority_failures,
-        )?;
-        let work_runtime = runtime(
-            "mixdog-rt-w",
-            config.work_threads,
-            WORK_PRIORITY,
-            &priority_failures,
-        )?;
+        #[cfg(feature = "virtual-clock")]
+        let virtual_runtimes = if crate::virtual_clock::requested() {
+            let on = |priority: Priority| {
+                let failures = priority_failures.clone();
+                move || apply_priority(priority, &failures)
+            };
+            Some(crate::virtual_clock::start(on(CONTROL_PRIORITY), on(WORK_PRIORITY))?)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "virtual-clock"))]
+        let virtual_runtimes: Option<(Handle, Handle)> = None;
+        let (control, work, control_runtime, work_runtime) = match virtual_runtimes {
+            Some((control, work)) => (control, work, None, None),
+            None => {
+                let control_runtime = runtime("mixdog-rt-c", config.control_threads, CONTROL_PRIORITY, &priority_failures)?;
+                let work_runtime = runtime("mixdog-rt-w", config.work_threads, WORK_PRIORITY, &priority_failures)?;
+                (control_runtime.handle().clone(), work_runtime.handle().clone(), Some(control_runtime), Some(work_runtime))
+            }
+        };
         let pooled = |kind: LaneKind, params: PoolParams| {
             LaneExec::pooled(
                 kind,
@@ -271,10 +279,10 @@ impl Executors {
         ];
         debug_assert!(LANES.iter().all(|k| lanes[lane_index(*k)].kind() == *k));
         Ok(Self {
-            control: control_runtime.handle().clone(),
-            work: work_runtime.handle().clone(),
-            control_runtime: Some(control_runtime),
-            work_runtime: Some(work_runtime),
+            control,
+            work,
+            control_runtime,
+            work_runtime,
             lanes,
             tasks: TaskRegistry::new(),
             threads_entered: std::array::from_fn(|_| AtomicU64::new(0)),
@@ -347,6 +355,8 @@ impl Backend for Executors {
     }
 
     fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        #[cfg(feature = "virtual-clock")]
+        let job = crate::virtual_clock::counted(job);
         self.lanes[lane_index(job.lane())].submit(job)
     }
 

@@ -38,7 +38,7 @@ windows-sys = { workspace = true, features = [
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 sha2.workspace = true
 tokio ={ workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "process", "io-util", "sync", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

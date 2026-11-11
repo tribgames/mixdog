@@ -456,14 +456,14 @@ mod tests {
         let queue = Arc::new(mixdog_rt::KeyedGate::new());
         let cancel = CancellationToken::new();
         let first = queue.enter("h/a", &cancel).await.unwrap();
-        let other = tokio::time::timeout(Duration::from_millis(200), queue.enter("h/b", &cancel)).await;
+        let other = mixdog_rt::time::timeout(Duration::from_millis(200), queue.enter("h/b", &cancel)).await;
         assert!(other.is_ok(), "a different repository does not wait");
         let waiting = {
             let queue = queue.clone();
             let cancel = cancel.clone();
             tokio::spawn(async move { queue.enter("h/a", &cancel).await.map(drop) })
         };
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        mixdog_rt::time::sleep(Duration::from_millis(30)).await;
         assert!(!waiting.is_finished());
         drop(first);
         assert!(waiting.await.unwrap().is_ok());

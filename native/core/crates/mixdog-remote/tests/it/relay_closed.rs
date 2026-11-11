@@ -50,12 +50,12 @@ async fn the_relay_handle_closes_when_switched_off_rotated_or_stopped_and_not_on
     let count = || closes.0.load(Ordering::SeqCst);
     let mut up = runtime.watch_connected();
     let mut dialed = async |what: &str| {
-        tokio::time::timeout(WAIT, relay.legs.recv()).await.unwrap_or_else(|_| panic!("the core never dialed the relay ({what})")).expect("the relay ended");
+        mixdog_rt::time::timeout(WAIT, relay.legs.recv()).await.unwrap_or_else(|_| panic!("the core never dialed the relay ({what})")).expect("the relay ended");
     };
 
     runtime.start(true).await.unwrap();
     dialed("start").await;
-    tokio::time::timeout(WAIT, up.wait_for(|up| *up)).await.expect("the leg never came up").unwrap();
+    mixdog_rt::time::timeout(WAIT, up.wait_for(|up| *up)).await.expect("the leg never came up").unwrap();
     runtime.suspend();
     assert_eq!(count(), 0, "a suspend keeps the handle");
     runtime.resume().await.unwrap();

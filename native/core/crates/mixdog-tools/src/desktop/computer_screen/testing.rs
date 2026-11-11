@@ -483,7 +483,7 @@ impl ThreadedTimers {
 
     pub(super) fn finish(&self, task: tokio::task::JoinHandle<()>, what: &str) {
         self.runtime
-            .block_on(async { tokio::time::timeout(DEADLINE, task).await })
+            .block_on(async { mixdog_rt::time::timeout(DEADLINE, task).await })
             .unwrap_or_else(|_| panic!("{what} did not end within {DEADLINE:?}"))
             .unwrap_or_else(|error| panic!("{what} failed: {error}"));
     }

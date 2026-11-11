@@ -163,10 +163,10 @@ async fn a_missing_model_answers_none_without_hanging() {
     ).expect("model");
     let judge = EffortJudge::new(model, Arc::new(AutoLadder { base: "medium".into(), options: vec!["low".into(), "medium".into()] }));
     let case = &golden()["cases"][0];
-    let answer = tokio::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
+    let answer = mixdog_rt::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
     assert_eq!(answer, None);
     // The failure is remembered: asking again answers at once.
-    let again = tokio::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
+    let again = mixdog_rt::time::timeout(Duration::from_secs(5), judge.judge(input_of(case))).await.expect("answers");
     assert_eq!(again, None);
 }
 
@@ -200,7 +200,7 @@ async fn a_corrupt_model_answers_none() {
         lane(),
     ).expect("model");
     let case = &golden()["cases"][0];
-    let err = tokio::time::timeout(Duration::from_secs(10), model.probs(input_of(case))).await.expect("answers").expect_err("fails");
+    let err = mixdog_rt::time::timeout(Duration::from_secs(10), model.probs(input_of(case))).await.expect("answers").expect_err("fails");
     assert!(matches!(err, crate::effort_judge::error::JudgeError::Load(_)), "{err}");
 }
 

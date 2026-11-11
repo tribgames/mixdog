@@ -140,7 +140,7 @@ impl Runner<'_> {
                 return run;
             }
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(delay)) => {}
+                _ = mixdog_rt::time::sleep(Duration::from_millis(delay)) => {}
                 _ = self.cancel.cancelled() => return run,
             }
             retry_ms += delay;
