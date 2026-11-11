@@ -82,7 +82,7 @@ async function session(label, makeScript) {
   const calls = [];
   let n = 0;
   const transport = createChannelTransport({
-    handleCall: async (name, args, caller) => { n += 1; calls.push({ name, args: exact(args), caller: exact(caller ?? null) }); return { call: n }; },
+    handleCall: async (name, args, caller) => { n += 1; calls.push({ name, args: exact(args), caller: exact(caller) }); return { call: n }; },
   });
   const wire = [];
   let proxy = null;
@@ -166,7 +166,7 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'createChannelTransport (channel-transport.mjs): its HTTP server, client registry, call dispatch (call-dispatch.mjs: callId idempotency cache keyed by caller owner and callId, rpc-call-identity.mjs) over real loopback fetch', notRun: 'the daemon behind handleCall (scripted: it returns {call: n}); the remote intent files (no remoteIntentPath is given)' },
-    replay: 'the `channel/call` protocol method (mixdog-app-protocol methods.rs:102), reached through ChannelService::call (mixdog-services channels/service.rs:138; `req.op` is the callId, service.rs:107): two connections with different owners send the same op, name and payload, then a retry, then a changed payload; compares per step the answer (result, or the ECALLIDCONFLICT error text) and the list of calls the bridge handler received (name, args, caller owner). The HTTP wire is not the Rust surface (WebSocket, protocol.md:854-865): the `wire` entries are what Node really sent and answered, captured at a TCP relay, for the replay author; `leadPid` maps to the connection\'s owner',
+    replay: "The `channel/call` request a client makes: DomainService::call (mixdog-services channels/service.rs:138) -> call_tool (:94; `req.op` is the callId) -> CallDispatch::dispatch (channels/call.rs:190, pub; cache keyed by owner + call id, CallIdConflict on a different payload). Replay: two connections with different owners send the same op, name and payload, then a retry, then a changed payload (and the case-95 shape with one client); compares per step the answer (result, or the ECALLIDCONFLICT error text) and the list of calls the bridge handler received (name, args, caller owner). The HTTP wire is not the Rust surface (WebSocket, protocol.md:854-865): the `wire` entries are what Node really sent and answered, captured at a TCP relay, for the replay author; `leadPid` maps to the connection's owner",
     exclusions: 'test case 38 (restore vs manual ON order) is not recorded: the Node test polls transport.activeCount and no event exists; 123 is pending branch gaps-memory-channels (benchmarks/rust-core/recorders/record-channel-remote-intent.mjs there); 161 and 191 are WebSocket / core stop concerns',
     normalised: { 'client tokens': 'random tokens written as <client-token-N> by order of registration', 'pids': 'the two clients use fixed lead pids 41001 and 41002 (not this machine\'s); the pid in the register answer is the recorder process\'s own, written "<pid-self>", and the recorded Content-Length is the length of the recorded text', port: 'not recorded (loopback ephemeral)', date: 'response Date header written as <date>' },
   },
