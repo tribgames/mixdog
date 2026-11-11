@@ -10,12 +10,16 @@
 //!   by its test-only call log (`Scheduler::record_calls`). `loadConfig` is the channel config load of Node's reload
 //!   (`config-reload.mjs:30`) and must come right before `scheduler.reload`, which gets the loaded schedules; Rust reads
 //!   the stores in `reload_runtime` before the same call.
-//! - The webhook server and event pipeline calls (`pipeline.*`, `wire.*`, `webhook.*`) are compared one by one with their
-//!   arguments, in order. The recording services stand in for `AutomationServices::sync(reload)` / `stop`: they write the
-//!   calls Node's `syncWebhookAndEventRuntime` / `stopWebhookAndEventRuntime` make for that seam call (first sync: `new`s;
-//!   a later one: `pipeline.start`..`webhook.start`, with the `reload` shapes when `reload`; stop: `webhook.stop`,
-//!   `pipeline.stop`, written only for what exists) and hold what Node's state shows (`webhookServer`/`eventPipeline`
-//!   non-null while synced).
+//! - The webhook receiver is the product's own `WebhookAutomation` (`AutomationServices`, what `compose_flip.rs` builds) over
+//!   a real `WebhookService`, with recording settings and listener behind it. The calls compared are the ones that
+//!   `WebhookAutomation` itself makes on the listener, with the arguments it passes: `listener.start(settings)` ↔ the
+//!   recorded `webhook.start` of a receiver Node just made (`webhook.new {enabled}`, whose argument must equal the
+//!   `enabled` the product started the listener with), `listener.stop()` ↔ `webhook.stop` (the listener records a stop only
+//!   while it listens, as the real listener ends nothing otherwise). Declared in the manifest, with no counterpart: the
+//!   event pipeline (`pipeline.*`, `wire.*`, `state.eventPipeline`: `WebhookAutomation` has none), `webhook.reload` and a
+//!   `webhook.start` of a receiver that already listens (Node's `start` returns at once then, `listener-lifecycle.mjs:15`;
+//!   the product keeps a listener whose port is unchanged, `ports.rs` `sync_turn`). The state's `webhookServer` is whether
+//!   the listener listens.
 //! - `notify('notifications/mixdog/remote', {state:'acquired'})` is Node's hop from its channels worker to the daemon
 //!   (`owned-start.mjs:56`, `owned-runtime.mjs:20`). The daemon turns it into the remote state a client sees
 //!   (`remote-pointer.mjs` `acquireRemoteState`: `remoteAcquired`, `publishRemoteState`, the sticky badge frame). In the
@@ -41,12 +45,15 @@ use serde_json::{Value, json};
 
 use super::bridge::BridgeCalls;
 use super::call::{CallDispatch, CallRequest, ChannelClient};
-use super::ports::{AgentRuntime, AutomationServices};
+use super::ports::{
+    AgentRuntime, ChannelSettings, WebhookAutomation, WebhookListener, WebhookPatch, WebhookSettings,
+};
 use super::running::RunningWork;
 use super::runtime::ChannelRuntime;
 use super::tools::{ACTIVATE_TOOL, ChannelLifecycle, ToolDispatch};
 use crate::memory::replays::{assert_case_count, case, golden, same};
 use crate::scheduler::{MemoryScheduleStore, RunOutcome, Schedule, ScheduleRunner, Scheduler, SystemClock};
+use crate::webhooks::{Claim, Endpoint, Headers, HttpReply, WebhookConfig, WebhookDispatch, WebhookService, WebhookStore};
 
 const SET: &str = "channels-owned-runtime";
 const DEADLINE: Duration = Duration::from_secs(15);
@@ -84,55 +91,73 @@ impl AgentRuntime for Agent {
     }
 }
 
-struct Services {
+/// The receiver's settings as the recording's receiver had them: the defaults (`enabled`).
+struct Settings;
+
+#[async_trait]
+impl ChannelSettings for Settings {
+    async fn webhook(&self) -> Result<WebhookSettings, String> {
+        Ok(WebhookSettings::default())
+    }
+    async fn update_webhook(&self, _patch: &WebhookPatch) -> Result<WebhookSettings, String> {
+        unreachable!("no recorded step changes the webhook settings")
+    }
+    async fn webhook_config(&self) -> Result<WebhookConfig, String> {
+        Ok(WebhookConfig::default())
+    }
+}
+
+/// The receiver's store and dispatch: nothing reaches them, no request arrives.
+struct NoDeliveries;
+
+#[async_trait]
+impl WebhookStore for NoDeliveries {
+    async fn load_endpoint(&self, _name: &str) -> Result<Option<Endpoint>, String> {
+        unreachable!("no request reaches the receiver")
+    }
+    async fn read_secret(&self, _name: &str) -> Result<Option<String>, String> {
+        unreachable!("no request reaches the receiver")
+    }
+    async fn claim_delivery(&self, _endpoint: &str, _id: &str, _claim: Claim<'_>) -> Result<bool, String> {
+        unreachable!("no request reaches the receiver")
+    }
+    async fn update_delivery_status(&self, _endpoint: &str, _id: &str, _status: &str, _error: Option<&str>) -> Result<(), String> {
+        unreachable!("no request reaches the receiver")
+    }
+}
+
+#[async_trait]
+impl WebhookDispatch for NoDeliveries {
+    async fn handle(&self, _name: &str, _payload: Value, _headers: &Headers, _id: &str, _in_table: bool) -> Result<HttpReply, String> {
+        unreachable!("no request reaches the receiver")
+    }
+}
+
+/// The listener `WebhookAutomation` starts and stops: it writes each call the automation makes on it, with the settings it was
+/// given. A start fails with the text a case sets (the recorder's webhook start throws); a listener whose start failed does not listen.
+struct Listener {
     log: Log,
-    running: AtomicBool,
-    /// Set by a case: the next sync fails with this text after it set the services up (the recorder's webhook start
-    /// throws after the pipeline and the server were made).
+    listening: AtomicBool,
     fails: Mutex<Option<String>>,
 }
 
 #[async_trait]
-impl AutomationServices for Services {
-    async fn sync(&self, reload: bool) -> Result<(), String> {
-        // The seam is one `sync(reload)`; Node's `syncWebhookAndEventRuntime` makes these calls for it, in this order, with these
-        // arguments (`enabled` is the receiver's setting, whose default is the recorded one; the pipeline has no rules). Each one is
-        // compared with the recording, argument for argument.
-        let enabled = crate::channels::ports::WebhookSettings::default().enabled;
-        let rules = json!({"rules": []});
-        let calls = if !self.running.load(Ordering::SeqCst) {
-            vec![
-                json!(["pipeline.new", rules]),
-                json!(["wire.events", {}]),
-                json!(["pipeline.start"]),
-                json!(["webhook.new", {"enabled": enabled}]),
-                json!(["wire.webhook"]),
-                json!(["webhook.start"]),
-            ]
-        } else if reload {
-            vec![
-                json!(["pipeline.reload", rules]),
-                json!(["wire.events", {}]),
-                json!(["pipeline.start"]),
-                json!(["wire.webhook"]),
-                json!(["webhook.reload", {"enabled": enabled}, {"autoStart": false}]),
-                json!(["wire.webhook"]),
-                json!(["webhook.start"]),
-            ]
-        } else {
-            vec![json!(["pipeline.start"]), json!(["wire.webhook"]), json!(["webhook.start"])]
-        };
-        self.log.lock().unwrap().extend(calls);
-        self.running.store(true, Ordering::SeqCst);
+impl WebhookListener for Listener {
+    async fn start(&self, settings: &WebhookSettings) -> Result<(), String> {
+        self.log.lock().unwrap().push(json!(["webhook.start", {"enabled": settings.enabled}]));
         match self.fails.lock().unwrap().take() {
             Some(error) => Err(error),
-            None => Ok(()),
+            None => {
+                self.listening.store(true, Ordering::SeqCst);
+                Ok(())
+            }
         }
     }
-    async fn stop(&self) {
-        if self.running.swap(false, Ordering::SeqCst) {
-            self.log.lock().unwrap().extend([json!(["webhook.stop"]), json!(["pipeline.stop"])]);
+    async fn stop(&self) -> Result<(), String> {
+        if self.listening.swap(false, Ordering::SeqCst) {
+            self.log.lock().unwrap().push(json!(["webhook.stop"]));
         }
+        Ok(())
     }
 }
 
@@ -140,7 +165,7 @@ struct Rig {
     runtime: Arc<ChannelRuntime>,
     calls: Arc<CallDispatch>,
     agent: Arc<Agent>,
-    services: Arc<Services>,
+    listener: Arc<Listener>,
     log: Log,
 }
 
@@ -151,8 +176,10 @@ fn rig() -> Rig {
     let scheduler = Scheduler::new(store.clone(), Arc::new(NoRuns), Arc::new(SystemClock), work.clone(), chrono_tz::Tz::UTC, Vec::new());
     scheduler.record_calls(log.clone());
     let agent = Arc::new(Agent { log: log.clone(), hold: Mutex::new(None), entered: tokio::sync::Notify::new() });
-    let services = Arc::new(Services { log: log.clone(), running: AtomicBool::new(false), fails: Mutex::new(None) });
-    let runtime = ChannelRuntime::new(scheduler, store, services.clone(), agent.clone());
+    let listener = Arc::new(Listener { log: log.clone(), listening: AtomicBool::new(false), fails: Mutex::new(None) });
+    let service = Arc::new(WebhookService::new(Arc::new(NoDeliveries), Arc::new(NoDeliveries), WebhookConfig::default(), work.clone(), Arc::new(|| 0)));
+    let automation = Arc::new(WebhookAutomation::new(Arc::new(Settings), service, listener.clone()));
+    let runtime = ChannelRuntime::new(scheduler, store, automation, agent.clone());
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(ToolDispatch::new(runtime.clone(), work.clone(), Box::new(|| false)))), work);
     calls.hear_bridge(&runtime);
     let observed = log.clone();
@@ -161,7 +188,7 @@ fn rig() -> Rig {
     }));
     // The registration reports the binding as it stands (none): not a change.
     log.lock().unwrap().clear();
-    Rig { runtime, calls, agent, services, log }
+    Rig { runtime, calls, agent, listener, log }
 }
 
 impl Rig {
@@ -186,13 +213,8 @@ impl Rig {
     }
 
     fn state(&self) -> Exact {
-        let running = self.services.running.load(Ordering::SeqCst);
-        let named = |name: &str| if running { Exact::String(name.into()) } else { Exact::Null };
-        Exact::Object(vec![
-            ("connected".into(), Exact::Bool(self.runtime.bridge_connected())),
-            ("webhookServer".into(), named("FakeWebhookServer")),
-            ("eventPipeline".into(), named("FakeEventPipeline")),
-        ])
+        let webhook_server = if self.listener.listening.load(Ordering::SeqCst) { Exact::String("FakeWebhookServer".into()) } else { Exact::Null };
+        Exact::Object(vec![("connected".into(), Exact::Bool(self.runtime.bridge_connected())), ("webhookServer".into(), webhook_server)])
     }
 }
 
@@ -230,24 +252,16 @@ async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> 
 }
 
 const NODE_ONLY: [&str; 6] = ["advert", "advert.clear", "locks.release", "snapshot.start", "snapshot.stop", "ownership"];
-const SERVICE_CALLS: [&str; 10] = [
-    "pipeline.new",
-    "pipeline.reload",
-    "wire.events",
-    "pipeline.start",
-    "webhook.new",
-    "wire.webhook",
-    "webhook.reload",
-    "webhook.start",
-    "webhook.stop",
-    "pipeline.stop",
-];
+/// Recorded calls with no counterpart in `WebhookAutomation` (see the header); `webhook.new` and `webhook.start` are handled apart.
+const NO_COUNTERPART: [&str; 7] = ["pipeline.new", "pipeline.reload", "pipeline.start", "pipeline.stop", "wire.events", "wire.webhook", "webhook.reload"];
 
 /// One step's recorded calls in the vocabulary of the Rust ports (see the header).
 fn expected(calls: &Exact) -> Vec<Value> {
     let calls: Vec<Value> = calls.as_array().iter().map(|c| c.to_plain().expect("a plain call")).collect();
     let name = |i: usize| calls.get(i).and_then(|c| c[0].as_str()).unwrap_or_default().to_owned();
     let mut out = Vec::new();
+    // The `enabled` of the receiver Node made in this step and has not started yet.
+    let mut made: Option<Value> = None;
     let mut i = 0;
     while i < calls.len() {
         let call = &calls[i];
@@ -276,10 +290,22 @@ fn expected(calls: &Exact) -> Vec<Value> {
                 out.push(json!(["remote", "acquired", SESSION]));
                 i += 1;
             }
-            n if SERVICE_CALLS.contains(&n) => {
+            "webhook.new" => {
+                made = Some(call[1]["enabled"].clone());
+                i += 1;
+            }
+            // A receiver Node just made starts its listener; one that already listens is not started again.
+            "webhook.start" => {
+                if let Some(enabled) = made.take() {
+                    out.push(json!(["webhook.start", {"enabled": enabled}]));
+                }
+                i += 1;
+            }
+            "webhook.stop" => {
                 out.push(call.clone());
                 i += 1;
             }
+            n if NO_COUNTERPART.contains(&n) => i += 1,
             other => panic!("a recorded call with no Rust counterpart: {other} {call}"),
         }
     }
@@ -292,9 +318,15 @@ fn step(case: &Exact, index: usize, actual: Vec<Value>) {
     assert_eq!(actual, expected, "{}: calls of recorded step {index}", case.get("name").as_str());
 }
 
-fn finish(case: &Exact, rig: &Rig, stderr: &Arc<Mutex<Vec<(mixdog_rt::node_log::Origin, mixdog_rt::node_log::Channel, String)>>>) {
+/// `skip` are the recorded state keys with no counterpart (declared in the manifest): `eventPipeline` always, and in the case whose
+/// webhook start threw, `webhookServer` too (Node keeps the receiver object it made, which never listened; the core has no such object).
+fn finish(case: &Exact, rig: &Rig, stderr: &Arc<Mutex<Vec<(mixdog_rt::node_log::Origin, mixdog_rt::node_log::Channel, String)>>>, skip: &[&str]) {
     let name = case.get("name").as_str();
-    same(&format!("{name}: state"), case.get("state"), &rig.state());
+    let Exact::Object(recorded) = case.get("state") else { panic!("{name}: the recorded state is an object") };
+    let recorded = Exact::Object(recorded.iter().filter(|(key, _)| !skip.contains(&key.as_str())).cloned().collect());
+    let Exact::Object(actual) = rig.state() else { unreachable!("the state is an object") };
+    let actual = Exact::Object(actual.into_iter().filter(|(key, _)| !skip.contains(&key.as_str())).collect());
+    same(&format!("{name}: state"), &recorded, &actual);
     let lines: Vec<Exact> =
         stderr.lock().unwrap().iter().map(|(_, _, line)| Exact::String(mixdog_rt::node_log::bare(line))).collect();
     same(&format!("{name}: stderr"), case.get("stderr"), &Exact::Array(lines));
@@ -315,7 +347,7 @@ async fn start_advertises_arms_automation_once_and_notifies_acquired() {
     step(&case, 0, rig.take());
     within("the second start", rig.activate()).await;
     step(&case, 1, rig.take());
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
 
 #[tokio::test]
@@ -327,7 +359,7 @@ async fn start_does_nothing_while_the_bridge_is_inactive() {
     rig.runtime.set_bridge_active(false).await;
     within("the start", rig.runtime.start_bridge()).await.expect("the start answers");
     step(&case, 0, rig.take());
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
 
 #[tokio::test]
@@ -341,7 +373,7 @@ async fn stop_tears_automation_down_and_is_idempotent() {
     step(&case, 1, rig.take());
     within("the second stop", rig.runtime.stop_owned_runtime("again")).await.expect("the stop answers");
     step(&case, 2, rig.take());
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
 
 #[tokio::test]
@@ -361,7 +393,7 @@ async fn a_stop_landing_mid_start_makes_the_in_flight_start_bail_without_arming_
     assert_eq!(reply, json!({"content": [{"type": "text", "text": "channel bridge activated"}]}), "activation reply");
     step(&case, 1, rig.take());
     same("connectedAfterStop", case.get("connectedAfterStop"), &Exact::Bool(connected_after_stop));
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
 
 #[tokio::test]
@@ -373,7 +405,7 @@ async fn reload_re_arms_the_scheduler_and_hot_reloads_automation_services() {
     step(&case, 0, rig.take());
     within("the reload", rig.runtime.reload_runtime()).await.expect("the reload answers");
     step(&case, 1, rig.take());
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
 
 #[tokio::test]
@@ -383,7 +415,7 @@ async fn reload_on_a_stopped_runtime_tears_the_webhook_and_event_runtime_down() 
     let rig = rig();
     within("the reload", rig.runtime.reload_runtime()).await.expect("the reload answers");
     step(&case, 0, rig.take());
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
 
 #[tokio::test]
@@ -408,11 +440,11 @@ async fn start_automation_runtime_is_idempotent_and_a_stop_during_its_init_abort
     within("the held automation start", start).await.expect("the start task ends").expect("the start answers");
     within("the stop", stop).await.expect("the stop task ends").expect("the stop answers");
     step(&case, 3, rig.take());
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline"]);
 }
 
 /// The acquisition is announced as the bridge connects; the arming then fails (the recorder's webhook start throws, here the
-/// services' sync fails after setting them up). The start rolls the connection back, writes its stderr line and announces
+/// listener's start fails). The start rolls the connection back, writes its stderr line and announces
 /// nothing more: clients keep the acquired binding, and the activation call answers as a success.
 #[tokio::test]
 async fn an_activation_announced_as_acquired_whose_arming_fails_afterwards_rolls_back_and_announces_nothing_more() {
@@ -422,8 +454,8 @@ async fn an_activation_announced_as_acquired_whose_arming_fails_afterwards_rolls
     );
     let (stderr, _guard) = mixdog_rt::node_log::capture();
     let rig = rig();
-    *rig.services.fails.lock().unwrap() = Some("webhook start failed".into());
+    *rig.listener.fails.lock().unwrap() = Some("webhook start failed".into());
     within("the start whose arming fails", rig.activate()).await;
     step(&case, 0, rig.take());
-    finish(&case, &rig, &stderr);
+    finish(&case, &rig, &stderr, &["eventPipeline", "webhookServer"]);
 }
