@@ -7,7 +7,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
-#[cfg(not(feature = "test-support"))]
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -49,7 +48,6 @@ use crate::transport::TransportError;
 mod login;
 
 /// A sign-in nobody finishes ends here (Node's `MCP_OAUTH_TIMEOUT_MS`).
-#[cfg(not(feature = "test-support"))]
 const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60);
 
 
