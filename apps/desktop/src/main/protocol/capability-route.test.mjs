@@ -864,36 +864,74 @@ test('resolveToolApproval answers the server request the card shows with the cor
 });
 
 // `fixtures/mcp-oauth-control-session-cases/golden.json`: an MCP sign-in begun, polled and pasted while Node's desktop replaced its control
-// session (record-mcp-oauth-control-session-cases.mjs, b6f10295a). The lane is the product's replacement code; the test injects the
-// failed read and the refused paste into the fake core, and compares the control sessions the lane then started and what it answered.
+// session (record-mcp-oauth-control-session-cases.mjs, b6f10295a). The lane is the product's replacement code; the fake core answers every
+// call the recording made with its recorded answer in the recorded order, failing the two calls the recorder failed (the first status
+// read, the paste of 'garbage'). Each call's whole result is compared with the recorded one: the value, and the control session it
+// was addressed to (recorded `sess_daemon_…` ids stand for `control-N` in order of first appearance, manifest `replay.normalised`);
+// the recorded `snapshot: null` is the recorder's stub, the lane's own snapshot is read from the core (its busy flag and rows).
 test('a failed control call drops the control thread and a read is sent once more on a new one, as Node recorded', async () => {
   const recording = JSON.parse(
     readFileSync(new URL('../../../../../native/core/fixtures/mcp-oauth-control-session-cases/golden.json', import.meta.url), 'utf8')
   ).cases[0].observed;
+  const FLOW = 'flow-1';
+  const flowed = (value) => JSON.parse(JSON.stringify(value).replaceAll('<flow>', FLOW));
   const refusal = recording.invalidPaste.threw.message;
-  let failNextRead = false;
-  const { calls, world, lane } = recordingLane(async (method, params) => {
-    if (method === 'mcp/mcpStatus' && failNextRead) {
-      failNextRead = false;
-      throw new Error('status unavailable');
-    }
-    if (method === 'mcp/completeMcpOAuthLogin' && params.callbackUrl === 'garbage') throw new Error(refusal);
-    if (method === 'mcp/mcpStatus') return recording.statusRead.value.value;
-    return { ok: true };
+  // The recorded calls in order: [recorded key, capability, args, how the core answers: 'failsFirst' (that call fails once, then is
+  // answered) or 'refused' (the core refuses it)].
+  const script = [
+    ['signOut', 'signOutMcpServer', ['fixture']],
+    ['begun', 'beginMcpOAuthLogin', ['fixture', { openBrowser: false }]],
+    ['statusRead', 'mcpStatus', [], 'failsFirst'],
+    ['statusAfterReplace', 'getMcpOAuthLoginStatus', [FLOW]],
+    ['invalidPaste', 'completeMcpOAuthLogin', [FLOW, 'garbage'], 'refused'],
+    ['statusAfterInvalidPaste', 'getMcpOAuthLoginStatus', [FLOW]],
+    ['correctedPaste', 'completeMcpOAuthLogin', [FLOW, recording.callback]],
+    ['finalStatus', 'getMcpOAuthLoginStatus', [FLOW]],
+  ];
+  const answers = [];
+  for (const [key, , , mode] of script) {
+    if (mode === 'failsFirst') answers.push({ method: 'mcp/mcpStatus', fails: new Error('status unavailable') });
+    if (mode === 'refused') answers.push({ method: 'mcp/completeMcpOAuthLogin', fails: new Error(refusal) });
+    else answers.push({ method: undefined, key });
+  }
+  let next = 0;
+  const { calls, states, world, lane } = recordingLane(async (method) => {
+    const step = answers[next++];
+    if (step.method) assert.equal(method, step.method, `call ${next}`);
+    if (step.fails) throw step.fails;
+    const recorded = recording[step.key];
+    return flowed(step.key === 'statusRead' ? recorded.value.value : recorded.value);
   });
-  await lane.invoke('signOutMcpServer', ['fixture']);
-  await lane.invoke('beginMcpOAuthLogin', ['fixture', { openBrowser: false }]);
-  const began = world.starts;
-  failNextRead = true;
-  const [status] = await lane.read([{ capability: 'mcpStatus' }]);
-  assert.deepEqual(status, { ok: true, value: recording.statusRead.value.value }, 'the status read');
-  assert.equal(world.starts !== began, recording.controlSessionReplaced, 'the control session was replaced');
-  assert.equal(world.starts, recording.runtimesAfterFailedRead, 'the session runtimes after the failed read');
-  await lane.invoke('getMcpOAuthLoginStatus', ['flow-1']);
-  await assert.rejects(lane.invoke('completeMcpOAuthLogin', ['flow-1', 'garbage']), (error) => error.message === refusal, 'the refused paste');
-  assert.equal(calls.filter((call) => call.method === 'mcp/completeMcpOAuthLogin').length, 1, 'a mutation is not sent again');
-  await lane.invoke('getMcpOAuthLoginStatus', ['flow-1']);
-  assert.equal(world.starts, recording.runtimesAfterInvalidPaste, 'the session runtimes after the invalid paste');
+  // The state each control thread holds is the recorded one (idle, no rows).
+  for (const thread of ['control-1', 'control-2', 'control-3']) states.set(thread, { runtime: { busy: recording.signOut.result.full.busy } });
+  const sessions = new Map();
+  const sessionOf = (id) => {
+    if (!sessions.has(id)) sessions.set(id, `control-${sessions.size + 1}`);
+    return sessions.get(id);
+  };
+  for (const [key, capability, args] of script) {
+    const recorded = recording[key];
+    if (key === 'invalidPaste') {
+      await assert.rejects(lane.invoke(capability, args), (error) => error.message === recorded.threw.message, key);
+      continue;
+    }
+    const reply = await lane.invoke(capability, args);
+    const result = key === 'statusRead' ? recorded.value.result : recorded.result;
+    assert.deepEqual(reply.value, flowed(key === 'statusRead' ? recorded.value.value : recorded.value), `${key}: the value`);
+    assert.deepEqual(
+      { sessionId: reply.snapshot.sessionId, busy: reply.snapshot.busy, items: reply.snapshot.items },
+      { sessionId: sessionOf(result.sessionId), busy: result.full.busy, items: result.full.items },
+      `${key}: the control session and the state it carries`
+    );
+  }
+  assert.equal(next, answers.length, 'every recorded answer was used');
+  assert.equal(recording.controlSessionReplaced, true);
+  assert.equal(world.starts, recording.runtimesAfterInvalidPaste, 'the control sessions started over the whole scenario');
+  assert.equal(
+    calls.filter((call) => call.method === 'mcp/completeMcpOAuthLogin' && call.params.callbackUrl === 'garbage').length,
+    1,
+    'a mutation is not sent again'
+  );
   assert.deepEqual(
     calls.map((call) => [call.method, call.params.threadId]),
     [
@@ -904,7 +942,21 @@ test('a failed control call drops the control thread and a read is sent once mor
       ['mcp/getMcpOAuthLoginStatus', 'control-2'],
       ['mcp/completeMcpOAuthLogin', 'control-2'],
       ['mcp/getMcpOAuthLoginStatus', 'control-3'],
+      ['mcp/completeMcpOAuthLogin', 'control-3'],
+      ['mcp/getMcpOAuthLoginStatus', 'control-3'],
     ],
     'each call is addressed to the control thread the lane then held'
   );
+});
+
+// session-host-transport.ts `invokeControlResult` awaits `ensureControlSession()` outside its try: a control thread that cannot be
+// created is not retried, whatever the call, and its error reaches the caller at once.
+test('a failed start of the control thread is not retried, not even for a read', async () => {
+  const { calls, lane, world } = recordingLane();
+  world.failStarts = 1;
+  await assert.rejects(lane.invoke('mcpStatus', []), /core busy/);
+  assert.equal(world.starts, 0, 'no second start was made');
+  assert.deepEqual(calls, [], 'nothing was sent');
+  assert.deepEqual((await lane.invoke('mcpStatus', [])).value, { ok: true });
+  assert.equal(world.starts, 1);
 });
