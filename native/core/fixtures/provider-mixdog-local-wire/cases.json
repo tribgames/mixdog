@@ -1,6 +1,7 @@
 {
   "set": "provider-mixdog-local-wire",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "instructions-merge",
@@ -53,10 +54,66 @@
         ],
         "historyUnchanged": true,
         "imageError": {
+          "$exact": "error",
           "name": "TypeError",
-          "message": "Local Provider system instructions must contain text only."
+          "message": "Local Provider system instructions must contain text only.",
+          "props": {}
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.mjs.toLocalProviderMessages",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "base",
+                "cacheTier": "tier1"
+              },
+              {
+                "role": "system",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "profile"
+                  }
+                ],
+                "cacheTier": "tier2"
+              },
+              {
+                "role": "user",
+                "content": "hello"
+              },
+              {
+                "role": "developer",
+                "content": "runtime instructions"
+              },
+              {
+                "role": "assistant",
+                "content": "reply"
+              }
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.mjs.toLocalProviderMessages",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": [
+                  {
+                    "type": "image_url",
+                    "image_url": {
+                      "url": "not-text"
+                    }
+                  }
+                ]
+              }
+            ]
+          ]
+        }
+      ]
     },
     {
       "id": "streamed-tool-call-single-system",
@@ -141,6 +198,9 @@
         "second": {
           "content": "The result is 42.",
           "model": "test-local",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
           "stopReason": "stop",
           "usage": {
             "inputTokens": 20,
@@ -171,30 +231,221 @@
         ],
         "systemMessagesLeftInHistory": 4
       },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
+          "args": [
+            {},
+            {
+              "ensureServer": {
+                "callback": "ensureServer"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "base"
+              },
+              {
+                "role": "system",
+                "content": "profile"
+              },
+              {
+                "role": "system",
+                "content": "workflow"
+              },
+              {
+                "role": "system",
+                "content": "environment"
+              },
+              {
+                "role": "user",
+                "content": "Look up the answer."
+              }
+            ],
+            "test-local",
+            [
+              {
+                "name": "lookup",
+                "description": "Read a value",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            ],
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
+          "args": [
+            [
+              {
+                "role": "system",
+                "content": "base"
+              },
+              {
+                "role": "system",
+                "content": "profile"
+              },
+              {
+                "role": "system",
+                "content": "workflow"
+              },
+              {
+                "role": "system",
+                "content": "environment"
+              },
+              {
+                "role": "user",
+                "content": "Look up the answer."
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                  {
+                    "id": "call_local",
+                    "name": "lookup",
+                    "arguments": {
+                      "key": "answer"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "toolCallId": "call_local",
+                "content": "42"
+              }
+            ],
+            "test-local",
+            [
+              {
+                "name": "lookup",
+                "description": "Read a value",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ]
+                }
+              }
+            ],
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              }
+            }
+          ]
+        }
+      ],
       "requests": [
         {
           "method": "POST",
           "origin": "http://127.0.0.1:8080",
           "path": "/v1/chat/completions",
-          "headers": {
-            "host": "127.0.0.1:8080",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer test-key",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "387"
-          },
+          "headers": [
+            [
+              "host",
+              "127.0.0.1:8080"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer test-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "387"
+            ]
+          ],
           "body": "{\"model\":\"test-local\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 200,
@@ -206,25 +457,76 @@
           "method": "POST",
           "origin": "http://127.0.0.1:8080",
           "path": "/v1/chat/completions",
-          "headers": {
-            "host": "127.0.0.1:8080",
-            "connection": "keep-alive",
-            "accept": "application/json",
-            "user-agent": "OpenAI/JS 6.49.0",
-            "x-stainless-retry-count": "0",
-            "x-stainless-lang": "js",
-            "x-stainless-package-version": "6.49.0",
-            "x-stainless-os": "Windows",
-            "x-stainless-arch": "x64",
-            "x-stainless-runtime": "node",
-            "x-stainless-runtime-version": "v22.20.0",
-            "authorization": "Bearer test-key",
-            "content-type": "application/json",
-            "accept-language": "*",
-            "sec-fetch-mode": "cors",
-            "accept-encoding": "gzip, deflate",
-            "content-length": "599"
-          },
+          "headers": [
+            [
+              "host",
+              "127.0.0.1:8080"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "Windows"
+            ],
+            [
+              "x-stainless-arch",
+              "x64"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "v22.20.0"
+            ],
+            [
+              "authorization",
+              "Bearer test-key"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "599"
+            ]
+          ],
           "body": "{\"model\":\"test-local\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_local\",\"content\":\"42\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
           "reply": {
             "status": 200,
@@ -240,11 +542,45 @@
       "input": {},
       "result": {
         "error": {
+          "$exact": "error",
           "name": "Error",
-          "message": "cancelled"
+          "message": "cancelled",
+          "props": {}
         },
         "serverStarts": 0
-      }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider",
+          "args": [
+            {},
+            {
+              "ensureServer": {
+                "callback": "ensureServer"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/mixdog-local.mjs.MixdogLocalProvider#send",
+          "args": [
+            [],
+            "test",
+            [],
+            {
+              "signal": {
+                "aborted": true,
+                "reason": {
+                  "$exact": "error",
+                  "name": "Error",
+                  "message": "cancelled",
+                  "props": {}
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -1,16 +1,19 @@
 {
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-mixdog-local-wire.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai providers::local (local/mod.rs:109-132) and mixdog-services local_provider provider.rs:231-233: compare the merged messages, the two requests (body incl. the single merged system message and tool_call_id), the results, the dispatched calls and the signal states; a pre-cancelled send never calls ensureServer.",
   "entry": "mixdog-local-wire.mjs toLocalProviderMessages(history); mixdog-local.mjs MixdogLocalProvider({}, { ensureServer }).send(messages, \"test-local\", tools, { signal, onToolCall }) where ensureServer returns { baseURL: http://127.0.0.1:8080/v1, apiKey: \"test-key\" } (the OpenAI SDK sends real HTTP to the scripted endpoint, which answers 400 if a system message is not first). Not run: a real llama server.",
   "exclusions": [
-    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
-    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 8424,
+      "bytes": 16038,
       "path": "cases.json",
-      "sha256": "f5b6b03754d1565253657e30314cbfbba99c07fa62c73a9660a6dcf15e052291"
+      "sha256": "eb60d8c5d6b79b1f831d7afde8ccdfa34953144a8079f2cb3fdbb7735cf167f3"
     }
   ],
   "inputs": [
@@ -23,12 +26,16 @@
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -50,11 +57,23 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mixdog-local-wire.mjs",
-  "recorderSha256": "59bedfe1722ac2ba1fa144acea832591f3cd78c6150c8d55cf823229e807459e",
-  "replay": "mixdog-ai providers::local (local/mod.rs:109-132) and mixdog-services local_provider provider.rs:231-233: compare the merged messages, the two requests (body incl. the single merged system message and tool_call_id), the results, the dispatched calls and the signal states; a pre-cancelled send never calls ensureServer.",
+  "recorderSha256": "5633c0a5c1dba45995cef89c7d978e0f37ee155539509f258f9f29b9115a5ca5",
+  "replay": "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
   "replayExclusions": {
     "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
   },
   "set": "provider-mixdog-local-wire",
-  "totalBytes": 8424
+  "totalBytes": 16038,
+  "valueTags": {
+    "{\"$bigint\":\"<digits>\"}": "bigint",
+    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
+    "{\"$cycle\":true}": "a reference back to an ancestor object",
+    "{\"$date\":\"<ISO>\"}": "Date",
+    "{\"$function\":\"<name>\"}": "a function",
+    "{\"$map\":[[k,v]...]}": "Map, insertion order",
+    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
+    "{\"$set\":[v...]}": "Set, insertion order",
+    "{\"$symbol\":\"<text>\"}": "a symbol",
+    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
+  }
 }
