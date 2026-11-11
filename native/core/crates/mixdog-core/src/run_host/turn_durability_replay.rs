@@ -101,8 +101,13 @@ fn stub(on_send: OnSend) -> Arc<Stub> {
     })
 }
 
+/// The usage every Node send reports (`USAGE`, the recorder child).
+fn reported_usage() -> StreamEvent {
+    StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 2, ..Default::default() })
+}
+
 fn answer(text: &str) -> Play {
-    Play { events: VecDeque::from([StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]), hang: false }
+    Play { events: VecDeque::from([StreamEvent::TextDelta(text.into()), reported_usage(), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }]), hang: false }
 }
 
 /// The `read` the recording's tool round called; it answers what Node's `read` answered for the case's file.
@@ -159,31 +164,113 @@ const RUN_AT: i64 = 1_800_000_000_000;
 const REOPEN_AT: i64 = 1_800_000_600_000;
 
 /// A session stack over `store` with the run host's factory over `provider`, at `now`.
-fn stack(rig: &Rig, store: Arc<dyn mixdog_core_session::session::ThreadStore>, provider: Arc<Stub>, workspace: &Path, now: i64) -> SessionDirectory {
+fn stack(rig: &Rig, store: Arc<dyn mixdog_core_session::session::ThreadStore>, provider: Arc<Stub>, workspace: &Path, now: i64) -> Arc<SessionDirectory> {
     rig.clock.0.store(now as u64, Ordering::SeqCst);
     let mut deps = rig.deps_parts(store);
+    let route = Arc::new(DraftRoute::default());
+    deps.new_route = route.clone();
+    deps.new_tools = Arc::new(LeadRecord(now));
     deps.transcript = Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
     let parts = Parts { provider, workspace: workspace.to_path_buf(), more: vec![read_tool()], settle: None };
     deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Timed(parts, now))));
-    SessionDirectory::new(Arc::new(deps))
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    *route.directory.lock().unwrap() = Arc::downgrade(&directory);
+    directory
 }
 
+/// The route seam as the route service is to `thread/start` (`new_route.rs`): the draft's provider and model are the
+/// created thread's header inside `thread/start`, before it returns and before any turn (Node: `createSession({ provider, model })`).
+/// The seat writes the adopted route's fields as the route service's seat does: through the thread's header.
+#[derive(Default)]
+struct DraftRoute {
+    picked: std::sync::Mutex<serde_json::Map<String, Value>>,
+    directory: std::sync::Mutex<std::sync::Weak<SessionDirectory>>,
+}
+
+#[async_trait]
+impl mixdog_core_session::session::NewThreadRoute for DraftRoute {
+    async fn adopt(&self, _: &ThreadId, pick: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+        let pick = pick.ok_or("the recording's session names its route")?;
+        let route: serde_json::Map<String, Value> = ["provider", "model"].iter().map(|key| ((*key).to_owned(), pick.get(*key).cloned().unwrap_or(Value::Null))).collect();
+        *self.picked.lock().unwrap() = route.clone();
+        Ok(route)
+    }
+
+    async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+        Err("the recording starts no control thread".into())
+    }
+
+    async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+        let directory = self.directory.lock().unwrap().upgrade().ok_or("the directory is gone")?;
+        let handle = directory.handle(thread).ok_or("the created thread is loaded")?;
+        let set = Value::Object(self.picked.lock().unwrap().clone());
+        let seat = CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": thread.as_str(), "set": set, "unset": [] }), op: None, ctx: CallContext::internal("route") };
+        handle.request(seat).await.map(|_| ()).map_err(|error| error.to_string())
+    }
+}
+
+/// The tool seam as the surface host is to `thread/start` for this part of its work: `buildSessionRecord`'s fields
+/// (`write_lead_record`, `surface_host.rs`), the usage books at zero among them.
+struct LeadRecord(i64);
+
+#[async_trait]
+impl mixdog_core_session::session::NewThreadTools for LeadRecord {
+    async fn seed(&self, _: &ThreadId, header: &mixdog_store::schema::record::Header) -> Result<mixdog_store::schema::record::Header, String> {
+        let mut header = header.clone();
+        mixdog_core_session::session::session_options::write_lead_record(&mut header, self.0, std::process::id());
+        Ok(header)
+    }
+}
+
+/// A session created with the recording's route (`createSession({ provider: 'durability-stub', model: 'stub-model' })`).
 async fn start(directory: &SessionDirectory, workspace: &Path) -> Arc<mixdog_core_session::session::SessionHandle> {
-    start_with(directory, json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.to_string_lossy() })).await
+    let route = json!({ "provider": "durability-stub", "model": "stub-model" });
+    start_with(directory, json!({ "opId": "op-start", "kind": "task", "projectPath": workspace.to_string_lossy(), "draft": { "route": route } })).await
 }
 
-/// The session record's route (`createSession({ provider: 'durability-stub', model: 'stub-model' })`), which an heir's
-/// inheritance boundary names. The rig's route seam seats none; it is set after the turn, whose rows Node's recording stamps
-/// with no route.
-async fn route(handle: &mixdog_core_session::session::SessionHandle) {
-    let set = json!({ "provider": "durability-stub", "model": "stub-model" });
-    let patch = CoreRequest {
-        method: Method("thread/header/patch"),
-        params: json!({ "threadId": ThreadHandle::id(handle).as_str(), "set": set, "unset": [] }),
-        op: None,
-        ctx: CallContext::internal("test"),
-    };
-    handle.request(patch).await.expect("thread/header/patch");
+/// The usage books Node's recording reads from the durable record (`USAGE_BOOKS`, the recorder child): the acked header's.
+const USAGE_BOOKS: [&str; 17] = [
+    "totalInputTokens", "totalOutputTokens", "totalToolCalls", "tokensCumulative", "totalCachedReadTokens", "totalCacheWriteTokens",
+    "totalUncachedInputTokens", "usageReadout", "lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens",
+    "lastUncachedInputTokens", "lastContextTokens", "usageMetricsTurnId", "reasoningUsage", "lastIterationIndex",
+];
+
+/// The usage books of the header as the log on disk holds it (Node: `readDurableSessionRecord`, never the live copy).
+async fn usage_of(directory: &SessionDirectory, handle: &mixdog_core_session::session::SessionHandle) -> Value {
+    let store = directory.deps().store.clone();
+    let id = ThreadHandle::id(handle).clone();
+    let header = mixdog_rt::LaneToken::submit(mixdog_rt::testing::tokens().interactive_io, &mixdog_rt::CancellationToken::new(), move |lane| store.read_header(lane, &id))
+        .expect("lane")
+        .await
+        .expect("job ran")
+        .expect("the stored header");
+    Value::Object(USAGE_BOOKS.iter().map(|key| ((*key).to_owned(), header.get(*key).cloned().unwrap_or(Value::Null))).collect())
+}
+
+/// A second client resuming the thread (`thread/resume`, the desktop's `setVisibleSessions`): the response, then the snapshot
+/// its subscription is sent; with the disk and the usage books.
+async fn resumed(directory: &SessionDirectory, handle: &mixdog_core_session::session::SessionHandle) -> Value {
+    use mixdog_core_api::FeedSource;
+    use mixdog_core_api::mock::MockConnection;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::sink::ConnectionSink;
+    let id = ThreadHandle::id(handle).as_str().to_owned();
+    // The daemon routes `thread/resume` to the thread's handle (`ThreadHandle::request`), as a client's call reaches it.
+    let reply = handle.request(request("thread/resume", json!({ "threadId": id, "window": { "lastItems": 100 } }), "op-resume")).await.expect("thread/resume");
+    let Reply::Subscribe(subscribe) = reply else { panic!("thread/resume subscribes") };
+    let connection = MockConnection::new(mixdog_core_api::ids::ConnectionId(7), MockLimits::default());
+    let source: Arc<dyn FeedSource> = subscribe.feed.clone();
+    let attached = mixdog_core_api::feed::subscribe(&source, "resume".into(), subscribe.window, subscribe.resume_from, &connection).expect("attach");
+    connection.send_control_release(bytes::Bytes::from(subscribe.result.to_string()), attached.release).expect("release");
+    let frame_of = |text: &String| serde_json::from_str::<Value>(text.split_once(':').expect("a rendered frame").1).expect("a JSON frame");
+    let frames = tokio::time::timeout(Duration::from_secs(30), connection.drain_text_until(|texts| texts.iter().any(|text| frame_of(text)["method"] == "thread/snapshot")))
+        .await
+        .expect("the resumed client is sent its snapshot within 30 s");
+    let snapshot = frames.iter().map(frame_of).find(|frame| frame["method"] == "thread/snapshot").expect("the snapshot")["params"].clone();
+    assert_eq!(snapshot["thread"], subscribe.result["thread"], "the response and the snapshot name the same thread");
+    let messages = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": id, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(messages) = directory.request(messages).await.expect("thread/modelMessages/list") else { panic!("a value") };
+    json!({ "items": snapshot["items"], "state": snapshot["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await })
 }
 
 async fn start_with(directory: &SessionDirectory, params: Value) -> Arc<mixdog_core_session::session::SessionHandle> {
@@ -206,7 +293,7 @@ async fn observe(directory: &SessionDirectory, handle: &mixdog_core_session::ses
     let Reply::Value(read) = handle.request(read).await.expect("thread/read") else { panic!("thread/read answers a value") };
     let messages = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": ThreadHandle::id(handle).as_str(), "start": 0 }), op: None, ctx: CallContext::internal("test") };
     let Reply::Value(messages) = directory.request(messages).await.expect("thread/modelMessages/list") else { panic!("a value") };
-    json!({ "items": read["items"], "state": read["state"], "disk": messages["messages"] })
+    json!({ "items": read["items"], "state": read["state"], "disk": messages["messages"], "usage": usage_of(directory, handle).await })
 }
 
 /// Waits until `probe` holds, woken by each step of the thread's actor.
@@ -301,6 +388,8 @@ fn crash_hook(step: AppendStep, records: &[Record]) -> std::io::Result<()> {
     ));
     match step {
         AppendStep::Write => match case {
+            // The turn's first write (its input row and the run's start), before it writes.
+            "crash-before-write" if has_run(records, RunPhase::Started) || has_role(records, "user") => die(),
             // The finished message and its seal were not written: what streamed of it is the draft's.
             "crash-answer-streamed" if has_role(records, "assistant") || drafts(records).any(|body| body.get("sealed").is_some()) => die(),
             // Once the seal is on disk the session's saves fail; the process dies once the turn has ended (`crash_child`).
@@ -339,7 +428,25 @@ fn kill(at: &str) -> ! {
     let (case, dir) = CASE.get().expect("a crash child");
     std::fs::write(dir.join("sends"), SENDS.load(Ordering::SeqCst).to_string()).unwrap();
     eprintln!("[turn-durability] {case}: killed at {at}");
-    std::process::exit(CRASHED)
+    kill_self()
+}
+
+/// Ends this process the way a kill does (Node's recording: SIGKILL): no unwinding, no exit handler, no flush. Not `abort`: on
+/// Windows that is a fail-fast that starts Windows Error Reporting.
+fn kill_self() -> ! {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        use windows_sys::Win32::System::Threading::TerminateProcess;
+        // SAFETY: the pseudo-handle of this process is always valid.
+        unsafe { TerminateProcess(GetCurrentProcess(), CRASHED as u32) };
+    }
+    #[cfg(unix)]
+    // SAFETY: signals this process.
+    unsafe {
+        libc::kill(libc::getpid(), libc::SIGKILL);
+    }
+    std::process::abort()
 }
 
 /// The first process of a crash case, run by `crashes_replay_as_node_recovers` with `TD_CASE` set: runs the turn until the hook
@@ -366,7 +473,7 @@ async fn crash_child() {
                         events: VecDeque::from([
                             StreamEvent::TextDelta("reading".into()),
                             StreamEvent::ToolCallDone(ToolCall { id: "call_read".into(), name: "read".into(), arguments: json!({ "path": "x.txt" }), native_type: None }),
-                            StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                            reported_usage(), StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                         ]),
                         hang: false,
                     }
@@ -376,6 +483,7 @@ async fn crash_child() {
             })
         }),
         "crash-answer-streamed" | "crash-saved-uncleared" | "crash-sealed-unsaved" | "resume-held" => Arc::new(|_| Box::pin(async { answer("answer") })),
+        "crash-before-write" => Arc::new(|_| Box::pin(async { panic!("crash-before-write: the process dies before the first request") })),
         other => panic!("unknown case {other}"),
     };
     let rig = Rig::new();
@@ -389,10 +497,9 @@ async fn crash_child() {
     // Node's `settleThenKill`: the turn ended with its terminal save failed, then the process dies.
     if case == "crash-sealed-unsaved" || case == "resume-held" {
         until(&handle, "the sealed turn ends", async || SESSION_SAVES_FAIL.load(Ordering::SeqCst) && !handle.turn_busy()).await;
-        // A second client resuming the held thread in the owning process is served the thread's one view (`thread/resume`
-        // subscribes to the cell `thread/read` reads).
+        // A second client resumes the held thread in the owning process: what its `thread/resume` sends it.
         if case == "resume-held" {
-            std::fs::write(dir.join("resumed.json"), observe(&directory, &handle).await.to_string()).unwrap();
+            std::fs::write(dir.join("resumed.json"), resumed(&directory, &handle).await.to_string()).unwrap();
         }
         kill("the turn's end");
     }
@@ -508,12 +615,18 @@ fn rust_rows(items: &Value) -> Vec<Value> {
                     put("text", item.get("displayText").cloned());
                     put("messageId", pick(item, &["/meta/messageId", "/meta/ext/messageId"]));
                     put("at", pick(item, &["/meta/at", "/meta/ext/at"]));
+                    for key in ["modelId", "model", "provider"] {
+                        put(key, pick(item, &[&format!("/meta/{key}"), &format!("/meta/ext/{key}")]));
+                    }
                 }
                 "agentMessage" => {
                     put("kind", Some(json!("assistant")));
                     put("text", item.get("text").cloned());
                     put("messageId", pick(item, &["/meta/messageId", "/meta/ext/messageId"]));
                     put("at", pick(item, &["/meta/at", "/meta/ext/at"]));
+                    for key in ["modelId", "model", "provider"] {
+                        put(key, pick(item, &[&format!("/meta/{key}"), &format!("/meta/ext/{key}")]));
+                    }
                 }
                 "toolCall" => {
                     let run = &item["run"];
@@ -598,14 +711,14 @@ fn node_step(step: &Value) -> Value {
     let mut seen = Vec::new();
     let rows = named(&json!(node_rows(&step["view"]["items"])), &mut seen);
     let disk = named(&json!(node_disk(&step["disk"]["messages"])), &mut seen);
-    json!({ "rows": rows, "disk": disk, "busy": !step["stage"].is_null() })
+    json!({ "rows": rows, "disk": disk, "usage": step["disk"]["usage"], "busy": !step["stage"].is_null() })
 }
 
 fn rust_step(view: &Value) -> Value {
     let mut seen = Vec::new();
     let rows = named(&json!(rust_rows(&view["items"])), &mut seen);
     let disk = named(&json!(rust_disk(&view["disk"])), &mut seen);
-    json!({ "rows": rows, "disk": disk, "busy": busy(view) })
+    json!({ "rows": rows, "disk": disk, "usage": view["usage"], "busy": busy(view) })
 }
 
 fn same(case: &str, step: &Value, got: Value) {
@@ -669,7 +782,7 @@ fn held_plays(case: &str) -> OnSend {
             events: VecDeque::from([
                 StreamEvent::TextDelta(text.into()),
                 StreamEvent::ToolCallDone(ToolCall { id: id.into(), name: "read".into(), arguments: json!({ "path": path }), native_type: None }),
-                StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
+                reported_usage(), StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
             ]),
             hang: false,
         };
@@ -754,7 +867,6 @@ async fn a_held_turn_forks_as_node_forks_it() {
     })
     .await;
     same(name, &steps[0], rust_step(&observe(&directory, &handle).await));
-    route(&handle).await;
     for (n, step) in steps[1..].iter().enumerate() {
         if n == 1 {
             DISK_FAILS.store(false, Ordering::SeqCst);
@@ -806,13 +918,24 @@ async fn crashes_replay_as_node_recovers() {
         }
         let steps = case["steps"].as_array().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
+        let mut process = tokio::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &child, "--nocapture", "--test-threads=1"])
             .env("TD_CASE", &name)
             .env("TD_DIR", dir.path())
-            .status()
+            .kill_on_drop(true)
+            .spawn()
             .expect("the child runs");
-        assert_eq!(status.code(), Some(CRASHED), "{name}: the child was not killed at its point");
+        // The child's own 60 s bound starts only once its turn runs: this one covers its start too.
+        let status = match tokio::time::timeout(Duration::from_secs(120), process.wait()).await {
+            Ok(status) => status.expect("the child's status"),
+            Err(_) => {
+                let _ = process.kill().await;
+                panic!("{name}: the crash child did not end within 120 s");
+            }
+        };
+        assert!(!status.success(), "{name}: the child ended normally");
+        // Written just before the kill: the child died at its point, not elsewhere.
+        assert!(dir.path().join("sends").exists(), "{name}: the child was not killed at its point ({status})");
         let killed = steps.iter().position(|step| step["step"] == "killed").unwrap();
         // Steps before the kill are what a client was shown in the owning process (`resume-held`: the live session it resumed).
         for step in &steps[..killed] {
