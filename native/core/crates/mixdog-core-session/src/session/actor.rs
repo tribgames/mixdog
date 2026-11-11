@@ -3173,6 +3173,13 @@ impl SessionActor {
         {
             run.tool_calls += 1;
         }
+        // Node's catalog row counts this row once the turn settles (`ActiveRun::unsaved_messages`).
+        if item.model
+            && matches!(item.role.as_deref(), Some("user" | "assistant"))
+            && let Some(active) = self.cell.run.load().as_ref()
+        {
+            active.unsaved_messages.fetch_add(1, SeqCst);
+        }
         match self.item_record(&turn, item, facts, None) {
             Ok(record) => {
                 if let (Record::Item(row), Some(run)) = (&record, self.run.as_mut())
@@ -5467,6 +5474,7 @@ impl SessionActor {
             cancel: cancel.clone(),
             steers: Default::default(),
             prompt: prompt_state,
+            unsaved_messages: Default::default(),
         })));
         self.accept_record(started, Class::Control, Display::None, Vec::new(), effects);
         // `onTurnStart`: the turn's id, start and the submissions it carries.

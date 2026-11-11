@@ -141,6 +141,11 @@ pub(crate) struct ActiveRun {
     pub steers: Mutex<VecDeque<QueuedId>>,
     /// The prompt that started the run: what a stop may hand back (`flags.activePromptRestore`).
     pub prompt: Arc<super::stop::PromptState>,
+    /// The `user`/`assistant` context rows the run committed after its input. Node's saved `session.messages` (what the catalog
+    /// row's `messageCount` counts) holds the history and the turn's prompt while the turn runs (`precommitUserTurn`,
+    /// `ask-turn-execute.mjs:121-123`: the loop works on `liveTurnMessages`) and takes the turn's other rows when it settles
+    /// (`ask-turn-settle.mjs:113`); the listed row leaves these out until the run ends.
+    pub unsaved_messages: std::sync::atomic::AtomicU64,
 }
 
 /// Whether a thread, or the control start that becomes it, has not ended. Every end (a close of the thread's cell, an abandoned
