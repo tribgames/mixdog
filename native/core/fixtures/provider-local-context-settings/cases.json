@@ -881,6 +881,15 @@
             }
           ]
         }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 1,
+          "armed": []
+        }
       ]
     },
     {
