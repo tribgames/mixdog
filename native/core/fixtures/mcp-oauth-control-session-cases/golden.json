@@ -19,9 +19,9 @@
           "revoked": false
         },
         "begun": {
+          "flowId": "<flow>",
           "state": "pending",
-          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256",
-          "flowId": "<flow>"
+          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
         },
         "statusRead": {
           "value": {
@@ -38,8 +38,10 @@
         },
         "invalidPaste": {
           "threw": {
+            "$exact": "error",
             "name": "Error",
-            "message": "The pasted sign-in URL is invalid."
+            "message": "The pasted sign-in URL is invalid.",
+            "props": {}
           }
         },
         "statusAfterInvalidPaste": {
