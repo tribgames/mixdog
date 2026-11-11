@@ -199,7 +199,20 @@ impl AgentMessage {
         let mut message = self.message.clone();
         message.source = self.source.and_then(Source::wire);
         message.turn_reminder = self.turn_reminder.clone().filter(|text| !text.is_empty());
+        message.account_routing = self.account_routing();
         message
+    }
+
+    /// The stored `providerMetadata.accountRouting` (`{ provider, accountId, sessionAccountId }`), when it names
+    /// a provider and an account.
+    fn account_routing(&self) -> Option<mixdog_core_api::domain::provider::AccountRouting> {
+        let routing = self.provider_metadata.as_ref()?.get("accountRouting")?;
+        let text = |key: &str| routing.get(key).and_then(mixdog_protocol::JsonValue::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        Some(mixdog_core_api::domain::provider::AccountRouting {
+            provider: text("provider")?,
+            account_id: text("accountId")?,
+            session_account_id: text("sessionAccountId"),
+        })
     }
 
     /// Ids of the tool calls an assistant message carries: its call list
