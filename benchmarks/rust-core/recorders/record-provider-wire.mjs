@@ -522,7 +522,10 @@ const holding = http.createServer(async (req, res) => {
     res.write(reply.body);
   }
 });
-await new Promise((resolve) => holding.listen(0, '127.0.0.1', resolve));
+await new Promise((resolve, reject) => {
+  holding.once('error', reject);
+  holding.listen(0, '127.0.0.1', resolve);
+});
 
 // Anthropic server-side fallback (anthropic-server-fallback.mjs), as the stream carries it: before any output (message_start
 // already names the fallback model) and mid-output (message_start names the requested model).

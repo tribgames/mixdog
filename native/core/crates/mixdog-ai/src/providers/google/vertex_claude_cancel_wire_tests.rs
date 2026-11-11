@@ -89,15 +89,20 @@ async fn a_cancelled_claude_send_ends_as_node_ends_it() {
         let cancel = CancellationToken::new();
         let mut caller = Caller { events: Vec::new(), cancel: cancel.clone(), on_text: name == "mid-stream", on_retry: name == "retry-wait" };
         let send = SendRequest { request: Arc::new(request_of(&recorded)), lane, admission: AdmissionRequest::default() };
-        let sending = broker.send(adapter.as_ref(), send, &mut caller, &cancel);
-        let sent = if name == "before-first-byte" {
-            let (sent, ()) = tokio::join!(sending, async {
-                hub.step.notified().await;
-                cancel.cancel();
-            });
-            sent
-        } else {
-            sending.await
+        let sent = {
+            let mut sending = std::pin::pin!(broker.send(adapter.as_ref(), send, &mut caller, &cancel));
+            if name == "before-first-byte" {
+                // The held request is the step; a send that ends without making it fails here.
+                tokio::select! {
+                    sent = &mut sending => panic!("{name}: the send ended ({sent:?}) before the hub held its request"),
+                    () = hub.step.notified() => {
+                        cancel.cancel();
+                        sending.await
+                    }
+                }
+            } else {
+                sending.await
+            }
         };
         assert_eq!(recorded.result["error"]["name"], "AbortError", "{name}: Node's caller got an abort");
         assert!(matches!(sent, Err(SendError::Cancelled)), "{name}: {sent:?}");
