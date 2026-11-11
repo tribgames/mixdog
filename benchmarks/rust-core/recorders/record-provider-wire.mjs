@@ -31,6 +31,7 @@ import {
   resolveTree,
   stageSet,
   writeJson,
+  within,
   writeSetManifest,
 } from './lib/common.mjs';
 
@@ -481,7 +482,8 @@ for (const [name, tools, opts, script] of VERTEX_CLAUDE) {
 // The caller cancelling a Vertex AI Claude send (`opts.signal`, vertex-ai.mjs:507-537). `hold` answers are served by the
 // holding endpoint below: `head` sends nothing, `part` sends the head and the bytes given, then each signals that step
 // (the caller aborts) and records whether the client closed the connection. The retry wait is a 529 advising a wait
-// far longer than the run; the caller aborts when Node announces it (`onStageChange('reconnecting')`).
+// far longer than the run; the caller aborts once Node's retry sleep has armed its timer (`sleepWithAbort`, the clock
+// telling the wait began), after the sleep has subscribed to the signal.
 const claudeOpening = anthropicStream([
   { type: 'message_start', message: { id: 'msg_x', type: 'message', role: 'assistant', model: 'claude-sonnet-4-6', content: [], usage: { input_tokens: 20, output_tokens: 1 } } },
   { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
@@ -496,10 +498,23 @@ for (const [name, script] of VERTEX_CLAUDE_CANCEL) {
   scenarios.push({ group: 'vertex-claude-cancel', name, cancel: name, provider: 'vertex-ai-adc', model: 'claude-sonnet-4-6', messages: claudeTurn, tools: null, opts: {}, script });
 }
 
-// The holding endpoint: the hub's request record and answers, plus `hold` and `closedByClient`. `abortNow` is the running
-// scenario's caller abort; `closings` the connections still to settle before its record is written.
+// The holding endpoint: the hub's request record and answers (with the status and headers it answered), plus `hold` and
+// `closedByClient`. `abortNow` is the running scenario's caller abort; `closings` the connections still to settle before
+// its record is written.
 let abortNow = () => {};
 let closings = [];
+// The retry-wait step: the first timer a retry sleep arms calls `onRetrySleep` once that sleep is waiting.
+let onRetrySleep = null;
+const armTimer = globalThis.setTimeout;
+globalThis.setTimeout = function setTimeoutSeen(callback, delay, ...rest) {
+  const timer = armTimer.call(this, callback, delay, ...rest);
+  if (onRetrySleep && /sleepWithAbort/.test(new Error().stack)) {
+    const step = onRetrySleep;
+    onRetrySleep = null;
+    queueMicrotask(step);
+  }
+  return timer;
+};
 const holding = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
@@ -508,8 +523,10 @@ const holding = http.createServer(async (req, res) => {
   hub.records.push(rec);
   const reply = hub.script.http(rec, hub.records.length);
   rec.served = reply.body;
+  rec.status = reply.status ?? 200;
+  rec.answerHeaders = { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.hold ? {} : (reply.headers ?? {})) };
   if (!reply.hold) {
-    res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.headers ?? {}) });
+    res.writeHead(rec.status, rec.answerHeaders);
     res.end(reply.body);
     return;
   }
@@ -521,7 +538,7 @@ const holding = http.createServer(async (req, res) => {
   // `head`: nothing was sent, so the request itself is the step; `part`: the caller aborts once it has read the delta.
   if (reply.hold === 'head') abortNow();
   else {
-    res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream' });
+    res.writeHead(rec.status, rec.answerHeaders);
     res.write(reply.body);
   }
 });
@@ -656,6 +673,7 @@ for (const s of selected) {
     }
     const ac = new AbortController();
     abortNow = s.cancel === 'before-first-byte' ? () => ac.abort() : () => {};
+    onRetrySleep = s.cancel === 'retry-wait' ? () => ac.abort() : null;
     // Every callback the caller passes, in the order the provider calls them. A hosted search passes only onStageChange
     // and onStreamDelta (native-web-search.mjs:76-77); a turn of the loop passes the stream callbacks of
     // ask-turn-loop-options.mjs:113-236, where an onStreamDelta with no kind is 'semantic' (:232).
@@ -666,7 +684,6 @@ for (const s of selected) {
       },
       onStageChange: (stage, detail) => {
         if (stage === 'notice') events.push({ on: 'notice', tone: detail?.tone ?? null, message: detail?.message ?? null });
-        if (stage === 'reconnecting' && s.cancel === 'retry-wait') ac.abort();
       },
       onStreamDelta: (kind = 'semantic') => events.push({ on: 'streamDelta', kind }),
       ...(s.group === 'hosted-search'
@@ -686,16 +703,17 @@ for (const s of selected) {
     const messages = structuredClone(s.messages);
     const send = (o) => provider.send(messages, s.model, s.tools ?? undefined, o);
     try {
-      const value = s.accounted ? await accountProviderSend(s.provider, provider, send, s.model, opts) : await send(opts);
+      const value = await within(`${id}: the send`, s.accounted ? accountProviderSend(s.provider, provider, send, s.model, opts) : send(opts));
       result = { ok: plainResult(value) };
       // The assistant turn the loop commits from an accounted answer (assistant-commit.mjs:72-104).
       if (s.accounted) result.committed = plainResult(buildIntermediateAssistantMessage(value));
     } catch (e) {
       result = { error: { name: e?.name ?? null, message: String(e?.message ?? e), status: e?.status ?? e?.httpStatus ?? null, code: e?.code ?? null } };
     }
-    await Promise.all(background);
-    await Promise.all(closings);
+    await within(`${id}: the background model-list refresh`, Promise.all(background));
+    await within(`${id}: the client closing the held connections`, Promise.all(closings));
     closings = [];
+    if (onRetrySleep) throw new Error(`${id}: Node never entered its retry wait`);
   }, id);
   hub.httpPort = hubPort;
   const dir = join(stage, s.group, s.name);
@@ -743,7 +761,7 @@ writeSetManifest(stage, {
       'Codex identity (installation id, user agent OS, beta features): the recording machine\'s, given to the replay as the recorder had it',
       'HTTP status of a scripted refusal: the script (vertex-maas, vertex-claude, vertex-claude-cancel groups) states it; records keep the body served',
       'vertex-claude-cancel error name, message and code: the DOMException AbortError Node\'s fetch and withRetry throw; the core\'s send ends as Cancelled, compared as that pairing',
-      'vertex-claude-cancel/retry-wait retrySleeps: empty in Node (the abort lands before its sleep starts); the core\'s wait is likewise never entered, shown by no further request',
+      'vertex-claude-cancel/retry-wait retrySleeps delayMs: the jittered wait Node armed; the core\'s wait is shown entered (its send pending after the retry\'s discard, under a paused clock) and ended by the cancel before the clock moves, not measured',
     ],
     ...recorderProvenance(import.meta.url),
   },
