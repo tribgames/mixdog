@@ -57,6 +57,10 @@ impl HttpTransport {
         for (name, value) in headers {
             let name = HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| TransportError::Request(format!("invalid header name {name:?}")))?;
+            // Node's `Headers` refuses a value with a unit over 255 before anything is sent.
+            if let Some(message) = crate::lone_headers::byte_string_error(value) {
+                return Err(TransportError::Other(message));
+            }
             let mut value = HeaderValue::from_str(value)
                 .map_err(|_| TransportError::Request(format!("invalid value for header {name}")))?;
             value.set_sensitive(true);

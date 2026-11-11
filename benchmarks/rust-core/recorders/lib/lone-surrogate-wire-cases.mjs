@@ -30,22 +30,20 @@ export function loneRefusal(field) {
 }
 
 export const CASES = [
-  // ── MCP: a header value is sent on every request to the server. Node saves the config and its fetch refuses the value when it
-  //    connects; the core's HTTP library would send the U+FFFD bytes, so the core refuses the request (the header map's values are
-  //    not free text) ──
+  // ── MCP: a header value is sent on every request to the server. Node saves the server and its fetch refuses the value when it
+  //    connects (a ByteString holds no unit over 255), sending nothing: the call answers the status with that failure, and the server
+  //    is listed with it. `after`: the server's name, whose status and config are read after the call ──
   {
     name: 'mcp-add-header-lone',
-    node: { run: 'mcpConnect', input: mcpServer('lone-header') },
+    node: { run: 'mcpRuntime', op: 'addMcpServer', input: mcpServer('lone-header') },
     core: { method: 'mcp/addMcpServer', params: { input: mcpServer('lone-header') } },
-    refused: 'mcp/addMcpServer.params/input/headers/X-Token',
-    absent: 'lone-header',
+    after: 'lone-header',
   },
   {
     name: 'mcp-save-header-lone',
-    node: { run: 'mcpConnect', input: mcpServer('lone-header-save') },
+    node: { run: 'mcpRuntime', op: 'saveMcpServer', input: mcpServer('lone-header-save') },
     core: { method: 'mcp/saveMcpServer', params: { input: mcpServer('lone-header-save') } },
-    refused: 'mcp/saveMcpServer.params/input/headers/X-Token',
-    absent: 'lone-header-save',
+    after: 'lone-header-save',
   },
   // ── the auth probe never sends a configured header: any header is configured authentication ──
   {

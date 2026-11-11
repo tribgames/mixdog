@@ -4,7 +4,8 @@
     {
       "name": "mcp-add-header-lone",
       "asked": {
-        "run": "mcpConnect",
+        "run": "mcpRuntime",
+        "op": "addMcpServer",
         "input": {
           "name": "lone-header",
           "type": "http",
@@ -17,16 +18,88 @@
       "coreMethod": "mcp/addMcpServer",
       "coreText": "{\"input\":{\"name\":\"lone-header\",\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}}",
       "node": {
-        "saved": "{\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}",
-        "connected": {
-          "ok": false,
-          "error": "[mcp-client] 1 MCP server(s) failed to connect — lone-header: Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
-          "failures": [
-            {
-              "name": "lone-header",
-              "msg": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255."
+        "answer": {
+          "ok": true,
+          "value": {
+            "name": "lone-header",
+            "status": {
+              "servers": [
+                {
+                  "name": "lone-header",
+                  "configured": true,
+                  "enabled": true,
+                  "connected": false,
+                  "status": "failed",
+                  "transport": "http",
+                  "toolCount": 0,
+                  "tools": [],
+                  "capabilities": {
+                    "tools": false,
+                    "prompts": false,
+                    "resources": false
+                  },
+                  "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                  "warnings": [],
+                  "source": "config"
+                }
+              ],
+              "configuredCount": 1,
+              "connectedCount": 0,
+              "failedCount": 1,
+              "warnings": [],
+              "declarationErrors": [],
+              "googleClient": false
             }
-          ]
+          }
+        },
+        "status": {
+          "ok": true,
+          "value": {
+            "servers": [
+              {
+                "name": "lone-header",
+                "configured": true,
+                "enabled": true,
+                "connected": false,
+                "status": "failed",
+                "transport": "http",
+                "toolCount": 0,
+                "tools": [],
+                "capabilities": {
+                  "tools": false,
+                  "prompts": false,
+                  "resources": false
+                },
+                "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                "warnings": [],
+                "source": "config",
+                "scope": null,
+                "inheritedScope": null,
+                "activeHere": true
+              }
+            ],
+            "configuredCount": 1,
+            "connectedCount": 0,
+            "failedCount": 1,
+            "warnings": [],
+            "declarationErrors": [],
+            "googleClient": false
+          }
+        },
+        "config": {
+          "ok": true,
+          "value": {
+            "name": "lone-header",
+            "source": "config",
+            "enabled": true,
+            "config": {
+              "type": "http",
+              "url": "http://127.0.0.1:47815/mcp",
+              "headers": {
+                "X-Token": "abc\ud83d"
+              }
+            }
+          }
         }
       },
       "requests": []
@@ -34,7 +107,8 @@
     {
       "name": "mcp-save-header-lone",
       "asked": {
-        "run": "mcpConnect",
+        "run": "mcpRuntime",
+        "op": "saveMcpServer",
         "input": {
           "name": "lone-header-save",
           "type": "http",
@@ -47,16 +121,128 @@
       "coreMethod": "mcp/saveMcpServer",
       "coreText": "{\"input\":{\"name\":\"lone-header-save\",\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}}",
       "node": {
-        "saved": "{\"type\":\"http\",\"url\":\"http://127.0.0.1:47815/mcp\",\"headers\":{\"X-Token\":\"abc\\ud83d\"}}",
-        "connected": {
-          "ok": false,
-          "error": "[mcp-client] 1 MCP server(s) failed to connect — lone-header-save: Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
-          "failures": [
-            {
-              "name": "lone-header-save",
-              "msg": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255."
+        "answer": {
+          "ok": true,
+          "value": {
+            "name": "lone-header-save",
+            "source": "config",
+            "status": {
+              "servers": [
+                {
+                  "name": "lone-header",
+                  "configured": true,
+                  "enabled": true,
+                  "connected": false,
+                  "status": "failed",
+                  "transport": "http",
+                  "toolCount": 0,
+                  "tools": [],
+                  "capabilities": {
+                    "tools": false,
+                    "prompts": false,
+                    "resources": false
+                  },
+                  "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                  "warnings": [],
+                  "source": "config"
+                },
+                {
+                  "name": "lone-header-save",
+                  "configured": true,
+                  "enabled": true,
+                  "connected": false,
+                  "status": "failed",
+                  "transport": "http",
+                  "toolCount": 0,
+                  "tools": [],
+                  "capabilities": {
+                    "tools": false,
+                    "prompts": false,
+                    "resources": false
+                  },
+                  "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                  "warnings": [],
+                  "source": "config"
+                }
+              ],
+              "configuredCount": 2,
+              "connectedCount": 0,
+              "failedCount": 2,
+              "warnings": [],
+              "declarationErrors": [],
+              "googleClient": false
             }
-          ]
+          }
+        },
+        "status": {
+          "ok": true,
+          "value": {
+            "servers": [
+              {
+                "name": "lone-header",
+                "configured": true,
+                "enabled": true,
+                "connected": false,
+                "status": "failed",
+                "transport": "http",
+                "toolCount": 0,
+                "tools": [],
+                "capabilities": {
+                  "tools": false,
+                  "prompts": false,
+                  "resources": false
+                },
+                "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                "warnings": [],
+                "source": "config",
+                "scope": null,
+                "inheritedScope": null,
+                "activeHere": true
+              },
+              {
+                "name": "lone-header-save",
+                "configured": true,
+                "enabled": true,
+                "connected": false,
+                "status": "failed",
+                "transport": "http",
+                "toolCount": 0,
+                "tools": [],
+                "capabilities": {
+                  "tools": false,
+                  "prompts": false,
+                  "resources": false
+                },
+                "error": "Cannot convert argument to a ByteString because the character at index 3 has a value of 55357 which is greater than 255.",
+                "warnings": [],
+                "source": "config",
+                "scope": null,
+                "inheritedScope": null,
+                "activeHere": true
+              }
+            ],
+            "configuredCount": 2,
+            "connectedCount": 0,
+            "failedCount": 2,
+            "warnings": [],
+            "declarationErrors": [],
+            "googleClient": false
+          }
+        },
+        "config": {
+          "ok": true,
+          "value": {
+            "name": "lone-header-save",
+            "source": "config",
+            "enabled": true,
+            "config": {
+              "type": "http",
+              "url": "http://127.0.0.1:47815/mcp",
+              "headers": {
+                "X-Token": "abc\ud83d"
+              }
+            }
+          }
         }
       },
       "requests": []

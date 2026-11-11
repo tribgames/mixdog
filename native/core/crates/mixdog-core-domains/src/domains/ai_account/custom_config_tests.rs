@@ -19,7 +19,7 @@ fn a_request_body_holding_lone_surrogates_is_measured_as_node_measures_it() {
         let request = case["coreText"].as_str().unwrap();
         let units = mixdog_js::json_lone_surrogates(request)
             .iter()
-            .filter(|at| matches!(at, mixdog_js::LoneAt::Value(pointer) if pointer.starts_with("/input/requestBody/")))
+            .filter(|at| matches!(at, mixdog_js::LoneAt::Unit { pointer, .. } if pointer.starts_with("/input/requestBody/")))
             .count();
         let params: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(request)).unwrap();
         let verdict = normalize_input(&params["input"], units).err();

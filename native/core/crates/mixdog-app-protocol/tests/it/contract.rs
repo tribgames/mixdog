@@ -470,22 +470,24 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
     );
     // Where it happened, for the server's refusal of every place that is no free-text field: the strings that held one,
     // not the ones that hold a real U+FFFD; a place outside the params (the method name) behind `#`.
-    // A string is named once per lone unit it held (a size Node measures on the serialised value counts each); the order is
-    // the parsed map's.
-    let mut named = request.lone_surrogates.clone();
+    // A string is named once, then each lone unit it held with its UTF-16 index ([`LoneAt::Unit`]); the order is the parsed
+    // map's.
+    let places = |lone: &[LoneAt]| lone.iter().filter(|at| !matches!(at, LoneAt::Unit { .. })).cloned().collect::<Vec<_>>();
+    let mut named = places(&request.lone_surrogates);
     named.sort();
-    let a = || LoneAt::Value("/a".into());
-    let mut expected = vec![LoneAt::Value("#/method".into()), a(), a(), a(), a(), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
+    let mut expected = vec![LoneAt::Value("#/method".into()), LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
     expected.sort();
     assert_eq!(named, expected);
+    assert_eq!(LoneAt::units_at(&request.lone_surrogates, "/a"), [(0, 0xd800), (2, 0xdc00), (4, 0xde00), (5, 0xd83d)]);
+    assert_eq!(LoneAt::units_at(&request.lone_surrogates, "#/method"), [(1, 0xd83d)]);
     let frame = r#"{"id":2,"method":"m","params":{"content":"a\ufffdb","relPath":"n\ude00.txt"}}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
-    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into())]);
+    assert_eq!(request.lone_surrogates, [LoneAt::Value("/relPath".into()), LoneAt::Unit { pointer: "/relPath".into(), at: 1, unit: 0xde00 }]);
     // Upper-case hex is the same escape; an escaped backslash before `u` is no escape; an escaped valid pair is one character.
     let frame = r#"{"id":3,"method":"m","params":["\uD83D x","\\ud83d","\uD83D\uDE00","\ud83d\u0041","\ud83d\ud83d\ude00"]}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
     assert_eq!(request.params, Some(json!(["\u{fffd} x", "\\ud83d", "\u{1f600}", "\u{fffd}A", "\u{fffd}\u{1f600}"])));
-    assert_eq!(request.lone_surrogates, [LoneAt::Value("/0".into()), LoneAt::Value("/3".into()), LoneAt::Value("/4".into())]);
+    assert_eq!(places(&request.lone_surrogates), [LoneAt::Value("/0".into()), LoneAt::Value("/3".into()), LoneAt::Value("/4".into())]);
     let bad = decode_inbound_text(r#"{"id":1,"method":"\ud800"#, 1 << 20);
     assert_eq!(bad.close_code().map(CloseCode::code), Some(1007));
 }
@@ -500,15 +502,16 @@ fn every_inbound_kind_names_its_lone_surrogates() {
     };
     let note = decode(r#"{"method":"x","params":{"a":"\ud800"}}"#);
     assert!(matches!(note, JsonRpcMessage::Notification(_)));
-    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into())]);
+    let unit = |pointer: &str, at, unit| LoneAt::Unit { pointer: pointer.into(), at, unit };
+    assert_eq!(note.lone_surrogates(), [LoneAt::Value("/a".into()), unit("/a", 0, 0xd800)]);
     let answer = decode(r#"{"id":"s1","result":{"answers":{"q\ud83d":"x"}}}"#);
     assert!(matches!(answer, JsonRpcMessage::Response(_)));
     assert_eq!(answer.lone_surrogates(), [LoneAt::Key("/answers/q\u{fffd}".into())]);
     let failed = decode(r#"{"id":"s1","error":{"code":1,"message":"m\udc00"}}"#);
     assert!(matches!(failed, JsonRpcMessage::Error(_)));
-    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into())]);
+    assert_eq!(failed.lone_surrogates(), [LoneAt::Value("/message".into()), unit("/message", 1, 0xdc00)]);
     let id = decode(r#"{"id":"r\ud800","method":"m","params":{}}"#);
-    assert_eq!(id.lone_surrogates(), [LoneAt::Value("#/id".into())]);
+    assert_eq!(id.lone_surrogates(), [LoneAt::Value("#/id".into()), unit("#/id", 1, 0xd800)]);
     // The same key twice is one key to Node too (the last value).
     let JsonRpcMessage::Request(twice) = decode(r#"{"id":1,"method":"m","params":{"a":1,"a":2}}"#) else { panic!("not a request") };
     assert_eq!(twice.params, Some(json!({"a": 2})));

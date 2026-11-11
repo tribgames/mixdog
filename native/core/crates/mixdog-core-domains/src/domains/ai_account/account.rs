@@ -381,7 +381,7 @@ impl DomainService for AccountService {
             .ctx
             .lone_surrogates
             .iter()
-            .filter(|at| matches!(at, mixdog_js::LoneAt::Value(pointer) if pointer.starts_with("/input/requestBody/")))
+            .filter(|at| matches!(at, mixdog_js::LoneAt::Unit { pointer, .. } if pointer.starts_with("/input/requestBody/")))
             .count();
         match method {
             "account/getOAuthProviderLoginStatus" | "account/listWebSearchModels" | "account/getQuotaHistory" => {
