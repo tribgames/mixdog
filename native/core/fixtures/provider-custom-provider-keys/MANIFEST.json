@@ -17,9 +17,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 30580,
+      "bytes": 41629,
       "path": "cases.json",
-      "sha256": "75c1112b38d2f8a81ec00afa070458a8576f8c89b8684776e1838a10502ca813"
+      "sha256": "eb0338de72508a2832c2105821377848de9ecb43b790013875f8ef4cfdc64827"
     }
   ],
   "inputs": [
@@ -56,6 +56,10 @@
     {
       "id": "history-reasoning-per-key",
       "level": "wire"
+    },
+    {
+      "id": "history-thinking-blocks-per-key-anthropic",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -77,12 +81,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-custom-provider-keys.mjs",
-  "recorderSha256": "91ee427cdfb9efdd605b392798b580299c7f49e9c73477f3edd3f77a92d1dbaf",
+  "recorderSha256": "a995dedba0a1b1d3b6c9ac5eaf72935953db23960356be08b9e9647f05d013ae",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Per-key engines are not wired on the send path (K1 G5): the Rust side adds them.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-custom-provider-keys",
-  "totalBytes": 30580,
+  "totalBytes": 41629,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
