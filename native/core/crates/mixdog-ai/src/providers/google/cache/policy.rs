@@ -64,13 +64,31 @@ fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fal
     fallback.max(min).min(max)
 }
 
+/// `STALL_ABORT_S`: the agent stall watchdog's abort, in seconds.
+fn stall_abort_s(get: &impl Fn(&str) -> Option<String>) -> f64 {
+    let abort_s = get("STALL_TIMEOUT_S").map_or(f64::NAN, |v| parse_int(&v));
+    if abort_s.is_finite() && abort_s > 0.0 { abort_s } else { 600.0 }
+}
+
 /// `stall-policy.mjs`: the provider deadlines derive from the stall thresholds. The stall warning
 /// window in ms and `PROVIDER_MAX_BEFORE_WARN_MS`.
 fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f64) {
-    let abort_s = get("STALL_TIMEOUT_S").map_or(f64::NAN, |v| parse_int(&v));
-    let abort_s = if abort_s.is_finite() && abort_s > 0.0 { abort_s } else { 600.0 };
+    let abort_s = stall_abort_s(get);
     let warn_s = if abort_s > 300.0 { 300.0 } else { (abort_s / 2.0).floor() };
     (warn_s * 1000.0, (warn_s * 1000.0 - 15_000.0).max(1000.0))
+}
+
+/// `PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS` (stall-policy.mjs:151): the idle window of a stream that produced a payload, in ms;
+/// `None` when `PROVIDER_SSE_IDLE_WATCHDOG_ENABLED` is off (`MIXDOG_ENABLE_STREAM_WATCHDOG` set to anything but `1`,
+/// `true` or `yes`).
+pub fn semantic_idle_ms(get: impl Fn(&str) -> Option<String>) -> Option<f64> {
+    if let Some(raw) = get("MIXDOG_ENABLE_STREAM_WATCHDOG").filter(|raw| !raw.is_empty())
+        && !matches!(raw.as_str(), "1" | "true" | "yes")
+    {
+        return None;
+    }
+    let max = (stall_abort_s(&get) * 1000.0 - 15_000.0).max(10_000.0);
+    Some(resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS"], 300_000.0, 10_000.0, max))
 }
 
 /// `PROVIDER_FIRST_BYTE_TIMEOUT_MS` and `PROVIDER_SSE_IDLE_TIMEOUT_MS` in ms.

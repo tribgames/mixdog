@@ -83,6 +83,22 @@ impl ProviderAdapter for VersionedAdapter {
         self.inner.attempt(request).await
     }
 
+    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        self.inner.send_stages(model)
+    }
+
+    fn retry_log_tag(&self, model: &str) -> Option<&'static str> {
+        self.inner.retry_log_tag(model)
+    }
+
+    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+        self.inner.recovers_spent(model, failure)
+    }
+
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.inner.recover_spent(request).await
+    }
+
     async fn settle_send(&self, group: &str, end: SendEnd) {
         self.inner.settle_send(group, end).await;
     }

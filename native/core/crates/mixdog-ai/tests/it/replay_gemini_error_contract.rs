@@ -4,8 +4,9 @@
 //! `geminiPolicyFinishCode` through `decode::policy_finish_code`, `geminiIncompleteError` through the Gemini decoder
 //! ending on that candidate, and `providerErrorKind` / `isAntigravityCapacityError` as the classified error's kind. The
 //! recorder's result object is rebuilt from the core's answers in the recorded shape and compared whole; each recorded
-//! error is compared field by field through [`ERROR_FIELDS`](crate::provider_case::ERROR_FIELDS). `Date.now()` is the
-//! recorded clock (`clockStartMs`).
+//! error is compared field by field through [`ERROR_FIELDS`](crate::provider_case::ERROR_FIELDS) and stands as `<error>`
+//! on both sides of the whole comparison. `Date.now()` is the recorders' `T0` (the recording's `clockStartMs`, which the
+//! driver checks is `T0`).
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -56,9 +57,9 @@ struct Answers {
     built: Vec<Built>,
 }
 
-fn now(set: &CaseSet, case: &crate::provider_case::Case) -> SystemTime {
-    let _ = set;
-    SystemTime::UNIX_EPOCH + Duration::from_millis(case.result().get("clockStartMs").as_f64() as u64)
+/// The recorders' `Date.now()`: `T0`, which the virtual clock of this recording never moves.
+fn now() -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_millis(crate::provider_case::T0_MS)
 }
 
 fn response(res: &Exact, text: &str) -> ErrorResponse {
@@ -128,8 +129,8 @@ fn incomplete(args: &[Exact]) -> Built {
     Built { error, served: None, events, model: Some(model) }
 }
 
-fn answer(set: &CaseSet, case: &crate::provider_case::Case) -> Answers {
-    let now = now(set, case);
+fn answer(case: &crate::provider_case::Case) -> Answers {
+    let now = now();
     let mut answers = Answers::default();
     for call in &case.calls {
         let entry = call.entry.rsplit('.').next().expect("an entry");
@@ -238,6 +239,19 @@ fn kind_of(error: &ProviderError) -> Exact {
 
 const CONTRACT_KEYS: [&str; 5] = ["code", "retryAfterMs", "resetAt", "quotaScope", "resetAtMinusClock"];
 
+/// An error of the recording in the whole comparison, on both sides: it is compared field by field ([`compare_error`]).
+const COMPARED: &str = "<error, compared through ERROR_FIELDS>";
+
+/// The recorded tree with each error replaced by [`COMPARED`].
+fn errors_compared(value: &Exact) -> Exact {
+    match value {
+        Exact::Error { .. } => Exact::String(COMPARED.into()),
+        Exact::Object(entries) => Exact::Object(entries.iter().map(|(k, v)| (k.clone(), errors_compared(v))).collect()),
+        Exact::Array(items) => Exact::Array(items.iter().map(errors_compared).collect()),
+        other => other.clone(),
+    }
+}
+
 struct Walk<'a> {
     case: &'a str,
     now: SystemTime,
@@ -275,7 +289,7 @@ impl Walk<'_> {
                 let built = &self.answers.built[index];
                 compare_error(&format!("{}: {key}", self.case), recorded, built);
                 self.error_at += 1;
-                recorded.clone()
+                Exact::String(COMPARED.into())
             }
             (_, Exact::Object(entries)) if entries.iter().all(|(k, _)| CONTRACT_KEYS.contains(&k.as_str())) => {
                 let error = self.answers.contracts.pop_front().expect("a contract call");
@@ -335,7 +349,13 @@ fn compare_error(what: &str, recorded: &Exact, built: &Built) {
         let mapping = error_field(field);
         let what = format!("{what}.{field} ({mapping})");
         match field.as_str() {
-            "name" => assert!(!error.timed_out && error.transport.is_none(), "{what}: {} is a typed refusal", value.as_str()),
+            "name" => match value.as_str() {
+                // `geminiIncompleteError`: a turn that ended on a finish other than a clean stop.
+                "ProviderIncompleteError" => assert!(error.finish_reason.is_some() && !error.timed_out && error.transport.is_none(), "{what}"),
+                // A typed refusal of the response (`geminiRestError` / `antigravityError`), no finish involved.
+                "Error" => assert!(error.finish_reason.is_none() && !error.timed_out && error.transport.is_none(), "{what}"),
+                other => panic!("{what}: no comparison for the error class {other}"),
+            },
             "message" => assert_eq!(error.message, value.as_str(), "{what}"),
             "code" => assert_eq!(error.code.as_deref(), opt_str(value), "{what}"),
             "status" | "httpStatus" => assert_eq!(error.status.map(f64::from), Some(value.as_f64()), "{what}"),
@@ -346,10 +366,41 @@ fn compare_error(what: &str, recorded: &Exact, built: &Built) {
                 }
             }
             "initialResponseError" => assert!(value.as_bool() && error.transport.is_none(), "{what}"),
+            // The body's error object: its HTTP `code` is the error's status, its `status` the Gemini status (compared as
+            // `geminiStatus`), its `details` / `errorDetails` the advice (compared as `details`), its `message` the text the
+            // error's message carries (the message itself is compared whole above).
             "error" => {
-                if let Some(Exact::String(own)) = value.try_get("message") {
-                    let shown = mixdog_ai::oauth::scrub::scrub_oauth_secrets(own, &[]);
-                    assert!(error.message.contains(&shown), "{what}: {:?} does not carry {shown:?}", error.message);
+                for (key, inner) in value.entries() {
+                    match key.as_str() {
+                        "code" => assert_eq!(error.status.map(f64::from), Some(inner.as_f64()), "{what}.code"),
+                        "status" => assert_eq!(Some(inner), prop("geminiStatus"), "{what}.status: the Gemini status the error carries"),
+                        // The details the error carries as its own `details` (compared there), else the advice read
+                        // from them: an ErrorInfo's `quotaResetDelay` the wait and its `quotaResetTimeStamp` the reset
+                        // instant (`antigravityError`), compared as the error's `retryAfterMs` / `resetAt`.
+                        "details" | "errorDetails" => match prop("details") {
+                            Some(own) => assert_eq!(inner, own, "{what}.{key}: the details the error carries"),
+                            None => {
+                                for detail in inner.as_array() {
+                                    let Some(meta) = detail.try_get("metadata") else { continue };
+                                    if let Some(Exact::String(delay)) = meta.try_get("quotaResetDelay") {
+                                        let ms = match delay.strip_suffix("ms") {
+                                            Some(ms) => ms.parse::<f64>().expect("a delay"),
+                                            None => delay.strip_suffix('s').and_then(|s| s.parse::<f64>().ok()).expect("a delay") * 1000.0,
+                                        };
+                                        assert_eq!(error.retry_after.map(|d| d.as_millis() as f64), Some(ms.ceil()), "{what}.{key}.quotaResetDelay");
+                                    }
+                                    if let Some(Exact::String(stamp)) = meta.try_get("quotaResetTimeStamp") {
+                                        assert_eq!(error.reset_at.map(ms_of), Some(mixdog_js::time::date_parse(stamp)), "{what}.{key}.quotaResetTimeStamp");
+                                    }
+                                }
+                            }
+                        },
+                        "message" => {
+                            let shown = mixdog_ai::oauth::scrub::scrub_oauth_secrets(inner.as_str(), &[]);
+                            assert!(error.message.contains(&shown), "{what}.message: {:?} does not carry {shown:?}", error.message);
+                        }
+                        other => panic!("{what}.{other}: a recorded property this comparison does not read"),
+                    }
                 }
             }
             "data" => assert_eq!(value, &plain(built.served.as_ref().expect("a JSON body")), "{what}"),
@@ -374,10 +425,17 @@ fn compare_error(what: &str, recorded: &Exact, built: &Built) {
                 other => assert_eq!(text, other.as_str(), "{what}"),
             },
             "partialToolCalls" => {
-                let done = built.events.iter().filter(|e| matches!(e, StreamEvent::ToolCallDone(_))).count();
+                let done: Vec<Exact> = built
+                    .events
+                    .iter()
+                    .filter_map(|e| match e {
+                        StreamEvent::ToolCallDone(call) => Some(plain(&json!({ "id": call.id, "name": call.name, "arguments": call.arguments }))),
+                        _ => None,
+                    })
+                    .collect();
                 match value {
-                    Exact::Undefined => assert_eq!(done, 0, "{what}"),
-                    other => assert_eq!(done, other.as_array().len(), "{what}"),
+                    Exact::Undefined => assert_exact(&what, &Exact::Array(Vec::new()), &Exact::Array(done)),
+                    other => assert_exact(&what, other, &Exact::Array(done)),
                 }
             }
             "partialProviderReplay" => {
@@ -402,11 +460,11 @@ fn every_case_answers_as_nodes() {
     let set = CaseSet::load("gemini-error-contract");
     assert_eq!(set.cases.len(), 26, "the recorded cases");
     for case in &set.cases {
-        let answers = answer(&set, case);
-        let mut walk = Walk { case: &case.id, now: now(&set, case), answers, error_at: 0 };
+        let answers = answer(case);
+        let mut walk = Walk { case: &case.id, now: now(), answers, error_at: 0 };
         let actual = walk.node("", case.result());
         assert!(walk.answers.contracts.is_empty() && walk.answers.errors.is_empty(), "{}: every call answered", case.id);
         assert!(walk.answers.kinds.is_empty() && walk.answers.capacity.is_empty() && walk.answers.policy.is_empty(), "{}", case.id);
-        assert_exact(&format!("provider-gemini-error-contract {}: result", case.id), case.result(), &actual);
+        assert_exact(&format!("provider-gemini-error-contract {}: result", case.id), &errors_compared(case.result()), &actual);
     }
 }

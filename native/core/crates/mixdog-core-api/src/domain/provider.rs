@@ -1185,6 +1185,39 @@ pub trait ProviderAdapter: Send + Sync {
     fn cache_warm(&self) -> Option<&dyn super::cache_warm::CacheWarmSend> {
         None
     }
+    /// The display stages a send to `model` raises around its attempts (Node `onStageChange`), beyond the retry
+    /// ladder's `reconnecting`. None by default; a wrapper forwards its inner provider's.
+    fn send_stages(&self, _model: &str) -> SendStages {
+        SendStages::default()
+    }
+    /// The tag of the line the provider's ladder writes to stderr before each retry of a send to `model`
+    /// (`geminiRetryLogger`: `<tag> retry attempt <n> after <message>`); `None` for a provider that writes none.
+    fn retry_log_tag(&self, _model: &str) -> Option<&'static str> {
+        None
+    }
+    /// Whether the provider re-issues a send to `model` whose stream ladder ran out on `failure` (Gemini's
+    /// `_recoverGeminiNonStreaming`: once, without streaming). False by default; a wrapper forwards its inner
+    /// provider's.
+    fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
+        false
+    }
+    /// That re-issue, called only when [`Self::recovers_spent`] holds: its stream, or its failure, after which the
+    /// ladder's own failure surfaces.
+    async fn recover_spent(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))
+    }
+}
+
+/// The display stages a provider's send raises around its attempts ([`ProviderAdapter::send_stages`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SendStages {
+    /// `requesting` stages raised once, before the first attempt (Gemini's `_doSend`: the request built, the cache
+    /// settled).
+    pub preparing: u32,
+    /// A `requesting` stage before every attempt (Gemini's attempt `run`).
+    pub each_attempt: bool,
+    /// A `requesting` stage before the re-issue of a spent send ([`ProviderAdapter::recover_spent`]).
+    pub before_recovery: bool,
 }
 
 /// How a logical send ended when it did not succeed.

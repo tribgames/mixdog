@@ -29,6 +29,7 @@ pub mod serving;
 pub mod tool_accept;
 pub mod traits;
 mod watchdog;
+pub use watchdog::StreamWatch;
 
 #[cfg(test)]
 mod claude_replay_wire_tests;

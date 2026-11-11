@@ -24,6 +24,9 @@ const TERMINAL_EDGE_STATUSES: [u16; 2] = [525, 526];
 
 /// One draw per jitter, as a caller of the verdict supplies them.
 pub fn random_samples() -> JitterSamples {
+    if let Some((step, advice)) = crate::random::jitter() {
+        return JitterSamples { step, advice };
+    }
     let mut rng = rand::rng();
     JitterSamples {
         step: rng.random(),

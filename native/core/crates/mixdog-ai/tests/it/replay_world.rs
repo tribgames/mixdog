@@ -231,6 +231,8 @@ pub struct Events {
     pub discards: u32,
     /// The caller's cancel once the first text reached it (the recorder's `onTextDelta` abort).
     pub cancel_on_text: Option<CancellationToken>,
+    /// The stages the send raised (`onStageChange(stage, payload)`), in order.
+    pub stages: Vec<(String, Option<Value>)>,
 }
 
 impl AttemptSink for Events {
@@ -244,6 +246,9 @@ impl AttemptSink for Events {
     }
     fn discard(&mut self) {
         self.discards += 1;
+    }
+    fn stage(&mut self, stage: &str, payload: Option<Value>) {
+        self.stages.push((stage.to_owned(), payload));
     }
 }
 

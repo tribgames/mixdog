@@ -21,6 +21,7 @@ use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::SendStages;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireDecoder;
@@ -43,7 +44,8 @@ use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
 use super::models;
-use super::watchdog::FirstByte;
+use super::watchdog::StreamWatch;
+use super::watchdog::Watchdogs;
 use super::redirect;
 use crate::catalog::ListingLookup;
 use crate::transport::BodyStream;
@@ -115,6 +117,12 @@ impl GoogleAdapter {
 
     /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
     /// (`send`, `gemini.mjs:651`).
+    /// The settings the adapter reads (its first-byte and idle windows) from `var` instead of the process environment.
+    pub fn with_settings(mut self, var: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>) -> Self {
+        self.var = var;
+        self
+    }
+
     pub fn with_preconnect(mut self, preconnect: Preconnect) -> Self {
         preconnect.warm(super::codec::GEMINI_ORIGIN);
         self.preconnect = Some(preconnect);
@@ -402,6 +410,61 @@ impl ProviderAdapter for GoogleAdapter {
         Some(self)
     }
 
+    /// `GeminiProvider._doSend`: `requesting` once the request is built and again once its cache is settled, then
+    /// before every attempt (`run`) and before the non-streaming re-issue.
+    fn send_stages(&self, model: &str) -> SendStages {
+        if !self.direct_gemini(model) {
+            return SendStages::default();
+        }
+        SendStages { preparing: 2, each_attempt: true, before_recovery: true }
+    }
+
+    /// `geminiRetryLogger(opts, '[gemini]')` of a send without a cached prefix (`_streamViaRest`'s label).
+    fn retry_log_tag(&self, model: &str) -> Option<&'static str> {
+        self.direct_gemini(model).then_some("[gemini]")
+    }
+
+    /// `canFallbackNonStreaming` (retry-classification.mjs:402) of a stream-phase failure: nothing reached the caller,
+    /// no call was cut or dispatched, and it is transient, stalled or a truncated stream.
+    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+        let exposed = failure.unsafe_to_retry
+            || failure.exposure.text_emitted
+            || failure.exposure.tool_dispatched
+            || failure.exposure.tool_input_cut;
+        let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
+            || failure.timed_out
+            || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
+        self.direct_gemini(model) && !exposed && transient
+    }
+
+    /// `_recoverGeminiNonStreaming`: the same body once to `:generateContent`; an answer with a candidate is the turn
+    /// (and the stderr line), anything else fails the re-issue.
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let (request, _) = self.served(self.routed(request));
+        let inner = self.codec.build_inner(&request)?;
+        let mut wire = self.codec.wire(&request, &inner, None)?;
+        wire.url = wire.url.replacen(":streamGenerateContent?alt=sse", ":generateContent", 1);
+        let response = self.dispatch(&wire).await?;
+        let answered = response.read_all().await?;
+        if !(200..300).contains(&answered.status.unwrap_or(0)) {
+            return Err(self.codec.classify_for(&answered, &request, false));
+        }
+        let candidates = serde_json::from_slice::<Value>(&answered.body)
+            .ok()
+            .and_then(|body| body.get("candidates").and_then(Value::as_array).map(|c| !c.is_empty()));
+        if candidates != Some(true) {
+            return Err(ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted));
+        }
+        let mut sse = b"data: ".to_vec();
+        sse.extend_from_slice(&answered.body);
+        sse.extend_from_slice(b"\n\n");
+        let mut stream = GoogleStream::consume(Box::new(Whole(Some(sse.into()))), self.codec.decoder_at(&request, false), None);
+        stream.answer_required = true;
+        stream.after_tool_result =
+            request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
+        Ok(Box::new(stream))
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         if let Some(preconnect) = &self.preconnect {
             preconnect.warm(super::codec::GEMINI_ORIGIN);
@@ -428,6 +491,16 @@ impl ProviderAdapter for GoogleAdapter {
                 Err(error)
             }
         }
+    }
+}
+
+/// A body already read whole, as one chunk.
+struct Whole(Option<bytes::Bytes>);
+
+#[async_trait]
+impl BodyStream for Whole {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+        self.0.take().map(Ok)
     }
 }
 
@@ -460,6 +533,11 @@ struct Exchanged {
 }
 
 impl GoogleAdapter {
+    /// A send to `model` on the Gemini API itself (`GeminiProvider`), not one of its other engines.
+    fn direct_gemini(&self, model: &str) -> bool {
+        matches!(self.codec.target(), Target::Gemini { .. }) && self.codec.maas_model(model).is_none() && self.codec.claude_model(model).is_none()
+    }
+
     /// The key the request is sent with, for the families that read one per send (`_getApiKey()`).
     async fn current_key(&self) -> Result<Option<String>, ProviderError> {
         match &self.reload {
@@ -572,8 +650,13 @@ impl GoogleAdapter {
             let rejected = response.read_all().await?;
             return Err(self.codec.classify_for(&rejected, &request, global));
         }
-        let first_byte = self.first_byte_window(&request).map(|window| (window, self.codec.stream_label()));
-        let mut stream = GoogleStream::consume(response.body, self.codec.decoder_at(&request, global), first_byte);
+        let watch = self.first_byte_window(&request).map(|(first_byte, idle_after_first_chunk)| StreamWatch {
+            first_byte,
+            idle: super::cache::policy::semantic_idle_ms(|name| (self.var)(name)).map(|ms| std::time::Duration::from_millis(ms as u64)),
+            idle_after_first_chunk,
+            label: self.codec.stream_label(),
+        });
+        let mut stream = GoogleStream::consume(response.body, self.codec.decoder_at(&request, global), watch);
         stream.queue = queue;
         // `gemini.mjs`'s answer check: an empty answer right after a tool result is the model's answer.
         stream.answer_required = true;
@@ -588,8 +671,9 @@ impl GoogleAdapter {
     /// Gemini API (`gemini.mjs:878`) and on Vertex AI, `VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS` for a Flex send there
     /// (`vertex-ai.mjs:414`), and on Antigravity the first window of the model's family (`antigravityFirstBytePolicy`:
     /// `ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` for `gemini-pro`, else the Gemini window). Claude and open models on
-    /// Vertex AI stream through other consumers: none.
-    fn first_byte_window(&self, request: &ModelRequest) -> Option<std::time::Duration> {
+    /// Vertex AI stream through other consumers: none. With the window, whether the idle window waits for the first
+    /// payload (`idleAfterFirstChunk`, a Vertex Flex send).
+    fn first_byte_window(&self, request: &ModelRequest) -> Option<(std::time::Duration, bool)> {
         let get = |name: &str| (self.var)(name);
         let gemini = super::cache::policy::gemini_first_byte_ms(get);
         let ms = match self.codec.target() {
@@ -599,10 +683,9 @@ impl GoogleAdapter {
                     return None;
                 }
                 if super::serving::Tier::requested(request.options.model_parameters.as_ref()) == super::serving::Tier::Flex {
-                    570_000.0
-                } else {
-                    gemini
+                    return Some((std::time::Duration::from_millis(570_000), true));
                 }
+                gemini
             }
             Target::Antigravity { .. } => {
                 let roster = self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -617,15 +700,14 @@ impl GoogleAdapter {
                 if pro { super::cache::policy::antigravity_first_byte_ms(get) } else { gemini }
             }
         };
-        Some(std::time::Duration::from_millis(ms as u64))
+        Some((std::time::Duration::from_millis(ms as u64), false))
     }
 }
 
 /// One Gemini-wire response body through its decoder (`consumeGeminiRestStreamResponse`): the decoder's events in
-/// order, the first-byte watchdog, and a transport fault as the stream's failure.
+/// order, the first-byte and idle watchdogs, and a transport fault as the stream's failure.
 pub struct GoogleStream {
-    /// `None` once a payload arrived.
-    first_byte: Option<FirstByte>,
+    watchdogs: Option<Watchdogs>,
     body: Box<dyn BodyStream>,
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<Result<StreamEvent, ProviderError>>,
@@ -638,15 +720,10 @@ pub struct GoogleStream {
 }
 
 impl GoogleStream {
-    /// The consumer over a response whose headers just arrived: `first_byte` is the window for the first payload and
-    /// the label its timeout names (`firstByteTimeoutMs`, `label`).
-    pub fn consume(
-        body: Box<dyn BodyStream>,
-        decoder: Box<dyn WireDecoder>,
-        first_byte: Option<(std::time::Duration, &'static str)>,
-    ) -> Self {
+    /// The consumer over a response whose headers just arrived, under `watch` (its windows and label).
+    pub fn consume(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>, watch: Option<StreamWatch>) -> Self {
         Self {
-            first_byte: first_byte.map(|(window, label)| FirstByte::arm(window, label)),
+            watchdogs: watch.map(Watchdogs::arm),
             body,
             decoder,
             queue: VecDeque::new(),
@@ -663,9 +740,15 @@ impl GoogleStream {
     }
 
     fn push(&mut self, events: Vec<StreamEvent>) {
+        // A read that decoded a payload re-arms the idle window (`resetIdle` on semantic progress only).
+        if let Some(watchdogs) = &mut self.watchdogs
+            && events.iter().any(|e| matches!(e, StreamEvent::ChunkProgress(_)))
+        {
+            watchdogs.payload();
+            watchdogs.reset_idle();
+        }
         for mut event in events {
             match &mut event {
-                StreamEvent::ChunkProgress(_) => self.first_byte = None,
                 StreamEvent::TextDelta(_) | StreamEvent::ToolCallDone(_) => self.produced_output = true,
                 StreamEvent::Completed { stop: None, .. }
                     if self.answer_required && !self.produced_output && !self.after_tool_result =>
@@ -693,11 +776,11 @@ impl ModelStream for GoogleStream {
             if self.ended {
                 return None;
             }
-            let next = match &self.first_byte {
-                Some(watch) => match watch.read(self.body.next()).await {
-                    Some(next) => next,
-                    None => {
-                        let err = watch.expired(self.decoder.exposure());
+            let next = match &self.watchdogs {
+                Some(watchdogs) => match watchdogs.read(self.body.next()).await {
+                    Ok(next) => next,
+                    Err(phase) => {
+                        let err = watchdogs.expired(phase, self.decoder.exposure());
                         self.fail(err);
                         continue;
                     }

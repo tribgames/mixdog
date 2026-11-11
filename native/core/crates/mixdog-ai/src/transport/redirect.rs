@@ -8,11 +8,16 @@
 //! there (the head of a plain-HTTP target, `host` the loopback address); the endpoint drops the header and writes `host`
 //! as the origin's host, as the recorder did.
 //!
+//! The product's handling of each response body ([`BodyEvent`]: a read begun, the end reached, the body dropped) goes to
+//! the endpoint's `tap`, so a replay on a paused clock moves the clock once the product waits where the recording waited.
+//!
 //! WebSocket: Node's world dials the loopback server over plain TCP for the TLS connect `ws` asked for, and the upgrade
 //! carries the host the product addressed. [`RedirectedDialer`] does the same, and reports each dial (host, port) to `tap`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::ProviderError;
@@ -21,6 +26,7 @@ use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::Response;
 
 use super::link::BidiOpen;
+use super::link::BodyStream;
 use super::link::Exchange;
 use super::link::FrameSink;
 use super::link::HttpResponse;
@@ -34,10 +40,56 @@ use super::KeepaliveSchedule;
 /// The header naming the origin the product addressed (the recorder's `x-bench-origin`).
 pub const ORIGIN_HEADER: &str = "x-bench-origin";
 
+/// What the product did with the body of the n-th response (a `HEAD` warm-up not counted) the link returned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyEvent {
+    /// A read of the body began (the product waits on it).
+    Read,
+    /// A read returned the end of the body or its fault.
+    Ended,
+    /// The product dropped the body.
+    Dropped,
+}
+
+/// Called with the response's index and what the product did with its body.
+pub type BodyTap = Arc<dyn Fn(usize, BodyEvent) + Send + Sync>;
+
 /// A production link whose every request goes to `addr` over plain HTTP, as the recorder's `fetch` sent it.
 pub struct Redirected<L> {
     pub inner: L,
     pub addr: SocketAddr,
+    pub tap: BodyTap,
+    /// The responses returned so far (a `HEAD` not counted).
+    pub returned: Arc<AtomicUsize>,
+}
+
+/// A response body reporting to the tap.
+struct Tapped {
+    body: Box<dyn BodyStream>,
+    index: usize,
+    tap: BodyTap,
+}
+
+#[async_trait]
+impl BodyStream for Tapped {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+        (self.tap)(self.index, BodyEvent::Read);
+        let next = self.body.next().await;
+        if !matches!(next, Some(Ok(_))) {
+            (self.tap)(self.index, BodyEvent::Ended);
+        }
+        next
+    }
+
+    fn hold_connection(&mut self) {
+        self.body.hold_connection();
+    }
+}
+
+impl Drop for Tapped {
+    fn drop(&mut self) {
+        (self.tap)(self.index, BodyEvent::Dropped);
+    }
 }
 
 impl<L> Redirected<L> {
@@ -57,7 +109,14 @@ impl<L> Redirected<L> {
 #[async_trait]
 impl<L: HttpSend> HttpSend for Redirected<L> {
     async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
-        self.inner.send(self.redirect(request), exchange).await
+        let head = request.method.eq_ignore_ascii_case("HEAD");
+        let mut response = self.inner.send(self.redirect(request), exchange).await?;
+        if !head {
+            let index = self.returned.fetch_add(1, Ordering::SeqCst);
+            let body = std::mem::replace(&mut response.body, Box::new(Empty));
+            response.body = Box::new(Tapped { body, index, tap: self.tap.clone() });
+        }
+        Ok(response)
     }
 }
 
@@ -70,6 +129,16 @@ impl<L: BidiOpen> BidiOpen for Redirected<L> {
         exchange: Exchange,
     ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         self.inner.open(self.redirect(request), first, exchange).await
+    }
+}
+
+/// A body with nothing in it, standing in while the response's own is moved into its tap.
+struct Empty;
+
+#[async_trait]
+impl BodyStream for Empty {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+        None
     }
 }
 
