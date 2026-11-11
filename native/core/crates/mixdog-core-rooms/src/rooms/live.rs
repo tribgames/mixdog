@@ -19,9 +19,9 @@ use rand::Rng;
 use serde_json::{Map, Value, json};
 
 use super::RoomError;
-use super::exchange::{Action, Decision};
+use super::exchange::Decision;
 use super::exchange_run::{RoomExchangeHost, RoomHosts, SupervisorStep};
-use super::maintainer::{Maintained, Maintainer};
+use super::maintainer::Maintainer;
 use super::member_turn::{MemberHost, PersistFuture, SubmitOptions};
 use super::records::{RoomDoc, RoomRecord as Stored, RoomStore, Rooms, Running, TurnFields};
 use super::row_message::{normalize_room_row, room_row_message};
@@ -29,7 +29,6 @@ use super::runner::RoomRowsSource;
 use super::service::{new_room_id, route_params};
 use super::sessions::{AgentCatalog, SessionOps};
 use super::turn_post::approval_id;
-use super::supervisor::{SupervisorInput, parse_room_decision, supervisor_prompt};
 use super::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use super::turn_prompt::RoomPrompt;
 
@@ -615,12 +614,7 @@ impl RoomExchangeHost for View {
 
     /// `decideRoomTurn`: one step on the Maintainer model. `Ok(None)`: no usable answer.
     async fn decide_turn(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
-        let prompt = supervisor_prompt(&SupervisorInput { room_name: &step.room_name, members: &step.members, rows: &step.rows, decide: &step.decide });
-        Ok(match self.shared.ports.maintainer.ask(&prompt.system, &prompt.user).await {
-            Maintained::Unmanaged => Some(Decision { action: Action::Unmanaged, scene: None }),
-            Maintained::Failed => None,
-            Maintained::Text(reply) => parse_room_decision(&reply, &step.members),
-        })
+        self.shared.ports.maintainer.decide(step).await
     }
 
     fn republish_catalog(&self) {

@@ -173,7 +173,7 @@ fn room_id_of(input: &Value) -> Result<&str, RoomError> {
 
 fn failure(error: RoomError) -> CoreError {
     let code = match &error {
-        RoomError::Invalid(_) => "invalid",
+        RoomError::Invalid(_) | RoomError::OutOfRange(_) => "invalid",
         RoomError::NotFound(_) => "notFound",
         RoomError::PreconditionFailed(_) => "preconditionFailed",
         RoomError::Port(_) => "failed",

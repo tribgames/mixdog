@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::calls::{RoomCall, Settled};
 use super::exchange::{Answer, Turn, TurnResult};
-use super::rows::{RoomRow, RowKind, rows_since_cursor};
+use super::rows::rows_since_cursor;
 use super::turn_answer::spoken_text;
 use super::turn_host::{Failure, MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use super::turn_post::{HaltFuture, HaltOutcome, Polled, Speech, poll_for_answer, post_speech};
@@ -166,48 +166,6 @@ fn str_of<'a>(row: &'a Value, field: &str) -> &'a str {
 
 fn is_seen(row: &Value) -> bool {
     row.get("seen").and_then(Value::as_bool).unwrap_or(false)
-}
-
-/// The log's JSON rows as the typed rows the room's pure functions read. A row's `to` is a list of
-/// ids, or one id in rows stored before lists.
-pub(crate) fn typed_rows(rows: &[Value]) -> Vec<RoomRow> {
-    rows.iter()
-        .map(|row| RoomRow {
-            id: str_of(row, "id").to_owned(),
-            kind: match str_of(row, "kind") {
-                "user" => RowKind::User,
-                "speech" => RowKind::Speech,
-                "pass" => RowKind::Pass,
-                "cap" => RowKind::Cap,
-                "stopped" => RowKind::Stopped,
-                _ => RowKind::Interrupted,
-            },
-            speaker: str_of(row, "speaker").to_owned(),
-            to: match row.get("to") {
-                Some(Value::Array(ids)) => ids.iter().filter_map(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned).collect(),
-                Some(Value::String(id)) if !id.is_empty() => vec![id.clone()],
-                _ => Vec::new(),
-            },
-            text: str_of(row, "text").to_owned(),
-            seen: is_seen(row),
-        })
-        .collect()
-}
-
-/// `rowsSinceCursor` over the log's JSON rows: the typed function decides which rows come back and
-/// which were handed before, the rows themselves are the log's.
-fn rows_since(rows: &[Value], cursor: &str, agent_id: &str, seen_id: &str) -> Vec<Value> {
-    let typed = typed_rows(rows);
-    rows_since_cursor(&typed, cursor, agent_id, seen_id)
-        .into_iter()
-        .filter_map(|fresh| {
-            let mut row = rows.iter().find(|row| str_of(row, "id") == fresh.id)?.clone();
-            if fresh.seen {
-                row["seen"] = Value::Bool(true);
-            }
-            Some(row)
-        })
-        .collect()
 }
 
 /// The pieces of one member's turn that its helpers share (`memberTurn`'s closure).
@@ -441,7 +399,7 @@ pub async fn member_turn(
         let room = ctx.room();
         (room.cursors.get(agent_id).cloned().unwrap_or_default(), room.seen.as_ref().and_then(|seen| seen.get(agent_id)).cloned().unwrap_or_default())
     };
-    let mut shown = rows_since(&rows, &cursor, agent_id, &seen_id);
+    let mut shown = rows_since_cursor(&rows, &cursor, agent_id, &seen_id);
     // A user still waiting keeps their newest message in view, as context when this member was
     // already handed it.
     let asked = if waiting { rows.iter().rev().find(|row| str_of(row, "kind") == "user") } else { None };
