@@ -1,0 +1,569 @@
+{
+  "set": "provider-openai-ws-connect",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "stuck-upgrade-replaced-after-hedge-window",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:46",
+      "input": {
+        "hedgeMs": 30,
+        "deadlineMs": 5000,
+        "legs": [
+          "stuck (opens only if never aborted)",
+          "opens at once"
+        ],
+        "advanceMs": [
+          30
+        ]
+      },
+      "result": {
+        "opened": "the winner of leg 2",
+        "legs": 2,
+        "stuckLegAborted": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.openHedged",
+          "args": [
+            {
+              "hedgeMs": 30,
+              "deadlineMs": 5000,
+              "deadlineError": {
+                "callback": "deadlineError"
+              },
+              "openLeg": {
+                "callback": "openLeg"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "http-status-from-any-leg-ends-the-race",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:64",
+      "input": {
+        "hedgeMs": 20,
+        "deadlineMs": 5000,
+        "legs": [
+          "stuck",
+          "rejects with httpStatus 429"
+        ],
+        "advanceMs": [
+          20
+        ]
+      },
+      "result": {
+        "rejectedWithTheLegError": true,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "429",
+          "props": {
+            "httpStatus": 429
+          }
+        },
+        "legs": 2,
+        "stuckLegAborted": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.openHedged",
+          "args": [
+            {
+              "hedgeMs": 20,
+              "deadlineMs": 5000,
+              "deadlineError": {
+                "callback": "deadlineError"
+              },
+              "openLeg": {
+                "callback": "openLeg"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deadline-surfaces-acquire-timeout-when-no-leg-opens",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:83",
+      "input": {
+        "hedgeMs": 20,
+        "deadlineMs": 90,
+        "legs": [
+          "every leg stuck"
+        ],
+        "advanceMs": [
+          90
+        ]
+      },
+      "result": {
+        "rejectedWithTheDeadlineError": true,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "acquire timeout",
+          "code": "EWSACQUIRETIMEOUT",
+          "props": {}
+        },
+        "legs": 5,
+        "everyLegAborted": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.openHedged",
+          "args": [
+            {
+              "hedgeMs": 20,
+              "deadlineMs": 90,
+              "deadlineError": {
+                "callback": "deadlineError"
+              },
+              "openLeg": {
+                "callback": ""
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "concurrent-lookups-share-one-resolution",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:94",
+      "input": {
+        "host": "localhost",
+        "concurrent": 20
+      },
+      "result": {
+        "allSameArrayInstance": true,
+        "addresses": [
+          {
+            "address": "::1",
+            "family": 6
+          },
+          {
+            "address": "127.0.0.1",
+            "family": 4
+          }
+        ],
+        "single": {
+          "address": "::1",
+          "family": 6
+        },
+        "singleIsFirstAddress": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs._clearConnectCachesForTest",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {
+              "all": true
+            },
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-connect.mjs.cachedLookup",
+          "args": [
+            "localhost",
+            {},
+            {
+              "callback": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sessionless-sends-share-idle-sockets-no-owner-wait-no-chain",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-connect.test.mjs:112",
+      "input": {
+        "args": {
+          "auth": {
+            "type": "openai-direct",
+            "apiKey": "k"
+          },
+          "poolKey": null,
+          "cacheKey": "shared",
+          "codexHeaders": {}
+        },
+        "steps": [
+          "two concurrent acquires",
+          "a.lastResponseId = resp-from-caller-a",
+          "release both keep",
+          "acquire again",
+          "acquire other cacheKey",
+          "release both without keep"
+        ]
+      },
+      "result": {
+        "first": {
+          "distinctEntries": true,
+          "opened": 2
+        },
+        "idle": {
+          "firstSocketReadyState": 1
+        },
+        "second": {
+          "reused": true,
+          "opened": 2,
+          "lastResponseId": null
+        },
+        "third": {
+          "reused": false
+        },
+        "readyStates": [
+          1,
+          3,
+          3
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
+          "args": [
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "poolKey": null,
+              "cacheKey": "shared",
+              "codexHeaders": {}
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "poolKey": null,
+              "cacheKey": "shared",
+              "codexHeaders": {}
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "poolKey": null,
+              "cacheKey": "shared",
+              "codexHeaders": {}
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.acquireWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-direct",
+                "apiKey": "k"
+              },
+              "poolKey": null,
+              "cacheKey": "other",
+              "codexHeaders": {}
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs.releaseWebSocket",
+          "args": [
+            {
+              "unrecordable": "exact: a FakeSocket at $.entry.socket has no exact form (give classes.FakeSocket)"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._clearWebSocketPoolForTest",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs._setOpenSocketForTest",
+          "args": []
+        }
+      ]
+    }
+  ]
+}
