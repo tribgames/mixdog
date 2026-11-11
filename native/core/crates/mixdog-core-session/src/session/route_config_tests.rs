@@ -141,6 +141,77 @@ async fn a_cancelled_turn_leaves_the_context_display_fields_and_a_completed_one_
     );
 }
 
+/// A context gauge whose status is slow (one second on the injected clock) and follows the model of the header it is read for: the
+/// route window of `wide` is 200000 with a trigger of 190000, any other model's 100000 with 90000. The load's pass reads nothing.
+struct SlowStatus;
+
+const STATUS_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+fn figures_of(model: &str) -> (i64, i64) {
+    if model == "wide" { (200_000, 190_000) } else { (100_000, 90_000) }
+}
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for SlowStatus {
+    async fn context_status(&self, _: Option<mixdog_core_api::ids::ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        tokio::time::sleep(STATUS_DELAY).await;
+        Ok(Value::Null)
+    }
+
+    async fn context_status_for(&self, _: mixdog_core_api::ids::ThreadId, header: serde_json::Map<String, Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        tokio::time::sleep(STATUS_DELAY).await;
+        let (window, trigger) = figures_of(header.get("model").and_then(Value::as_str).unwrap_or_default());
+        Ok(json!({ "contextWindow": window, "compaction": { "boundaryTokens": window, "triggerTokens": trigger } }))
+    }
+}
+
+/// The model and the compaction trigger a state shows.
+fn model_and_trigger(state: &Value) -> (Value, Value) {
+    (state["route"]["model"].clone(), state["context"]["autoCompactTokenLimit"].clone())
+}
+
+/// A model switch (`updateSessionRoute` writing the new route into the header) shows the new route's figures with the new model:
+/// Node's `setRoute` runs `syncContextStats` before `publishRoute` (routes-write.mjs:133-142). With the status read slow, every frame
+/// and every read that shows the new model shows its trigger, and the switch answers only once that state is out.
+#[tokio::test(start_paused = true)]
+async fn a_model_switch_shows_the_new_routes_figures_with_the_new_model() {
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.context_status = Arc::new(SlowStatus);
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = super::tests::start_routed_thread(&directory).await;
+    let state = || serde_json::to_value(&handle.cell.view.load_full().state).expect("state");
+    assert_eq!(model_and_trigger(&state()), (json!(super::tests::ROUTE_MODEL), json!(figures_of(super::tests::ROUTE_MODEL).1)));
+    let params = json!({ "threadId": handle.id, "set": { "model": "wide", "contextWindow": 200_000 }, "unset": ["autoCompactTokenLimit"] });
+    let switch = mixdog_core_api::ThreadHandle::request(&*handle, mixdog_core_api::CoreRequest {
+        method: mixdog_core_api::ids::Method("thread/header/patch"),
+        params,
+        op: None,
+        ctx: mixdog_core_api::call::CallContext::internal("test"),
+    });
+    tokio::pin!(switch);
+    // While the new route's status is read, reads show the old route whole.
+    assert!(tokio::time::timeout(STATUS_DELAY / 2, switch.as_mut()).await.is_err(), "the switch answers after its figures");
+    assert_eq!(model_and_trigger(&state()), (json!(super::tests::ROUTE_MODEL), json!(figures_of(super::tests::ROUTE_MODEL).1)));
+    switch.await.expect("switched");
+    assert_eq!(model_and_trigger(&state()), (json!("wide"), json!(figures_of("wide").1)), "the answer follows the new state");
+    // The frames folded in order, as a client holds them: the new model never shows without its trigger.
+    let (mut model, mut trigger) = (Value::Null, Value::Null);
+    let mut shown = false;
+    for (_, method, params) in rig.feeds.frames(handle.id.as_str()) {
+        match method.as_str() {
+            "thread/route/updated" => model = params["value"]["model"].clone(),
+            "thread/context/updated" => trigger = params["value"]["autoCompactTokenLimit"].clone(),
+            _ => continue,
+        }
+        if model == json!("wide") {
+            shown = true;
+            assert_eq!(trigger, json!(figures_of("wide").1), "a frame shows the new model with the old trigger");
+        }
+    }
+    assert!(shown, "the switch was published");
+}
+
 /// Each announced settings change moves `setupChanged` (`{ action: 'settings_changed', seq, at }`, `seq` counting the thread's changes), and
 /// the route section follows the saved configuration.
 #[tokio::test(start_paused = true)]
