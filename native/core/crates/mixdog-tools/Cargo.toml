@@ -60,7 +60,7 @@ mixdog-js = { workspace = true, features = ["fixture-tools"] }
 tokio = { workspace = true, features = ["test-util"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

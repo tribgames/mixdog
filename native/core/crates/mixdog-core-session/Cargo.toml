@@ -70,7 +70,7 @@ mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 tempfile = { workspace = true }
 tokio-util = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }

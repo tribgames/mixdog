@@ -40,7 +40,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 async-trait = { workspace = true }
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tempfile = { workspace = true }
 rusqlite = { workspace = true }
