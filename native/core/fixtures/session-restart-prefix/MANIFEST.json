@@ -1,0 +1,55 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-restart-prefix.mjs --tree <tree>",
+  "entry": "Spawned the tree's src/runtime/agent/orchestrator/session/restart-prefix-parity.fixture.mjs (the test's own scenario script) as real child processes: phases idle/killtool/killrequest then resume, each on a fresh MIXDOG_DATA_DIR, killing the kill phases on the READY line (SIGKILL). Inside: real session-lifecycle createSession, ask-session askSession, turn-checkpoint, cache-warm request rebuild, anthropic-oauth buildRequestBody and anthropic-prefix-trace with a scripted provider (the fixture's fake send). The fixture's own 300 ms checkpoint-settle delay before READY is the product scenario's, not the recorder's; the recorder waits on READY/exit with a 120 s deadline per phase.",
+  "exclusions": [
+    "the temp base dir -> <BASE>; the random session id of each scenario -> <session N>; both applied to every string of the recorded bodies/changes",
+    "the per-session scratch directory name in the system prompt (s.<16 hex>) -> s.<scratch>",
+    "the system prompt's environment block (shell tools present/absent on PATH, git state, cwd entries) is the recording machine's and is recorded as it was: a replay supplies the same environment text, it is not a Rust-side value",
+    "the kill phases are stopped with SIGKILL when READY is printed; their output file is the one the fixture wrote before READY (bodies and changes of the killed process)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 888397,
+      "path": "recording.json",
+      "sha256": "ab534e6cb379f24630f7f5864e672b29ce5409434079f461c21a5ac80f167e53"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-restart-prefix.mjs",
+  "recorderSha256": "2f5048e5c82a6175a9d183c7c97f8def7544beae9642df380cb26cbf6f5bf1d3",
+  "replay": "mixdog-ai warmer chain rearm (warmer/chain_tests.rs op rearm) and the mixdog-agent request builder for anthropic-oauth + the thread restart recovery: replay each scenario's turns (scripted provider steps in `script`) over a core restart at the recorded point (idle, in a tool run, request on the wire) and compare every request body block for block (`bodies`), the prefix `changes`, the re-armed `warmBody` (null when killed mid-turn) and the recorded `comparisons`.",
+  "set": "session-restart-prefix",
+  "testFile": "src/runtime/agent/orchestrator/session/restart-prefix-parity.slow.test.mjs",
+  "totalBytes": 888397
+}
