@@ -134,11 +134,11 @@
             ],
             [
               "X-Stainless-OS",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "X-Stainless-Arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "X-Stainless-Runtime",
@@ -146,7 +146,7 @@
             ],
             [
               "X-Stainless-Runtime-Version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "anthropic-version",
@@ -513,11 +513,11 @@
             ],
             [
               "X-Stainless-OS",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "X-Stainless-Arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "X-Stainless-Runtime",
@@ -525,7 +525,7 @@
             ],
             [
               "X-Stainless-Runtime-Version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "anthropic-version",
@@ -702,11 +702,11 @@
             ],
             [
               "X-Stainless-OS",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "X-Stainless-Arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "X-Stainless-Runtime",
@@ -714,7 +714,7 @@
             ],
             [
               "X-Stainless-Runtime-Version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "anthropic-version",
@@ -799,11 +799,11 @@
             ],
             [
               "X-Stainless-OS",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "X-Stainless-Arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "X-Stainless-Runtime",
@@ -811,7 +811,7 @@
             ],
             [
               "X-Stainless-Runtime-Version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "anthropic-version",
@@ -995,11 +995,11 @@
             ],
             [
               "X-Stainless-OS",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "X-Stainless-Arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "X-Stainless-Runtime",
@@ -1007,7 +1007,7 @@
             ],
             [
               "X-Stainless-Runtime-Version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "anthropic-version",
@@ -1356,11 +1356,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -1368,7 +1368,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -1445,11 +1445,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -1457,7 +1457,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -1534,11 +1534,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -1546,7 +1546,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -1679,11 +1679,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -1691,7 +1691,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -1817,11 +1817,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -1829,7 +1829,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -2262,11 +2262,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -2274,7 +2274,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -3055,11 +3055,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -3067,7 +3067,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -3144,11 +3144,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -3156,7 +3156,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -3237,11 +3237,11 @@
             ],
             [
               "X-Stainless-OS",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "X-Stainless-Arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "X-Stainless-Runtime",
@@ -3249,7 +3249,7 @@
             ],
             [
               "X-Stainless-Runtime-Version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "anthropic-version",
@@ -3897,11 +3897,11 @@
             ],
             [
               "X-Stainless-OS",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "X-Stainless-Arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "X-Stainless-Runtime",
@@ -3909,7 +3909,7 @@
             ],
             [
               "X-Stainless-Runtime-Version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "anthropic-version",
@@ -4073,7 +4073,37 @@
             "cost": "0.25"
           }
         },
-        "blankCost": null,
+        "blank": {
+          "content": "",
+          "model": "",
+          "hasThinkingContent": false,
+          "contentBlockTypes": {
+            "$exact": "set",
+            "values": []
+          },
+          "toolCalls": [],
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "raw": {
+              "input_tokens": 1,
+              "cost": -1,
+              "output_tokens": 1
+            },
+            "promptTokens": 1
+          },
+          "stopReason": null,
+          "stopDetails": {
+            "$exact": "undefined"
+          },
+          "stopSequence": {
+            "$exact": "undefined"
+          },
+          "fallbackEvents": [],
+          "sawTerminalFrameWithPendingInput": false
+        },
         "abandoned": {
           "usage": {
             "inputTokens": 114,

@@ -11,15 +11,15 @@
   "entry": "openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false, ...config }).send/.listModels/.getCachedModelInfo, openRouterCapabilityModel; provider-error-kind.mjs providerErrorKind / normalizeGatewayErrorDetail; retry-classification.mjs isContextOverflowError; shared/llm usage-context.mjs withUsageContext / noteAbandonedUsage; lib/inclusive-usage.mjs withInclusiveUsage; anthropic-sse-turn/turn-state.mjs createAnthropicTurnState / updateTurnUsage; anthropic-turn-result.mjs buildAnthropicTurnResult. Not run: a live OpenRouter.",
   "exclusions": [
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 132363,
+      "bytes": 134512,
       "path": "cases.json",
-      "sha256": "1962950d295c08488229207ce95561b70f2ab094cd066ea20672e379fea93d7d"
+      "sha256": "dbf7171728255a5cd449f6e83dabbb1424f8adfc29533dadcfc79090e71df111"
     }
   ],
   "inputs": [
@@ -41,11 +41,63 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "claude-messages-openrouter-key-inclusive-usage",
+      "level": "wire"
+    },
+    {
+      "id": "routing-slug-on-wire-capabilities-from-alias-target",
+      "level": "wire"
+    },
+    {
+      "id": "401-on-messages-rereads-key",
+      "level": "wire"
+    },
+    {
+      "id": "messages-engine-never-follows-redirect-off-origin",
+      "level": "wire"
+    },
+    {
+      "id": "gpt-responses-reasoning-auto-stays-chat",
+      "level": "wire"
+    },
+    {
+      "id": "session-pinned-before-per-model-table-keeps-chat",
+      "level": "wire"
+    },
+    {
+      "id": "per-model-override-picks-wire",
+      "level": "wire"
+    },
+    {
+      "id": "responses-error-type-decides-classification",
+      "level": "wire"
+    },
+    {
+      "id": "canonical-error-type-outranks-native-code-http",
+      "level": "wire"
+    },
+    {
+      "id": "reasoning-control-on-messages-route",
+      "level": "wire"
+    },
+    {
+      "id": "error-type-normalization-vocabulary",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "messages-usage-cost-inclusive-input",
+      "level": "pure",
+      "rust": null
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,12 +119,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openrouter.mjs",
-  "recorderSha256": "e94ec9e66dd32c047c1d3bcc3d007e08791ffdeee2d1cf5f1ce1580c3d438b48",
+  "recorderSha256": "e5beac17b2e8bee97b7c9d23decde826183efdde4bfaff6cc4bae44a2f4c376d",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Messages / Responses routes are not built (K1 G1): work for the Rust side.",
   "replayExclusions": {
-    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+    "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-openrouter",
-  "totalBytes": 132363,
+  "totalBytes": 134512,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

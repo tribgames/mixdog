@@ -175,6 +175,6 @@ await rec.run('messages-usage-cost-inclusive-input', `${SRC}:339`, {}, async () 
   const failure = Object.assign(new Error('stream lost'), { partialUsage: turn.usage });
   await attempt(withUsageContext(identity, () => withInclusiveUsage(async () => { noteAbandonedUsage(turn.usage, 'anthropic/claude-sonnet-5'); throw failure; })));
   const [abandoned] = identity.abandonedUsage;
-  return { turnCost: turn.usage.costUsd, resultUsage: result.usage, blankCost: blank.usage.costUsd ?? null, abandoned, failureCarriesSameUsageObject: failure.partialUsage === abandoned.usage };
+  return { turnCost: turn.usage.costUsd, resultUsage: result.usage, blank, abandoned, failureCarriesSameUsageObject: failure.partialUsage === abandoned.usage };
 });
 await rec.finish();
