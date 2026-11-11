@@ -233,8 +233,18 @@ fn cwd() -> PathBuf {
 
 /// `request(input, answer)`: the commands sent and the result or error of `executeGithubRequest`.
 async fn request(input: Value, runner: Arc<Scripted>) -> Exact {
-    let outcome = runner.client().execute(&input, &cwd(), &CancellationToken::new()).await;
+    let outcome = within("the request to settle", runner.client().execute(&input, &cwd(), &CancellationToken::new())).await;
     outcome_of(&input, &runner, &outcome)
+}
+
+/// `future`'s output, or a failure naming what did not happen within [`DEADLINE`].
+async fn within<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(DEADLINE, future).await.unwrap_or_else(|_| panic!("{what}: nothing within {DEADLINE:?}"))
+}
+
+/// A spawned task's output, within [`DEADLINE`].
+async fn joined<T>(what: &str, task: tokio::task::JoinHandle<T>) -> T {
+    within(what, task).await.unwrap_or_else(|error| panic!("{what}: the task failed: {error}"))
 }
 
 fn outcome_of(input: &Value, runner: &Scripted, outcome: &Result<Value, ScmFailure>) -> Exact {
@@ -276,7 +286,7 @@ fn context(session: Option<(&str, &str)>) -> ToolContext {
 /// The text the registered `github` tool gives the model for `input` (`executeGithubTool`).
 async fn tool_text(runner: &Arc<Scripted>, data_dir: Option<&Path>, input: &Value, session: Option<(&str, &str)>) -> String {
     let tool = GithubTool::new(runner.client(), data_dir.map(Path::to_path_buf));
-    match tool.call(&context(session), input.clone()).await {
+    match within("the github tool to answer", tool.call(&context(session), input.clone())).await {
         Ok(output) => match output.parts.as_slice() {
             [ToolPart::Text(text)] => text.clone(),
             other => panic!("the github tool answers one text part, not {other:?}"),
@@ -438,12 +448,20 @@ async fn case6_writes_serialize_a_failed_write_is_never_replayed_and_does_not_po
         tokio::spawn(async move { client.execute(&input, &cwd(), &CancellationToken::new()).await })
     };
     let first = write("first");
-    tokio::time::timeout(DEADLINE, started.notified()).await.expect("the first write to start");
+    within("the first write to start", started.notified()).await;
     let second = write("second");
+    // The second write runs while the first is held: unserialized, it reaches `gh` at once (its answer is immediate); serialized,
+    // it waits behind the first. It is given a window to show which; the order read after it is compared with Node's.
+    let _ = tokio::time::timeout(Duration::from_millis(500), async {
+        while order.lock().unwrap().len() < 2 && !second.is_finished() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
     let while_held: Vec<Exact> = order.lock().unwrap().iter().map(|title| s(title)).collect();
     release.notify_one();
-    let first = first.await.expect("the first write settles");
-    let second = second.await.expect("the second write settles").expect("the second write succeeds");
+    let first = joined("the first write to settle", first).await;
+    let second = joined("the second write to settle", second).await.expect("the second write succeeds");
     let actual = o(vec![
         ("orderWhileFirstHeld", Exact::Array(while_held)),
         ("first", settled(&first)),
@@ -489,12 +507,15 @@ async fn case8_merge_refusal_and_unreadable_write_responses_are_errors_not_succe
 #[tokio::test]
 async fn case9_the_agent_tool_is_registered_and_returns_the_ordinary_builtin_text_error_contract() {
     let expected = recorded(9, "the agent tool is registered and returns the ordinary builtin text/error contract");
+    // `isBuiltinTool('github')`: the tool is one of the built-in tools, its definition Node's built-in one whole
+    // (`fixtures/tool-definitions`), not merely a tool named `github`.
     let registered = GithubTool::new(Scripted::fixed("").client(), None);
+    let builtin = mixdog_js::fixture_tools::definition("github").is_ok_and(|node| registered.definition() == node);
     let value = tool_text(&Scripted::fixed(r#"{"full_name":"owner/project"}"#), None, &json!({"action": "repo.view", "repo": REPO}), None).await;
     let unsupported = tool_text(&Scripted::fixed(""), None, &json!({"action": "not-supported"}), None).await;
     let bounded = tool_text(&Scripted::fixed(&"한".repeat(100_000)), None, &json!({"action": "run.logs", "repo": REPO, "id": 42}), None).await;
     let actual = o(vec![
-        ("isBuiltinTool", Exact::Bool(registered.spec().name == "github")),
+        ("isBuiltinTool", Exact::Bool(builtin)),
         ("builtinValue", s(&value)),
         ("unsupported", s(&unsupported)),
         ("bounded", s(&bounded)),
@@ -701,10 +722,10 @@ async fn case16_two_clones_cannot_claim_the_same_new_destination_even_for_differ
         tokio::spawn(async move { runner.client().execute(&input, &cwd(), &CancellationToken::new()).await })
     };
     let first = clone("owner/one", true);
-    tokio::time::timeout(DEADLINE, claimed.notified()).await.expect("the first clone to claim its destination");
-    let second = clone("owner/two", false).await.expect("the second clone settles");
+    within("the first clone to claim its destination", claimed.notified()).await;
+    let second = joined("the second clone to settle", clone("owner/two", false)).await;
     proceed.notify_one();
-    let first = first.await.expect("the first clone settles");
+    let first = joined("the first clone to settle", first).await;
     let outcome = |outcome: &Result<Value, ScmFailure>| match outcome {
         Ok(value) => o(vec![("fulfilled", Exact::plain(value))]),
         Err(error) => o(vec![("rejected", failure(error))]),
