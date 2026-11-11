@@ -9,26 +9,42 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6095,
+      "bytes": 6906,
       "path": "golden.json",
-      "sha256": "e32e5f14844958409ed3b47345b0f77b31023244b43f12037bf92e12101ca5b8"
+      "sha256": "38a19900d49b3632b1994911d67b390b511c81558a19c68d3c4d72f5f1e573fd"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "f98dff25a02cf9c600d8e9a0f643ed7ea0b128e405d1ea9fa55939f82c3bbb72"
+      "sha256": "e956b4f690bbfc717b4685eaf4deb7989ee1a66724deb1bbbb47cb7a17b43e42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
     }
   ],
   "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -47,14 +63,32 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-host-lifecycle-cases.mjs",
-  "recorderSha256": "a9efb3fb596aa022a1fddd4cff2107fa91b393363f99f45e279721f4ae127ba4",
+  "recorderSha256": "65211bf88e30fc5df47479010a3fc052306c3d03058461cf8ec70b2050cfe521",
   "replay": {
-    "entry": "mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case's calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome",
+    "compare": "mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case's calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome",
+    "entry": "Drive these public items on o1: mixdog-app-server-daemon/src/compose_flip.rs:214 start_sub_agent_retention; mixdog-app-server-daemon/src/compose_flip.rs:223 sub_agent_retention_step.",
+    "missingOnO1": [
+      "the sidebar archive / restore of session trees, forgetSessionMetadata, markSessionRead and host disposal: no counterpart found"
+    ],
     "normalised": {
-      "retentionAge": "member ages are now - 5 days",
-      "userData": "the temp user-data path in the dispose error text is <userData>"
-    }
+      "userData": "the temp user-data path is written <userData> wherever it occurs (paths listed in normalised.paths)"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 214,
+        "name": "start_sub_agent_retention",
+        "path": "native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs"
+      },
+      {
+        "line": 223,
+        "name": "sub_agent_retention_step",
+        "path": "native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-host-lifecycle-cases",
-  "totalBytes": 6095
+  "totalBytes": 6906,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

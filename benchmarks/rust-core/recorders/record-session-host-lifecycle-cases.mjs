@@ -16,10 +16,13 @@ const { SessionHost } = await set.load('apps/desktop/src/main/session-host.ts');
 const { sessionSidebarChangeHandler } = await set.load('apps/desktop/src/main/session-sidebar-actions.ts');
 const { applySessionSidebarChange, readSessionSidebarState, registerSessionSidebarHost } = await set.load('src/runtime/shared/session-sidebar-host.mjs');
 const { applySubAgentRetention } = await set.load('src/runtime/agent/orchestrator/session/store/sweep/sub-agent-retention.mjs');
-const failure = (e) => ({ name: e?.name ?? null, message: String(e?.message ?? e) });
+const roots = [];
+/** Waits for the event that ends a step; a step that never happens fails the recording, naming the step. */
+const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
 
 async function fixture(close, sessions = []) {
   const root = await mkdtemp(join(tmpdir(), 'session-host-lifecycle-'));
+  roots.push(root);
   const host = await SessionHost.create(
     { userDataPath: root, resourcesPath: root, appPath: root, packaged: false },
     { attachSessionClient: async () => ({ list: async () => ({ sessions }), close }), loadProjects: async () => ({}), loadSessionStore: async () => ({}), loadStatuslineSegments: async () => ({}), executeCodeGraphTool: async () => ({}) },
@@ -30,18 +33,17 @@ const sub = (id, ownerSessionId) => ({ id, owner: 'agent', agent: 'worker', visi
 
 await set.run('every overlapping host disposal waits for the same attachment cleanup', async () => {
   const entered = Promise.withResolvers(); const release = Promise.withResolvers();
+  const events = [];
   let closes = 0;
-  const { host, cleanup } = await fixture(async () => { closes++; entered.resolve(); await release.promise; });
+  const { host, cleanup } = await fixture(async () => { closes++; events.push('cleanup entered'); entered.resolve(); await release.promise; events.push('cleanup returned'); });
   try {
-    const first = host.dispose();
-    await entered.promise;
-    let secondFinished = false;
-    const second = host.dispose().then(() => { secondFinished = true; });
-    await Promise.resolve();
-    const secondFinishedWhileCleanupHeld = secondFinished;
+    const first = host.dispose().then(() => { events.push('first dispose finished'); });
+    await within(entered.promise, 5000, 'the host to start the attachment cleanup');
+    const second = host.dispose().then(() => { events.push('second dispose finished'); });
+    events.push('cleanup released');
     release.resolve();
-    await Promise.all([first, second]);
-    return { secondFinishedWhileCleanupHeld, secondFinishedAfter: secondFinished, closes };
+    await within(Promise.all([first, second]), 5000, 'both overlapping disposals to finish');
+    return { events, closes };
   } finally { await cleanup(); }
 });
 await set.run('archiving a session archives its sub-agent sessions; restoring it brings back the ones it took', async () => {
@@ -52,10 +54,10 @@ await set.run('archiving a session archives its sub-agent sessions; restoring it
     await host.setSessionArchived('sess_w2', true);
     await host.setSessionArchived('sess_lead', true);
     let state = await host.sessionSidebarState();
-    log.push({ step: 'w2 archived, then the lead', archivedIds: Object.keys(state.archived).sort() });
+    log.push({ step: 'w2 archived, then the lead', archived: structuredClone(state.archived) });
     await host.setSessionArchived('sess_lead', false);
     state = await host.sessionSidebarState();
-    log.push({ step: 'lead restored', archivedIds: Object.keys(state.archived) });
+    log.push({ step: 'lead restored', archived: structuredClone(state.archived) });
     await host.forgetSessionMetadata('sess_w2');
     log.push({ step: 'w2 forgotten (store deleted it)', archived: (await host.sessionSidebarState()).archived });
     return { rows, log };
@@ -92,10 +94,10 @@ await set.run("sub-agent retention archives exactly its tree's members through t
     const flags = await readSessionSidebarState();
     const members = [{ id: 'sess_t', parentId: 'sess_lead', lastActive: at }, { id: 'sess_t_child', parentId: 'sess_t', lastActive: at }];
     const applied = await applySubAgentRetention(members, { isArchived: (id) => Object.hasOwn(flags.archived, id), setSidebar: applySessionSidebarChange });
-    const archivedAfterRetention = Object.keys((await host.sessionSidebarState()).archived).sort();
+    const archivedAfterRetention = structuredClone((await host.sessionSidebarState()).archived);
     await host.setSessionArchived('sess_t', false);
     await host.setSessionArchived('sess_t', true);
-    return { rows, storedRecordAgeDays: 5, members: members.map((m) => ({ ...m, lastActive: 'now - 5 days' })), applied, archivedAfterRetention, explicitArchiveCascadesToOutside: Object.hasOwn((await host.sessionSidebarState()).archived, 'sess_t_outside'), normalised: 'times are relative to Date.now: the member lastActive is now - 5 days' };
+    return { rows, storedRecordAgeDays: 5, members, applied, archivedAfterRetention, archivedAfterExplicitArchive: (await host.sessionSidebarState()).archived };
   } finally { unregister(); for (const p of written) await rm(p, { force: true }); await cleanup(); }
 });
 await set.run('a read lands in the session’s own numbering: a surface counting in a retired one cannot read past it', async () => {
@@ -105,7 +107,7 @@ await set.run('a read lands in the session’s own numbering: a surface counting
     await host.listSessions();
     await host.markSessionRead('sess_chat', 417, false);
     const [listed] = await host.listSessions();
-    return { listedMessageCount: 62, listedCompactCount: 17, surfaceReadCount: 417, compactCount: listed.compactCount, readMessageCount: listed.readMessageCount };
+    return { listedMessageCount: 62, listedCompactCount: 17, surfaceReadCount: 417, listed };
   } finally { await cleanup(); }
 });
 await set.run('failed metadata flushing cannot prevent host attachment cleanup', async () => {
@@ -118,14 +120,14 @@ await set.run('failed metadata flushing cannot prevent host attachment cleanup',
     await mkdir(join(root, 'desktop-session-metadata.json'));
     await host.markSessionRead('session-a', 2, false);
     let outcome;
-    try { await host.dispose(); outcome = { resolved: true }; } catch (e) { outcome = { rejected: failure(e), code: e?.code ?? null }; }
-    return { metadataPathIsADirectory: 'desktop-session-metadata.json', disposeOutcome: { ...outcome, message: String(outcome.rejected?.message ?? '').replaceAll(root, '<userData>') }, closes };
+    try { await host.dispose(); outcome = { resolved: true }; } catch (e) { outcome = { rejected: e }; }
+    return { metadataPathIsADirectory: 'desktop-session-metadata.json', disposeOutcome: outcome, closes };
   } finally { console.error = realError; await cleanup(); }
 });
 
 await set.finish({
   entry: { runs: 'SessionHost (setSessionArchived, sessionSidebarState, forgetSessionMetadata, markSessionRead, listSessions, dispose, transport.invokeControl hand-off), sessionSidebarChangeHandler, registerSessionSidebarHost / readSessionSidebarState / applySessionSidebarChange and applySubAgentRetention over the host', notRun: 'no daemon: the session client is a scripted list/close pair; the real data dir (MIXDOG_DATA_DIR of the test env) holds the retention members\' stored records' },
-  replay: { entry: 'mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case\'s calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome', normalised: { userData: 'the temp user-data path in the dispose error text is <userData>', retentionAge: 'member ages are now - 5 days' } },
-  replaceInText: [],
+  replay: { entry: 'mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case\'s calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome', normalised: { userData: 'the temp user-data path is written <userData> wherever it occurs (paths listed in normalised.paths)' } },
+  replaceInText: roots.map((r) => [r, '<userData>']),
 });
 process.exit(0);
