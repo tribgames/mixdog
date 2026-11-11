@@ -56,7 +56,10 @@ cases.push({
   recorded: [{ workers: maintenanceWorkers, classified: classifyAgentWorkers(maintenanceWorkers) }],
 });
 
-const ui = "the statusline payload is merged by the UI's statusline (src/ui/statusline.mjs), which stays in Node; the core publishes the worker and job rows it merges (status_rows.rs)";
+const ui =
+  'not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI ' +
+  'loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and ' +
+  'job rows it merges (status_rows.rs)';
 const excluded = Object.fromEntries(cases.map((c) => [c.case, c.case.startsWith('maintenance') ? `GONE (gaps-rest.md): renderer label; ${ui}` : ui]));
 
 const finalDir = join(FIXTURES_ROOT, 'statusline-agents-cases');

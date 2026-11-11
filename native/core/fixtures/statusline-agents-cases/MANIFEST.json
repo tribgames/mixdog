@@ -2,11 +2,11 @@
   "command": "node benchmarks/rust-core/recorders/record-statusline-agents-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "nothing in the core: every case is named",
   "excluded": {
-    "a live worker stays authoritative over its own spawn job": "the statusline payload is merged by the UI's statusline (src/ui/statusline.mjs), which stays in Node; the core publishes the worker and job rows it merges (status_rows.rs)",
-    "a queued job replaces an idle worker until the new worker starts": "the statusline payload is merged by the UI's statusline (src/ui/statusline.mjs), which stays in Node; the core publishes the worker and job rows it merges (status_rows.rs)",
-    "a worker whose status is running stays running while its runtime phase reads idle/done/error": "the statusline payload is merged by the UI's statusline (src/ui/statusline.mjs), which stays in Node; the core publishes the worker and job rows it merges (status_rows.rs)",
-    "maintenance agents are labelled once and idle workers drop out": "GONE (gaps-rest.md): renderer label; the statusline payload is merged by the UI's statusline (src/ui/statusline.mjs), which stays in Node; the core publishes the worker and job rows it merges (status_rows.rs)",
-    "terminal jobs leave the worker list and stay ordered newest first": "the statusline payload is merged by the UI's statusline (src/ui/statusline.mjs), which stays in Node; the core publishes the worker and job rows it merges (status_rows.rs)"
+    "a live worker stays authoritative over its own spawn job": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "a queued job replaces an idle worker until the new worker starts": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "a worker whose status is running stays running while its runtime phase reads idle/done/error": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "maintenance agents are labelled once and idle workers drop out": "GONE (gaps-rest.md): renderer label; not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "terminal jobs leave the worker list and stay ordered newest first": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)"
   },
   "fileCount": 1,
   "files": [
@@ -45,7 +45,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-statusline-agents-cases.mjs",
-  "recorderSha256": "81579bb48403d098a0d04acb63d99f0d108155256026fdff5f9194851798fcb7",
+  "recorderSha256": "d51e8523bc3c97e88ea142c7765c05df186958010944cee11c478e665f983593",
   "set": "statusline-agents-cases",
   "totalBytes": 11492
 }
