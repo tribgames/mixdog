@@ -19,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 257683,
+      "bytes": 260833,
       "path": "cases.json",
-      "sha256": "1cba890d5db95886736381fd277184116c11e5ad8fb59c37489c7e052346add2"
+      "sha256": "aafbe1cc34b060d7cde4fd4aa37f6f0e0769f97a05fc74b1b266f29c20ce17fa"
     }
   ],
   "inputs": [
@@ -174,12 +174,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mimo-oauth-wire.mjs",
-  "recorderSha256": "cc58043a7f1d4c815f8f3b6e274deb11e716430f8ee3ef35a7b9860ec6fbeb08",
+  "recorderSha256": "53c63a7fd01c0b860d048e270ef9256c04ddc43dcacc8e22066bf3209bbc7cde",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-mimo-oauth-wire",
-  "totalBytes": 257683,
+  "totalBytes": 260833,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
