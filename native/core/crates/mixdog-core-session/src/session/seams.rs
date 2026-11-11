@@ -337,8 +337,8 @@ pub trait ThreadStore: Send + Sync + 'static {
     fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<SessionMeta>, CoreError>>;
 
     /// Resolves once the index holds every write acknowledged so far (the exact class: an error when it is behind past
-    /// the bound). A store without an index holds its writes at once.
-    fn indexed(&self) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
+    /// the bound, or when a write of `id` failed to go in). A store without an index holds its writes at once.
+    fn indexed(&self, _id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
         Box::pin(async { Ok(()) })
     }
 

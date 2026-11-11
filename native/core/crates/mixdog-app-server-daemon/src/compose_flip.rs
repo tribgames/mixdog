@@ -1666,7 +1666,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The purge hooks a deleted session runs (warm cache, read state, transcript offsets, provider connections, worker turns, the worker index).
     // The worker index (flip-ce-7): `turn_starts` binds to it, the `Owed` rows and the host runtime read it. `StoreWorkers` hears the status signals (flip-ce-10).
     let reap = Arc::new(mixdog_core::run_host::agent_inputs::ConfigReap::new(config.clone())); // the one reap `recover` also takes
-    let store_workers = Arc::new(mixdog_core_session::session::agent_registry::StoreWorkers::new(catalog_index.clone(), Arc::new(LateThreads(late.clone())), b.tokens.interactive_io));
+    let store_workers = Arc::new(mixdog_core_session::session::agent_registry::StoreWorkers::new(
+        catalog_index.clone(),
+        Arc::new(LateThreads(late.clone())),
+        b.tokens.interactive_io,
+        // The rows of sessions deleted while they still count, kept in the core's state as Node's index file keeps them.
+        Arc::new(mixdog_core_session::session::agent_registry::KeptRows::new(b.core_state.clone())),
+    ));
     store_workers.bind_signals(activity.signals()).map_err(|_| ComposeError::AlreadyBound("store worker signals"))?;
     let agent_registry = Arc::new(mixdog_core_session::session::agent_registry::AgentRegistry::new(
         store_workers,
