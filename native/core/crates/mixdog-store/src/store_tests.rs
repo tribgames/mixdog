@@ -504,10 +504,6 @@ fn scanned_from(bytes: &[u8], ordinal: u64) -> (Vec<(u64, Vec<u8>)>, crate::sche
     (records, scan.end)
 }
 
-fn scanned_records(bytes: &[u8]) -> (Vec<(u64, Vec<u8>)>, crate::schema::frame::ScanEnd) {
-    scanned_from(bytes, 0)
-}
-
 fn is_anchor_payload(payload: &[u8]) -> bool {
     payload.starts_with(br#"{"k":"checkpoint","#) || payload.starts_with(br#"{"k":"session","#)
 }
@@ -586,7 +582,6 @@ fn marker_payload(w: &Written) -> Vec<u8> {
 /// acknowledged are where the members are found.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_group_is_recovered_whole_or_not_at_all_however_it_is_damaged() {
-    use crate::schema::frame::*;
     // `since_anchor` past CHECKPOINT_EVERY: the second layout's group write starts with its leading checkpoint.
     let big: Vec<Encoded> = (0..6).map(|i| big_item(&format!("p{i}"))).collect();
     for (layout, prefix) in [("a group of three", vec![vec![item("x")]]), ("a group of three after a leading checkpoint", vec![big])] {
@@ -711,65 +706,133 @@ async fn a_damaged_group_mid_log_is_damage_and_nothing_after_it_is_truncated() {
     assert!(matches!(opened.status, LogStatus::Damaged(ref d) if d.offset == scan.frames[1].start as u64), "{:?}", opened.status);
 }
 
-/// A write over the durability window is one group with no checkpoint inside or after it: with its middle damaged the
-/// open validates the group from the anchor before it and keeps none of it; an anchor-looking line inside a group's
-/// extent is never an anchor.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_large_group_is_validated_whole_and_no_anchor_inside_a_group_is_used() {
-    use crate::schema::frame::*;
-    let env = Env::new();
-    let w = env.create("s1", None).await;
-    let batch: Vec<Encoded> = (0..30).map(|i| big_item(&format!("i{i}"))).collect();
-    let (w, ack) = env.append(w, batch).await;
-    let ack = ack.unwrap();
-    let positions = ack.positions.clone();
-    env.store.project(ack.projection).await.unwrap();
-    drop(w);
-    let path = env.dir("s1").join(log_name(0));
-    let bytes = std::fs::read(&path).unwrap();
-    let opened = env.reopen("s1").await;
-    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 30));
-    let mut damaged = bytes.clone();
-    damaged[positions[15].offset as usize + 100] ^= 0x01;
-    std::fs::write(&path, &damaged).unwrap();
-    let opened = env.reopen("s1").await;
-    assert_eq!(opened.fold.rows, 0, "{:?}", opened.status);
-    assert!(matches!(opened.status, LogStatus::Damaged(_)), "{:?}", opened.status);
-
-    // A crafted group whose last member is a checkpoint line: the reverse scan passes over it, intact group or not, and
-    // the forward scan refuses the group.
-    let mut buf = Vec::new();
-    crate::framing::encode_into(&mut buf, 0, br#"{"k":"session","v":2}"#);
-    let mut members = Vec::new();
-    crate::framing::encode_into(&mut members, 1, &item("a").payload);
-    crate::framing::encode_into(&mut members, 2, &item("b").payload);
-    crate::framing::encode_into(&mut members, 3, br#"{"k":"checkpoint","state":{}}"#);
-    crate::framing::encode_into(&mut buf, 1, &group_marker(3, &members));
-    let group_at = buf.len();
-    buf.extend_from_slice(&members);
-    assert_eq!(crate::framing::reverse_scan(&buf, true), Some(crate::framing::Anchor { start: 0, ordinal: 0 }));
-    assert!(matches!(crate::framing::scan(&buf, 0, 0, 0).end, ScanEnd::Corrupt { .. }));
-    let mut broken = buf.clone();
-    broken[group_at + 60] ^= 0x01;
-    assert_eq!(crate::framing::reverse_scan(&broken, true), Some(crate::framing::Anchor { start: 0, ordinal: 0 }));
+fn sized_item(iid: &str, kib: usize) -> Encoded {
+    let body = "x".repeat(kib * 1024);
+    rec(json!({"k":"item","iid":iid,"role":"user","form":"message","model":true,"visible":true,"refs":[],
+        "body":{"inline":{"content":body,"role":"user"}}}))
 }
 
-/// The open after a write over the window reads the newest file whole (no anchor is within the bound); the next write
-/// places a checkpoint and the open after it is bounded again.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_open_after_a_large_group_is_bounded_again_after_the_next_write() {
+/// A session whose last write is a group larger than the reverse window plus the lookback: one item, then `members` big
+/// items in a file of their own. Returns the env, the bytes of that file, its marker offset, and where its members end.
+async fn own_file_group(members: usize) -> (Env, Vec<u8>, usize, usize) {
     use crate::schema::frame::*;
     let env = Env::new();
     let w = env.create("s1", None).await;
-    let batch: Vec<Encoded> = (0..30).map(|i| big_item(&format!("i{i}"))).collect();
-    let (w, _) = env.commit(w, batch).await;
+    let (w, _) = env.commit(w, vec![item("x")]).await;
+    let batch: Vec<Encoded> = (0..members).map(|i| big_item(&format!("i{i}"))).collect();
+    let (w, ack) = env.append(w, batch).await;
+    let ack = ack.unwrap();
+    assert!(ack.positions.iter().all(|p| p.file_no == 1), "a group over GROUP_IN_PLACE_MAX is a file of its own");
+    let first = ack.positions[0].offset as usize;
+    let last = *ack.positions.last().unwrap();
+    env.store.project(ack.projection).await.unwrap();
+    drop(w);
+    let bytes = std::fs::read(env.dir("s1").join(log_name(1))).unwrap();
+    let marker_at = first - (GROUP_MARKER_LEN + FRAME_OVERHEAD);
+    let scan = crate::framing::scan(&bytes, 0, 0, u64::from_str_radix(std::str::from_utf8(&bytes[..16]).unwrap(), 16).unwrap());
+    assert_eq!(scan.end, ScanEnd::Clean);
+    let members_end = scan.frames.iter().find(|f| f.ordinal == last.ordinal).unwrap().end();
+    let anchors: Vec<usize> = scan.frames.iter().filter(|f| is_anchor_payload(f.payload(&bytes))).map(|f| f.start).collect();
+    assert_eq!(anchors, [0, members_end], "checkpoint, marker, members, closing checkpoint");
+    assert_eq!(marker_at, scan.frames[0].end(), "the marker is the file's second frame");
+    (env, bytes, marker_at, members_end)
+}
+
+/// A group of its own file (FORMAT.md §6.1): its closing checkpoint is used only once the group checks whole; with the
+/// group damaged the open keeps none of it. A valid checkpoint line inside its extent (stale or forged) is never used,
+/// wherever it lies relative to the reverse-scan windows: inside the first window, across its start, between the windows,
+/// across the second window's start, before it, and before the lookback beyond it; with the closing checkpoint, and with
+/// the file cut inside the members. Each time the open holds exactly the log before the group, never part of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_checkpoint_inside_a_large_group_is_never_an_anchor_wherever_the_windows_fall() {
+    use crate::schema::frame::*;
+    // Members past REVERSE_SCAN_MAX + GROUP_LOOKBACK: every window class lies inside them.
+    let (env, bytes, marker_at, members_end) = own_file_group(60).await;
+    let path = env.dir("s1").join(log_name(1));
     let opened = env.reopen("s1").await;
-    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 30));
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 61), "after the group");
+    let mut damaged = bytes.clone();
+    damaged[(marker_at + members_end) / 2] ^= 0x01;
+    std::fs::write(&path, &damaged).unwrap();
+    let opened = env.reopen("s1").await;
+    assert_eq!(opened.fold.rows, 1, "{:?}", opened.status);
+    assert!(matches!(opened.status, LogStatus::Damaged(ref d) if d.offset == marker_at as u64), "{:?}", opened.status);
+
+    // A copy of the file's leading checkpoint (a valid anchor line) laid over the members at `q`.
+    let checkpoint = bytes[..marker_at].to_vec();
+    let splice = |file: &mut Vec<u8>, q: usize| {
+        file[q - 1] = b'\n';
+        file[q..q + checkpoint.len()].copy_from_slice(&checkpoint);
+    };
+    let l = checkpoint.len();
+    let w1 = MAX_FRAME_LEN + 1;
+    let w2 = REVERSE_SCAN_MAX as usize + 1;
+    let lookback = GROUP_LOOKBACK as usize;
+    let classes = |size: usize| {
+        [
+            ("inside the first window", size - 1000 - l),
+            ("across the first window's start", size - w1 - l / 2),
+            ("between the windows", size - w1 - l - 10),
+            ("across the second window's start", size - w2 - l / 2),
+            ("before the second window", size - w2 - l - 10),
+            ("before the lookback beyond it", size - w2 - lookback - l - 10),
+        ]
+    };
+    for (shape, size, want) in [
+        ("closing checkpoint kept", bytes.len(), LogStatus::Damaged(Damage { file_no: 1, offset: marker_at as u64, ordinal: 0 })),
+        ("no closing checkpoint", members_end, LogStatus::Damaged(Damage { file_no: 1, offset: marker_at as u64, ordinal: 0 })),
+        ("cut inside the members", members_end - 5000, LogStatus::Torn { offset: marker_at as u64 }),
+    ] {
+        for (class, q) in classes(size) {
+            assert!(q > marker_at + GROUP_MARKER_LEN + FRAME_OVERHEAD, "{shape}, {class}: inside the members");
+            let mut file = bytes[..size].to_vec();
+            splice(&mut file, q);
+            std::fs::write(&path, &file).unwrap();
+            let opened = env.reopen("s1").await;
+            assert_eq!(opened.fold.rows, 1, "{shape}, {class}: before the group ({:?})", opened.status);
+            let got = match opened.status {
+                LogStatus::Damaged(d) => LogStatus::Damaged(Damage { ordinal: 0, ..d }),
+                other => other,
+            };
+            assert_eq!(got, want, "{shape}, {class}");
+        }
+    }
+}
+
+/// Open cost (FORMAT.md §6.3): a log ending in a group of its own reads that group once (in chunks) plus the window; the
+/// next write leads with a checkpoint, also after the writer was reopened, so the open after a small tail reads the window
+/// and lookback only; a long file of small writes reads the window only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_open_reads_the_last_group_once_and_otherwise_the_window() {
+    use crate::schema::frame::*;
+    let (env, bytes, marker_at, members_end) = own_file_group(30).await;
+    let group = (members_end - marker_at) as u64;
+    let window = MAX_FRAME_LEN as u64 + 1 + GROUP_LOOKBACK + 4096;
+    let opened = env.reopen("s1").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 31));
+    assert!(opened.bytes_read >= group && opened.bytes_read <= group + window, "the group once: {} of {}", opened.bytes_read, bytes.len());
+
+    // A small tail through a reopened writer: the window only.
+    let deps = env.deps();
+    let w = on_lane(move |l| LogWriter::open(l, opened, deps).unwrap()).await;
     let (w, _) = env.commit(w, vec![item("next")]).await;
     drop(w);
     let opened = env.reopen("s1").await;
-    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 31));
-    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + MAX_FRAME_LEN as u64 + 1, "{}", opened.bytes_read);
+    assert_eq!((opened.status, opened.fold.rows, opened.newest_file_no), (LogStatus::Clean, 32, 1));
+    assert!(opened.bytes_read <= window && opened.bytes_read < group, "{}", opened.bytes_read);
+
+    // A long file of small writes.
+    let env = Env::new();
+    let mut w = env.create("s2", None).await;
+    for n in 0..50 {
+        w = env.commit(w, (0..3).map(|i| sized_item(&format!("i{n}.{i}"), 100)).collect()).await.0;
+    }
+    drop(w);
+    let size = std::fs::metadata(env.dir("s2").join(log_name(0))).unwrap().len();
+    let opened = env.reopen("s2").await;
+    assert_eq!((opened.status, opened.fold.rows), (LogStatus::Clean, 150));
+    assert!(size > REVERSE_SCAN_MAX + window, "{size}");
+    assert!(opened.bytes_read <= REVERSE_SCAN_MAX + window, "{} of {size}", opened.bytes_read);
 }
 
 /// The reader o1 shipped (vendored, `framing_o1`) over logs with groups in every position never misreads them: up to its

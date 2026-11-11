@@ -73,12 +73,6 @@ pub fn group_marker(count: u64, members: &[u8]) -> Vec<u8> {
     format!("#group {count:08x} {:016x} {hex}", members.len()).into_bytes()
 }
 
-/// Whether `members` are the bytes `marker` names (length and SHA-256).
-pub fn group_matches(marker: &GroupMarker, members: &[u8]) -> bool {
-    use sha2::Digest;
-    members.len() as u64 == marker.bytes && <[u8; 32]>::from(sha2::Sha256::digest(members)) == marker.sha256
-}
-
 /// The marker a payload is; `None` for a record payload. `Err` for a payload that starts as a
 /// marker and is not one.
 pub fn parse_group_marker(payload: &[u8]) -> Result<Option<GroupMarker>, CorruptCause> {
@@ -113,6 +107,16 @@ pub const DURABILITY_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 /// Reader bound (FORMAT.md §6.3): the bytes from the start of the newest committed
 /// `checkpoint` (or `session`) frame of the newest log file to its end are fewer.
 pub const REVERSE_SCAN_MAX: u64 = CHECKPOINT_EVERY + 2 * DURABILITY_WINDOW_BYTES;
+/// Largest member bytes of a group written in place, appended to a log file (FORMAT.md §3.6). A
+/// larger group is a file of its own, published whole (§6.1), so it is never torn and its marker
+/// is at a fixed place: right after the file's first frame.
+pub const GROUP_IN_PLACE_MAX: u64 = 2 * 1024 * 1024;
+/// Bytes before a candidate anchor in which the marker of an in-place group covering it starts:
+/// the marker frame and the largest in-place group (§3.5).
+pub const GROUP_LOOKBACK: u64 = GROUP_IN_PLACE_MAX + (GROUP_MARKER_LEN + FRAME_OVERHEAD) as u64;
+/// Bytes read at a time when a group is checked from its file (§6.3): its check holds this
+/// and one frame, never the group.
+pub const GROUP_CHECK_CHUNK: usize = 1024 * 1024;
 /// A log file is not appended past this size; the next batch starts a new file.
 pub const ROTATE_AT: u64 = 64 * 1024 * 1024;
 
