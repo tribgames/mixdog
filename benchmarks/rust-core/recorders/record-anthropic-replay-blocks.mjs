@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-anthropic-replay-blocks',
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs sanitizeAnthropicReplayBlocks(blocks, onDrop), sanitizeAnthropicReplayEntries([[index, block]]), sanitizeAnthropicThinkingRun(blocks).',
-  replay: 'mixdog-ai providers::anthropic decoder (decoder.rs:259-313 replay reduction): feed `input` and compare `result.blocks` whole; `result.drops` (the removal kinds, in order) has no Rust counterpart.',
+  compare: 'mixdog-ai providers::anthropic decoder (decoder.rs:259-313 replay reduction): feed `input` and compare `result.blocks` whole; `result.drops` (the removal kinds, in order) has no Rust counterpart.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
 });
 const { sanitizeAnthropicReplayBlocks, sanitizeAnthropicReplayEntries, sanitizeAnthropicThinkingRun } = await rec.P('agent/orchestrator/providers/lib/anthropic-replay-blocks.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/lib/anthropic-replay-blocks.test.mjs';

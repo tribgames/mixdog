@@ -14,6 +14,7 @@ import http from 'node:http';
 import { createRequire, register } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { exact } from './exact.mjs';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './common.mjs';
 import { installDeterministicWorld } from './deterministic-world.mjs';
 import { recorderProvenance } from './provenance.mjs';
@@ -25,13 +26,15 @@ const realClearTimeout = globalThis.clearTimeout;
 /** A failure bound on one case on the real clock (the product's own timers are virtual and never fire). */
 export const CASE_DEADLINE_MS = 60_000;
 
-export async function startRecording({ recorderUrl, set, entry, replay, dataFiles = [], exclusions = [], net = true }) {
+export async function startRecording({ recorderUrl, set, entry, replay, compare, dataFiles = [], exclusions = [], net = true }) {
   const args = parseArgs();
   const tree = resolveTree(args);
   const only = args.get('only');
   const identity = exactProductIdentity(tree, NODE_COMMIT);
   mkdirSync('D:/mixdog-build/tmp/w22', { recursive: true });
-  const dataDir = mkdtempSync(`D:/mixdog-build/tmp/w22/${set}-`);
+  const dataDir = `D:/mixdog-build/tmp/w22/${set}`;
+  rmSync(dataDir, { recursive: true, force: true });
+  mkdirSync(dataDir, { recursive: true });
   process.env.MIXDOG_DATA_DIR = dataDir;
   process.env.MIXDOG_HOME = join(dataDir, 'home');
   process.env.HOME = process.env.USERPROFILE = join(dataDir, 'home');
@@ -97,10 +100,15 @@ export async function startRecording({ recorderUrl, set, entry, replay, dataFile
       const chunks = [];
       for await (const c of req) chunks.push(c);
       const origin = req.headers['x-bench-origin'];
-      const order = req.rawHeaders.filter((_v, i) => i % 2 === 0).map((n) => n.toLowerCase()).filter((n) => n !== 'x-bench-origin');
-      const headers = {};
-      for (const name of order) headers[name] = name === 'host' ? new URL(origin).host : req.headers[name];
-      const record = { method: req.method, origin, path: req.url, headers, body: Buffer.concat(chunks).toString('utf8') };
+      // Every header as it arrived (raw name, arrival order); `host` carries the loopback port, so it is written as the host of the origin the
+      // product addressed; the recorder's own x-bench-origin header is left out.
+      const headers = [];
+      for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i].toLowerCase() !== 'x-bench-origin') headers.push([req.rawHeaders[i], req.rawHeaders[i].toLowerCase() === 'host' ? new URL(origin).host : req.rawHeaders[i + 1]]);
+      const raw = Buffer.concat(chunks);
+      const text = raw.toString('utf8');
+      const record = { method: req.method, origin, path: req.url, headers, body: Buffer.from(text, 'utf8').equals(raw) ? text : raw };
+      // For the recorder's own code (not recorded): the headers by lower-case name.
+      Object.defineProperty(record, 'h', { value: Object.fromEntries(headers.map(([n, v]) => [n.toLowerCase(), v])), enumerable: false });
       hub.records.push(record);
       const reply = hub.reply?.(record, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
       record.reply = reply;
@@ -120,35 +128,68 @@ export async function startRecording({ recorderUrl, set, entry, replay, dataFile
     };
   }
 
-  const norm = (text) => text.replaceAll(dataDir, '<data>').replaceAll(dataDir.replaceAll('/', '\\'), '<data>').replaceAll(tree.replaceAll('\\', '/'), '<tree>').replaceAll(tree, '<tree>');
-  const view = (value, depth = 0) => {
-    if (depth > 24) return '[depth]';
-    if (value === undefined) return undefined;
-    if (value === null || typeof value === 'boolean') return value;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : String(value);
-    if (typeof value === 'string') return norm(value);
-    if (typeof value === 'bigint') return `${value}n`;
-    if (typeof value === 'function') return '[function]';
-    if (typeof value === 'symbol') return String(value);
-    if (value instanceof Error) {
-      const out = { name: value.name, message: norm(value.message) };
-      for (const key of Object.keys(value)) out[key] = view(value[key], depth + 1);
-      if (value.cause !== undefined) out.cause = view(value.cause, depth + 1);
-      return out;
-    }
-    if (Buffer.isBuffer(value) || value instanceof Uint8Array) return { bytesHex: Buffer.from(value).toString('hex') };
-    if (value instanceof Map) return { map: [...value].map(([k, v]) => [view(k, depth + 1), view(v, depth + 1)]) };
-    if (value instanceof Set) return { set: [...value].map((v) => view(v, depth + 1)) };
-    if (value instanceof Date) return { date: value.toISOString() };
-    if (Array.isArray(value)) return value.map((v) => view(v, depth + 1) ?? null);
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      const seen = view(v, depth + 1);
-      if (seen !== undefined) out[k] = seen;
-    }
-    return out;
+  // Values are stored through the shared `exact` encoder (lib/exact.mjs). A function (a callback the recorder hands the product) has no
+  // exact form: it is recorded as the plain object { callback: <name> }; the classes below are recorded as the plain value they carry. Any
+  // other live object throws with its path (a case must not record what it cannot hold).
+  const asPlain = (value) => {
+    if (typeof value === 'function') return { callback: value.name };
+    if (Array.isArray(value)) return value.map(asPlain);
+    if (value !== null && typeof value === 'object' && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, asPlain(v)]));
+    return value;
   };
-
+  const CLASSES = {
+    Headers: (h) => ({ headers: [...h.entries()] }),
+    URL: (u) => ({ href: u.href }),
+    AbortSignal: (s) => ({ aborted: s.aborted, reason: s.reason }),
+    Response: (r) => ({ status: r.status, statusText: r.statusText, url: r.url, headers: [...r.headers.entries()] }),
+  };
+  const view = (value) => exact(asPlain(value), { classes: CLASSES });
+  // Every call the recorder makes to a product export (function, class constructor, instance method) is logged with its exact arguments
+  // (viewed at call time), so each case's inputs are in `calls` whether or not the case also declares an `input`. An argument larger than
+  // 4000 bytes of JSON is stored once in the set's `shared` table and referenced as {"$shared": n}.
+  let current = null;
+  const shared = [];
+  const sharedIndex = new Map();
+  const argView = (arg) => {
+    let v;
+    try {
+      v = view(arg);
+    } catch (error) {
+      v = { unrecordable: error.message };
+    }
+    if (v !== null && typeof v === 'object') {
+      const text = JSON.stringify(v);
+      if (text.length > 4000) {
+        let i = sharedIndex.get(text);
+        if (i === undefined) {
+          i = shared.length;
+          shared.push(v);
+          sharedIndex.set(text, i);
+        }
+        return { $shared: i };
+      }
+    }
+    return v;
+  };
+  const logCall = (entry, args) => void current?.push({ entry, args: args.map(argView) });
+  const wrappedCache = new WeakMap();
+  const isClass = (fn) => /^class\b/.test(Function.prototype.toString.call(fn));
+  const wrapInstance = (name, instance) => new Proxy(instance, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target);
+      if (typeof value !== 'function' || typeof key !== 'string' || key === 'constructor') return value;
+      return (...args) => { logCall(`${name}#${key}`, args); return Reflect.apply(value, target, args); };
+    },
+  });
+  const wrapExport = (name, fn) => {
+    if (wrappedCache.has(fn)) return wrappedCache.get(fn);
+    const wrapped = isClass(fn)
+      ? new Proxy(fn, { construct(target, args, newTarget) { logCall(`new ${name}`, args); return wrapInstance(name, Reflect.construct(target, args, newTarget === wrapped ? target : newTarget)); } })
+      : Object.assign(Object.defineProperty(function (...args) { logCall(name, args); return Reflect.apply(fn, this, args); }, 'name', { value: fn.name }), fn);
+    wrappedCache.set(fn, wrapped);
+    return wrapped;
+  };
+  const wrapModule = (label, ns) => new Proxy(ns, { get: (target, key) => (typeof target[key] === 'function' && typeof key === 'string' ? wrapExport(`${label}.${key}`, target[key]) : target[key]) });
   const cases = [];
   const rec = {
     tree,
@@ -157,9 +198,8 @@ export async function startRecording({ recorderUrl, set, entry, replay, dataFile
     net: hub,
     secrets,
     view,
-    norm,
-    load: (rel) => import(pathToFileURL(join(tree, rel)).href),
-    P: (rel) => import(pathToFileURL(join(tree, 'src/runtime', rel)).href),
+    load: async (rel) => wrapModule(rel, await import(pathToFileURL(join(tree, rel)).href)),
+    P: async (rel) => wrapModule(`src/runtime/${rel}`, await import(pathToFileURL(join(tree, 'src/runtime', rel)).href)),
     write: (name, text) => {
       mkdirSync(join(dataDir, name, '..'), { recursive: true });
       writeFileSync(join(dataDir, name), text);
@@ -169,19 +209,23 @@ export async function startRecording({ recorderUrl, set, entry, replay, dataFile
       hub.records = [];
       hub.reply = null;
       const row = { id, source, input: view(input) };
+      const calls = [];
+      current = calls;
       let timer;
       const deadline = new Promise((_, reject) => {
         timer = realSetTimeout(() => reject(new Error(`recorder: case ${id} did not settle within ${CASE_DEADLINE_MS} ms`)), CASE_DEADLINE_MS);
       });
       try {
         const result = await Promise.race([fn({ net: hub, clock }), deadline]);
-        row.result = view(result) ?? null;
+        row.result = view(result);
       } catch (error) {
         if (/^recorder: case/.test(error?.message ?? '')) throw error;
         row.error = view(error);
       } finally {
         realClearTimeout(timer);
       }
+      current = null;
+      if (calls.length) row.calls = calls;
       if (hub.records.length) row.requests = hub.records.map((r) => view(r));
       cases.push(row);
     },
@@ -190,16 +234,15 @@ export async function startRecording({ recorderUrl, set, entry, replay, dataFile
       server?.close();
       const finalDir = join(FIXTURES_ROOT, set);
       const stage = stageSet(finalDir);
-      writeJson(join(stage, 'cases.json'), { set, nodeCommit: NODE_COMMIT, cases, ...extra });
+      writeJson(join(stage, 'cases.json'), { set, nodeCommit: NODE_COMMIT, shared, cases, ...extra });
       writeSetManifest(stage, {
         set,
         recorder: recorderProvenance(recorderUrl).recorder,
         command: `node ${recorderProvenance(recorderUrl).recorder} --tree <exact export of ${NODE_COMMIT}>`,
         identity,
-        extra: { ...recorderProvenance(recorderUrl, dataFiles), entry, replay, ...(net ? { replayExclusions: { 'request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)': 'written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded' } } : {}), exclusions: [...exclusions, 'the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)', 'JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack'] },
+        extra: { ...recorderProvenance(recorderUrl, dataFiles), entry, replay, compare, calls: 'every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {"$shared": n}', valueTags: { '{"$cycle":true}': 'a reference back to an ancestor object',  '{"$undefined":true}': 'undefined (a key or array element that held undefined keeps the tag; none is dropped)', '{"$number":"NaN"|"Infinity"|"-Infinity"|"-0"}': 'a number JSON cannot hold', '{"$bigint":"<digits>"}': 'bigint', '{"$date":"<ISO>"}': 'Date', '{"$bytesHex":"<hex>"}': 'Buffer / Uint8Array', '{"$map":[[k,v]...]}': 'Map, insertion order', '{"$set":[v...]}': 'Set, insertion order', '{"$function":"<name>"}': 'a function', '{"$symbol":"<text>"}': 'a symbol' }, ...(net ? { replayExclusions: { 'request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)': 'written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded' } } : {}), exclusions: [...exclusions, 'no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix', 'net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host\'s OS, architecture and Node version', 'net requests: the recorder\'s x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)'] },
       });
       commitStage(stage, finalDir);
-      rmSync(dataDir, { recursive: true, force: true });
       console.log(`${set}: ${cases.length} case(s) recorded`);
       process.exit(0);
     },
