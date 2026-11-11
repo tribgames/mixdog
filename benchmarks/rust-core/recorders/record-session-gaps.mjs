@@ -264,11 +264,19 @@ async function attachmentPreflight() {
 // for now is one another process holds open with no sharing, as an editor or a scanner does.
 
 const PASTED = Array.from({ length: 900 }, (_, i) => `pasted line ${i} ${'é'.repeat(i % 7)} 🙂`).join('\n');
-const pastedCases = ['stored', 'gone', 'held-open'];
+// The failure cases run over the stored paste: the summary provider throws, answers an empty summary, or the session's
+// abort signal is already aborted (a parent-linked agent session whose parent was cancelled, the one way an idle
+// session's compaction carries an aborted signal: `linkParentSignalToSession`, runtime-liveness.mjs:600).
+const pastedCases = ['stored', 'gone', 'held-open', 'provider-error', 'empty-summary', 'cancelled'];
 
 async function compactionPastedText() {
   const store = await load('src/runtime/attachments/store.mjs');
-  const { runSessionCompaction } = await load('src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs');
+  // The entry a client's compact request reaches (`compactSessionMessages`, session-crud.mjs:384), over the session as
+  // the store holds it and the provider the registry hands it (`getProvider(session.provider)`).
+  const { compactSessionMessages } = await load('src/runtime/agent/orchestrator/session/manager/session-crud.mjs');
+  const { saveSessionAsync } = await load('src/runtime/agent/orchestrator/session/store.mjs');
+  const { _withRegisteredProviderForTestAsync } = await load('src/runtime/agent/orchestrator/providers/registry.mjs');
+  const { linkParentSignalToSession } = await load('src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs');
   const { createHash } = await import('node:crypto');
   const { mkdirSync, writeFileSync } = await import('node:fs');
   const { dirname } = await import('node:path');
@@ -280,7 +288,7 @@ async function compactionPastedText() {
     const bytes = Buffer.from(text, 'utf8');
     let part;
     let holder = null;
-    if (name === 'stored') {
+    if (name !== 'gone' && name !== 'held-open') {
       const submitted = store.materializePromptSubmission('[Pasted text #1 +900 lines]', { pastedTexts: { 1: { id: 1, text } } });
       part = submitted.prompt.find((p) => p.type === 'text' && p.attachmentRef);
     } else {
@@ -309,12 +317,24 @@ async function compactionPastedText() {
       send: async (...sendArgs) => {
         // Every argument as sent (the options carry the abort signal: recorded as its state).
         sends.push(exactArgs(sendArgs, { classes: { AbortSignal: (s) => ({ aborted: s.aborted }) } }));
-        return { content: 'SUMMARY of the conversation so far', usage: { inputTokens: 1000, outputTokens: 50, cachedTokens: 0 } };
+        // A real provider rejects a send whose signal is aborted with the signal's reason.
+        if (sendArgs[3]?.signal?.aborted) throw sendArgs[3].signal.reason;
+        // A request error no provider retries (Node's real providers retry inside `send`; this one answers once).
+        if (name === 'provider-error') throw Object.assign(new Error('openai: 400 invalid request'), { status: 400 });
+        const content = name === 'empty-summary' ? '' : 'SUMMARY of the conversation so far';
+        return { content, usage: { inputTokens: 1000, outputTokens: 50, cachedTokens: 0 } };
       },
     };
+    // The session is on disk before the compaction, as a session a client addresses is.
+    await saveSessionAsync(live);
+    if (name === 'cancelled') {
+      const parent = new AbortController();
+      parent.abort(new Error('parent turn cancelled'));
+      linkParentSignalToSession(live.id, parent.signal);
+    }
     let result;
     try {
-      result = { value: exact(await runSessionCompaction(live, { mode: 'manual', force: true, provider, sessionId: live.id })) };
+      result = { value: exact(await _withRegisteredProviderForTestAsync('openai', provider, () => compactSessionMessages(live.id))) };
     } catch (error) {
       result = { error: exact(error) };
     } finally {

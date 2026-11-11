@@ -11,9 +11,9 @@
       "sha256": "33cd73223958fca6042b7131ecb047673bb378b807db96c289af7ea57a23147c"
     },
     {
-      "bytes": 245497,
+      "bytes": 479424,
       "path": "compaction-pasted-text.json",
-      "sha256": "300843e2142b58746dd08827215bf012fa267c372ccb4dc66d91a8b2948fa85f"
+      "sha256": "0046e590f28ee162e0ed9765d3834d0f00ae4b1b0691d0196740f6177a4d2a6b"
     },
     {
       "bytes": 27813,
@@ -59,7 +59,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-gaps.mjs",
-  "recorderSha256": "70f488cffbe89070f447a0d2af68c6d9355ac1e7e6084e9e0c6d7721295ef452",
+  "recorderSha256": "c8c119ef46a9095a309684a5a3a932ff21f22694b71fed84a9bfb92f98cefa75",
   "scenarios": [
     "legacy-json-keys",
     "image-strip",
@@ -67,6 +67,6 @@
     "compaction-pasted-text"
   ],
   "set": "session-gaps",
-  "totalBytes": 475612,
+  "totalBytes": 709539,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
