@@ -514,8 +514,10 @@ fn every_inbound_kind_names_its_lone_surrogates() {
 }
 
 /// Every string field of every client request, client notification and answer to a server request (read from the
-/// schema goldens) is either a free-text field (`free_text::FREE_TEXT`) or named as refused in `free_text_fields.json`;
-/// a field that is in neither (a method gained one) fails here, as does a listed field the schema no longer has.
+/// schema goldens, and inside the values the schema leaves untyped from the inventory's `payloads`) is either a
+/// free-text field (`free_text::FREE_TEXT`) or named as refused in `free_text_fields.json`; a field that is in neither (a
+/// method gained one) fails here, as does a listed field the schema no longer has, an untyped value with no declaration,
+/// and a refused text-like field without its reason.
 #[test]
 fn every_string_field_is_free_text_or_named_as_refused() {
     use mixdog_app_protocol::free_text::FREE_TEXT;
@@ -577,6 +579,46 @@ fn every_string_field_is_free_text_or_named_as_refused() {
         }
     }
     let schema = |name: &str| -> Value { serde_json::from_slice(&std::fs::read(crate_dir().join("schema").join(name)).unwrap()).unwrap() };
+    let named: Value = serde_json::from_slice(&std::fs::read(crate_dir().join("tests/it/free_text_fields.json")).unwrap()).unwrap();
+    let mut problems = Vec::new();
+    // A value the schema leaves untyped (`path/**`) is replaced by the string fields its reader reads, as the inventory's
+    // `payloads` enumerates them: `fields` (pointers below the payload), `schema` (a definition of a schema golden that
+    // the reader deserialises into), `open` (JSON with no fixed fields a model or a tool's source wrote: free text below,
+    // FREE_TEXT has `path/**`), or `opaque` (no fixed fields and no typed text: refused whole, with the reason). An untyped
+    // value with no declaration is a failure: its fields were never classed.
+    let mut used = std::collections::BTreeSet::new();
+    let mut expand = |kind: &str, method: &str, walked: std::collections::BTreeSet<String>, problems: &mut Vec<String>| {
+        let mut out = std::collections::BTreeSet::new();
+        for field in walked {
+            let Some(at) = field.strip_suffix("/**") else {
+                out.insert(field);
+                continue;
+            };
+            let spec = &named["payloads"][kind][method][at];
+            if spec.is_null() {
+                problems.push(format!("{kind} {method} {field}: an untyped payload whose fields are not enumerated in `payloads`"));
+                continue;
+            }
+            used.insert(format!("{kind} {method} {at}"));
+            assert!(spec["source"].as_str().is_some_and(|s| !s.is_empty()), "{kind} {method} {at}: a payload without its source");
+            for sub in spec["fields"].as_array().into_iter().flatten() {
+                out.insert(format!("{at}{}", sub.as_str().unwrap()));
+            }
+            if let Some(reference) = spec["schema"].as_str() {
+                let (file, definition) = reference.split_once('#').unwrap();
+                let file = schema(file);
+                walk(&file["definitions"][definition], &file["definitions"], at, &mut out, &[definition.to_owned()]);
+            }
+            if spec["open"].is_string() || spec["opaque"].is_string() {
+                out.insert(field.clone());
+            }
+            for (sub, reason) in spec["opaque"].as_object().into_iter().flatten() {
+                assert!(reason.is_string(), "{kind} {method} {at}{sub}: an opaque part without its reason");
+                out.insert(format!("{at}{sub}/**"));
+            }
+        }
+        out
+    };
     let mut fields: BTreeMap<(&str, String), std::collections::BTreeSet<String>> = BTreeMap::new();
     for (file, kind) in [("client_request.json", "request"), ("client_notification.json", "notification")] {
         let file = schema(file);
@@ -585,6 +627,7 @@ fn every_string_field_is_free_text_or_named_as_refused() {
             let method = method["const"].as_str().or_else(|| method["enum"][0].as_str()).unwrap().to_owned();
             let mut out = std::collections::BTreeSet::new();
             walk(&variant["properties"]["params"], &file["definitions"], "", &mut out, &[]);
+            let out = expand(kind, &method, out, &mut problems);
             fields.insert((kind, method), out);
         }
     }
@@ -592,10 +635,16 @@ fn every_string_field_is_free_text_or_named_as_refused() {
     for (method, row) in answers["methods"].as_object().unwrap() {
         let mut out = std::collections::BTreeSet::new();
         walk(&row["result"], &answers["definitions"], "", &mut out, &[]);
+        let out = expand("answer", method, out, &mut problems);
         fields.insert(("answer", method.clone()), out);
     }
-    let named: Value = serde_json::from_slice(&std::fs::read(crate_dir().join("tests/it/free_text_fields.json")).unwrap()).unwrap();
-    let mut problems = Vec::new();
+    for (kind, methods) in named["payloads"].as_object().unwrap() {
+        for (method, paths) in methods.as_object().unwrap() {
+            for at in paths.as_object().unwrap().keys().filter(|at| !used.contains(&format!("{kind} {method} {at}"))) {
+                problems.push(format!("{kind} {method} {at}: a payload declaration for no untyped value of the schema"));
+            }
+        }
+    }
     for ((kind, method), found) in &fields {
         let refused: std::collections::BTreeSet<String> =
             named["refused"][kind][method].as_array().into_iter().flatten().map(|p| p.as_str().unwrap().to_owned()).collect();
@@ -610,10 +659,49 @@ fn every_string_field_is_free_text_or_named_as_refused() {
         for field in refused.iter().filter(|field| !found.contains(*field) || free.contains(&field.as_str())) {
             problems.push(format!("{kind} {method} {field}: named as refused, not a string field of the schema or free text"));
         }
+        // A refused `**` is only an `opaque` declaration's; a free one only an `open` declaration's.
+        for field in found.iter().filter(|field| field.ends_with("/**")) {
+            let at = field.strip_suffix("/**").unwrap();
+            let spec = &named["payloads"][kind][method][at];
+            let (open, opaque) = (spec["open"].is_string(), spec["opaque"].is_string() || at.rsplit_once('/').is_some_and(|(head, tail)| named["payloads"][kind][method][head]["opaque"][format!("/{tail}")].is_string()));
+            if free.contains(&field.as_str()) != open || refused.contains(field) != opaque {
+                problems.push(format!("{kind} {method} {field}: open JSON is free text only when declared `open`, refused only when declared `opaque`"));
+            }
+        }
         for pattern in &free {
-            let under_untyped = found.iter().any(|f| f.strip_suffix("**").is_some_and(|head| format!("{pattern}/").starts_with(head)));
-            if !found.contains(*pattern) && !under_untyped {
+            if !found.contains(*pattern) {
                 problems.push(format!("{kind} {method} {pattern}: free text, not a field of the schema"));
+            }
+        }
+    }
+    // Every refused field a person might read as text has its reason; a reason names only refused fields, once.
+    const TEXT_LIKE: &[&str] = &[
+        "name", "title", "label", "text", "message", "description", "query", "searchTerm", "body", "content", "prompt", "summary", "reason", "reply",
+        "comment", "note", "instructions", "persona", "alias", "displayName", "error", "context", "currentText", "goalCommand", "command", "email",
+        "newName", "filename", "value", "detail", "metadataText", "city", "region",
+    ];
+    let text_like = |field: &str| TEXT_LIKE.contains(&field.trim_end_matches("/*").rsplit('/').next().unwrap_or_default());
+    let mut reasoned = BTreeMap::new();
+    for group in named["reasons"].as_array().unwrap() {
+        assert!(group["reason"].as_str().is_some_and(|r| !r.is_empty()));
+        for entry in group["fields"].as_array().unwrap() {
+            let entry = entry.as_str().unwrap();
+            if reasoned.insert(entry.to_owned(), ()).is_some() {
+                problems.push(format!("{entry}: given two reasons"));
+            }
+            let mut parts = entry.splitn(3, ' ');
+            let (kind, method, field) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
+            if !named["refused"][kind][method].as_array().is_some_and(|list| list.iter().any(|f| f == field)) {
+                problems.push(format!("{entry}: a reason for a field that is not refused"));
+            }
+        }
+    }
+    for (kind, methods) in named["refused"].as_object().unwrap() {
+        for (method, list) in methods.as_object().unwrap() {
+            for field in list.as_array().unwrap().iter().filter_map(Value::as_str).filter(|f| text_like(f)) {
+                if !reasoned.contains_key(&format!("{kind} {method} {field}")) {
+                    problems.push(format!("{kind} {method} {field}: refused text-like field without a reason in `reasons`"));
+                }
             }
         }
     }
