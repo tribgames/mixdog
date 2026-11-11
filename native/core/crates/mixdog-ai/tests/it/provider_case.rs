@@ -14,7 +14,8 @@
 //!   endpoint answered it (status, `content-type`, headers, a body, or chunks each its own write; `hold` keeps the
 //!   response open until the client closes; `destroy` drops the connection unanswered). An unscripted arrival gets the
 //!   recorder's 404 `not scripted`.
-//! - [`Endpoint::ws_script`]`(trace)`: the WebSocket side follows a recorded ws-world trace: each server action of it
+//! - [`Endpoint::ws_script`]`(trace)`: the dialer is given each upgrade's recorded `Sec-WebSocket-Key` in order
+//!   (`mixdog_ai::transport::ws::ScriptedKey`, a test-support seam), and the WebSocket side follows a recorded ws-world trace: each server action of it
 //!   (upgrade answer, refusal, reset, silence, frame, ping, close, terminate) runs once the replay's own trace has as
 //!   many entries as precede it in the recording. [`Endpoint::note`] appends a case-side entry (a callback, a stage) to
 //!   the replay's trace, as the recorder's `world.note` did; [`Endpoint::trace`] is that trace.
@@ -412,6 +413,8 @@ struct State {
     /// The connection of each trace entry (`None`: a case-side entry), for the script to address its actions.
     trace_conns: Vec<Option<usize>>,
     ws_conns: Vec<mpsc::UnboundedSender<WsCommand>>,
+    /// The recorded `Sec-WebSocket-Key` of each upgrade, in order, for the dialer's scripted key source.
+    ws_keys: std::collections::VecDeque<String>,
     steps: Vec<ClockStep>,
 }
 
@@ -541,9 +544,11 @@ impl Endpoint {
     /// The core's own WebSocket dialer with every dial redirected here; each dial is a `dial` entry of the trace.
     pub fn dialer(&self, schedule: KeepaliveSchedule) -> RedirectedDialer {
         let inner = self.inner.clone();
+        let keyed = self.inner.clone();
         RedirectedDialer {
             schedule,
             addr: self.addr,
+            keys: Arc::new(move || keyed.state.lock().unwrap().ws_keys.pop_front()),
             tap: Arc::new(move |host: &str, port: u16| {
                 let servername = if host.parse::<std::net::IpAddr>().is_ok() { String::new() } else { host.to_owned() };
                 inner.note(
@@ -602,6 +607,17 @@ impl Endpoint {
     /// Scripts the WebSocket side with a recorded ws-world trace: each server action runs once the replay's trace has as
     /// many entries as precede it in the recording, on the connection of the latest entry before it.
     pub fn ws_script(&self, recorded: &[Exact]) {
+        // Node's `ws` drew each key from the recording's fixed random source: the dialer is given the same keys in order.
+        self.inner.state.lock().unwrap().ws_keys = recorded
+            .iter()
+            .filter(|entry| entry.get("event").as_str() == "upgrade-request")
+            .filter_map(|entry| {
+                entry.get("headers").as_array().iter().find_map(|pair| {
+                    let pair = pair.as_array();
+                    pair[0].as_str().eq_ignore_ascii_case("sec-websocket-key").then(|| pair[1].as_str().to_owned())
+                })
+            })
+            .collect();
         let inner = self.inner.clone();
         let recorded = recorded.to_vec();
         tokio::spawn(async move {
@@ -1106,8 +1122,7 @@ async fn the_endpoint_follows_a_recorded_ws_trace_against_the_core_dialer() {
     let refused = within("the refused upgrade", dialer.dial(request)).await;
     let Err(ConnectError::Rejected(response)) = refused else { panic!("the upgrade is refused") };
     assert_eq!(response.status().as_u16(), 403);
-    let names = |trace: &[Exact]| trace.iter().map(|e| e.get("event").as_str().to_owned()).collect::<Vec<_>>();
-    assert_eq!(names(&endpoint.trace()), names(&events));
+    assert_exact("ws trace", &Exact::Array(events), &Exact::Array(endpoint.trace()));
 }
 
 /// Every provider set's recording decodes, and each case holds what the driver reads.

@@ -76,19 +76,28 @@ impl<L: BidiOpen> BidiOpen for Redirected<L> {
 /// Called with the host and port of each WebSocket dial (the world's `dial` entry).
 pub type DialTap = Arc<dyn Fn(&str, u16) + Send + Sync>;
 
-/// The production dialer with every dial going to `addr` over plain TCP; the upgrade is written unchanged.
+/// The `Sec-WebSocket-Key` of the next upgrade, as the test scripts it (the recorded keys in dial order); `None`: drawn as
+/// in production.
+pub type KeySource = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
+/// The production dialer with every dial going to `addr` over plain TCP; the upgrade is written unchanged but for its key,
+/// which `keys` gives.
 pub struct RedirectedDialer {
     pub schedule: KeepaliveSchedule,
     pub addr: SocketAddr,
     pub tap: DialTap,
+    pub keys: KeySource,
 }
 
 #[async_trait]
 impl WsDial for RedirectedDialer {
-    async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
-        let uri = request.uri();
+    async fn dial(&self, mut request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        let uri = request.uri().clone();
         let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
         (self.tap)(uri.host().unwrap_or_default(), port);
+        if let Some(key) = (self.keys)() {
+            request.extensions_mut().insert(ws::ScriptedKey(key));
+        }
         let (connection, response) = ws::connect_redirected(request, self.addr, &self.schedule).await?;
         Ok((Box::new(connection), response))
     }
