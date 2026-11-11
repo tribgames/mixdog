@@ -325,7 +325,7 @@ await set.run('listing a large index costs a bounded number of fs calls, whateve
   const pool = await freshPool();
   const cold = await countingFsCalls(() => pool.listStoredAgentWorkersAsync({ runningSessionIds: running }));
   const warm = await countingFsCalls(() => pool.listStoredAgentWorkersAsync({ runningSessionIds: running }));
-  return { rows: ROWS, live: LIVE, running: [...running], reference, cold: cold.result, warm: warm.result, coldWithinBound: cold.calls <= 40, warmWithinBound: warm.calls <= 40, bound: 40, note: 'the exact fs call counts are Node internals and are not recorded: only the bound the test asserts' };
+  return { rows: ROWS, live: LIVE, running: [...running], reference, cold: cold.result, warm: warm.result, coldFsCalls: cold.calls, warmFsCalls: warm.calls, bound: 40 };
 }));
 
 await set.finish({

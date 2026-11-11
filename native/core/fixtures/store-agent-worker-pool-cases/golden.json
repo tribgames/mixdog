@@ -89551,10 +89551,9 @@
             "toolCalls": null
           }
         ],
-        "coldWithinBound": true,
-        "warmWithinBound": true,
-        "bound": 40,
-        "note": "the exact fs call counts are Node internals and are not recorded: only the bound the test asserts"
+        "coldFsCalls": 7,
+        "warmFsCalls": 2,
+        "bound": 40
       }
     }
   ]
