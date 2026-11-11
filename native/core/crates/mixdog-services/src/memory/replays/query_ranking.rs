@@ -9,9 +9,24 @@ use super::{assert_case_count, case, golden, int, rows, row, same, same_rows};
 use crate::memory::recall::format::interleave_raw_rows;
 use crate::memory::recall::period::Window;
 use crate::memory::recall::ranking::{bound_rows_to_temporal, merge_historical_rows, rank_latest_rows, topic_term_coverage};
-use crate::memory::recall::row::unique_rows_by_id;
+use crate::memory::recall::row::{RowKey, unique_rows_by_id};
 
 const SET: &str = "memory-query-ranking";
+
+/// A recorded row as Node holds it: its id keyed by `String(row?.id ?? '')`.
+struct Wire(Exact);
+
+impl RowKey for Wire {
+    fn unique_key(&self) -> Option<String> {
+        let key = match self.0.try_get("id") {
+            None | Some(Exact::Null | Exact::Undefined) => String::new(),
+            Some(Exact::String(text)) => text.clone(),
+            Some(Exact::Number(n)) => mixdog_js::number_to_string(*n),
+            Some(other) => panic!("row id of a shape the recording does not hold: {other:?}"),
+        };
+        (!key.is_empty()).then_some(key)
+    }
+}
 
 fn typed(value: &Exact) -> Vec<crate::memory::recall::row::Row> {
     rows(value).unwrap_or_else(|e| panic!("recorded rows: {e}"))
@@ -93,17 +108,19 @@ fn unique_rows_by_id_keeps_first_seen_order_and_topic_term_coverage_counts_membe
     let name = "uniqueRowsById keeps first-seen order and topicTermCoverage counts member text";
     let golden = golden(SET);
     let case = case(&golden, 4, name);
-    let mut js_only = Vec::new();
     for probe in case.get("unique").as_array() {
         let label = probe.get("label").as_str();
-        // Rows with an empty, null or string id are JS shapes no entries row has (ids are bigint).
-        let Ok(input) = rows(probe.get("input")) else {
-            js_only.push(label);
-            continue;
-        };
-        same_rows(&format!("{name}: unique {label}"), probe.get("result"), &unique_rows_by_id(input));
+        match rows(probe.get("input")) {
+            Ok(input) => same_rows(&format!("{name}: unique {label}"), probe.get("result"), &unique_rows_by_id(input)),
+            // An empty, null or string id has no typed row (entries ids are bigint): the same function runs over the
+            // rows with Node's values, keyed as Node keys them.
+            Err(_) => {
+                let input = probe.get("input").as_array().iter().cloned().map(Wire);
+                let kept = Exact::Array(unique_rows_by_id(input).into_iter().map(|w| w.0).collect());
+                same(&format!("{name}: unique {label}"), probe.get("result"), &kept);
+            }
+        }
     }
-    assert_eq!(js_only, ["test file rows", "null id, zero id, string ids"], "unique probes with JS-only ids");
     for probe in case.get("coverage").as_array() {
         let input = probe.get("input");
         let terms: Vec<String> = input.get("terms").as_array().iter().map(|t| t.as_str().to_owned()).collect();

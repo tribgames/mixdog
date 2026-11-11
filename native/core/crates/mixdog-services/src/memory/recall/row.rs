@@ -272,8 +272,20 @@ pub fn compare_by_score(a: &Row, b: &Row) -> Ordering {
         .then_with(|| a.sort_id().cmp(&b.sort_id()))
 }
 
-/// Rows with a unique id, first occurrence kept.
-pub fn unique_rows_by_id(rows: impl IntoIterator<Item = Row>) -> Vec<Row> {
+/// A row's id as `uniqueRowsById` keys it (query-ranking.mjs:93, `String(row?.id ?? '')`); `None` is the empty key,
+/// whose row is dropped.
+pub trait RowKey {
+    fn unique_key(&self) -> Option<String>;
+}
+
+impl RowKey for Row {
+    fn unique_key(&self) -> Option<String> {
+        Some(self.display_id())
+    }
+}
+
+/// Rows with a unique, non-empty id, first occurrence kept.
+pub fn unique_rows_by_id<R: RowKey>(rows: impl IntoIterator<Item = R>) -> Vec<R> {
     let mut seen = std::collections::HashSet::new();
-    rows.into_iter().filter(|row| seen.insert(row.id)).collect()
+    rows.into_iter().filter(|row| row.unique_key().is_some_and(|key| seen.insert(key))).collect()
 }
