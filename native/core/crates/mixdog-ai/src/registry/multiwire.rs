@@ -128,6 +128,14 @@ impl ProviderAdapter for MultiWireAdapter {
         Some(self)
     }
 
+    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        self.route(model).map_or_else(Default::default, |wire| self.engine(wire).send_stages(model))
+    }
+
+    fn retry_line(&self, model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.engine(self.route(model)?).retry_line(model)
+    }
+
     /// A custom provider behind several wires (`createCustomProvider`: `provider.nativePdf = false`).
     fn native_pdf(&self) -> bool {
         false

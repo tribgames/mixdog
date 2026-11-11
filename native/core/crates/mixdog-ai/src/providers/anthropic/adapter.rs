@@ -567,6 +567,12 @@ impl ProviderAdapter for AnthropicAdapter {
         Some(self)
     }
 
+    /// The API-key route's `[<provider name>] retry attempt <n> after <message>, delay <ms>ms` (anthropic-api-transport.mjs:203-206,
+    /// `label: this.name`, anthropic.mjs:411). The OAuth route writes a line of its own shape (anthropic-oauth-request.mjs:146).
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        (self.codec.flavor() == Flavor::ApiKey).then(|| mixdog_core_api::domain::provider::RetryLine { tag: format!("[{}]", self.id), delay: true })
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         if let Some(preconnect) = &self.preconnect {
             preconnect.warm(ANTHROPIC_ORIGIN);

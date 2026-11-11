@@ -21,6 +21,7 @@ use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::RetryLine;
 use mixdog_core_api::domain::provider::SendStages;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
@@ -414,20 +415,21 @@ impl ProviderAdapter for GoogleAdapter {
     /// before every attempt (`run`) and before the non-streaming re-issue, and `reconnecting` before each retry wait
     /// (`geminiRetryLogger`, gemini.mjs:239-246). Gemini models on the Gemini API and on Vertex AI run
     /// `runGeminiStreamAttempts` (gemini.mjs:866-876, vertex-ai.mjs:382-398): the ladder by the response having opened;
-    /// Vertex AI passes no `onRetry`, so it raises no `reconnecting`.
+    /// Vertex AI passes no `onRetry`, so it raises no `reconnecting`. Antigravity (antigravity-transport.mjs:185) and
+    /// Vertex AI's Claude (vertex-ai.mjs:516) and open models raise it under their own ladders.
     fn send_stages(&self, model: &str) -> SendStages {
         let gemini_ladder = !matches!(self.codec.target(), Target::Antigravity { .. })
             && self.codec.maas_model(model).is_none()
             && self.codec.claude_model(model).is_none();
         if !self.direct_gemini(model) {
-            return SendStages { ladder_by_connection: gemini_ladder, ..SendStages::default() };
+            return SendStages { ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, ..SendStages::default() };
         }
         SendStages { preparing: 2, each_attempt: true, before_recovery: true, reconnecting: true, ladder_by_connection: true }
     }
 
     /// `geminiRetryLogger(opts, '[gemini]')` of a send without a cached prefix (`_streamViaRest`'s label).
-    fn retry_log_tag(&self, model: &str) -> Option<&'static str> {
-        self.direct_gemini(model).then_some("[gemini]")
+    fn retry_line(&self, model: &str) -> Option<RetryLine> {
+        self.direct_gemini(model).then(|| RetryLine { tag: "[gemini]".into(), delay: false })
     }
 
     /// `canFallbackNonStreaming` (retry-classification.mjs:402) of a stream-phase failure: nothing reached the caller,

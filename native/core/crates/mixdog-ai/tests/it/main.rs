@@ -37,6 +37,7 @@ mod replay_gemini_stream;
 mod replay_leak_guards;
 mod replay_openai_ws_handshake;
 mod replay_openai_ws_delta;
+mod replay_retry_stages;
 mod replay_session_provider_replay;
 mod replay_transport_policy;
 mod replay_world;

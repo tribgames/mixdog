@@ -87,8 +87,8 @@ impl ProviderAdapter for VersionedAdapter {
         self.inner.send_stages(model)
     }
 
-    fn retry_log_tag(&self, model: &str) -> Option<&'static str> {
-        self.inner.retry_log_tag(model)
+    fn retry_line(&self, model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.inner.retry_line(model)
     }
 
     fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {

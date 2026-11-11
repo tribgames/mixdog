@@ -328,6 +328,12 @@ impl ProviderAdapter for DevinAdapter {
         &self.policy
     }
 
+    /// `DevinOAuthProvider.send` runs no retry ladder of its own (devin.mjs:383-431: no `withRetry`, no `onRetry`), so
+    /// it raises no `reconnecting`.
+    fn send_stages(&self, _model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        mixdog_core_api::domain::provider::SendStages { reconnecting: false, ..Default::default() }
+    }
+
     fn keepalive(&self) -> &KeepaliveSchedule {
         &self.keepalive
     }

@@ -403,6 +403,12 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn native_pdf(&self) -> bool {
         self.pool.primary.native_pdf()
     }
+    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
+        self.pool.primary.send_stages(model)
+    }
+    fn retry_line(&self, model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        self.pool.primary.retry_line(model)
+    }
     fn native_documents(&self) -> Option<bool> {
         self.pool.primary.native_documents()
     }

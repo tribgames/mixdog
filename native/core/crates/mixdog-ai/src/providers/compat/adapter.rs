@@ -193,6 +193,12 @@ impl ProviderAdapter for CompatAdapter {
         (!wires.families.is_empty() || wires.inputs != WireInputs::OverrideOnly).then_some(self)
     }
 
+    /// `compatStreamRetryReporter(provider.name)` of the Chat Completions send (openai-compat-chat-send.mjs:222,
+    /// compat-request-policy.mjs:9).
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        Some(mixdog_core_api::domain::provider::RetryLine { tag: format!("[{}]", self.id), delay: true })
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.attempt_with(&self.codec, request).await
     }

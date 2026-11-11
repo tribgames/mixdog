@@ -419,8 +419,9 @@ impl GoogleCodec {
             }
             None => inner.clone(),
         };
-        // The Gemini API's own spelling (`geminiApiHeaders`, gemini.mjs:94), which undici keeps on the wire.
-        let content_type = if matches!(self.target, Target::Gemini { .. }) { "Content-Type" } else { "content-type" };
+        // Node's own spelling (`geminiApiHeaders`, gemini.mjs:94; `_sendGemini`, vertex-ai.mjs:355-358), which undici
+        // keeps on the wire.
+        let content_type = if matches!(self.target, Target::Gemini { .. } | Target::Vertex { .. }) { "Content-Type" } else { "content-type" };
         let mut headers = vec![(content_type.to_owned(), "application/json".to_owned())];
         let (url, body) = match &self.target {
             Target::Gemini { origin } => (
@@ -433,7 +434,7 @@ impl GoogleCodec {
                 let location = if global { "global".to_owned() } else { place.choose(&route, tier)? };
                 let base = place.base(&location)?;
                 if let Some(value) = tier.header_value() {
-                    headers.push(("x-vertex-ai-llm-shared-request-type".into(), value.into()));
+                    headers.push(("X-Vertex-AI-LLM-Shared-Request-Type".into(), value.into()));
                 }
                 (
                     format!("{base}/publishers/google/models/{}:streamGenerateContent?alt=sse", path_segment(id)),
