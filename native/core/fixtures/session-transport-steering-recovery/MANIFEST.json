@@ -1,0 +1,61 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs --tree <tree>",
+  "entry": "Cases 14 and 90 ran the real src/tui/session/session-api.mjs createSessionApiA and session-api-ext.mjs createSessionApiB with scripted dependencies (queue, state setter, restore hooks); case 75 ran src/tui/session/tui-steering-persist.mjs on a temp MIXDOG_DATA_DIR (spool files recorded); case 139 ran the real HTTP session transport + session service + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, 64 gated reads and one abort. Did not run a real runtime or any TUI rendering.",
+  "exclusions": [
+    "case 75: ids ts_<base36 ms>_<8 hex> (steeringPersistId, spool text) -> ts_<id>; 13-digit ms timestamps in the spool text -> <ms>; submittedAt is recorded as its offset from the time the recorder took (-50 as in the test)",
+    "case 139: the 64 reads reach the service in HTTP arrival order, which varies: recorded sorted by their args[0] index; the single abort call is recorded with its position relative to the reads (after all 64 started)",
+    "client tokens (random uuid) -> <client N> by first appearance; daemon session ids sess_daemon_<ms>_<32 hex> -> <daemon session N>",
+    "revision / baseRevision values above 1e12 (epoch-based, restart-monotonic) -> <epoch revision>+offset from the first one seen in the case",
+    "the runtime root temp dir -> <runtime root>, this process's cwd -> <cwd>, its pid/ppid in leadPid fields -> <pid>/<ppid>",
+    "queuedMs of a service call (time in the lane) is not recorded: it is a wall-clock measure"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 75833,
+      "path": "recording.json",
+      "sha256": "3d80239d44f4e7f625c0c2145793df060afb2a16b6093f622bd2206f8205723d"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-daemon-harness.mjs",
+      "sha256": "9527596ccea60373a9391e7dc25f5c24f4854791fa1d64141d2949a8cbaf7ebe"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs",
+  "recorderSha256": "83d9b94fb78888ab0c6e415cd1699ffff662a054cef520355de0f9d58a108190",
+  "replay": "mixdog-core-session S/control.rs steer / S/actor.rs restore_taken, restored_reply (ACK before auto-clear, targeted abort reclaim), the durable pending queue (steering persisted with its submission id/time) and the abort control path: drive the same ordered steps and compare each step's outcome and the observed state (enqueued count, queue length, restored text/ids, commandBusy, release states, spool rows, abort options/result, service call order).",
+  "set": "session-transport-steering-recovery",
+  "testFile": "scripts/session-transport/steering-recovery.test.mjs",
+  "totalBytes": 75833
+}

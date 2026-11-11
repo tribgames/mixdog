@@ -1,0 +1,2686 @@
+{
+  "domain": "session-transport-steering-recovery",
+  "recorder": "benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs",
+  "testFile": "scripts/session-transport/steering-recovery.test.mjs",
+  "cases": [
+    {
+      "name": "submit-ack-does-not-wait-for-auto-clear-and-remains-reclaimable",
+      "testLine": 14,
+      "input": {
+        "submit": {
+          "text": "recover before busy",
+          "options": {
+            "id": "actual-session-idle-1"
+          }
+        },
+        "abort": {
+          "restorePrompt": true,
+          "submissionId": "actual-session-idle-1"
+        },
+        "initialState": {
+          "busy": false,
+          "commandBusy": false
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "submitAsync('recover before busy', {id: actual-session-idle-1}) (auto-clear gate still pending)",
+            "result": true,
+            "enqueued": 1
+          },
+          {
+            "step": "abort({restorePrompt: true, submissionId: 'actual-session-idle-1'})",
+            "result": {
+              "aborted": false,
+              "restoreText": "recover before busy",
+              "pastedImages": null,
+              "pastedTexts": null,
+              "restoredSubmissionIds": [
+                "actual-session-idle-1"
+              ]
+            },
+            "queuedLength": 0
+          },
+          {
+            "step": "resolve the auto-clear gate",
+            "queuedLength": 0,
+            "enqueued": 1
+          }
+        ],
+        "log": [
+          "autoClearBeforeSubmit called",
+          {
+            "enqueue": {
+              "text": "recover before busy",
+              "id": "actual-session-idle-1"
+            }
+          },
+          {
+            "restoreQueued": "actual-session-idle-1",
+            "found": true
+          }
+        ],
+        "finalState": {
+          "busy": false,
+          "commandBusy": false
+        }
+      }
+    },
+    {
+      "name": "persisted-steering-keeps-the-desktop-submission-identity-across-recovery",
+      "testLine": 75,
+      "input": {
+        "sessionId": "steering-recovery-recorded",
+        "entry": {
+          "id": "desktop-submit-retry-1",
+          "text": "ship it",
+          "submittedAt": "<now-50>"
+        }
+      },
+      "result": {
+        "restored": [
+          {
+            "text": "ship it",
+            "steeringPersistId": "ts_<id>",
+            "submissionId": "desktop-submit-retry-1",
+            "submittedAt": "<now-50>"
+          }
+        ],
+        "restoredSubmittedAtEqualsEntry": true,
+        "spoolFiles": [
+          {
+            "path": "session-pending/tui_steering-recovery-recorded.json",
+            "text": "{\"version\":1,\"updatedAt\":<ms>,\"sessions\":{\"tui_steering-recovery-recorded\":[{\"id\":\"ts_<id>\",\"text\":\"ship it\",\"at\":<ms>,\"submissionId\":\"desktop-submit-retry-1\",\"submittedAt\":<submittedAt>}]},\"sessionTouchedAt\":{\"tui_steering-recovery-recorded\":<ms>}}\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "process-restart-resume-restores-queued-steering-before-releasing-commandbusy",
+      "testLine": 90,
+      "input": {
+        "resume": {
+          "id": "restart-session",
+          "options": {
+            "quiet": true
+          }
+        }
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "resume('restart-session', {quiet: true}) started; steering restore pending; one setImmediate turn",
+            "commandBusy": true,
+            "settled": false
+          },
+          {
+            "step": "steering restore gate resolved; resume settled",
+            "resumeResult": true,
+            "commandBusy": false,
+            "releaseStates": [
+              true
+            ]
+          }
+        ],
+        "sets": [
+          {
+            "patch": {
+              "commandBusy": true
+            },
+            "restoredAtSet": false
+          },
+          {
+            "patch": {
+              "items": [],
+              "transcriptArchive": null,
+              "toasts": [],
+              "queued": [],
+              "thinking": null,
+              "spinner": null,
+              "lastTurn": null,
+              "stats": {}
+            },
+            "restoredAtSet": false
+          },
+          {
+            "patch": {
+              "commandBusy": false,
+              "commandStatus": null
+            },
+            "restoredAtSet": true
+          }
+        ],
+        "finalState": {
+          "commandBusy": false,
+          "stats": {},
+          "items": [],
+          "transcriptArchive": null,
+          "toasts": [],
+          "queued": [],
+          "thinking": null,
+          "spinner": null,
+          "lastTurn": null,
+          "commandStatus": null
+        }
+      }
+    },
+    {
+      "name": "abort-starts-immediately-while-ordinary-session-calls-remain-in-flight",
+      "testLine": 139,
+      "input": {
+        "reads": 64,
+        "readCallIds": "reserved-capacity-work:<0..63>",
+        "abort": {
+          "options": {
+            "restorePrompt": false,
+            "submissionId": "desktop-submit-1"
+          },
+          "callId": "reserved-capacity-abort"
+        }
+      },
+      "result": {
+        "startedBeforeAbort": 64,
+        "abort": {
+          "ok": {
+            "sessionId": "<daemon session 1>",
+            "reservedOnly": true,
+            "aborted": true,
+            "restoreText": "queued prompt",
+            "pastedTexts": {
+              "text_1": {
+                "text": "restored text"
+              }
+            },
+            "revision": "<epoch revision>+0",
+            "full": {
+              "sessionId": "<daemon session 1>",
+              "items": [],
+              "busy": false
+            }
+          }
+        },
+        "abortCallIndex": 65,
+        "serviceCallNamesInOrder": [
+          "session.create",
+          "session.read",
+          "session.abort"
+        ],
+        "reads": [
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                0
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                1
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                2
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                3
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                4
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                5
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                6
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                7
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                8
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                9
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                10
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                11
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                12
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                13
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                14
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                15
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                16
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                17
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                18
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                19
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                20
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                21
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                22
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                23
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                24
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                25
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                26
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                27
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                28
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                29
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                30
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                31
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                32
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                33
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                34
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                35
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                36
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                37
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                38
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                39
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                40
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                41
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                42
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                43
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                44
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                45
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                46
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                47
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                48
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                49
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                50
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                51
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                52
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                53
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                54
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                55
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                56
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                57
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                58
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                59
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                60
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                61
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                62
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          },
+          {
+            "args": {
+              "sessionId": "<daemon session 1>",
+              "action": "getSettingsSnapshot",
+              "args": [
+                63
+              ]
+            },
+            "callIdContext": {
+              "clientToken": "<client 1>",
+              "leadPid": "<pid>",
+              "cwd": "<cwd>",
+              "revision": 6
+            },
+            "result": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            },
+            "error": null
+          }
+        ],
+        "readOutcomes": [
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "ok": {
+              "value": null,
+              "sessionId": "<daemon session 1>",
+              "revision": "<epoch revision>+0",
+              "full": {
+                "sessionId": "<daemon session 1>",
+                "items": [],
+                "busy": false
+              }
+            }
+          }
+        ],
+        "abortCall": {
+          "name": "session.abort",
+          "args": {
+            "sessionId": "<daemon session 1>",
+            "options": {
+              "restorePrompt": false,
+              "submissionId": "desktop-submit-1"
+            }
+          },
+          "context": {
+            "clientToken": "<client 1>",
+            "leadPid": "<pid>",
+            "cwd": "<cwd>",
+            "revision": 6
+          },
+          "result": {
+            "sessionId": "<daemon session 1>",
+            "reservedOnly": true,
+            "aborted": true,
+            "restoreText": "queued prompt",
+            "pastedTexts": {
+              "text_1": {
+                "text": "restored text"
+              }
+            },
+            "revision": "<epoch revision>+0",
+            "full": {
+              "sessionId": "<daemon session 1>",
+              "items": [],
+              "busy": false
+            }
+          }
+        },
+        "abortCalls": 1,
+        "abortOptions": {
+          "restorePrompt": false,
+          "submissionId": "desktop-submit-1"
+        }
+      }
+    }
+  ]
+}
