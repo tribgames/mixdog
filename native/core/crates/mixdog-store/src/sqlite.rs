@@ -612,7 +612,7 @@ struct Writer {
     /// Deleted sessions whose rows go in maintenance steps, oldest request first.
     purges: VecDeque<(String, Ack)>,
     /// Sessions whose rows are rebuilt from a rewritten log, once the projections queued before are in.
-    reprojects: VecDeque<(Rewritten, Ack)>,
+    reprojects: VecDeque<(Rewritten, Ack, u64)>,
     seq: u64,
     /// Rows per append transaction and per maintenance step (tests shrink them).
     append_rows: usize,
@@ -751,7 +751,7 @@ impl Writer {
                 self.projections.push_back(Pending { projection, next: 0, ack, seq });
             }
             Command::Purge { session, ack } => self.purges.push_back((session, ack)),
-            Command::Reproject { rewrite, ack } => self.reprojects.push_back((rewrite, ack)),
+            Command::Reproject { rewrite, ack } => self.reprojects.push_back((rewrite, ack, seq)),
             other => self.small.push_back(other),
         }
     }
@@ -798,11 +798,13 @@ impl Writer {
         Ok(())
     }
 
-    /// Every queued rebuild, once no projection is queued before it.
+    /// Every queued rebuild, once no projection is queued before it. Projections queued after it (other threads' writes go on
+    /// meanwhile) do not hold it back: the log's own reads wait on the rebuild.
     fn reproject_step(&mut self) {
-        while self.projections.is_empty()
-            && let Some((rewrite, ack)) = self.reprojects.pop_front()
+        while let Some(&(_, _, seq)) = self.reprojects.front()
+            && self.projections.front().is_none_or(|pending| pending.seq > seq)
         {
+            let (rewrite, ack, _) = self.reprojects.pop_front().expect("the front rebuild");
             let result = self.reproject(&rewrite);
             let _ = ack.send(result.map_err(DbError::Write));
         }

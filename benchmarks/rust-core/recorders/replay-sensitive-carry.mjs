@@ -14,6 +14,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inspect } from 'node:util';
 import { AGENT, AGENT_MD, CODES, MODEL, STEPS, leadTurns, orderedCalls, scriptedProvider } from './lib/sensitive-carry-scenario.mjs';
 import { scanSecrets, walk } from './lib/sensitive-writes-files.mjs';
 import { runCore } from './replay-sensitive-writes.mjs';
@@ -93,7 +94,7 @@ try {
       });
       await turns.turn(step.lead, async () => {
         await deadline(client.call('turn/start', { threadId, input: { prompt: step.prompt, options: {} } }), 60_000, 'turn/start').catch((error) => {
-          throw new Error(`turn/start of "${step.prompt}": ${error.message} ${JSON.stringify(error, Object.getOwnPropertyNames(error).filter((key) => key !== 'stack'))}`);
+          throw new Error(`turn/start of "${step.prompt}": ${error.message} ${inspect({ ...error.detail, data: error.detail?.data }, { depth: 6, breakLength: Infinity })}`);
         });
         await deadline(done, 120_000, `the turn "${step.prompt}"`);
       });
