@@ -18,7 +18,8 @@
 //! Node's schedule and webhook row stores were in-memory rows in the recording; here they are the
 //! same rows behind [`RoutineRecords`]. "The user wrote to her" is her thread's user turn. The
 //! comparison is whole; `profileFilesAfter` is compared in Node's names, leaving out only the core-only files
-//! the manifest declares by name.
+//! the manifest declares by name, and `profileContentsAfter` is each of those files' text (the session file rebuilt
+//! from the core's thread, declared in the manifest).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -482,6 +483,30 @@ impl Profile {
         crate::run_host::fixture_fs::read_to_string(&path).map_or(Value::Null, |text| serde_json::from_str(&text).expect("a JSON manifest"))
     }
 
+    /// The thread `id` as Node's session file text, `JSON.stringify({ id, messages: [{ role, content }] })`, from the core's
+    /// `thread/read` items (a user message is `user`, an agent message `assistant`).
+    async fn session_text(&self, id: &str) -> String {
+        let thread = ThreadId::from(id);
+        let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new());
+        let handle = self.directory.open_handle(&thread, &ctx).await.expect("the thread opens");
+        let request = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": thread }), op: None, ctx };
+        let Reply::Value(view) = handle.request(request).await.expect("thread/read") else { panic!("a thread view") };
+        let messages: Vec<String> = view["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                let (role, text) = match item["type"].as_str().unwrap() {
+                    "userMessage" => ("user", &item["content"][0]["text"]),
+                    "agentMessage" => ("assistant", &item["text"]),
+                    other => panic!("an item of the session file the replay has no message for: {other}"),
+                };
+                format!("{{\"role\":\"{role}\",\"content\":{text}}}")
+            })
+            .collect();
+        format!("{{\"id\":{},\"messages\":[{}]}}", Value::from(id), messages.join(","))
+    }
+
     /// The user writes `text` in her thread: one user turn of `sess_home_lead`, durable before it answers.
     async fn user_writes(&self, text: &str) {
         let thread = ThreadId::from(HOME);
@@ -546,6 +571,22 @@ fn profile_files_after(p: &Profile) -> Value {
     json!(named)
 }
 
+/// `profileContents(dataDir)` over the files of [`profile_files_after`]: each file's text, byte for byte. The session
+/// file is the one exception the manifest declares (`replay.declared["cases[*].observed.profileContentsAfter"]`): its
+/// text is rebuilt from the core's thread as Node's `JSON.stringify({ id, messages })` wrote it.
+async fn profile_contents_after(p: &Profile, files: &Value) -> Value {
+    let mut contents = Vec::new();
+    for file in files.as_array().unwrap() {
+        let file = file.as_str().unwrap();
+        let text = match file.strip_prefix("sessions\\").and_then(|name| name.strip_suffix(".json")) {
+            Some(id) => p.session_text(id).await,
+            None => crate::run_host::fixture_fs::read_to_string(file.split('\\').fold(p.data.clone(), |path, part| path.join(part))).unwrap_or_else(|e| panic!("{file}: {e}")),
+        };
+        contents.push(json!({"file": file, "text": text}));
+    }
+    json!(contents)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_mixy_presence_case_gives_one_answer_through_the_core_readers() {
     let golden = Exact::decode(&serde_json::from_str::<Value>(&GOLDEN).unwrap()).unwrap();
@@ -563,7 +604,9 @@ async fn every_mixy_presence_case_gives_one_answer_through_the_core_readers() {
             let setup = recorded.get("setup").to_plain().unwrap();
             let p = profile(&setup, false, now, checks.clone()).await;
             let answers = p.answers().await;
-            json!({"setup": setup, "answers": answers, "leadManifestAfter": p.lead_manifest(), "profileFilesAfter": profile_files_after(&p)})
+            let files = profile_files_after(&p);
+            let contents = profile_contents_after(&p, &files).await;
+            json!({"setup": setup, "answers": answers, "leadManifestAfter": p.lead_manifest(), "profileFilesAfter": files, "profileContentsAfter": contents})
         } else if name.starts_with("a legacy Mixy with routines stays visible") {
             let setup = recorded.get("setup").to_plain().unwrap();
             let split = recorded.get("botStoreSplit").as_bool();
