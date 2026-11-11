@@ -11,17 +11,16 @@
   "entry": "openai-ws-pool.mjs acquireWebSocket / releaseWebSocket (with openai-ws-connect.mjs openHedged inside, over the real ws client) against a loopback WebSocket server (lib/ws-world.mjs): a stuck upgrade is an upgrade request the server never answers; the hedge (3000 ms) and acquire deadline (15000 ms) run on the virtual clock, each step waiting for the dial it causes. cachedLookup is called directly (the host resolver). Not run: a live endpoint, a proxy.",
   "exclusions": [
     "the server answers upgrade request n with input.answers[n-1] (null = never answered, absent = accepted); the 1006/terminate conventions are those of lib/ws-world.mjs",
-    "the DNS case resolves `localhost` through the host resolver: the addresses are the recording host's",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
-    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 40156,
+      "bytes": 37825,
       "path": "cases.json",
-      "sha256": "92ce7a37d30d75a3f51bc63f53599a67d56e525067380ef4681c54263e35d4e7"
+      "sha256": "06bebf8b3c473aa9efd818f66b36b685a30457ffc80fe18886808f00d305e24b"
     }
   ],
   "inputs": [
@@ -43,11 +42,34 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e633843c0cb4bd85591fa571af31632df7fd10f0f8a10cd1a2bed2185a59ee7d"
+      "sha256": "7d68a644790f8ac5106e58602fef052033a863bd70cf5944b4f57211e6545a95"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "e4612b263e95a182de40e8b5e59f32e6237f567b9d96caf83f05d724a875a2d2"
+      "sha256": "b8399854325ac1aa1d744efd9997f0cbd6b4deec47b71bf7662724c2fdcd3478"
+    }
+  ],
+  "levels": [
+    {
+      "id": "stuck-upgrade-replaced-after-hedge-window",
+      "level": "wire"
+    },
+    {
+      "id": "http-status-from-any-leg-ends-the-race",
+      "level": "wire"
+    },
+    {
+      "id": "deadline-surfaces-acquire-timeout-when-no-leg-opens",
+      "level": "wire"
+    },
+    {
+      "id": "concurrent-lookups-share-one-resolution",
+      "level": "pure",
+      "rust": null
+    },
+    {
+      "id": "sessionless-sends-share-idle-sockets-no-owner-wait-no-chain",
+      "level": "wire"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -69,9 +91,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-connect.mjs",
-  "recorderSha256": "5e63793416be907a6865458b6ed80238b491322e1404fa21ff1125430a6a73f5",
+  "recorderSha256": "e7985d3a8df90a1be41912f9056556c9add4e3ce59ac3cfcffbe9eb70a293fb8",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai WsPool::checkout (openai/pool.rs:178) and mixdog_ai::transport::ws::connect (transport/ws.rs:237). There is no hedge or acquire deadline and no shared DNS resolution in Rust (K1 G6, G15): work for the Rust side.",
   "set": "provider-openai-ws-connect",
-  "totalBytes": 40156,
+  "totalBytes": 37825,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
