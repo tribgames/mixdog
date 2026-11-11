@@ -7,6 +7,712 @@
   },
   "cases": [
     {
+      "name": "a re-ingest of the same array inserts nothing; timestamped rows keep their recorded time (test line 53)",
+      "steps": [
+        {
+          "args": {
+            "sessionId": "s1",
+            "messages": [
+              {
+                "role": "user",
+                "content": "first question",
+                "ts": 1700000000000
+              },
+              {
+                "role": "assistant",
+                "content": "first answer",
+                "ts": 1700000001000
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=2 inserted=2 session=s1"
+          },
+          "rows": [
+            {
+              "id": 1,
+              "ts": 1700000000000,
+              "role": "user",
+              "content": "first question",
+              "source_ref": "session:s1:83e422152fa36414542913a2",
+              "source_turn": 1,
+              "time_source": "recorded"
+            },
+            {
+              "id": 2,
+              "ts": 1700000001000,
+              "role": "assistant",
+              "content": "first answer",
+              "source_ref": "session:s1:a26beec4692f4f2afeb15c92",
+              "source_turn": 2,
+              "time_source": "recorded"
+            }
+          ]
+        },
+        {
+          "args": {
+            "sessionId": "s1",
+            "messages": [
+              {
+                "role": "user",
+                "content": "first question",
+                "ts": 1700000000000
+              },
+              {
+                "role": "assistant",
+                "content": "first answer",
+                "ts": 1700000001000
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=2 inserted=0 session=s1"
+          },
+          "rowCount": 2
+        }
+      ],
+      "flushes": [
+        {
+          "limit": 200,
+          "ids": [
+            1,
+            2
+          ]
+        },
+        {
+          "limit": 200
+        },
+        {
+          "limit": 200
+        }
+      ],
+      "statements": [
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s1"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1700000000000,
+            "user",
+            "first question",
+            "session:s1:83e422152fa36414542913a2",
+            "s1",
+            1,
+            null,
+            "recorded"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1700000001000,
+            "assistant",
+            "first answer",
+            "session:s1:a26beec4692f4f2afeb15c92",
+            "s1",
+            2,
+            null,
+            "recorded"
+          ]
+        },
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s1"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1700000000000,
+            "user",
+            "first question",
+            "session:s1:83e422152fa36414542913a2",
+            "s1",
+            3,
+            null,
+            "recorded"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1700000001000,
+            "assistant",
+            "first answer",
+            "session:s1:a26beec4692f4f2afeb15c92",
+            "s1",
+            3,
+            null,
+            "recorded"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "identical untimestamped turns are distinct rows, and a JSON-cloned replay stays idempotent (test line 71)",
+      "steps": [
+        {
+          "args": {
+            "sessionId": "s2",
+            "messages": [
+              {
+                "role": "user",
+                "content": "retry please"
+              },
+              {
+                "role": "assistant",
+                "content": "done"
+              },
+              {
+                "role": "user",
+                "content": "retry please"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=3 inserted=3 session=s2"
+          },
+          "rows": [
+            {
+              "id": 1,
+              "ts": 1799999999997,
+              "role": "user",
+              "content": "retry please",
+              "source_ref": "session:s2:8e73d9616884f486253d490d",
+              "source_turn": 1,
+              "time_source": "collected"
+            },
+            {
+              "id": 2,
+              "ts": 1799999999998,
+              "role": "assistant",
+              "content": "done",
+              "source_ref": "session:s2:c74dff3735c1f3ca96c61f21",
+              "source_turn": 2,
+              "time_source": "collected"
+            },
+            {
+              "id": 3,
+              "ts": 1799999999999,
+              "role": "user",
+              "content": "retry please",
+              "source_ref": "session:s2:d1162d6d74228102fac6686e",
+              "source_turn": 3,
+              "time_source": "collected"
+            }
+          ]
+        },
+        {
+          "args": {
+            "sessionId": "s2",
+            "messages": [
+              {
+                "role": "user",
+                "content": "retry please"
+              },
+              {
+                "role": "assistant",
+                "content": "done"
+              },
+              {
+                "role": "user",
+                "content": "retry please"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=3 inserted=0 session=s2"
+          },
+          "phase": "JSON-cloned replay",
+          "rowCount": 3
+        }
+      ],
+      "flushes": [
+        {
+          "limit": 200,
+          "ids": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "limit": 200
+        },
+        {
+          "limit": 200
+        }
+      ],
+      "statements": [
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s2"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999997,
+            "user",
+            "retry please",
+            "session:s2:8e73d9616884f486253d490d",
+            "s2",
+            1,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "assistant",
+            "done",
+            "session:s2:c74dff3735c1f3ca96c61f21",
+            "s2",
+            2,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "user",
+            "retry please",
+            "session:s2:d1162d6d74228102fac6686e",
+            "s2",
+            3,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s2"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999997,
+            "user",
+            "retry please",
+            "session:s2:8e73d9616884f486253d490d",
+            "s2",
+            4,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "assistant",
+            "done",
+            "session:s2:c74dff3735c1f3ca96c61f21",
+            "s2",
+            4,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "user",
+            "retry please",
+            "session:s2:d1162d6d74228102fac6686e",
+            "s2",
+            4,
+            null,
+            "collected"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "after compaction dropped an identical copy, a genuine append still lands above the persisted rows (test line 87)",
+      "steps": [
+        {
+          "args": {
+            "sessionId": "s3",
+            "messages": [
+              {
+                "role": "user",
+                "content": "again"
+              },
+              {
+                "role": "assistant",
+                "content": "ok"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=2 inserted=2 session=s3"
+          }
+        },
+        {
+          "args": {
+            "sessionId": "s3",
+            "messages": [
+              {
+                "role": "assistant",
+                "content": "ok"
+              },
+              {
+                "role": "user",
+                "content": "again"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=2 inserted=1 session=s3"
+          },
+          "phase": "compaction removed the first copy; the user sends the identical text again",
+          "rows": [
+            {
+              "id": 1,
+              "ts": 1799999999998,
+              "role": "user",
+              "content": "again",
+              "source_ref": "session:s3:c8b91402baee935b52c7004c",
+              "source_turn": 1,
+              "time_source": "collected"
+            },
+            {
+              "id": 2,
+              "ts": 1799999999999,
+              "role": "assistant",
+              "content": "ok",
+              "source_ref": "session:s3:f436e80c4cf68fc72cddcb25",
+              "source_turn": 2,
+              "time_source": "collected"
+            },
+            {
+              "id": 3,
+              "ts": 1799999999999,
+              "role": "user",
+              "content": "again",
+              "source_ref": "session:s3:11fd5d4b6ce70231073203c7",
+              "source_turn": 3,
+              "time_source": "collected"
+            }
+          ]
+        }
+      ],
+      "flushes": [
+        {
+          "limit": 200,
+          "ids": [
+            1,
+            2
+          ]
+        },
+        {
+          "limit": 200
+        },
+        {
+          "limit": 200,
+          "ids": [
+            3
+          ]
+        },
+        {
+          "limit": 200
+        }
+      ],
+      "statements": [
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s3"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "user",
+            "again",
+            "session:s3:c8b91402baee935b52c7004c",
+            "s3",
+            1,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "assistant",
+            "ok",
+            "session:s3:f436e80c4cf68fc72cddcb25",
+            "s3",
+            2,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s3"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "assistant",
+            "ok",
+            "session:s3:f436e80c4cf68fc72cddcb25",
+            "s3",
+            3,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "user",
+            "again",
+            "session:s3:11fd5d4b6ce70231073203c7",
+            "s3",
+            3,
+            null,
+            "collected"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a subset re-ingest (limit) reproduces the full-ingest identities (test line 100)",
+      "steps": [
+        {
+          "args": {
+            "sessionId": "s4",
+            "messages": [
+              {
+                "role": "user",
+                "content": "turn 0"
+              },
+              {
+                "role": "assistant",
+                "content": "turn 1"
+              },
+              {
+                "role": "user",
+                "content": "turn 2"
+              },
+              {
+                "role": "assistant",
+                "content": "turn 3"
+              },
+              {
+                "role": "user",
+                "content": "turn 4"
+              },
+              {
+                "role": "assistant",
+                "content": "turn 5"
+              }
+            ]
+          },
+          "result": {
+            "text": "ingest_session: considered=6 inserted=6 session=s4"
+          }
+        },
+        {
+          "args": {
+            "sessionId": "s4",
+            "messages": [
+              {
+                "role": "user",
+                "content": "turn 0"
+              },
+              {
+                "role": "assistant",
+                "content": "turn 1"
+              },
+              {
+                "role": "user",
+                "content": "turn 2"
+              },
+              {
+                "role": "assistant",
+                "content": "turn 3"
+              },
+              {
+                "role": "user",
+                "content": "turn 4"
+              },
+              {
+                "role": "assistant",
+                "content": "turn 5"
+              }
+            ],
+            "limit": 2
+          },
+          "result": {
+            "text": "ingest_session: considered=2 inserted=0 session=s4"
+          },
+          "phase": "cold runtime, subset re-ingest",
+          "rowCount": 6
+        }
+      ],
+      "flushes": [
+        {
+          "limit": 200,
+          "ids": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        {
+          "limit": 200
+        },
+        {
+          "limit": 200
+        }
+      ],
+      "statements": [
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s4"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999994,
+            "user",
+            "turn 0",
+            "session:s4:294662bbc63d8421cab66467",
+            "s4",
+            1,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999995,
+            "assistant",
+            "turn 1",
+            "session:s4:ea04664883d97e10ebe03ae3",
+            "s4",
+            2,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999996,
+            "user",
+            "turn 2",
+            "session:s4:960c1b92ae6bb46f671dd483",
+            "s4",
+            3,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999997,
+            "assistant",
+            "turn 3",
+            "session:s4:320a71c22f6d9e73298bbdd9",
+            "s4",
+            4,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "user",
+            "turn 4",
+            "session:s4:5f583c9d11f3b16230fdd3c9",
+            "s4",
+            5,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "assistant",
+            "turn 5",
+            "session:s4:6e0d410dc41a4ee9dded42a8",
+            "s4",
+            6,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "SELECT COALESCE(MAX(source_turn), 0) AS max_turn FROM entries WHERE session_id = $1",
+          "params": [
+            "s4"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999998,
+            "user",
+            "turn 4",
+            "session:s4:5f583c9d11f3b16230fdd3c9",
+            "s4",
+            7,
+            null,
+            "collected"
+          ]
+        },
+        {
+          "sql": "\n        INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ON CONFLICT DO NOTHING\n        RETURNING id\n      ",
+          "params": [
+            1799999999999,
+            "assistant",
+            "turn 5",
+            "session:s4:6e0d410dc41a4ee9dded42a8",
+            "s4",
+            7,
+            null,
+            "collected"
+          ]
+        }
+      ]
+    },
+    {
       "name": "the durable untimestamped high-water is saved when a repeat appears and lifts a warm append after restart (test line 111)",
       "steps": [
         {

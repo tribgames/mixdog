@@ -4,13 +4,13 @@
     "notRun": "PostgreSQL (db.query is the test file's in-memory entries stand-in, which only answers MAX(source_turn) and INSERT INTO entries) and the embedding flush (flushRawEmbeddings replaced at its module boundary by a recorder)",
     "runs": "createSessionIngestRuntime(...).ingestSessionMessages (session-ingest-runtime.mjs) with the real projection, identity hashing and ordinals"
   },
-  "exclusions": "test cases 53, 71, 87, 100 are covered by the ingest golden (mem/tests/ingest.rs) and not recorded again",
+  "exclusions": "none: all six cases of the file are recorded",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11329,
+      "bytes": 32903,
       "path": "golden.json",
-      "sha256": "9706fc9e2539e6599a8cf32af7a272f091e2b34b53ca19a092cfb11f1e55f631"
+      "sha256": "54d1c50945ad059d10d383b239913b132c75efc1fdcbdb63b27d160020e9aa92"
     }
   ],
   "inputs": [
@@ -19,8 +19,12 @@
       "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "afd271a4d08546cf9c01c4b29b415633535febdb71c64713ec5155fdbb538807"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,10 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-session-ingest-runtime.mjs",
-  "recorderSha256": "b6ca931503ba44583f5e96fc3c2496cc8407fa60bea4bacce56329e466a91144",
-  "replay": "mixdog-services memory: mem/ingest/mod.rs ingest_session + ordinals.rs persist_durable/load, with a recording db seam and a recording flush seam; compares each call's result text (or error), the rows inserted (role, source_turn, time_source, ts, source_ref), the statements (text, params), the saved high-water snapshot and the flush option objects ({limit, ids} then the backlog sweep {limit})",
+  "recorderSha256": "7e8fd6e8e11e56c4dcb1ef951cfbc496717aa0b6b61cfcfb0516e51ad32e23ea",
+  "replay": "mixdog-services memory/ingest/mod.rs: SessionIngest::ingest_session (:133, pub) with the high-water file (ingest/ordinals.rs ensure_durable_loaded :66, persist_durable :84) and the scoped flush RawEmbedFlush::flush (ingest/embed_flush.rs:114, pub; ids scoped). A replay drives ingest_session over the recorded transcript steps and compares the ordered statements, the stored high-water and the flush calls",
   "set": "memory-session-ingest-runtime",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 11329,
-  "uuidsNormalised": "none"
+  "totalBytes": 32903,
+  "uuidsNormalised": "none",
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
