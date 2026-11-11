@@ -856,6 +856,39 @@ const SCENARIOS = [
       calls: calls.map(([input, server]) => ({ tool: 'grep', input, server })),
     }];
   })(),
+  // A search server whose queue is full (serve_search/server.rs:370-383, scheduler.rs:241): the stand-in answers every
+  // search as the server does then (`saturated`). Reachable from tool calls: plain content searches pass Node's client
+  // ungated (search-admission.mjs:17-19), a turn's tool calls all start at once with no cap
+  // (session/eager-dispatch.mjs:82-88), and one server serves the process (native-search-client.mjs:38), so 2,048
+  // waiting searches (1,984 for a broad one, config.rs:171-192) take that many calls, or a tenth as many 10-path greps.
+  ...(() => {
+    const full = { saturated: true };
+    return [{
+      name: 'search-saturated',
+      standin: true,
+      files: {
+        't/a.ts': 'needle one\nother one\n',
+        't/b.md': 'needle two\n',
+        'u/d.ts': 'needle four\n',
+      },
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+      calls: [
+        { tool: 'grep', input: { pattern: 'needle', path: 't' }, server: full },
+        { tool: 'grep', input: { pattern: 'needle', path: 't', context: 0 }, server: full },
+        { tool: 'grep', input: { pattern: 'needle', path: 't', mode: 'files' }, server: full },
+        { tool: 'grep', input: { pattern: 'needle', path: ['t', 'u'], context: 0 }, server: full },
+        { tool: 'grep', input: { pattern: ['needle', 'other'], path: 't', context: 0 }, server: full },
+        { tool: 'glob', input: { pattern: '*.ts', path: 't' }, server: full },
+        { tool: 'glob', input: { pattern: ['*.ts', '*.md'] }, server: full },
+        { tool: 'find', input: { query: 'a', path: 't' }, server: full },
+        { tool: 'find', input: { query: 'a' }, server: full },
+        // The queue has room again (no script: the real server answers): the same searches answer.
+        { tool: 'grep', input: { pattern: 'needle', path: 't', context: 0 }, server: {} },
+        { tool: 'glob', input: { pattern: '*.ts', path: 't' }, server: {} },
+        { tool: 'find', input: { query: 'a', path: 't' }, server: {} },
+      ],
+    }];
+  })(),
   // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
   // path dropped, a path array flattened one level with blank entries dropped and removed when nothing is left, then the
   // tool's guard; `grep` keeps a path array as its scopes; `edit` (`file_path`) has no guard; code_graph is answered by
@@ -1080,6 +1113,7 @@ if (process.argv[2] === '--child') {
       outcome.compare = outcome.compare.map((pair) => JSON.parse(scrub(JSON.stringify(pair)))).sort((a, b) => (canonical(a) < canonical(b) ? -1 : canonical(a) > canonical(b) ? 1 : 0));
       outcome.searchServer = {
         requests: count('request'),
+        ...(call.server.saturated ? { saturated: count('saturated') } : {}),
         answered: count('answer'),
         cancelled: count('cancel'),
         // The control pipe closed without the stand-in's own exit report: the process was killed.
@@ -1187,6 +1221,7 @@ try {
           'what each scenario process left running at its exit (Node\'s resident search server) is ended with its job and not recorded',
           'the answers of a scenario\'s warmup calls (they start the search server; the replay runs them too and ignores them)',
           'in a stand-in call\'s `compare` (the real server\'s answer to each request beside the stand-in\'s, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call\'s comparisons, which are stored sorted, as its concurrent requests reach the server in any order',
+          'a comparison of the stand-in\'s saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal\'s fields as server.rs writes them, the scheduler telemetry taken from the real server\'s answer to the same request',
         ],
       },
     });

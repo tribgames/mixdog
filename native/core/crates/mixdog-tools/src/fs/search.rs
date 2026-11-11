@@ -19,6 +19,7 @@ use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FsError;
 use mixdog_core_api::domain::fs::FsErrorKind;
+use mixdog_core_api::domain::fs::SearchClass;
 use mixdog_core_api::domain::fs::SearchMatch;
 use mixdog_core_api::domain::fs::SearchRequest;
 use mixdog_core_api::domain::fs::WalkRequest;
@@ -81,8 +82,9 @@ async fn walk_entries(
     respect_ignore: bool,
     keep: impl Fn(&DirEntry) -> bool,
     cap: Option<usize>,
+    server: Option<SearchClass>,
 ) -> Result<Walked, ToolError> {
-    walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows))), cap).await
+    walk_entries_pruned(ctx, root, respect_ignore, keep, root_scan_prunes(root, cfg!(not(windows))), cap, server).await
 }
 
 pub(super) async fn walk_entries_pruned(
@@ -92,8 +94,9 @@ pub(super) async fn walk_entries_pruned(
     keep: impl Fn(&DirEntry) -> bool,
     prune: Vec<AbsPath>,
     cap: Option<usize>,
+    server: Option<SearchClass>,
 ) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, include_dirs: false, prune, server };
     walk_kept(ctx, request, keep, cap).await
 }
 
@@ -106,7 +109,7 @@ pub(super) async fn walk_inventory(
     cap: usize,
 ) -> Result<Walked, ToolError> {
     let prune = root_scan_prunes(root, cfg!(not(windows)));
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune };
+    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: true, prune, server: None };
     walk_kept(ctx, request, keep, Some(cap)).await
 }
 
@@ -120,16 +123,21 @@ async fn walk_kept(
     let mut walk = ctx.files.walk(ctx.io.maintenance, request);
     let mut out = Vec::new();
     let mut capped = false;
+    let mut refused = false;
     let end = pull_all(ctx, walk.as_mut(), |item| {
-        if let Ok(entry) = item {
-            if (include_dirs || entry.kind != EntryKind::Dir) && keep(&entry) {
-                // Exactly `cap` files is a complete list; the next one is what was cut.
-                if cap.is_some_and(|cap| out.len() >= cap) {
-                    capped = true;
-                    return false;
+        match item {
+            Ok(entry) => {
+                if (include_dirs || entry.kind != EntryKind::Dir) && keep(&entry) {
+                    // Exactly `cap` files is a complete list; the next one is what was cut.
+                    if cap.is_some_and(|cap| out.len() >= cap) {
+                        capped = true;
+                        return false;
+                    }
+                    out.push(entry);
                 }
-                out.push(entry);
             }
+            Err(FsError { kind: FsErrorKind::Saturated, .. }) => refused = true,
+            Err(_) => {}
         }
         true
     })
@@ -139,7 +147,25 @@ async fn walk_kept(
         PullEnd::Deadline | PullEnd::Timer => false,
         PullEnd::Exhausted => true,
     };
+    if refused {
+        return Err(saturated());
+    }
     Ok(Walked { entries: out, complete, capped })
+}
+
+/// Node's search server refusing a request its full queue cannot take (serve_search/server.rs:370-383), which its client
+/// throws (`NATIVE_SEARCH_ERROR`, native-search-client.mjs:869-871) and the tools answer as their failure: grep's and
+/// find's `Error: native search queue saturated` (search-grep-tool.mjs:679), glob's group failure
+/// `rg failed for <root>: …` (search-glob-tool.mjs:287-298).
+const SATURATED: &str = "native search queue saturated";
+
+fn saturated() -> ToolError {
+    let text = format!("Error: {SATURATED}");
+    fail(ToolErrorCode::Failed { reason: SATURATED.to_owned() }, text)
+}
+
+fn is_saturated(error: &ToolError) -> bool {
+    matches!(&error.code, ToolErrorCode::Failed { reason } if reason == SATURATED)
 }
 
 /// Include/exclude sets for gitignore-style globs (`!` excludes).
@@ -204,7 +230,7 @@ pub(crate) async fn glob_files(
         }
         let r = rel(e.path.as_path());
         (!any_include || inc.is_match(&r)) && !exc.is_match(&r)
-    }, cap)
+    }, cap, Some(SearchClass::Bulk))
     .await?;
     let mut out = Vec::with_capacity(walked.entries.len());
     for e in walked.entries {
@@ -502,24 +528,25 @@ impl Tool for GlobTool {
         // anchored there; the others from `path`.
         let (absolute, relative): (Vec<String>, Vec<String>) =
             patterns.iter().cloned().partition(|p| is_absolute_pattern(p));
-        let mut groups: Vec<(AbsPath, Vec<String>)> = Vec::new();
+        // Each group with the root Node names it by (`normalizeOutputPath(root)`).
+        let mut groups: Vec<(AbsPath, Vec<String>, String)> = Vec::new();
         if !relative.is_empty() || absolute.is_empty() {
             if let Some(missing) = require_dir(ctx, raw, &root).await? {
                 return Ok(text_output(missing));
             }
-            groups.push((root.clone(), relative));
+            groups.push((root.clone(), relative, raw.replace('\\', "/")));
         }
         for pattern in &absolute {
             let (base, rest) = extract_glob_base_directory(pattern);
-            let group_root = match base {
-                Some(base) => resolve_path(&ctx.cwd, &base)?,
-                None => root.clone(),
+            let (group_root, label) = match base {
+                Some(base) => (resolve_path(&ctx.cwd, &base)?, base.replace('\\', "/")),
+                None => (root.clone(), raw.replace('\\', "/")),
             };
             let rest = format!("/{rest}");
-            match groups.iter_mut().find(|(r, _)| *r == group_root) {
-                Some((_, rels)) if rels.contains(&rest) => {}
-                Some((_, rels)) => rels.push(rest),
-                None => groups.push((group_root, vec![rest])),
+            match groups.iter_mut().find(|(r, _, _)| *r == group_root) {
+                Some((_, rels, _)) if rels.contains(&rest) => {}
+                Some((_, rels, _)) => rels.push(rest),
+                None => groups.push((group_root, vec![rest], label)),
             }
         }
         // A bounded page is ranked over every match, as Node's windowed top-K pass counts them all;
@@ -530,12 +557,18 @@ impl Tool for GlobTool {
         let mut errors = Vec::new();
         let mut seen = std::collections::HashSet::new();
         let started = std::time::Instant::now();
-        for (group_root, rels) in &groups {
+        for (group_root, rels, label) in &groups {
             if let Some(missing) = require_dir(ctx, &fwd(group_root.as_path()), group_root).await? {
                 errors.push(missing.trim_start_matches("Error: ").to_owned());
                 continue;
             }
-            let (found, done, cut) = glob_files(ctx, group_root, rels, include_noise, cap).await?;
+            let (found, done, cut) = match glob_files(ctx, group_root, rels, include_noise, cap).await {
+                Err(e) if is_saturated(&e) => {
+                    errors.push(format!("rg failed for {label}: {SATURATED}"));
+                    continue;
+                }
+                found => found?,
+            };
             complete &= done;
             capped |= cut;
             files.extend(found.into_iter().filter(|f| seen.insert(f.0.clone())));
@@ -562,8 +595,10 @@ impl Tool for GlobTool {
             output.meta = Some(serde_json::json!({ LOCAL_SEARCH_META: local_search }));
             output
         };
+        // `scanGlobGroups`' `Error: …` answer, a failure as Node's result classifier reads that text.
         if files.is_empty() && !errors.is_empty() {
-            return Ok(text_output(format!("Error: {}", errors.join(" | "))));
+            let text = format!("Error: {}", errors.join(" | "));
+            return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
         }
         if natural {
             files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -869,7 +904,7 @@ impl Tool for FindTool {
         // Every file is scored, as Node's native inventory ranks the whole scope.
         let Walked { entries, complete, .. } = walk_entries(ctx, &root, false, |e| {
             include_noise || !in_noise_dir(e.path.as_path(), &root_path)
-        }, None)
+        }, None, Some(SearchClass::Fuzzy))
         .await?;
         let tokens: Vec<&str> = query.split_whitespace().collect();
         let mut scored: Vec<(i64, String)> = entries
@@ -1066,6 +1101,7 @@ impl GrepTool {
         globs: &[String],
         mode: Mode,
         bound: Option<usize>,
+        class: SearchClass,
     ) -> Result<Scanned, ToolError> {
         let abs = resolve_path(&ctx.cwd, raw)?;
         let stat = match guarded(ctx, "grep", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
@@ -1120,12 +1156,14 @@ impl GrepTool {
                 // hit before it checks a spent bound, so a bound of 0 still reads one.
                 limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
                 deadline: Some(deadlines.soft),
+                class,
             },
         );
         let mut hits = Vec::new();
         let mut errors = 0usize;
         let mut bad_pattern = None;
         let mut timed_out = false;
+        let mut refused = false;
         // The stream is read to its end, past the bound: the scan stops itself at its limit, and the deadline it may
         // report after its last match belongs to the answer (Node's server checks it once more after its scan).
         let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard), |item| {
@@ -1151,6 +1189,7 @@ impl GrepTool {
                 }
                 Err(e) => match e.kind {
                     FsErrorKind::InvalidPattern { message } => bad_pattern = Some(message),
+                    FsErrorKind::Saturated => refused = true,
                     _ => errors += 1,
                 },
             }
@@ -1168,6 +1207,9 @@ impl GrepTool {
                 return Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text));
             }
         };
+        if refused {
+            return Err(saturated());
+        }
         // The parser's own text, as Node relays the search server's refusal.
         if let Some(message) = bad_pattern {
             let error = format!("Error: regex parse error: {message}");
@@ -1329,8 +1371,13 @@ impl GrepTool {
                         return Ok(no_matches(true));
                     }
                     let mut bodies = Vec::with_capacity(patterns.len());
+                    // A pattern's failure is its section's text (`runPattern`'s catch, grep-pattern-fanout.mjs:336-339).
                     for pattern in &patterns {
-                        bodies.push(self.search(ctx, &args, pattern, mode, true, per_pattern).await?);
+                        bodies.push(match self.search(ctx, &args, pattern, mode, true, per_pattern).await {
+                            Ok(text) => text,
+                            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return Err(e),
+                            Err(e) => e.message_for_model,
+                        });
                     }
                     (bodies, Vec::new(), false)
                 }
@@ -1359,7 +1406,7 @@ impl GrepTool {
         // The native search window (serve_search/search.rs `collect_until`): the scan stops one hit past what the call
         // can show, so the length of a cut stream is unknown.
         let Collected { all, complete, errors, single, all_bad, .. } =
-            self.collect(ctx, args, pattern, mode, window.stream_bound(mode)).await?;
+            self.collect(ctx, args, pattern, mode, window.stream_bound(mode), SearchClass::Interactive).await?;
         if all.is_empty() && !errors.is_empty() {
             // A pattern the parser refused is a failed call, as Node's caller takes it; a missing path is a miss.
             // In a several-pattern answer it fails only its own section.
@@ -1405,7 +1452,9 @@ impl GrepTool {
         }
         let per_window = if window.limit == usize::MAX { 300 } else { window.offset.saturating_add(window.limit).saturating_add(4) };
         let cap = per_window.saturating_mul(patterns.len()).clamp(400, 4000);
-        let Some(mut found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Content, Some(cap + 1)).await)? else {
+        // `combinedBulkHint`: sent as a bulk search unless a glob or a type narrows it (grep-pattern-fanout.mjs:249).
+        let class = if arg_strings(args, "glob").is_empty() && arg_str(args, "type").is_none() { SearchClass::Bulk } else { SearchClass::Interactive };
+        let Some(mut found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Content, Some(cap + 1), class).await)? else {
             return Ok(None);
         };
         if !found.errors.is_empty() || found.single {
@@ -1448,14 +1497,15 @@ impl GrepTool {
     /// every pattern over a folder; when it completes with no file the call is one no-match answer. A file, a missing
     /// path or a scan error leaves the per-pattern greps to answer.
     async fn no_candidate_files(&self, ctx: &ToolContext, args: &JsonValue, patterns: &[String]) -> Result<bool, ToolError> {
-        let Some(found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Files, Some(1)).await)? else {
+        // Sent as a bulk search (grep-pattern-fanout.mjs:76).
+        let Some(found) = declined_on_failure(self.collect(ctx, args, &combined_regex(patterns), Mode::Files, Some(1), SearchClass::Bulk).await)? else {
             return Ok(false);
         };
         Ok(found.complete && found.errors.is_empty() && !found.single && found.all.is_empty())
     }
 
     /// Every root's hits (at most `bound` in all, in scan order), labelled and sorted.
-    async fn collect(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, bound: Option<usize>) -> Result<Collected, ToolError> {
+    async fn collect(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, bound: Option<usize>, class: SearchClass) -> Result<Collected, ToolError> {
         let mut roots = arg_strings(args, "path");
         if roots.is_empty() {
             roots.push(".".to_owned());
@@ -1469,7 +1519,7 @@ impl GrepTool {
         let mut timed_out = false;
         for raw in &roots {
             let left = bound.map(|n| n.saturating_sub(all.len()));
-            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, left).await?;
+            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, left, class).await?;
             complete &= scanned.complete;
             timed_out |= scanned.timed_out;
             single = scanned.single_file && roots.len() == 1;
@@ -1549,7 +1599,7 @@ impl GrepTool {
         let mut sections = Vec::with_capacity(roots.len());
         let mut seen = 0usize;
         for (raw, _, _, _) in &roots {
-            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, Some(cap + 1 - seen)).await;
+            let scanned = self.run_one_root(ctx, raw, args, pattern, &globs, mode, Some(cap + 1 - seen), SearchClass::Interactive).await;
             let Some(Scanned { hits, complete, error, single_file: is_file, .. }) = declined_on_failure(scanned)? else {
                 return Ok(None);
             };

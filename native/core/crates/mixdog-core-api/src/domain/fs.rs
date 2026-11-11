@@ -88,6 +88,23 @@ pub struct WalkRequest {
     pub include_dirs: bool,
     /// Directories the walk neither lists nor enters.
     pub prune: Vec<AbsPath>,
+    /// The search-server request the walk stands for (a glob's `--files` listing, a find's inventory), queued as Node's
+    /// server queues it; `None`: a walk Node does not send to its search server, never refused as
+    /// [`FsErrorKind::Saturated`].
+    pub server: Option<SearchClass>,
+}
+
+/// The class of Node's search-server request (serve_search/scheduler.rs:42-49 `search_class`): its queue takes a `Bulk`
+/// request while fewer than its capacity less a priority reserve wait, the others while fewer than its capacity wait
+/// (serve_search/config.rs:183-192); past that the request is refused ([`FsErrorKind::Saturated`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SearchClass {
+    /// A content search (no `bulkHint`).
+    Interactive,
+    /// A `--files` listing, or a content search sent with `bulkHint`.
+    Bulk,
+    /// A find's fuzzy query.
+    Fuzzy,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -105,6 +122,8 @@ pub struct SearchRequest {
     /// The search server's soft deadline (Node's request `deadlineMs`): once it passes the stream ends with a
     /// [`FsErrorKind::TimedOut`] item after what was found; `None` has no deadline.
     pub deadline: Option<std::time::Instant>,
+    /// The search-server request class the search stands for, for its queue's admission ([`SearchClass`]).
+    pub class: SearchClass,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -148,6 +167,9 @@ pub enum FsErrorKind {
     /// whose search the deadline cut: matches of it already given are not whole and are dropped, as Node's server
     /// drops a file its deadline interrupted (`serve_search/search.rs`, the swallowed mid-file expiry).
     TimedOut,
+    /// The only item of a `walk` or `search_text` stream refused because as many searches already wait as Node's search
+    /// server queues for its [`SearchClass`] ("native search queue saturated", serve_search/server.rs:370-383).
+    Saturated,
 }
 
 /// The step of an atomic write that failed (Node's `atomicWrite` names it in its error text).

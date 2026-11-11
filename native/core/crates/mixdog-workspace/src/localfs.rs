@@ -54,6 +54,7 @@ use mixdog_core_api::domain::fs::FsError;
 use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::FsStep;
 use mixdog_core_api::domain::fs::ReadRange;
+use mixdog_core_api::domain::fs::SearchClass;
 use mixdog_core_api::domain::fs::SearchMatch;
 use mixdog_core_api::domain::fs::SearchRequest;
 use mixdog_core_api::domain::fs::WalkRequest;
@@ -731,7 +732,12 @@ impl FileService for LocalFileService {
         if !prune.is_empty() {
             builder.filter_entry(move |entry| !prune.iter().any(|p| entry.path() == p));
         }
-        streamed(&PRODUCERS, Box::new(Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs }), Deadline::default())
+        let walking = Box::new(Walking { walk: builder.build(), root: root.to_path_buf(), include_dirs: request.include_dirs });
+        #[cfg(feature = "replay-controls")]
+        let full = request.server.is_some() && deadline_script::queue_full(root);
+        #[cfg(not(feature = "replay-controls"))]
+        let full = false;
+        streamed(&PRODUCERS, walking, Deadline::default(), request.server, full)
     }
 
     /// The search runs on its own thread, at most [`QUEUE`] matches and [`QUEUE_BYTES`] ahead of the consumer (see
@@ -812,9 +818,13 @@ fn search_over(
         #[cfg(feature = "count-jobs")]
         _live: probe::Live::new(request.root.as_path()),
     };
+    let server = Some(request.class);
     #[cfg(feature = "replay-controls")]
     let after_files = match deadline_script::for_root(request.root.as_path()) {
-        Some(deadline_script::Script::Silent) => return streamed(producers, Box::new(deadline_script::Silent { _search: Box::new(searching) }), Deadline::default()),
+        Some(deadline_script::Script::Silent) => {
+            return streamed(producers, Box::new(deadline_script::Silent { _search: Box::new(searching) }), Deadline::default(), server, false);
+        }
+        Some(deadline_script::Script::QueueFull) => return streamed(producers, Box::new(searching), Deadline::default(), server, true),
         Some(deadline_script::Script::AfterFiles(n)) => Some(n),
         None => None,
     };
@@ -822,7 +832,7 @@ fn search_over(
     let deadline = Deadline { at: request.deadline, after_files };
     #[cfg(not(feature = "replay-controls"))]
     let deadline = Deadline { at: request.deadline };
-    streamed(producers, Box::new(searching), deadline)
+    streamed(producers, Box::new(searching), deadline, server, false)
 }
 
 /// The request's globs, then the resident search server's implicit `.git` exclusions
@@ -985,8 +995,28 @@ const READ_CHUNK: usize = 64 * 1024;
 /// bounds what they hold: a stack, one file's searcher buffers and a walker's state.
 pub const MAX_PRODUCERS: usize = 64;
 
+/// The streams that may wait for a producer slot, as Node's search server queues the requests no worker has taken:
+/// `DEFAULT_SEARCH_QUEUE_CAPACITY` (serve_search/config.rs:17). A stream that stands for a search-server request
+/// ([`SearchClass`]) and finds that many already waiting (fewer for a bulk one, [`admission_capacity`]) is refused with
+/// [`FsErrorKind::Saturated`], as the server refuses it (server.rs:370-383, scheduler.rs:241); one that does not
+/// (`WalkRequest::server` `None`) always waits.
+///
+/// The point is the queue's depth, as in Node: the searches running alongside differ, up to [`MAX_PRODUCERS`] here and
+/// `server_parallelism()` (2 to 8) there, so the core is refused with up to 64 searches running where Node runs 2 to 8.
+pub const SEARCH_QUEUE_CAPACITY: usize = 2_048;
+
+/// serve_search/config.rs:171-192: a bulk request is queued while fewer than the capacity less the priority reserve
+/// (`ceil(capacity / 8)` within 1..=64, below the capacity) wait, any other while fewer than the capacity wait.
+fn admission_capacity(class: SearchClass, capacity: usize) -> usize {
+    if class != SearchClass::Bulk {
+        return capacity;
+    }
+    let reserve = if capacity <= 1 { 0 } else { capacity.div_ceil(8).clamp(1, 64).min(capacity - 1) };
+    capacity.saturating_sub(reserve).max(1)
+}
+
 /// Every stream's producer threads, process-wide.
-static PRODUCERS: LazyLock<Arc<Producers>> = LazyLock::new(|| Arc::new(Producers::new(MAX_PRODUCERS)));
+static PRODUCERS: LazyLock<Arc<Producers>> = LazyLock::new(|| Arc::new(Producers::new(MAX_PRODUCERS, SEARCH_QUEUE_CAPACITY)));
 
 /// The stream producer threads alive now, process-wide ([`Producers`]).
 pub fn producer_counts() -> ProducerCounts {
@@ -1003,6 +1033,8 @@ pub struct ProducerCounts {
     /// pipe), whose call is being cancelled ([`cancel_io`]), or one the OS cannot cancel. Each ends when its call
     /// returns; nothing waits for it.
     pub abandoned: usize,
+    /// Streams waiting for a slot, no thread yet ([`SEARCH_QUEUE_CAPACITY`]).
+    pub waiting: usize,
 }
 
 /// A producer's state, changed only under [`Producers`]' lock, so each start, release and end is counted once.
@@ -1011,20 +1043,22 @@ const RUNNING: u8 = 1;
 const RELEASED: u8 = 2;
 const ENDED: u8 = 3;
 
-/// The producer threads of a set of streams, at most `cap` alive. A stream's state moves through [`WAITING`] (no thread
-/// yet: every slot is taken), [`RUNNING`], [`RELEASED`] (its stream let go of it while it ran: abandoned until it ends)
-/// and [`ENDED`]; the counts change with it, under one lock, whichever of the stream (close, drop) and the thread (its
-/// end) gets there first.
+/// The producer threads of a set of streams, at most `cap` alive, and the streams waiting for one, at most `queue` of
+/// those that stand for a search-server request ([`SEARCH_QUEUE_CAPACITY`]). A stream's state moves through [`WAITING`]
+/// (no thread yet: every slot is taken), [`RUNNING`], [`RELEASED`] (its stream let go of it while it ran: abandoned
+/// until it ends) and [`ENDED`]; the counts change with it, under one lock, whichever of the stream (close, drop) and the
+/// thread (its end) gets there first.
 pub struct Producers {
     cap: usize,
+    queue: usize,
     counts: Mutex<ProducerCounts>,
     /// Notified on every change of the counts.
     changed: Notify,
 }
 
 impl Producers {
-    fn new(cap: usize) -> Self {
-        Self { cap, counts: Mutex::new(ProducerCounts::default()), changed: Notify::new() }
+    fn new(cap: usize, queue: usize) -> Self {
+        Self { cap, queue, counts: Mutex::new(ProducerCounts::default()), changed: Notify::new() }
     }
 
     fn lock(&self) -> MutexGuard<'_, ProducerCounts> {
@@ -1035,14 +1069,39 @@ impl Producers {
         *self.lock()
     }
 
-    /// `state`'s producer takes a slot and starts, if a slot is free.
+    /// A new stream's producer takes a slot (`Some(true)`: it starts) or else waits for one (`Some(false)`), unless it
+    /// stands for a search-server request of `server`'s class and as many streams already wait as that class may join
+    /// (`None`: refused, [`FsErrorKind::Saturated`]). `full`: a replay's scripted full queue ([`deadline_script`]).
+    fn enqueue(&self, state: &AtomicU8, server: Option<SearchClass>, full: bool) -> Option<bool> {
+        let mut counts = self.lock();
+        if !full && counts.live < self.cap {
+            counts.live += 1;
+            state.store(RUNNING, Ordering::SeqCst);
+            return Some(true);
+        }
+        if let Some(class) = server {
+            if full || counts.waiting >= admission_capacity(class, self.queue) {
+                return None;
+            }
+        }
+        counts.waiting += 1;
+        state.store(WAITING, Ordering::SeqCst);
+        drop(counts);
+        self.changed.notify_waiters();
+        Some(false)
+    }
+
+    /// `state`'s waiting producer takes a slot and starts, if a slot is free.
     fn admit(&self, state: &AtomicU8) -> bool {
         let mut counts = self.lock();
         if counts.live >= self.cap {
             return false;
         }
         counts.live += 1;
+        counts.waiting -= 1;
         state.store(RUNNING, Ordering::SeqCst);
+        drop(counts);
+        self.changed.notify_waiters();
         true
     }
 
@@ -1055,7 +1114,10 @@ impl Producers {
                 state.store(RELEASED, Ordering::SeqCst);
                 counts.abandoned += 1;
             }
-            WAITING => state.store(ENDED, Ordering::SeqCst),
+            WAITING => {
+                state.store(ENDED, Ordering::SeqCst);
+                counts.waiting -= 1;
+            }
             _ => return,
         }
         drop(counts);
@@ -1448,11 +1510,19 @@ fn failed<T: Weigh + Send + 'static>(error: FsError) -> Box<dyn EventSource<Resu
     })
 }
 
+/// A stream of `producer`'s items: its producer starts at once if a slot is free, waits for one otherwise, or, standing
+/// for a search-server request of `server`'s class, is refused when the queue is full ([`Producers::enqueue`]).
 fn streamed<T: Weigh + Send + 'static>(
     producers: &Arc<Producers>,
     producer: Box<dyn Produce<T>>,
     deadline: Deadline,
+    server: Option<SearchClass>,
+    full: bool,
 ) -> Box<dyn EventSource<Result<T, FsError>>> {
+    let state = Arc::new(AtomicU8::new(ENDED));
+    let Some(start) = producers.enqueue(&state, server, full) else {
+        return failed(FsError::new(FsErrorKind::Saturated, None));
+    };
     let (tx, rx) = mpsc::channel(QUEUE);
     let ctl = Arc::new(Control::new(deadline));
     let (done, finished) = oneshot::channel::<()>();
@@ -1463,11 +1533,13 @@ fn streamed<T: Weigh + Send + 'static>(
         finished: Some(finished),
         late: false,
         producers: producers.clone(),
-        state: Arc::new(AtomicU8::new(WAITING)),
+        state,
         waiting: Some(Waiting { producer, out, done }),
         thread: None,
     };
-    stream.try_start();
+    if start {
+        stream.spawn();
+    }
     Box::new(stream)
 }
 
@@ -1480,7 +1552,13 @@ impl<T: Weigh + Send + 'static> Streamed<T> {
         if !self.producers.admit(&self.state) {
             return false;
         }
-        let Some(Waiting { producer, out, done }) = self.waiting.take() else { return true };
+        self.spawn();
+        true
+    }
+
+    /// Starts the producer's thread, its slot taken.
+    fn spawn(&mut self) {
+        let Some(Waiting { producer, out, done }) = self.waiting.take() else { return };
         let started = Started { producers: self.producers.clone(), state: self.state.clone() };
         let spawned = std::thread::Builder::new().name("mixdog-fs-stream".into()).spawn(move || {
             // Dropped when the thread ends, however it ends, in this order: the slot, then the end `close` waits for.
@@ -1496,7 +1574,6 @@ impl<T: Weigh + Send + 'static> Streamed<T> {
                 self.finished = None;
             }
         }
-        true
     }
 
     /// Waits for a slot and starts the producer. Dropping this wait keeps the producer waiting in the stream.
@@ -1762,6 +1839,9 @@ pub mod deadline_script {
         AfterFiles(usize),
         /// The search never answers: it queues nothing and ends only when stopped (a server stuck past every deadline).
         Silent,
+        /// Every slot is taken and the queue is full: a walk or search that stands for a search-server request is refused
+        /// ([`super::Producers::enqueue`], [`super::FsErrorKind::Saturated`]).
+        QueueFull,
     }
 
     static SCRIPTS: Mutex<Vec<(PathBuf, Script)>> = Mutex::new(Vec::new());
@@ -1778,6 +1858,10 @@ pub mod deadline_script {
     pub(super) fn for_root(root: &Path) -> Option<Script> {
         let scripts = SCRIPTS.lock().unwrap_or_else(PoisonError::into_inner);
         scripts.iter().find(|(scope, _)| root.starts_with(scope)).map(|(_, script)| *script)
+    }
+
+    pub(super) fn queue_full(root: &Path) -> bool {
+        matches!(for_root(root), Some(Script::QueueFull))
     }
 
     /// A search that queues nothing and ends when stopped, holding the search it stands for until then.
@@ -2135,6 +2219,7 @@ mod tests {
             respect_ignore: true,
             limit: None,
             deadline: None,
+            class: SearchClass::Interactive,
         };
         let mut stream = fs.search_text(lanes().maintenance, request);
         let err = stream.next().await.unwrap().unwrap_err();
@@ -2163,6 +2248,7 @@ mod tests {
                 respect_ignore: false,
                 limit: None,
                 deadline: None,
+                class: SearchClass::Interactive,
             };
             let mut s = fs.search_text(l.maintenance, request);
             async move {
@@ -2175,7 +2261,7 @@ mod tests {
         };
         assert_eq!(search(root.clone()).await, vec!["a.txt"]);
         assert_eq!(search(root.join(".git")).await, vec!["config"]);
-        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, prune: Vec::new() });
+        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, prune: Vec::new(), server: None });
         let mut names = Vec::new();
         while let Some(e) = walk.next().await {
             names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
@@ -2199,6 +2285,7 @@ mod tests {
             respect_ignore: true,
             limit: None,
             deadline: None,
+            class: SearchClass::Interactive,
         };
         let mut s = fs.search_text(lanes().maintenance, request);
         let mut texts = Vec::new();
@@ -2256,6 +2343,7 @@ mod tests {
             respect_ignore: true,
             limit: None,
             deadline: None,
+            class: SearchClass::Interactive,
         };
         let found = run(base.clone()).await;
         // ripgrep quits a file at its first NUL, so bin.rs reports nothing; skip/ is gitignored.
@@ -2276,6 +2364,7 @@ mod tests {
             respect_ignore: false,
             limit: None,
             deadline,
+            class: SearchClass::Interactive,
         }
     }
 
@@ -2450,7 +2539,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_directory_read_that_never_returns_is_abandoned_after_the_grace() {
         let (_dir, root) = root();
-        let producers = Arc::new(Producers::new(MAX_PRODUCERS));
+        let producers = Arc::new(Producers::new(MAX_PRODUCERS, SEARCH_QUEUE_CAPACITY));
         let (listing, release, _) = hung_listing();
         let started = Instant::now();
         let mut stream = search_over(&producers, &needle_request(&root, Some(started + Duration::from_millis(100))), listing, no_files());
@@ -2460,7 +2549,7 @@ mod tests {
         let closing = Instant::now();
         stream.close().await;
         assert!(closing.elapsed() >= CLOSE_GRACE && closing.elapsed() < CLOSE_GRACE * 3, "{:?}", closing.elapsed());
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1 }, "the abandoned thread is still in its read");
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1, waiting: 0 }, "the abandoned thread is still in its read");
         drop(release);
         until(&producers, "the abandoned thread ends once its read returns", |c| c == ProducerCounts::default()).await;
     }
@@ -2471,7 +2560,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_producer_its_stream_lets_go_of_is_counted_until_it_ends() {
         let (_dir, root) = root();
-        let producers = Arc::new(Producers::new(MAX_PRODUCERS));
+        let producers = Arc::new(Producers::new(MAX_PRODUCERS, SEARCH_QUEUE_CAPACITY));
         let mut released = Vec::new();
         let mut search = async || {
             let (listing, release, in_read) = hung_listing();
@@ -2482,7 +2571,7 @@ mod tests {
         };
         let mut closed = search().await;
         closed.close().await;
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1 }, "a close that waited out its grace");
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 1, waiting: 0 }, "a close that waited out its grace");
         let mut cut = search().await;
         {
             let close = cut.close();
@@ -2490,9 +2579,9 @@ mod tests {
             let polled = close.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
             assert!(polled.is_pending(), "the close waits for its producer");
         }
-        assert_eq!(producers.counts(), ProducerCounts { live: 2, abandoned: 2 }, "a close its caller dropped");
+        assert_eq!(producers.counts(), ProducerCounts { live: 2, abandoned: 2, waiting: 0 }, "a close its caller dropped");
         drop(search().await);
-        assert_eq!(producers.counts(), ProducerCounts { live: 3, abandoned: 3 }, "a dropped stream");
+        assert_eq!(producers.counts(), ProducerCounts { live: 3, abandoned: 3, waiting: 0 }, "a dropped stream");
         drop(released);
         until(&producers, "every producer ends once its read returns", |c| c == ProducerCounts::default()).await;
         drop((closed, cut));
@@ -2508,7 +2597,7 @@ mod tests {
         let (_dir, root) = root();
         let file = root.join("a.txt").as_path().to_path_buf();
         std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(CAP));
+        let producers = Arc::new(Producers::new(CAP, SEARCH_QUEUE_CAPACITY));
         let mut released = Vec::new();
         for _ in 0..CAP {
             let (listing, release, in_read) = hung_listing();
@@ -2520,7 +2609,7 @@ mod tests {
             assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
             stream.close().await;
         }
-        assert_eq!(producers.counts(), ProducerCounts { live: CAP, abandoned: CAP });
+        assert_eq!(producers.counts(), ProducerCounts { live: CAP, abandoned: CAP, waiting: 0 });
         let one_file = || -> (Listing, Opener) {
             let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
             (listing, Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>)))
@@ -2529,7 +2618,7 @@ mod tests {
         let mut late = search_over(&producers, &needle_request(&root, Some(Instant::now())), listing, open);
         let (listing, open) = one_file();
         let mut found = search_over(&producers, &needle_request(&root, None), listing, open);
-        assert_eq!(producers.counts(), ProducerCounts { live: CAP, abandoned: CAP }, "no thread past the cap");
+        assert_eq!(producers.counts(), ProducerCounts { live: CAP, abandoned: CAP, waiting: 2 }, "no thread past the cap");
         for stream in [&mut late, &mut found] {
             let next = stream.next();
             let mut next = std::pin::pin!(next);
@@ -2537,7 +2626,7 @@ mod tests {
             assert!(polled.is_pending(), "a search waiting for a slot answers nothing, its passed deadline included");
         }
         drop(released);
-        until(&producers, "the stuck producers end once their reads return", |c| c == ProducerCounts::default()).await;
+        until(&producers, "the stuck producers end once their reads return", |c| c == ProducerCounts { waiting: 2, ..Default::default() }).await;
         let err = within("the late search's answer", late.next()).await.unwrap().unwrap_err();
         assert!(matches!(err.kind, FsErrorKind::TimedOut), "{err:?}");
         let hit = within("the waiting search's match", found.next()).await.unwrap().unwrap();
@@ -2571,7 +2660,7 @@ mod tests {
         let (_dir, root) = root();
         let file = root.join("a.txt").as_path().to_path_buf();
         std::fs::write(&file, "needle\n").unwrap();
-        let producers = Arc::new(Producers::new(1));
+        let producers = Arc::new(Producers::new(1, SEARCH_QUEUE_CAPACITY));
         let (reader, writer) = io::pipe().unwrap();
         let (started, in_read) = oneshot::channel::<()>();
         let pipe = Mutex::new(Some(Reading { pipe: reader, started: Some(started) }));
@@ -2582,13 +2671,61 @@ mod tests {
         let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
         let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
         let mut next = search_over(&producers, &needle_request(&root, None), listing, open);
-        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 0 }, "the next search has no slot");
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 0, waiting: 1 }, "the next search has no slot");
         blocked.close().await;
-        until(&producers, "the producer in its pipe read is cancelled and ends", |c| c == ProducerCounts::default()).await;
+        until(&producers, "the producer in its pipe read is cancelled and ends", |c| c == ProducerCounts { waiting: 1, ..Default::default() }).await;
         let hit = within("the next search's match", next.next()).await.unwrap().unwrap();
         assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
         assert!(within("the next search's end", next.next()).await.is_none());
         next.close().await;
+        drop(writer);
+    }
+
+    /// Past the slots, searches wait while fewer than the queue's capacity wait; the next is refused as Node's server
+    /// refuses it, a bulk one already at the capacity less its reserve (9 less 2), and a walk Node does not queue still
+    /// waits. Once the slot frees, the waiting searches run and the queue takes searches again.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_search_past_the_queue_capacity_is_refused_as_saturated_and_the_queue_recovers() {
+        const QUEUE: usize = 9;
+        let (_dir, root) = root();
+        let file = root.join("a.txt").as_path().to_path_buf();
+        std::fs::write(&file, "needle\n").unwrap();
+        let producers = Arc::new(Producers::new(1, QUEUE));
+        let (reader, writer) = io::pipe().unwrap();
+        let (started, in_read) = oneshot::channel::<()>();
+        let pipe = Mutex::new(Some(Reading { pipe: reader, started: Some(started) }));
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(root.join("pipe").as_path().to_path_buf()))));
+        let open: Opener = Box::new(move |_| Ok(Box::new(pipe.lock().unwrap().take().unwrap()) as Box<dyn Read + Send>));
+        let mut blocked = search_over(&producers, &needle_request(&root, None), listing, open);
+        within("the producer in its pipe read", in_read).await.unwrap();
+        let one_file = |class| {
+            let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
+            let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
+            search_over(&producers, &SearchRequest { class, ..needle_request(&root, None) }, listing, open)
+        };
+        let saturated = |item: Option<Result<SearchMatch, FsError>>| matches!(item, Some(Err(FsError { kind: FsErrorKind::Saturated, .. })));
+        let mut waiting: Vec<_> = (0..7).map(|_| one_file(SearchClass::Interactive)).collect();
+        assert!(saturated(within("a bulk search past 7 waiting", one_file(SearchClass::Bulk).next()).await));
+        waiting.extend((0..2).map(|_| one_file(SearchClass::Fuzzy)));
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 0, waiting: QUEUE });
+        assert!(saturated(within("a search past 9 waiting", one_file(SearchClass::Interactive).next()).await));
+        assert!(saturated(within("a fuzzy search past 9 waiting", one_file(SearchClass::Fuzzy).next()).await));
+        let walking = Walking { walk: WalkBuilder::new(root.as_path()).build(), root: root.as_path().to_path_buf(), include_dirs: false };
+        let walk = streamed(&producers, Box::new(walking), Deadline::default(), None, false);
+        assert_eq!(producers.counts().waiting, QUEUE + 1, "a walk Node does not queue waits");
+        drop(walk);
+        blocked.close().await;
+        until(&producers, "the slot frees", |c| c == ProducerCounts { waiting: QUEUE, ..Default::default() }).await;
+        for stream in &mut waiting {
+            let hit = within("a waiting search's match", stream.next()).await.unwrap().unwrap();
+            assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
+            assert!(within("a waiting search's end", stream.next()).await.is_none());
+            stream.close().await;
+        }
+        let mut again = one_file(SearchClass::Bulk);
+        assert!(within("the queue takes searches again", again.next()).await.unwrap().is_ok());
+        again.close().await;
+        assert_eq!(producers.counts(), ProducerCounts::default());
         drop(writer);
     }
 
@@ -2602,7 +2739,7 @@ mod tests {
             std::fs::File::create(dir.as_path().join(format!("{i:04}.txt"))).unwrap();
         }
         let fs = LocalFileService::new();
-        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, prune: Vec::new() };
+        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, prune: Vec::new(), server: None };
         let mut walk = fs.walk(lanes().maintenance, request);
         let mut names = Vec::new();
         while let Some(entry) = walk.next().await {
