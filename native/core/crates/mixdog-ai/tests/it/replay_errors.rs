@@ -106,7 +106,8 @@ fn retry_after_of(headers: &Exact) -> Option<Duration> {
 }
 
 /// One recorded field against what left the provider layer; `what` names it in a failure.
-fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>) {
+/// `user` is the recorded error's `userMessage`, the typed copy Node put in the server's text's place.
+fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: Option<&str>) {
     if error_field_unread(field) {
         return;
     }
@@ -124,8 +125,12 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>) {
             let error = left.error(field);
             let code = value.try_get("code").and_then(opt_str).or_else(|| value.try_get("type").and_then(opt_str));
             assert_eq!(error.code.as_deref(), code, "{what}.code: {mapping}");
+            // `httpResponseError` / `applyTypedWireMessage`: the error's message ends with the body's own message (its
+            // first 200 UTF-16 units), or with the typed copy (`userMessage`) that took its place.
             if let Some(message) = value.try_get("message") {
-                assert_eq!(error.message, message.as_str(), "{what}.message: {mapping}");
+                let own = mixdog_js::slice_utf16(message.as_str(), 200);
+                let tail = user.map_or(own.as_str(), |copy| copy);
+                assert!(error.message.ends_with(tail), "{what}.message: {mapping}: {:?} does not end with {tail:?}", error.message);
             }
         }
         "status" | "httpStatus" => {
@@ -136,6 +141,16 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>) {
             assert_eq!(left.error(field).status, want, "{what}: {mapping}");
         }
         "headers" => assert_eq!(left.error(field).retry_after, retry_after_of(value), "{what}: {mapping}"),
+        "retryAfterMs" => {
+            assert_eq!(left.error(field).retry_after, Some(Duration::from_millis(value.as_f64() as u64)), "{what}: {mapping}");
+        }
+        // The recorded clock's instant of the wait: the wait itself is compared as `retryAfterMs`.
+        "retryAfterAt" => assert!(left.error(field).retry_after.is_some(), "{what}: {mapping}"),
+        "resetAt" => assert_eq!(
+            left.error(field).reset_at.map(|at| at.duration_since(std::time::UNIX_EPOCH).expect("after the epoch").as_millis() as f64),
+            Some(value.as_f64()),
+            "{what}: {mapping}"
+        ),
         "param" => assert_eq!(left.error(field).rejected_tool.as_deref(), opt_str(value), "{what}: {mapping}"),
         "providerWireError" | "responseFailed" => assert!(left.error.is_some() || !opt_bool(value), "{what}: {mapping}"),
         "partialContent" => assert_eq!(left.text(), value.as_str(), "{what}: {mapping}"),
@@ -226,15 +241,16 @@ pub fn compare_outcome(what: &str, outcome: &Exact, left: &Left<'_>) {
 /// A recorded error (an `Exact::Error`) against what left the provider layer, every field.
 pub fn compare_error(what: &str, recorded: &Exact, left: &Left<'_>) {
     let Exact::Error { name, message, code, cause, props } = recorded else { panic!("{what}: not a recorded error: {recorded:?}") };
-    compare_field(&format!("{what}.name"), "name", &Exact::String(name.clone()), left);
-    compare_field(&format!("{what}.message"), "message", &Exact::String(message.clone()), left);
+    let user = props.iter().find(|(field, _)| field == "userMessage").map(|(_, value)| value.as_str());
+    compare_field(&format!("{what}.name"), "name", &Exact::String(name.clone()), left, user);
+    compare_field(&format!("{what}.message"), "message", &Exact::String(message.clone()), left, user);
     if let Some(code) = code {
-        compare_field(&format!("{what}.code"), "code", code, left);
+        compare_field(&format!("{what}.code"), "code", code, left, user);
     }
     if let Some(cause) = cause {
-        compare_field(&format!("{what}.cause"), "cause", cause, left);
+        compare_field(&format!("{what}.cause"), "cause", cause, left, user);
     }
     for (field, value) in props {
-        compare_field(&format!("{what}.{field}"), field, value, left);
+        compare_field(&format!("{what}.{field}"), field, value, left, user);
     }
 }
