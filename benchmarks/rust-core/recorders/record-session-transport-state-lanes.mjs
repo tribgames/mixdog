@@ -4,37 +4,56 @@
 //   67   `session.subscribe` of an unknown session is refused before any runtime exists (`sessionExists` scripted);
 //   94   an agent session publishes through the ordinary subscribed `session-state` lane
 //        (`subscribeExternalSessionStates` / `readStoredSession` / `onFrame` scripted; frames captured as sent);
+//   192  a live daemon event stream that ends is reconnected in place with the same client registration, while ordinary
+//        calls keep working (scripted daemon, the real client; what the daemon saw and what the client reported);
+//   275  a disconnected client gets a bounded `resyncRequired` marker instead of a huge backlog (the frame as received);
 //   303  a disconnected channel client keeps only the latest remote-state frame (10 000 writes through the channel
 //        transport's `_writeRemoteStateToForTest`, the test hook that is the transport's own write function);
-//   327  the channel transport publishes the pinned remote session (`activate_channel_bridge` over HTTP);
+//   327  the channel transport publishes the pinned remote session (`activate_channel_bridge` over HTTP): the Node of the
+//        base commit AND the Node with the fix of `node-fix-remote-state-null-session.patch`;
 //   365  every attached client observes the same session snapshot stream (three clients on the real HTTP/SSE session
-//        transport, the stub runtime; the folded snapshots are recorded at each event-driven wait);
+//        transport, the stub runtime);
 //   428  an in-daemon transport connection receives frames without owning the daemon's lifetime (clientCount /
-//        connectionCount / the clients-empty callback).
+//        connectionCount / the clients-empty callback);
+//   446  a local attachment keeps a silent stream: ten virtual minutes pass without a disconnect; only the socket closing
+//        ends it (virtual clock: the recorder ticks the mocked setTimeout, every tick is a recorded step);
+//   493  a silent stream is reconnected and a continuous reconnect storm exhausts its budget (virtual wall clock: every
+//        move of Date.now is a recorded step; the scripted daemon holds each reconnect until the recorder releases it).
 //
-// NOT recorded (reasons in `notRecorded`): 19 asserts object identity (no clone) of a Node in-memory snapshot;
-// 192, 275, 446, 493 are the Node HTTP/SSE stream itself (reconnect in place, resync markers, silent-stream liveness,
-// reconnect budget) which the Rust core replaces with the app-server WebSocket: no Rust counterpart.
+// NOT recorded (reasons in `notRecorded`): 19 asserts object identity (no clone) of a Node in-memory snapshot.
 //
 //   node benchmarks/rust-core/recorders/record-session-transport-state-lanes.mjs --tree <dir>
-import { NORMALISED, callOutcome, createNormaliser, withLoggedDaemon } from './lib/session-daemon-harness.mjs';
-import { runSessionRecorder } from './lib/session-rec.mjs';
+import http from 'node:http';
+import { rmSync } from 'node:fs';
+import { mock } from 'node:test';
+import { exact } from './lib/exact.mjs';
+import { buildPatchedTree } from './lib/patched-tree.mjs';
+import { DETERMINISM, FIXED_CWD, FIXED_PID, FIXED_NOW, Signal, clock, installDeterminism, startWireTap, withLoggedDaemon } from './lib/session-wire-harness.mjs';
+import { outcomeExact, runSessionRecorder } from './lib/session-rec.mjs';
+
+installDeterminism();
+const PATCH = 'benchmarks/rust-core/recorders/patches/node-fix-remote-state-null-session.patch';
 
 await runSessionRecorder(import.meta.url, {
   set: 'session-transport-state-lanes',
   testFile: 'scripts/session-transport/state-lanes.test.mjs',
-  entry: 'Ran src/standalone/session-state-patch.mjs (diffSessionState/applySessionStatePatch), session-service.mjs createSessionService().handleCall with scripted sessionExists / readStoredSession / subscribeExternalSessionStates / onFrame, channel-transport.mjs createChannelTransport over real HTTP on 127.0.0.1, and the real session transport + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs. Did not run the SSE reconnect/liveness cases (192, 275, 446, 493) nor the identity case 19.',
-  replay: 'mixdog-app-server thread/transcript patches and lane pushes (APP/lane_pushes.rs, subscriptions.rs) and mixdog-app-server-daemon lifecycle (DMN/lifecycle): case 48 compare the patch for the same two states byte for byte; 67/94 compare refusal text, subscribed answer and pushed frames; 303/327 compare the latest pending frame / ordered state callbacks; 365 compare each view\'s folded items; 428 compare client/connection counts and the clients-empty signal.',
+  dataFiles: [PATCH],
+  patch: { file: PATCH, applied: 'to a temporary copy of the tree\'s src for the second recording of case 327 only; every other case runs the unpatched tree', fixes: 'src/standalone/channel-transport/remote-state.mjs: String(null) published Remote as enabled for the session "null" (case 327, first state)' },
+  entry: 'Ran src/standalone/session-state-patch.mjs (diffSessionState/applySessionStatePatch), session-service.mjs createSessionService().handleCall with scripted sessionExists / readStoredSession / subscribeExternalSessionStates / onFrame, channel-transport.mjs createChannelTransport over real HTTP on 127.0.0.1 (behind a TCP tap), the real session transport + session-client attachSession with the stub runtime of scripts/session-transport/_shared.mjs, and, for 192/446/493, the real session client against a scripted HTTP daemon (the test\'s own stand-in, a recorder-side http.createServer) behind the tap. Every HTTP exchange (status line, headers in order, body; an event stream as its frames) is recorded. Did not run the identity case 19.',
+  replay: 'App-server behaviour of the Rust core (mixdog-app-server over WebSocket; native/core/crates/mixdog-app-protocol): case 48 compare the transcript patch for the same two states byte for byte (thread/updated patches); 67/94 compare the refusal (error name/message) and the pushed thread frames after thread/resume of the same session; 192/275/446/493 are Node SSE/HTTP transport contracts recorded at the level a client sees (what a reconnect reuses and sends, what is replayed or resynced, when a lane is declared dead and after which budget): the Rust WebSocket client must show the same observable order, resync and liveness verdicts (list as Rust-side work where the WebSocket server has no counterpart); 303/327 compare the latest pending remote-state frame and the ordered state callbacks (remote/pointer, remote/connectionTimeline), case 327-fixed is the expected Rust behaviour; 365 compare each view\'s folded items and frames; 428 compare client/connection counts and the clients-empty signal.',
+  values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
   exclusions: [
-    'cases 19, 192, 275, 446, 493 are listed in notRecorded with their reasons',
-    'case 365: frames are DELTAS of a stream with timing-dependent coalescing, so only the folded transcript (itemsFromFrames, as the test folds it) is recorded at each wait, not the frame list',
+    'case 19 is listed in notRecorded with its reason',
+    'wire taps record the HTTP exchanges in request order: `Host` header port value -> <port> and the response `Date` header value -> <date>, at those header paths only; no other value is normalised',
     'case 303: written through the transport\'s `_writeRemoteStateToForTest` hook (the same function the pointer uses) because the production writer needs a displaced client',
-    'case 327: the published state objects carry updatedAt (ms) -> <ms> and daemonPid -> <pid>',
-    ...NORMALISED,
+    'cases 446 and 493 move virtual clocks: 446 ticks the mocked global setTimeout (only setTimeout is faked; sockets keep their own timers), 493 moves Date.now() by recorded steps while the client\'s own 5-20 ms timers run in real time and the scripted daemon holds every reconnect until released',
+    ...DETERMINISM,
   ],
-}, async ({ imp }) => {
+}, async ({ imp, tree, importFrom }) => {
   const S = await imp('scripts/session-transport/_shared.mjs');
   const cases = [];
+  const add = (name, line, input, result) => cases.push({ name, testLine: line, input: exact(input), result });
+  const setup = { cwd: FIXED_CWD, leadPid: FIXED_PID };
 
   // test line 48
   {
@@ -45,17 +64,11 @@ await runSessionRecorder(import.meta.url, {
     const next = { sessionId: 'suffix-test', busy: false, items: nextItems };
     const patch = S.diffSessionState(previous, next);
     const applied = S.applySessionStatePatch(previous, patch);
-    cases.push({
-      name: 'tool-card-update-sends-only-the-changed-transcript-suffix',
-      testLine: 48,
-      input: { generator: '2000 items {id: item-<i>, kind: message (tool for i=1999), status: settled, text: row-<i>}; next = same with item 1999 {status: completed, text: tool result} and busy true->false', previous: { sessionId: 'suffix-test', busy: true, itemCount: 2000 }, next: { sessionId: 'suffix-test', busy: false, itemCount: 2000 } },
-      result: { patch, patchHasItemsInSet: Object.hasOwn(patch.set, 'items'), patchJsonLength: JSON.stringify(patch).length, appliedEqualsNext: JSON.stringify(applied) === JSON.stringify(next) },
-    });
+    add('tool-card-update-sends-only-the-changed-transcript-suffix', 48, { previous, next }, { patch: exact(patch), applied: exact(applied) });
   }
 
   // test line 67
   {
-    const ids = createNormaliser(S.RUNTIME_ROOT);
     let creations = 0;
     const exists = [];
     const service = S.createSessionService({
@@ -63,13 +76,12 @@ await runSessionRecorder(import.meta.url, {
       sessionExists: async (id) => { exists.push(id); return false; },
     });
     let outcome;
-    try { outcome = await callOutcome(ids.norm, service.handleCall('session.subscribe', { sessionId: 'missing_session' }, { clientToken: 'stale_pane' })); } finally { await service.stop('recorder end'); }
-    cases.push({ name: 'unknown-session-subscription-is-rejected-before-a-runtime-is-created', testLine: 67, input: { call: ['session.subscribe', { sessionId: 'missing_session' }, { clientToken: 'stale_pane' }], sessionExists: 'always false' }, result: { outcome, runtimeCreations: creations, sessionExistsCalls: exists, serviceSize: service.size } });
+    try { outcome = await outcomeExact(() => service.handleCall('session.subscribe', { sessionId: 'missing_session' }, { clientToken: 'stale_pane' })); } finally { await service.stop('recorder end'); }
+    add('unknown-session-subscription-is-rejected-before-a-runtime-is-created', 67, { call: ['session.subscribe', { sessionId: 'missing_session' }, { clientToken: 'stale_pane' }], sessionExists: 'always false' }, { outcome, runtimeCreations: creations, sessionExistsCalls: exists, serviceSize: service.size });
   }
 
   // test line 94
   {
-    const ids94 = createNormaliser(S.RUNTIME_ROOT);
     let publishAgentSession = null;
     let creations = 0;
     const frames = [];
@@ -78,118 +90,310 @@ await runSessionRecorder(import.meta.url, {
       createSessionRuntime: async () => { creations += 1; throw new Error('a live agent projection must not create another runtime'); },
       readStoredSession: async (sessionId) => { reads.push(sessionId); return { sessionId, items: [{ id: 'brief', kind: 'user', text: 'worker brief' }], queued: [] }; },
       subscribeExternalSessionStates(listener) { publishAgentSession = listener; return () => { publishAgentSession = null; }; },
-      onFrame(frame, targets) { frames.push({ frame, targets: [...(targets || [])] }); },
+      onFrame(frame, targets) { frames.push(exact({ frame, targets: [...(targets || [])] })); },
     });
     const client = { clientToken: 'desktop-pane' };
     const steps = [];
     try {
-      steps.push({ step: "session.subscribe(agent_child)", ...(await callOutcome(ids94.norm, service.handleCall('session.subscribe', { sessionId: 'agent_child' }, client))) });
+      steps.push({ step: 'session.subscribe(agent_child)', ...(await outcomeExact(() => service.handleCall('session.subscribe', { sessionId: 'agent_child' }, client))) });
       publishAgentSession({ sessionId: 'agent_child', snapshot: { sessionId: 'agent_child', items: [{ id: 'brief', kind: 'user', text: 'worker brief' }, { id: 'tool-1', kind: 'tool', text: 'read source' }], queued: [], busy: true } });
-      steps.push({ step: 'external publish (brief, tool-1; busy)', frames: ids94.norm(frames), pendingViewerSessions: service.status.pendingViewerSessions, runtimeCreations: creations });
-      steps.push({ step: 'session.read(agent_child)', ...(await callOutcome(ids94.norm, service.handleCall('session.read', { sessionId: 'agent_child' }, client))) });
-      steps.push({ step: 'session.unsubscribe(agent_child)', ...(await callOutcome(ids94.norm, service.handleCall('session.unsubscribe', { sessionId: 'agent_child' }, client))) });
+      steps.push({ step: 'external publish (brief, tool-1; busy)', frames: frames.slice(), pendingViewerSessions: exact(service.status.pendingViewerSessions), runtimeCreations: creations });
+      steps.push({ step: 'session.read(agent_child)', ...(await outcomeExact(() => service.handleCall('session.read', { sessionId: 'agent_child' }, client))) });
+      steps.push({ step: 'session.unsubscribe(agent_child)', ...(await outcomeExact(() => service.handleCall('session.unsubscribe', { sessionId: 'agent_child' }, client))) });
       const before = frames.length;
       publishAgentSession?.({ sessionId: 'agent_child', snapshot: { sessionId: 'agent_child', items: [{ id: 'ignored', kind: 'assistant', text: 'not observed' }], queued: [] } });
-      steps.push({ step: 'external publish after unsubscribe (ignored item)', publisherStillRegistered: publishAgentSession !== null, newFrames: frames.length - before });
+      steps.push({ step: 'external publish after unsubscribe (ignored item)', publisherStillRegistered: publishAgentSession !== null, newFrames: frames.slice(before) });
     } finally { await service.stop('recorder end'); }
-    cases.push({ name: 'agent-session-publishes-through-the-subscribed-session-state-lane', testLine: 94, input: { client, storedSession: { items: [{ id: 'brief', kind: 'user', text: 'worker brief' }] } }, result: { steps, readStoredSessionCalls: reads, runtimeCreations: creations, totalFrames: frames.length } });
+    add('agent-session-publishes-through-the-subscribed-session-state-lane', 94, { client, storedSession: { items: [{ id: 'brief', kind: 'user', text: 'worker brief' }] } }, { steps, readStoredSessionCalls: reads, runtimeCreations: creations, allFrames: frames });
   }
 
-  // test line 303
+  // A scripted daemon: the test's own stand-in for the daemon (cases 192, 446, 493), behind the wire tap.
+  const startScripted = async (handler) => {
+    const server = http.createServer(handler);
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    const tap = await startWireTap(server.address().port);
+    return { server, tap, stop: async () => { await tap.stop(); server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); } };
+  };
+  const jsonSend = (res, value, statusCode = 200) => { res.writeHead(statusCode, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
+
+  // test line 192
+  {
+    const signal = new Signal();
+    const streamResponses = [];
+    const reconnects = [];
+    const fatals = [];
+    let registrations = 0;
+    const scripted = await startScripted((req, res) => {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      if (req.method === 'GET' && url.pathname === '/health') { jsonSend(res, { error: 'temporarily overloaded' }, 503); return; }
+      if (req.method === 'GET' && url.pathname === '/events') {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
+        res.write(': attached\n\n');
+        streamResponses.push(res);
+        signal.notify();
+        return;
+      }
+      req.resume();
+      req.on('end', () => {
+        if (req.method === 'POST' && url.pathname === '/client/register') { registrations += 1; jsonSend(res, { token: 'client-token', pid: process.pid }); return; }
+        if (req.method === 'POST' && url.pathname === '/client/deregister') { jsonSend(res, { ok: true }); return; }
+        if (req.method === 'POST' && url.pathname === '/call') { jsonSend(res, { result: 'still-connected' }); return; }
+        res.writeHead(404);
+        res.end();
+      });
+    });
+    const steps = [];
+    let client = null;
+    try {
+      client = await S.attachSession({
+        discovery: { port: scripted.tap.port, token: 'server-token', pid: process.pid },
+        onFatal: (reason) => fatals.push(exact(reason)),
+        onStreamReconnect: (details) => { reconnects.push(exact(details)); signal.notify(); },
+        streamReconnectBaseMs: 5,
+        streamReconnectMaxMs: 10,
+      });
+      await signal.until(() => streamResponses.length === 1, 'the first event stream reached the daemon');
+      steps.push({ step: 'attach: first event stream open', registrations });
+      streamResponses[0].end();
+      steps.push({ step: "daemon ends the stream; client.call('probe')", ...(await outcomeExact(() => client.call('probe'))) });
+      await signal.until(() => streamResponses.length === 2, 'the client opened a second event stream');
+      await signal.until(() => reconnects.length === 1, 'the client reported its reconnect');
+      steps.push({ step: 'second stream open and reconnect reported', registrations, fatals: fatals.slice(), reconnects: reconnects.slice() });
+    } finally {
+      await client?.close('recorder end');
+      for (const response of streamResponses) { try { response.end(); } catch { /* already ended */ } }
+    }
+    const wire = await scripted.tap.exchanges();
+    await scripted.stop();
+    add('live-daemon-sse-stream-reconnects-in-place-with-the-same-client-registration', 192, { scriptedDaemon: 'GET /health 503 {error: temporarily overloaded}; GET /events 200 event-stream ": attached"; POST /client/register {token: client-token, pid}; POST /client/deregister {ok}; POST /call {result: still-connected}', client: { streamReconnectBaseMs: 5, streamReconnectMaxMs: 10 }, daemonToken: 'server-token' }, { steps, wire });
+  }
+
+  // test line 275
+  {
+    const result = await withLoggedDaemon(S, async ({ discovery, transport, calls, wire }) => {
+      const registered = await S.daemonPost(discovery, '/client/register', { protocol: S.SESSION_PROTOCOL, leadPid: process.pid, cwd: FIXED_CWD, lifecycle: false });
+      const target = new Set([registered.token]);
+      const large = 'x'.repeat(160 * 1024);
+      for (let index = 0; index < 3; index += 1) {
+        transport.broadcast({ type: 'session-state', key: `session-state:budget-${index}`, sessionId: `budget-${index}`, revision: index + 1, full: { sessionId: `budget-${index}`, items: [{ text: large }] } }, target);
+      }
+      const marker = await S.waitForSseFrame(discovery, registered.token, (frame) => frame?.resyncRequired === true);
+      await S.daemonPost(discovery, '/client/deregister', { token: registered.token });
+      return { registered: exact(registered), marker: exact(marker), serviceCalls: calls, wire: await wire.exchanges() };
+    });
+    add('disconnected-client-receives-bounded-session-resync-markers-instead-of-a-huge-backlog', 275, { register: { protocol: 'SESSION_PROTOCOL', leadPid: FIXED_PID, cwd: FIXED_CWD, lifecycle: false }, broadcast: '3 session-state frames of one 160 KiB item each (keys session-state:budget-0..2, revisions 1..3) to the registered client while it has no event stream', then: 'the client opens its event stream and the recorder reads until the resyncRequired frame', env: 'MIXDOG_SESSION_SSE_PENDING_MB=0.25 (set by the test scaffold)' }, result);
+  }
+
+  // test line 303 (the channel transport behind the tap)
   {
     const transport = S.createChannelTransport({ handleCall: async () => ({ ok: true }) });
     const endpoint = await transport.start();
+    const tap = await startWireTap(endpoint.port);
     let result;
     try {
-      const registered = await S.daemonPost(endpoint, '/client/register', { leadPid: process.pid, cwd: process.cwd(), passive: true });
+      const registered = await S.daemonPost({ port: tap.port, token: endpoint.token }, '/client/register', { leadPid: process.pid, cwd: FIXED_CWD, passive: true });
       const client = transport._clientsForTest.get(registered.token);
       for (let index = 0; index < 10_000; index += 1) transport._writeRemoteStateToForTest(client, `state-${index}`);
-      result = { clientFound: !!client, pendingRemoteStateFrame: client.pendingRemoteStateFrame, hasPendingQueue: Object.hasOwn(client, 'pending') };
-    } finally { await transport.stop(); }
-    cases.push({ name: 'disconnected-channel-remote-state-churn-keeps-only-the-latest-frame', testLine: 303, input: { register: { leadPid: '<pid>', passive: true }, writes: 'remote state "state-0" .. "state-9999" in order, client has no SSE stream' }, result });
+      result = { registered: exact(registered), clientFound: !!client, pendingRemoteStateFrame: client.pendingRemoteStateFrame, pendingQueueFieldPresent: Object.hasOwn(client, 'pending'), wire: await tap.exchanges() };
+    } finally { await tap.stop(); await transport.stop(); }
+    add('disconnected-channel-remote-state-churn-keeps-only-the-latest-frame', 303, { register: { leadPid: FIXED_PID, cwd: FIXED_CWD, passive: true }, writes: 'remote state "state-0" .. "state-9999" in order, client has no SSE stream' }, result);
   }
 
-  // test line 327
-  {
-    const ids = createNormaliser(S.RUNTIME_ROOT);
-    const maskState = (s) => ids.norm({ ...s, updatedAt: '<ms>', daemonPid: s.daemonPid === process.pid ? '<pid>' : s.daemonPid });
+  // test line 327: the Node of the base commit, then the Node with the fix
+  const run327 = async (createChannelTransport) => {
     const states = [];
     const hostCalls = [];
-    const transport = S.createChannelTransport({
+    const transport = createChannelTransport({
       handleCall: async (name, args) => {
-        hostCalls.push({ name, args });
+        hostCalls.push(exact({ name, args }));
         if (name === 'activate_channel_bridge' && args.active === true) transport.notify('notifications/mixdog/remote', { state: 'acquired' });
         return { ok: true };
       },
-      onRemoteStateChange: (state) => states.push(state),
+      onRemoteStateChange: (state) => states.push(exact(state)),
     });
     const endpoint = await transport.start();
+    const tap = await startWireTap(endpoint.port);
     const steps = [];
     try {
-      const registered = await S.daemonPost(endpoint, '/client/register', { leadPid: process.pid, cwd: process.cwd(), passive: true });
+      const registered = await S.daemonPost({ port: tap.port, token: endpoint.token }, '/client/register', { leadPid: process.pid, cwd: FIXED_CWD, passive: true });
+      steps.push({ call: 'POST /client/register', registered: exact(registered) });
       for (const args of [{ active: true, sessionId: 'session_remote' }, { active: false, sessionId: 'session_remote' }]) {
-        const response = await callOutcome(ids.norm, S.daemonPost(endpoint, '/call', { token: registered.token, name: 'activate_channel_bridge', args }));
-        steps.push({ call: { name: 'activate_channel_bridge', args }, response, lastState: states.length ? maskState(states.at(-1)) : null, stateCount: states.length });
+        const response = await outcomeExact(() => S.daemonPost({ port: tap.port, token: endpoint.token }, '/call', { token: registered.token, name: 'activate_channel_bridge', args }));
+        steps.push({ call: { name: 'activate_channel_bridge', args: exact(args) }, response, statesSoFar: states.slice() });
       }
-    } finally { await transport.stop(); }
-    cases.push({ name: 'channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence', testLine: 327, input: { register: { leadPid: '<pid>', passive: true }, calls: steps.map((s) => s.call) }, result: { steps, states: states.map(maskState), hostCalls } });
+    } finally { await tap.stop(); await transport.stop(); }
+    return { steps, states, hostCalls };
+  };
+  const channelInput = { register: { leadPid: FIXED_PID, cwd: FIXED_CWD, passive: true }, calls: [{ active: true, sessionId: 'session_remote' }, { active: false, sessionId: 'session_remote' }] };
+  {
+    const out = await run327(S.createChannelTransport);
+    add('channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence', 327, { ...channelInput, node: 'base commit b6f10295a' }, out);
+    // Bug recorded as it is: `states[0]` is `{ enabled: true, sessionId: "null" }` (String(null) in remote-state.mjs:17) -- see the patch.
+  }
+  {
+    const patched = buildPatchedTree(tree, PATCH);
+    try {
+      const patchedChannel = await importFrom(patched, 'src/standalone/channel-transport.mjs');
+      const out = await run327(patchedChannel.createChannelTransport);
+      add('channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence--with-the-fix', 327, { ...channelInput, node: 'base commit b6f10295a with node-fix-remote-state-null-session.patch applied' }, out);
+    } finally { rmSync(patched, { recursive: true, force: true }); }
   }
 
   // test line 365
   {
-    const ids = createNormaliser(S.RUNTIME_ROOT);
-    const result = await withLoggedDaemon(S, ids.norm, ids, async ({ discovery, signal, calls }) => {
+    const result = await withLoggedDaemon(S, async ({ discovery, signal, calls, wire }) => {
       const terminalFrames = [];
       const desktopFrames = [];
       const unrelatedFrames = [];
-      const attach = (sink) => S.attachSession({ discovery, cwd: process.cwd(), onFrame: (frame) => { sink.push(frame); signal.notify(); } });
+      const attach = (sink) => S.attachSession({ discovery, cwd: FIXED_CWD, onFrame: (frame) => { sink.push(exact(frame)); signal.notify(); } });
       const terminal = await attach(terminalFrames);
       const desktop = await attach(desktopFrames);
       const unrelated = await attach(unrelatedFrames);
       const steps = [];
-      const created = await terminal.call('session.create', { cwd: process.cwd() });
-      steps.push({ step: 'terminal session.create', sessionIdMatches: /^sess_daemon_/.test(created.sessionId), reservedOnly: created.reservedOnly });
+      const created = await terminal.call('session.create', { cwd: FIXED_CWD });
+      steps.push({ step: 'terminal session.create', ok: exact(created) });
       const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
-      steps.push({ step: 'desktop session.subscribe', subscribed: subscribed.subscribed });
-      desktopFrames.push({ type: 'session-state', sessionId: created.sessionId, revision: subscribed.revision, full: subscribed.full, patch: subscribed.patch });
+      steps.push({ step: 'desktop session.subscribe', ok: exact(subscribed) });
+      desktopFrames.push(exact({ type: 'session-state', sessionId: created.sessionId, revision: subscribed.revision, full: subscribed.full, patch: subscribed.patch }));
       await terminal.call('session.submit', { sessionId: created.sessionId, prompt: 'from terminal' });
       const seen = await signal.until(() => { const items = S.itemsFromFrames(desktopFrames); return items.length === 1 ? items : null; }, 'desktop view receives the terminal submission');
-      steps.push({ step: 'terminal session.submit "from terminal"; desktop view folded items', items: ids.norm(seen) });
+      steps.push({ step: 'terminal session.submit "from terminal"; desktop view folded items', items: exact(seen) });
       await desktop.call('session.submit', { sessionId: created.sessionId, prompt: 'from desktop' });
       await signal.until(() => S.itemsFromFrames(terminalFrames).length === 2, 'terminal view receives the desktop submission');
-      steps.push({ step: 'desktop session.submit "from desktop"; terminal view folded items', items: ids.norm(S.itemsFromFrames(terminalFrames)) });
-      steps.push({ step: 'unrelated client frames for the session', count: unrelatedFrames.filter((frame) => frame.sessionId === created.sessionId).length });
+      steps.push({ step: 'desktop session.submit "from desktop"; terminal view folded items', items: exact(S.itemsFromFrames(terminalFrames)) });
       await terminal.close('recorder end');
       await desktop.close('recorder end');
       await unrelated.close('recorder end');
-      return { steps, serviceCalls: calls.map(({ name, args, context, error }) => ({ name, args, context, error: error ?? null })) };
+      return { steps, terminalFrames, desktopFrames, unrelatedFrames, serviceCalls: calls, wire: await wire.exchanges() };
     });
-    cases.push({ name: 'every-attached-client-observes-the-same-session-snapshot-stream', testLine: 365, input: { clients: ['terminal', 'desktop', 'unrelated'], steps: ['terminal session.create', 'desktop session.subscribe', 'terminal submit "from terminal"', 'desktop submit "from desktop"'] }, result });
+    add('every-attached-client-observes-the-same-session-snapshot-stream', 365, { clients: ['terminal', 'desktop', 'unrelated'], steps: ['terminal session.create', 'desktop session.subscribe', 'terminal submit "from terminal"', 'desktop submit "from desktop"'], ...setup }, result);
   }
 
   // test line 428
   {
-    const ids = createNormaliser(S.RUNTIME_ROOT);
-    const result = await withLoggedDaemon(S, ids.norm, ids, async ({ discovery, transport, clientsEmpty, signal }) => {
+    const result = await withLoggedDaemon(S, async ({ discovery, transport, clientsEmpty, signal, wire }) => {
       const steps = [];
-      const external = await S.attachSession({ discovery, cwd: process.cwd() });
-      const internal = await S.attachSession({ discovery, cwd: process.cwd(), lifecycle: false });
+      const external = await S.attachSession({ discovery, cwd: FIXED_CWD });
+      const internal = await S.attachSession({ discovery, cwd: FIXED_CWD, lifecycle: false });
       steps.push({ step: 'attach an external client and an in-daemon (lifecycle:false) client', clientCount: transport.clientCount, connectionCount: transport.connectionCount, clientsEmpty: clientsEmpty() });
       await external.close('external client closed');
       await signal.until(() => clientsEmpty() === 'empty', 'lifecycle emptiness ignores the internal connection');
       steps.push({ step: 'external client closed', clientCount: transport.clientCount, connectionCount: transport.connectionCount, clientsEmpty: clientsEmpty() });
       await internal.close('recorder end');
-      return { steps };
+      return { steps, wire: await wire.exchanges() };
     });
-    cases.push({ name: 'in-daemon-transport-connection-receives-frames-without-owning-daemon-lifetime', testLine: 428, input: { attach: [{ lifecycle: true }, { lifecycle: false }], close: 'the external client' }, result });
+    add('in-daemon-transport-connection-receives-frames-without-owning-daemon-lifetime', 428, { attach: [{ lifecycle: true }, { lifecycle: false }], close: 'the external client', ...setup }, result);
+  }
+
+  // test line 446: the stream is silent; virtual time (the mocked global setTimeout) moves only by recorded ticks
+  {
+    const signal = new Signal();
+    let eventRequests = 0;
+    const streams = [];
+    const scripted = await startScripted((req, res) => {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      if (req.method === 'GET' && url.pathname === '/events') {
+        eventRequests += 1;
+        res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
+        res.write(': attached\n\n');
+        streams.push(res);
+        signal.notify();
+        return;
+      }
+      req.resume();
+      req.on('end', () => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(url.pathname === '/client/register' ? { token: 'client-token', pid: process.pid } : {})); });
+    });
+    const disconnects = [];
+    const steps = [];
+    let client = null;
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      client = await S.attachSession({
+        discovery: { port: scripted.tap.port, token: 'server-token', pid: process.pid },
+        onStreamDisconnect: (details) => { disconnects.push(exact(details)); signal.notify(); },
+      });
+      await signal.until(() => eventRequests === 1, 'the event stream reached the daemon');
+      steps.push({ step: 'attached; event stream open', eventRequests, disconnects: disconnects.slice() });
+      mock.timers.tick(10 * 60_000);
+      steps.push({ step: 'virtual clock tick 600000 ms (setTimeout only)' });
+      steps.push({ step: "client.call('probe') (an answered call is the barrier: the stream's liveness timers had their chance)", ...(await outcomeExact(() => client.call('probe'))), eventRequests, disconnects: disconnects.slice() });
+      streams[0].socket.destroy();
+      await signal.until(() => disconnects.length === 1, 'the stream reported its disconnect after the daemon closed the socket');
+      steps.push({ step: 'daemon destroys the stream socket', eventRequests, disconnects: disconnects.slice() });
+    } finally {
+      mock.timers.reset();
+      await client?.close('recorder end');
+    }
+    const wire = await scripted.tap.exchanges();
+    await scripted.stop();
+    add('local-attachment-keeps-a-silent-stream-only-the-socket-closing-ends-it', 446, { scriptedDaemon: 'GET /events 200 event-stream ": attached" then silent; any other request 200 json ({token: client-token, pid} for /client/register, {} otherwise)', virtualClock: [{ tick: 'setTimeout', ms: 600_000 }] }, { steps, wire });
+  }
+
+  // test line 493: virtual wall clock (Date.now); the daemon holds each reconnect until released, so the attempts are counted
+  {
+    const signal = new Signal();
+    const fatals = [];
+    const disconnects = [];
+    const held = [];
+    let eventRequests = 0;
+    const scripted = await startScripted((req, res) => {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      if (req.method === 'GET' && url.pathname === '/health') { jsonSend(res, { status: 'ok', pid: process.pid }); return; }
+      if (req.method === 'GET' && url.pathname === '/events') {
+        eventRequests += 1;
+        if (eventRequests === 1) {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
+          res.write(': attached\n\n');
+        } else held.push(res);
+        signal.notify();
+        return;
+      }
+      req.resume();
+      req.on('end', () => {
+        if (req.method === 'POST' && url.pathname === '/client/register') jsonSend(res, { token: 'client-token', pid: process.pid });
+        else if (req.method === 'POST' && url.pathname === '/client/deregister') jsonSend(res, { ok: true });
+        else jsonSend(res, { error: 'not found' }, 404);
+      });
+    });
+    const release = () => jsonSend(held.shift(), { error: 'temporary stream failure' }, 503);
+    const steps = [];
+    let client = null;
+    clock.now = 1_000;
+    steps.push({ step: 'virtual wall clock set', dateNow: 1_000 });
+    try {
+      client = await S.attachSession({
+        discovery: { port: scripted.tap.port, token: 'server-token', pid: process.pid },
+        onFatal: (reason) => { fatals.push(exact(reason)); signal.notify(); },
+        onStreamDisconnect: (details) => { disconnects.push(exact(details)); signal.notify(); },
+        streamReconnectBaseMs: 5,
+        streamReconnectMaxMs: 10,
+        streamLivenessTimeoutMs: 20,
+        streamReconnectBudgetMs: 60,
+      });
+      await signal.until(() => held.length === 1, 'the silent stream was declared dead and the first reconnect reached the daemon');
+      steps.push({ step: 'liveness timeout 20 ms: first reconnect (daemon holds it)', eventRequests, fatals: fatals.slice(), disconnects: disconnects.slice() });
+      clock.now += 59;
+      steps.push({ step: 'virtual wall clock +59', dateNow: clock.now });
+      release();
+      await signal.until(() => held.length === 1, 'the client retried after the first 503');
+      steps.push({ step: 'daemon answers the first reconnect 503; the client retries (held)', eventRequests, fatals: fatals.slice() });
+      clock.now += 1;
+      steps.push({ step: 'virtual wall clock +1', dateNow: clock.now });
+      release();
+      await signal.until(() => fatals.length === 1, 'the reconnect budget was exhausted');
+      steps.push({ step: 'daemon answers the retry 503; budget exhausted', eventRequests, fatals: fatals.slice(), disconnects: disconnects.slice() });
+    } finally {
+      clock.now = FIXED_NOW;
+      await client?.close('recorder end');
+      for (const res of held.splice(0)) { try { jsonSend(res, { error: 'recorder end' }, 503); } catch { /* closed */ } }
+    }
+    const wire = await scripted.tap.exchanges();
+    await scripted.stop();
+    add('silent-sse-is-reconnected-and-a-continuous-reconnect-storm-exhausts-its-budget', 493, { scriptedDaemon: 'GET /health 200 {status: ok, pid}; GET /events: first 200 event-stream ": attached" then silent, every later one held until released then 503 {error: temporary stream failure}; POST /client/register {token: client-token, pid}; POST /client/deregister {ok}; else 404', client: { streamReconnectBaseMs: 5, streamReconnectMaxMs: 10, streamLivenessTimeoutMs: 20, streamReconnectBudgetMs: 60 }, virtualWallClock: [1_000, '+59', '+1'] }, { steps, wire });
   }
 
   const notRecorded = [
     { testLine: 19, name: 'wire-safe runtime state crosses the daemon without a transcript clone', reason: 'asserts object identity (result.full === state, same items array) of a Node in-memory snapshot: a memory property with no wire-visible value' },
-    { testLine: 192, name: 'a live daemon SSE stream reconnects in place with the same client registration', reason: 'the Node HTTP/SSE stream client itself; the Rust core serves the app-server WebSocket, no counterpart' },
-    { testLine: 275, name: 'a disconnected client receives bounded session resync markers instead of a huge backlog', reason: 'SSE backlog budget and resyncRequired markers of the Node transport; removed in the Rust protocol (no resync markers)' },
-    { testLine: 446, name: 'a local attachment keeps a silent stream: only the socket closing ends it', reason: 'SSE stream-liveness timers of the Node client (mock clock on its own HTTP server); no Rust counterpart' },
-    { testLine: 493, name: 'a silent SSE is reconnected and a continuous reconnect storm exhausts its budget', reason: 'SSE liveness timeout and reconnect budget of the Node client; no Rust counterpart' },
   ];
   return { cases, notRecorded };
 });
