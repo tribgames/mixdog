@@ -1,0 +1,4966 @@
+{
+  "set": "provider-openai-compat-stream-lifecycle",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "chat-in-band-server-error-default-retries",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:79",
+      "input": {
+        "label": "Chat Completions",
+        "wire": {
+          "message": "Our servers are currently overloaded. Please try again later.",
+          "type": "server_error"
+        },
+        "shape": "APIError with `error` attached and status undefined"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "APIError",
+          "message": "Our servers are currently overloaded. Please try again later.",
+          "code": "server_error",
+          "props": {
+            "name": "APIError",
+            "status": {
+              "$exact": "undefined"
+            },
+            "error": {
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "type": "server_error"
+            },
+            "providerWireError": true,
+            "providerError": {
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "type": "server_error"
+            },
+            "providerErrorCode": "server_error",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": false,
+          "observedOutput": false,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": false
+        },
+        "classification": "transient",
+        "providerErrorIsTheWirePayload": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "Chat Completions"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "code": "server_error",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerErrorCode": "server_error",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "code": "server_error",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerErrorCode": "server_error",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-in-band-fatal-error-stays-terminal",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:95",
+      "input": {
+        "label": "Chat Completions",
+        "wire": {
+          "message": "You exceeded your current quota.",
+          "type": "insufficient_quota",
+          "code": "insufficient_quota"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "APIError",
+          "message": "You exceeded your current quota.",
+          "code": "insufficient_quota",
+          "props": {
+            "name": "APIError",
+            "status": {
+              "$exact": "undefined"
+            },
+            "error": {
+              "message": "You exceeded your current quota.",
+              "type": "insufficient_quota",
+              "code": "insufficient_quota"
+            },
+            "providerWireError": true,
+            "providerError": {
+              "message": "You exceeded your current quota.",
+              "type": "insufficient_quota",
+              "code": "insufficient_quota"
+            },
+            "providerErrorCode": "insufficient_quota",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": false,
+          "observedOutput": false,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": false
+        },
+        "classification": "permanent"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "Chat Completions"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "You exceeded your current quota.",
+              "code": "insufficient_quota",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerErrorCode": "insufficient_quota",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "You exceeded your current quota.",
+              "code": "insufficient_quota",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerErrorCode": "insufficient_quota",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-in-band-server-error-default-retries",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:79",
+      "input": {
+        "label": "Responses",
+        "wire": {
+          "message": "Our servers are currently overloaded. Please try again later.",
+          "type": "server_error"
+        },
+        "shape": "APIError with `error` attached and status undefined"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "APIError",
+          "message": "Our servers are currently overloaded. Please try again later.",
+          "code": "server_error",
+          "props": {
+            "name": "APIError",
+            "status": {
+              "$exact": "undefined"
+            },
+            "error": {
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "type": "server_error"
+            },
+            "providerWireError": true,
+            "providerError": {
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "type": "server_error"
+            },
+            "providerErrorCode": "server_error",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat-responses",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": false,
+          "observedOutput": false,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": false
+        },
+        "classification": "transient",
+        "providerErrorIsTheWirePayload": true
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "Responses"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "code": "server_error",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerErrorCode": "server_error",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "Our servers are currently overloaded. Please try again later.",
+              "code": "server_error",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "Our servers are currently overloaded. Please try again later.",
+                  "type": "server_error"
+                },
+                "providerErrorCode": "server_error",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-in-band-fatal-error-stays-terminal",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:95",
+      "input": {
+        "label": "Responses",
+        "wire": {
+          "message": "You exceeded your current quota.",
+          "type": "insufficient_quota",
+          "code": "insufficient_quota"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "APIError",
+          "message": "You exceeded your current quota.",
+          "code": "insufficient_quota",
+          "props": {
+            "name": "APIError",
+            "status": {
+              "$exact": "undefined"
+            },
+            "error": {
+              "message": "You exceeded your current quota.",
+              "type": "insufficient_quota",
+              "code": "insufficient_quota"
+            },
+            "providerWireError": true,
+            "providerError": {
+              "message": "You exceeded your current quota.",
+              "type": "insufficient_quota",
+              "code": "insufficient_quota"
+            },
+            "providerErrorCode": "insufficient_quota",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat-responses",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": false,
+          "observedOutput": false,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": false
+        },
+        "classification": "permanent"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "Responses"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "You exceeded your current quota.",
+              "code": "insufficient_quota",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerErrorCode": "insufficient_quota",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "APIError",
+              "message": "You exceeded your current quota.",
+              "code": "insufficient_quota",
+              "props": {
+                "name": "APIError",
+                "status": {
+                  "$exact": "undefined"
+                },
+                "error": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerWireError": true,
+                "providerError": {
+                  "message": "You exceeded your current quota.",
+                  "type": "insufficient_quota",
+                  "code": "insufficient_quota"
+                },
+                "providerErrorCode": "insufficient_quota",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-network-error-typed-interruption-keeps-partial-and-exposure",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:126",
+      "input": {
+        "events": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "half an ans"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "network_error"
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 3,
+              "completion_tokens": 2
+            }
+          }
+        ],
+        "opts": {
+          "label": "gateway",
+          "providerName": "gateway"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "StreamInterruptedError",
+          "message": "gateway SSE stream truncated: finish_reason=network_error",
+          "code": "TRUNCATED_STREAM",
+          "props": {
+            "name": "StreamInterruptedError",
+            "truncatedStream": true,
+            "streamInterrupted": true,
+            "finishReason": "network_error",
+            "partialContent": "half an ans",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "partialUsage": {
+              "inputTokens": 3,
+              "outputTokens": 2,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 3,
+              "raw": {
+                "prompt_tokens": 3,
+                "completion_tokens": 2
+              }
+            },
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamStalled": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 11,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": true,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": true,
+          "textObservedChars": 11,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": true,
+          "truncatedStream": true,
+          "visibleOutput": true,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": true,
+          "replaySafe": false,
+          "successEligible": false
+        },
+        "classification": "permanent",
+        "textDeltas": [
+          "half an ans"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "gateway SSE stream truncated: finish_reason=network_error",
+              "code": "TRUNCATED_STREAM",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "network_error",
+                "partialContent": "half an ans",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "partialUsage": {
+                  "inputTokens": 3,
+                  "outputTokens": 2,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0,
+                  "promptTokens": 3,
+                  "raw": {
+                    "prompt_tokens": 3,
+                    "completion_tokens": 2
+                  }
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamStalled": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 11,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": true,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "gateway SSE stream truncated: finish_reason=network_error",
+              "code": "TRUNCATED_STREAM",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "network_error",
+                "partialContent": "half an ans",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "partialUsage": {
+                  "inputTokens": 3,
+                  "outputTokens": 2,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0,
+                  "promptTokens": 3,
+                  "raw": {
+                    "prompt_tokens": 3,
+                    "completion_tokens": 2
+                  }
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamStalled": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 11,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": true,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-error-finish-typed-502-upstream-error",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:152",
+      "input": {
+        "events": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "part"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "error"
+              }
+            ]
+          }
+        ],
+        "bareEvents": [
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "error"
+              }
+            ]
+          }
+        ],
+        "opts": {
+          "label": "command-code-oauth",
+          "providerName": "command-code-oauth"
+        }
+      },
+      "result": {
+        "withOutput": {
+          "error": {
+            "$exact": "error",
+            "name": "StreamInterruptedError",
+            "message": "command-code-oauth SSE stream truncated: finish_reason=error",
+            "code": "upstream_error",
+            "props": {
+              "name": "StreamInterruptedError",
+              "truncatedStream": true,
+              "streamInterrupted": true,
+              "finishReason": "error",
+              "status": 502,
+              "partialContent": "part",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": {
+                "$exact": "undefined"
+              },
+              "liveTextEmitted": true,
+              "unsafeToRetry": true,
+              "streamStalled": true,
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-compat",
+                "transport": "sse",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": true,
+                "textObservedChars": 4,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": true,
+                "truncatedStream": true,
+                "visibleOutput": true,
+                "observedOutput": true,
+                "sideEffectDispatched": false,
+                "replayUnsafe": true,
+                "replaySafe": false,
+                "successEligible": false
+              },
+              "emittedText": true
+            }
+          },
+          "outcome": {
+            "version": 1,
+            "provider": "openai-compat",
+            "transport": "sse",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": true,
+            "textObservedChars": 4,
+            "reasoningEmitted": false,
+            "toolCallsStarted": false,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": true,
+            "truncatedStream": true,
+            "visibleOutput": true,
+            "observedOutput": true,
+            "sideEffectDispatched": false,
+            "replayUnsafe": true,
+            "replaySafe": false,
+            "successEligible": false
+          },
+          "classification": "permanent"
+        },
+        "bare": {
+          "error": {
+            "$exact": "error",
+            "name": "StreamInterruptedError",
+            "message": "command-code-oauth SSE stream truncated: finish_reason=error",
+            "code": "upstream_error",
+            "props": {
+              "name": "StreamInterruptedError",
+              "truncatedStream": true,
+              "streamInterrupted": true,
+              "finishReason": "error",
+              "status": 502,
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": {
+                "$exact": "undefined"
+              },
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-compat",
+                "transport": "sse",
+                "terminalObserved": false,
+                "continuation": true,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": false,
+                "toolCallsComplete": 0,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": true,
+                "visibleOutput": false,
+                "observedOutput": false,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": false
+              }
+            }
+          },
+          "outcome": {
+            "version": 1,
+            "provider": "openai-compat",
+            "transport": "sse",
+            "terminalObserved": false,
+            "continuation": true,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": false,
+            "toolCallsComplete": 0,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": true,
+            "visibleOutput": false,
+            "observedOutput": false,
+            "sideEffectDispatched": false,
+            "replayUnsafe": false,
+            "replaySafe": true,
+            "successEligible": false
+          },
+          "classification": "transient"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "command-code-oauth",
+              "providerName": "command-code-oauth",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "command-code-oauth SSE stream truncated: finish_reason=error",
+              "code": "upstream_error",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "error",
+                "status": 502,
+                "partialContent": "part",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamStalled": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 4,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": true,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "command-code-oauth SSE stream truncated: finish_reason=error",
+              "code": "upstream_error",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "error",
+                "status": 502,
+                "partialContent": "part",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamStalled": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 4,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": true,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "command-code-oauth",
+              "providerName": "command-code-oauth",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "command-code-oauth SSE stream truncated: finish_reason=error",
+              "code": "upstream_error",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "error",
+                "status": 502,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": true,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "command-code-oauth SSE stream truncated: finish_reason=error",
+              "code": "upstream_error",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "error",
+                "status": 502,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": true,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-network-error-before-exposure-replay-safe",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:181",
+      "input": {
+        "events": [
+          {
+            "choices": [
+              {
+                "delta": {},
+                "finish_reason": "NETWORK_ERROR"
+              }
+            ]
+          }
+        ],
+        "opts": {
+          "label": "gateway",
+          "providerName": "gateway"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "StreamInterruptedError",
+          "message": "gateway SSE stream truncated: finish_reason=network_error",
+          "code": "TRUNCATED_STREAM",
+          "props": {
+            "name": "StreamInterruptedError",
+            "truncatedStream": true,
+            "streamInterrupted": true,
+            "finishReason": "network_error",
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": true,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": true,
+          "visibleOutput": false,
+          "observedOutput": false,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": false
+        },
+        "classification": "transient"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "gateway SSE stream truncated: finish_reason=network_error",
+              "code": "TRUNCATED_STREAM",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "network_error",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": true,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamInterruptedError",
+              "message": "gateway SSE stream truncated: finish_reason=network_error",
+              "code": "TRUNCATED_STREAM",
+              "props": {
+                "name": "StreamInterruptedError",
+                "truncatedStream": true,
+                "streamInterrupted": true,
+                "finishReason": "network_error",
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": true,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "non-streaming-network-error-never-normalizes-to-success",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:197",
+      "input": {
+        "providerName": "gateway",
+        "useModel": "m",
+        "opts": {},
+        "assembled": {
+          "response": {
+            "model": "m",
+            "choices": [
+              {
+                "message": {
+                  "content": "cut"
+                },
+                "finish_reason": "network_error"
+              }
+            ]
+          },
+          "toolCalls": [],
+          "content": "cut"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "StreamInterruptedError",
+          "message": "gateway SSE stream truncated: finish_reason=network_error",
+          "code": "TRUNCATED_STREAM",
+          "props": {
+            "name": "StreamInterruptedError",
+            "truncatedStream": true,
+            "streamInterrupted": true,
+            "finishReason": "network_error",
+            "partialContent": "cut",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": "m",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "non-streaming",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 3,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": true,
+              "visibleOutput": false,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-response-normalization.mjs.normalizeCompatChatResponse",
+          "args": [
+            {
+              "providerName": "gateway",
+              "useModel": "m",
+              "opts": {},
+              "assembled": {
+                "response": {
+                  "model": "m",
+                  "choices": [
+                    {
+                      "message": {
+                        "content": "cut"
+                      },
+                      "finish_reason": "network_error"
+                    }
+                  ]
+                },
+                "toolCalls": [],
+                "content": "cut"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-malformed-json-frame-typed-with-exposure",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:213",
+      "input": {
+        "label": "gateway",
+        "events": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "visible partial"
+                },
+                "finish_reason": null
+              }
+            ]
+          }
+        ],
+        "then": "JSON.parse('{\"choices\": [')"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "MalformedStreamError",
+          "message": "gateway malformed stream frame: Unexpected end of JSON input",
+          "code": "malformed_stream",
+          "cause": {
+            "$exact": "error",
+            "name": "SyntaxError",
+            "message": "Unexpected end of JSON input",
+            "props": {}
+          },
+          "props": {
+            "name": "MalformedStreamError",
+            "malformedStream": true,
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "partialContent": "visible partial",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 15,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": true,
+          "textObservedChars": 15,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": true,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": true,
+          "replaySafe": false,
+          "successEligible": false
+        },
+        "classification": "permanent"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected end of JSON input",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected end of JSON input",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected end of JSON input",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected end of JSON input",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-malformed-json-before-output-replay-safe",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:234",
+      "input": {
+        "label": "gateway",
+        "events": [],
+        "then": "JSON.parse('not json')"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "MalformedStreamError",
+          "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+          "code": "malformed_stream",
+          "cause": {
+            "$exact": "error",
+            "name": "SyntaxError",
+            "message": "Unexpected token 'o', \"not json\" is not valid JSON",
+            "props": {}
+          },
+          "props": {
+            "name": "MalformedStreamError",
+            "malformedStream": true,
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": false,
+          "observedOutput": false,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": false
+        },
+        "classification": "transient"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {},
+            {
+              "label": "gateway",
+              "providerName": "gateway"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected token 'o', \"not json\" is not valid JSON",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected token 'o', \"not json\" is not valid JSON",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-malformed-json-frame-typed-with-exposure",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:213",
+      "input": {
+        "label": "gateway",
+        "events": [
+          {
+            "type": "response.output_text.delta",
+            "delta": "visible partial"
+          }
+        ],
+        "then": "JSON.parse('{\"choices\": [')"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "MalformedStreamError",
+          "message": "gateway malformed stream frame: Unexpected end of JSON input",
+          "code": "malformed_stream",
+          "cause": {
+            "$exact": "error",
+            "name": "SyntaxError",
+            "message": "Unexpected end of JSON input",
+            "props": {}
+          },
+          "props": {
+            "name": "MalformedStreamError",
+            "malformedStream": true,
+            "partialContent": "visible partial",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 15,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat-responses",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": true,
+          "textObservedChars": 15,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": true,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": true,
+          "replaySafe": false,
+          "successEligible": false
+        },
+        "classification": "permanent"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "gateway",
+              "providerName": "gateway",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "parseToolCalls": {
+                "callback": "parseToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected end of JSON input",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected end of JSON input",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected end of JSON input",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected end of JSON input",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-malformed-json-before-output-replay-safe",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:234",
+      "input": {
+        "label": "gateway",
+        "events": [],
+        "then": "JSON.parse('not json')"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "MalformedStreamError",
+          "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+          "code": "malformed_stream",
+          "cause": {
+            "$exact": "error",
+            "name": "SyntaxError",
+            "message": "Unexpected token 'o', \"not json\" is not valid JSON",
+            "props": {}
+          },
+          "props": {
+            "name": "MalformedStreamError",
+            "malformedStream": true,
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat-responses",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": false,
+          "observedOutput": false,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": false
+        },
+        "classification": "transient"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "gateway",
+              "providerName": "gateway"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected token 'o', \"not json\" is not valid JSON",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "MalformedStreamError",
+              "message": "gateway malformed stream frame: Unexpected token 'o', \"not json\" is not valid JSON",
+              "code": "malformed_stream",
+              "cause": {
+                "$exact": "error",
+                "name": "SyntaxError",
+                "message": "Unexpected token 'o', \"not json\" is not valid JSON",
+                "props": {}
+              },
+              "props": {
+                "name": "MalformedStreamError",
+                "malformedStream": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-failure-constructors-carry-the-provider-label",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:246",
+      "input": {
+        "label": "custom-gw:responses"
+      },
+      "result": {
+        "rows": [
+          {
+            "event": {
+              "type": "response.failed",
+              "response": {
+                "error": {
+                  "message": "boom"
+                }
+              }
+            },
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.failed: boom",
+              "props": {
+                "providerError": {
+                  "message": "boom"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            },
+            "outcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "classification": "transient"
+          },
+          {
+            "event": {
+              "type": "error",
+              "message": "bad"
+            },
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream error: bad",
+              "props": {
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            },
+            "outcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "classification": "transient"
+          },
+          {
+            "event": {
+              "type": "response.done",
+              "response": {
+                "status": "failed",
+                "error": {
+                  "message": "x"
+                }
+              }
+            },
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.done failed: x",
+              "props": {
+                "providerError": {
+                  "message": "x"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            },
+            "outcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "classification": "transient"
+          },
+          {
+            "event": {
+              "type": "response.done",
+              "response": {
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "content_filter"
+                }
+              }
+            },
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.done incomplete: content_filter",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            },
+            "outcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "classification": "unknown"
+          },
+          {
+            "event": {
+              "type": "response.incomplete",
+              "response": {
+                "incomplete_details": {
+                  "reason": "content_filter"
+                }
+              }
+            },
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.incomplete: content_filter",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            },
+            "outcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "classification": "unknown"
+          }
+        ],
+        "salvage": {
+          "events": [
+            {
+              "type": "response.function_call_arguments.done",
+              "item_id": "item_9",
+              "arguments": "{}"
+            },
+            {
+              "type": "response.completed",
+              "response": {
+                "id": "r",
+                "status": "completed",
+                "output": []
+              }
+            }
+          ],
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "custom-gw:responses stream function_call salvage failed: missing call_id/name for item_id=item_9",
+            "props": {
+              "partialContent": "",
+              "partialToolCalls": {
+                "$exact": "undefined"
+              },
+              "pendingToolUse": false,
+              "partialModel": {
+                "$exact": "undefined"
+              },
+              "streamOutcome": {
+                "version": 1,
+                "provider": "openai-compat-responses",
+                "transport": "sse",
+                "terminalObserved": true,
+                "continuation": false,
+                "declaredContinuation": false,
+                "textEmitted": false,
+                "textObservedChars": 0,
+                "reasoningEmitted": false,
+                "toolCallsStarted": true,
+                "toolCallsComplete": 1,
+                "toolCallsDispatched": 0,
+                "dispatchAmbiguous": false,
+                "pendingToolInput": false,
+                "userAbort": false,
+                "stallObserved": false,
+                "truncatedStream": false,
+                "visibleOutput": false,
+                "observedOutput": true,
+                "sideEffectDispatched": false,
+                "replayUnsafe": false,
+                "replaySafe": true,
+                "successEligible": true
+              },
+              "partialToolCall": true
+            }
+          },
+          "outcome": {
+            "version": 1,
+            "provider": "openai-compat-responses",
+            "transport": "sse",
+            "terminalObserved": true,
+            "continuation": false,
+            "declaredContinuation": false,
+            "textEmitted": false,
+            "textObservedChars": 0,
+            "reasoningEmitted": false,
+            "toolCallsStarted": true,
+            "toolCallsComplete": 1,
+            "toolCallsDispatched": 0,
+            "dispatchAmbiguous": false,
+            "pendingToolInput": false,
+            "userAbort": false,
+            "stallObserved": false,
+            "truncatedStream": false,
+            "visibleOutput": false,
+            "observedOutput": true,
+            "sideEffectDispatched": false,
+            "replayUnsafe": false,
+            "replaySafe": true,
+            "successEligible": true
+          },
+          "classification": "unknown"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "custom-gw:responses"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.failed: boom",
+              "props": {
+                "providerError": {
+                  "message": "boom"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.failed: boom",
+              "props": {
+                "providerError": {
+                  "message": "boom"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "custom-gw:responses"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream error: bad",
+              "props": {
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream error: bad",
+              "props": {
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "custom-gw:responses"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.done failed: x",
+              "props": {
+                "providerError": {
+                  "message": "x"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.done failed: x",
+              "props": {
+                "providerError": {
+                  "message": "x"
+                },
+                "providerWireError": true,
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "custom-gw:responses"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.done incomplete: content_filter",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.done incomplete: content_filter",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "custom-gw:responses"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.incomplete: content_filter",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream response.incomplete: content_filter",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": false,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "custom-gw:responses",
+              "responseOutputText": {
+                "callback": "responseOutputText"
+              },
+              "parseResponsesToolCalls": {
+                "callback": "parseResponsesToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream function_call salvage failed: missing call_id/name for item_id=item_9",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": true,
+                  "continuation": false,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": true,
+                  "toolCallsComplete": 1,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": true
+                },
+                "partialToolCall": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "custom-gw:responses stream function_call salvage failed: missing call_id/name for item_id=item_9",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": true,
+                  "continuation": false,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": true,
+                  "toolCallsComplete": 1,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": true
+                },
+                "partialToolCall": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-unresolved-call-then-completed-carries-partial-usage",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:268",
+      "input": {},
+      "result": {
+        "events": [
+          {
+            "type": "response.function_call_arguments.done",
+            "item_id": "item_1",
+            "arguments": "{}"
+          },
+          {
+            "type": "response.completed",
+            "response": {
+              "id": "r1",
+              "status": "completed",
+              "output": [],
+              "usage": {
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "total_tokens": 18
+              }
+            }
+          }
+        ],
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "fixture stream function_call salvage failed: missing call_id/name for item_id=item_1",
+          "props": {
+            "partialContent": "",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialUsage": {
+              "inputTokens": 11,
+              "outputTokens": 7,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 11,
+              "raw": {
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "total_tokens": 18
+              }
+            },
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": true,
+              "continuation": false,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 1,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": true
+            },
+            "partialToolCall": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat-responses",
+          "transport": "sse",
+          "terminalObserved": true,
+          "continuation": false,
+          "declaredContinuation": false,
+          "textEmitted": false,
+          "textObservedChars": 0,
+          "reasoningEmitted": false,
+          "toolCallsStarted": true,
+          "toolCallsComplete": 1,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": false,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": false,
+          "replaySafe": true,
+          "successEligible": true
+        },
+        "classification": "unknown"
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {},
+            {
+              "label": "fixture",
+              "responseOutputText": {
+                "callback": "responseOutputText"
+              },
+              "parseResponsesToolCalls": {
+                "callback": "parseResponsesToolCalls"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "fixture stream function_call salvage failed: missing call_id/name for item_id=item_1",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialUsage": {
+                  "inputTokens": 11,
+                  "outputTokens": 7,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0,
+                  "promptTokens": 11,
+                  "raw": {
+                    "input_tokens": 11,
+                    "output_tokens": 7,
+                    "total_tokens": 18
+                  }
+                },
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": true,
+                  "continuation": false,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": true,
+                  "toolCallsComplete": 1,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": true
+                },
+                "partialToolCall": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "Error",
+              "message": "fixture stream function_call salvage failed: missing call_id/name for item_id=item_1",
+              "props": {
+                "partialContent": "",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialUsage": {
+                  "inputTokens": 11,
+                  "outputTokens": 7,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0,
+                  "promptTokens": 11,
+                  "raw": {
+                    "input_tokens": 11,
+                    "output_tokens": 7,
+                    "total_tokens": 18
+                  }
+                },
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": true,
+                  "continuation": false,
+                  "declaredContinuation": false,
+                  "textEmitted": false,
+                  "textObservedChars": 0,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": true,
+                  "toolCallsComplete": 1,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": false,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": false,
+                  "replaySafe": true,
+                  "successEligible": true
+                },
+                "partialToolCall": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-cancel-releases-pending-read-and-signal-listener",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "input": {
+        "firstEvent": {
+          "choices": [
+            {
+              "delta": {
+                "content": "visible partial"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "interruption": "cancel",
+        "abortReason": {
+          "name": "AbortError",
+          "message": "caller cancellation"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "AbortError",
+          "message": "caller cancellation",
+          "props": {
+            "name": "AbortError",
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 15,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": true,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": true,
+          "textObservedChars": 15,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": true,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": true,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": true,
+          "replaySafe": false,
+          "successEligible": false
+        },
+        "classification": "permanent",
+        "rejectedWithTheCallerReason": true,
+        "listenersAfter": 0
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+            },
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "label": "fixture",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "AbortError",
+              "message": "caller cancellation",
+              "props": {
+                "name": "AbortError",
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": true,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "AbortError",
+              "message": "caller cancellation",
+              "props": {
+                "name": "AbortError",
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": true,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "chat-idle-releases-pending-read-and-signal-listener",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "input": {
+        "firstEvent": {
+          "choices": [
+            {
+              "delta": {
+                "content": "visible partial"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "interruption": "idle",
+        "semanticIdleTimeoutMs": 20,
+        "advanceMs": [
+          20
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "StreamStalledError",
+          "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+          "code": "ESTREAMSTALL",
+          "props": {
+            "name": "StreamStalledError",
+            "streamStalled": true,
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "partialContent": "visible partial",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 15,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": true,
+          "textObservedChars": 15,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": true,
+          "truncatedStream": false,
+          "visibleOutput": true,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": true,
+          "replaySafe": false,
+          "successEligible": false
+        },
+        "classification": "permanent",
+        "rejectedWithTheCallerReason": false,
+        "listenersAfter": 0
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatChatCompletionStream",
+          "args": [
+            {
+              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+            },
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "label": "fixture",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "semanticIdleTimeoutMs": 20
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamStalledError",
+              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "code": "ESTREAMSTALL",
+              "props": {
+                "name": "StreamStalledError",
+                "streamStalled": true,
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamStalledError",
+              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "code": "ESTREAMSTALL",
+              "props": {
+                "name": "StreamStalledError",
+                "streamStalled": true,
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-cancel-releases-pending-read-and-signal-listener",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "input": {
+        "firstEvent": {
+          "type": "response.output_text.delta",
+          "delta": "visible partial"
+        },
+        "interruption": "cancel",
+        "abortReason": {
+          "name": "AbortError",
+          "message": "caller cancellation"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "AbortError",
+          "message": "caller cancellation",
+          "props": {
+            "name": "AbortError",
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 15,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": true,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat-responses",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": true,
+          "textObservedChars": 15,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": true,
+          "stallObserved": false,
+          "truncatedStream": false,
+          "visibleOutput": true,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": true,
+          "replaySafe": false,
+          "successEligible": false
+        },
+        "classification": "permanent",
+        "rejectedWithTheCallerReason": true,
+        "listenersAfter": 0
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {
+              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+            },
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "label": "fixture",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "AbortError",
+              "message": "caller cancellation",
+              "props": {
+                "name": "AbortError",
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": true,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "AbortError",
+              "message": "caller cancellation",
+              "props": {
+                "name": "AbortError",
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": true,
+                  "stallObserved": false,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "responses-idle-releases-pending-read-and-signal-listener",
+      "source": "src/runtime/agent/orchestrator/providers/openai-compat-stream-lifecycle.test.mjs:297",
+      "input": {
+        "firstEvent": {
+          "type": "response.output_text.delta",
+          "delta": "visible partial"
+        },
+        "interruption": "idle",
+        "semanticIdleTimeoutMs": 20,
+        "advanceMs": [
+          20
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "StreamStalledError",
+          "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+          "code": "ESTREAMSTALL",
+          "props": {
+            "name": "StreamStalledError",
+            "streamStalled": true,
+            "partialContent": "visible partial",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": false,
+            "partialModel": {
+              "$exact": "undefined"
+            },
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-compat-responses",
+              "transport": "sse",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 15,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "emittedText": true
+          }
+        },
+        "outcome": {
+          "version": 1,
+          "provider": "openai-compat-responses",
+          "transport": "sse",
+          "terminalObserved": false,
+          "continuation": true,
+          "declaredContinuation": false,
+          "textEmitted": true,
+          "textObservedChars": 15,
+          "reasoningEmitted": false,
+          "toolCallsStarted": false,
+          "toolCallsComplete": 0,
+          "toolCallsDispatched": 0,
+          "dispatchAmbiguous": false,
+          "pendingToolInput": false,
+          "userAbort": false,
+          "stallObserved": true,
+          "truncatedStream": false,
+          "visibleOutput": true,
+          "observedOutput": true,
+          "sideEffectDispatched": false,
+          "replayUnsafe": true,
+          "replaySafe": false,
+          "successEligible": false
+        },
+        "classification": "permanent",
+        "rejectedWithTheCallerReason": false,
+        "listenersAfter": 0
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs.consumeCompatResponsesStream",
+          "args": [
+            {
+              "unrecordable": "exact: a AbortController at $.controller has no exact form (give classes.AbortController)"
+            },
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "label": "fixture",
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "semanticIdleTimeoutMs": 20
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/lib/stream-outcome.mjs.readStreamOutcome",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamStalledError",
+              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "code": "ESTREAMSTALL",
+              "props": {
+                "name": "StreamStalledError",
+                "streamStalled": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/retry-classifier.mjs.classifyError",
+          "args": [
+            {
+              "$exact": "error",
+              "name": "StreamStalledError",
+              "message": "fixture SSE idle stream timed out after 20ms of inactivity",
+              "code": "ESTREAMSTALL",
+              "props": {
+                "name": "StreamStalledError",
+                "streamStalled": true,
+                "partialContent": "visible partial",
+                "partialToolCalls": {
+                  "$exact": "undefined"
+                },
+                "pendingToolUse": false,
+                "partialModel": {
+                  "$exact": "undefined"
+                },
+                "liveTextEmitted": true,
+                "unsafeToRetry": true,
+                "streamOutcome": {
+                  "version": 1,
+                  "provider": "openai-compat-responses",
+                  "transport": "sse",
+                  "terminalObserved": false,
+                  "continuation": true,
+                  "declaredContinuation": false,
+                  "textEmitted": true,
+                  "textObservedChars": 15,
+                  "reasoningEmitted": false,
+                  "toolCallsStarted": false,
+                  "toolCallsComplete": 0,
+                  "toolCallsDispatched": 0,
+                  "dispatchAmbiguous": false,
+                  "pendingToolInput": false,
+                  "userAbort": false,
+                  "stallObserved": true,
+                  "truncatedStream": false,
+                  "visibleOutput": true,
+                  "observedOutput": true,
+                  "sideEffectDispatched": false,
+                  "replayUnsafe": true,
+                  "replaySafe": false,
+                  "successEligible": false
+                },
+                "emittedText": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
