@@ -1,52 +1,21 @@
-//! The recorded Node provider sets (`fixtures/provider-<set>/`) read at run time: the cases, the manifest's levels,
-//! and the arguments of each recorded call, decoded through `mixdog_testkit::exact`.
-
-use std::path::PathBuf;
+//! What the PURE replays share on top of the case driver (`provider_case`): every recorded call to one entry, the
+//! PURE ids of a set, a recorded argument as plain JSON, and builders of a result in Node's shape.
 
 use mixdog_testkit::Exact;
 use serde_json::Value;
 
-fn dir(set: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures").join(format!("provider-{set}"))
+use crate::provider_case::Case;
+use crate::provider_case::CaseSet;
+use crate::provider_case::assert_exact;
+
+/// The arguments of every recorded call to `entry` (matched by its suffix), in order.
+pub fn args_of(case: &Case, entry: &str) -> Vec<Vec<Exact>> {
+    case.calls.iter().filter(|c| c.entry.ends_with(entry)).map(|c| c.args.clone()).collect()
 }
 
-/// Every case of a set, decoded, in recorded order.
-pub fn cases(set: &str) -> Vec<Exact> {
-    Exact::load(dir(set).join("cases.json")).get("cases").as_array().to_vec()
-}
-
-/// One case by id.
-pub fn case(set: &str, id: &str) -> Exact {
-    cases(set)
-        .into_iter()
-        .find(|c| c.get("id").as_str() == id)
-        .unwrap_or_else(|| panic!("provider-{set}: no case {id:?}"))
-}
-
-/// The ids the manifest marks `level`, in manifest order.
-pub fn ids_at_level(set: &str, level: &str) -> Vec<String> {
-    let manifest = Exact::load(dir(set).join("MANIFEST.json"));
-    manifest
-        .get("levels")
-        .as_array()
-        .iter()
-        .filter(|l| l.get("level").as_str() == level)
-        .map(|l| l.get("id").as_str().to_owned())
-        .collect()
-}
-
-/// The recorded calls of a case: (entry, arguments).
-pub fn calls(case: &Exact) -> Vec<(String, Vec<Exact>)> {
-    case.try_get("calls")
-        .map(|calls| {
-            calls.as_array().iter().map(|c| (c.get("entry").as_str().to_owned(), c.get("args").as_array().to_vec())).collect()
-        })
-        .unwrap_or_default()
-}
-
-/// The arguments of the recorded calls to `entry` (matched by its suffix), in order.
-pub fn args_of(case: &Exact, entry: &str) -> Vec<Vec<Exact>> {
-    calls(case).into_iter().filter(|(e, _)| e.ends_with(entry)).map(|(_, a)| a).collect()
+/// The ids the manifest marks PURE, in recorded order.
+pub fn pure_ids(set: &CaseSet) -> Vec<String> {
+    set.ids().into_iter().filter(|id| set.level(id).get("level").as_str() == "pure").map(str::to_owned).collect()
 }
 
 /// A recorded argument as the plain JSON a Rust entry takes.
@@ -54,11 +23,10 @@ pub fn plain(value: &Exact) -> Value {
     value.to_plain().unwrap_or_else(|e| panic!("recorded argument has no plain form: {e}"))
 }
 
-/// Compares a Rust result in the recorded shape with the recorded result, whole.
+/// The Rust result in the recorded shape against the recorded result, whole.
 #[track_caller]
-pub fn assert_result(set: &str, case: &Exact, actual: Exact) {
-    let id = case.get("id").as_str();
-    assert_eq!(actual, *case.get("result"), "provider-{set} {id}: result");
+pub fn assert_result(set: &CaseSet, case: &Case, actual: &Exact) {
+    assert_exact(&format!("provider-{} {}: result", set.set, case.id), case.result(), actual);
 }
 
 /// An object in recorded key order.

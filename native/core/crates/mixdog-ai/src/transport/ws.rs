@@ -468,7 +468,7 @@ async fn connect_over(
     tls: Option<Arc<rustls::ClientConfig>>,
 ) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
     let secure = request.uri().scheme_str() == Some("wss");
-    let mut stream = if secure {
+    let stream = if secure {
         let config = match tls {
             Some(config) => config,
             None => crate::netproxy::tunnel::tls_config().map_err(|e| ConnectError::Transport(fault_from_io(&e, true)))?,
@@ -484,6 +484,31 @@ async fn connect_over(
     } else {
         MaybeTlsStream::Plain(stream)
     };
+    upgrade_and_start(request, stream, schedule).await
+}
+
+/// The upgrade of `request` over plain TCP to `addr`, whatever its scheme (the recorders' `tls.connect` stand-in): the
+/// request (url, `Host`) and everything after the connect are the production path. Compiled for tests and the
+/// `test-support` feature only.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn connect_redirected(
+    request: tungstenite::handshake::client::Request,
+    addr: std::net::SocketAddr,
+    schedule: &KeepaliveSchedule,
+) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
+    let stream = tcp::connect(addr, &schedule.tcp)
+        .await
+        .map(Conn::Tcp)
+        .map_err(|err| ConnectError::Transport(fault_from_io(&err, true)))?;
+    upgrade_and_start(request, MaybeTlsStream::Plain(stream), schedule).await
+}
+
+/// The upgrade of `request` over the connected `stream`, and the connection that follows.
+async fn upgrade_and_start(
+    request: tungstenite::handshake::client::Request,
+    mut stream: MaybeTlsStream<Conn>,
+    schedule: &KeepaliveSchedule,
+) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
     let (response, early, extension) = upgrade(&mut stream, &request).await?;
     let socket = WebSocketStream::from_raw_socket(
         WsIo::new(stream, early, extension),
