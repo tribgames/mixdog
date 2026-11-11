@@ -13,7 +13,9 @@
 //        benchmarks/rust-core/recorders/record-shell-job-stop-lifecycle-cases.mjs --tree <export of b6f10295a with node_modules> \
 //        --spawn-binary C:\Users\tempe\.mixdog\data\scratch\rust-core\k1\mixdog-spawn-o1-debug.exe
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, watch } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { RecorderError } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
@@ -35,7 +37,6 @@ const { createSessionService } = await set.load('src/standalone/session-service.
 const { registerBackgroundTask } = await set.load('src/runtime/shared/background-tasks.mjs');
 const { execShellCommand } = await set.load(`${T}shell-command.mjs`);
 const { killShellJob, shutdownShellJobs, watchBackgroundShellJob } = await set.load(`${T}builtin/shell-jobs.mjs`);
-const { shellJobsStatusFresh } = await set.load('src/runtime/shared/statusline/statusline-segments.mjs');
 const { stopBackgroundShellJob } = await set.load(`${T}builtin/task-tool.mjs`);
 const { _resetNativeSpawnClientForTest, _setNativeSpawnBinaryForTest, shutdownNativeSpawnServer } = await set.load(`${T}lib/native-spawn-client.mjs`);
 const { SessionHost } = await set.load('apps/desktop/src/main/session-host.ts');
@@ -89,16 +90,26 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     if (found) return Promise.resolve(found);
     return within(label, new Promise((resolve) => { paneWaiter = { test, resolve }; }));
   };
-  /** The host's 5 s poll reads the job records the spawn server writes to disk (shellJobsStatusFresh), and those files appear a little after the
-   *  job starts or ends, in real time: before the clock moves, wait (deadline `within`) until the same scan the poll makes shows the state, so the
-   *  one advance that follows is what publishes the row. The scan is a read of the file-system state, not a count of turns. */
-  const scanShows = (label, test) => within(label, (async () => {
-    for (;;) {
-      const status = await shellJobsStatusFresh({ clientHostPid: hostPid });
-      if (test(status)) return status;
-      await new Promise((resolve) => realTimers.setTimeout(resolve, 25));
-    }
-  })());  /** The pane row arrives through the host's own 5 s timer: one explicit 5000 ms advance (recorded by the clock in timers.advances), then the
+  /** shellJobsStatusFresh decides from the files under <MIXDOG_DATA_DIR>/shell-jobs: `<id>.json` (written by the spawn server, carrying the pid, which is
+   *  already alive when the record exists), `<id>.done` (the end marker, no liveness check), `.owner-<pid>` and `<id>.enforced`. Every one is a file in
+   *  that directory, so the event is a directory change: a watch on the data directory (recursive, armed before the first look so the directory's own
+   *  creation is seen). The look is a directory LISTING (names only), once on entry and once per change event, never on a timer: reading `<id>.json`
+   *  itself here would hold the file the writer is about to rename over (Windows refuses, the writer backs off on a virtual timer that nobody advances
+   *  and the record never lands). The whole wait keeps its RecorderError deadline. */
+  const jobDirShows = (label, test) => within(label, new Promise((resolve, reject) => {
+    const dir = join(process.env.MIXDOG_DATA_DIR, 'shell-jobs');
+    const watcher = watch(process.env.MIXDOG_DATA_DIR, { recursive: true });
+    let finished = false;
+    const done = (fn, value) => { if (finished) return; finished = true; watcher.close(); fn(value); };
+    const look = async () => {
+      let names;
+      try { names = await readdir(dir); } catch (e) { if (e.code === 'ENOENT') return; done(reject, e); return; }
+      if (!finished && test(names)) done(resolve, names);
+    };
+    watcher.on('change', look);
+    watcher.on('error', (e) => done(reject, new RecorderError(`${label}: the data directory watch failed: ${e.message}`)));
+    look();
+  }));  /** The pane row arrives through the host's own 5 s timer: one explicit 5000 ms advance (recorded by the clock in timers.advances), then the
    *  publication it causes is awaited. */
   const WATCH_MS = 5_000;
   const paneAfterAdvance = (label, test) => {
@@ -138,7 +149,7 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     const context = { callerSessionId: SESSION, routingSessionId: SESSION, clientHostPid: hostPid };
     registerBackgroundTask({ taskId: jobId, surface: 'shell', operation: 'shell', label: 'serve', context, cancel: () => killShellJob(jobId) });
     watchBackgroundShellJob(jobId, context);
-    await scanShows('the job record to be on disk as running', (status) => JSON.stringify(status).includes(jobId));
+    await jobDirShows('the job record to be on disk as running', (names) => names.includes(`${jobId}.json`) && !names.includes(`${jobId}.done`));
     const running = await paneAfterAdvance('the running job to reach the pane', (rows) => rows.jobs.some((row) => row.taskId === jobId));
     mark('the job runs and is on the pane', { started: result, running });
 
@@ -148,8 +159,11 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
     await within('the idle sweeps to finish', virtual.idle());
     mark('hidden with the job running; the idle delay advanced 4x', { disposedSessions: [...disposed] });
 
+    const stopFrom = virtual.armed.length;
     const stopped = await within('the stop to answer', host.stopShellJob(SESSION, jobId));
-    await scanShows('the job record to be on disk as ended', (status) => Object.values(status.sessions ?? {}).some((bucket) => bucket.finished?.some((row) => row.taskId === jobId)));
+    await jobDirShows('the job record to be on disk as ended', (names) => names.includes(`${jobId}.done`) && !names.some((name) => name.includes('.mixdog-tmp-')));
+    // the stop's completion chain in Node's code arms a 30 minute timer when it has run its course: that arming is the event the clock waits for, so the later advance never lands in the middle of it
+    await within('the stop completion to arm its 30 minute timer', virtual.whenArmedAfter(stopFrom, (t) => t.api === 'setTimeout' && t.ms === 1_800_000));
     const settled = await paneAfterAdvance('the terminal row to reach the pane after the stop', (rows) => rows.finished.some((row) => row.taskId === jobId));
     mark('stopped', { stopped, settled, lastPane: paneRows.at(-1) });
     return { sessionId: SESSION, idleEvictMs: IDLE_EVICT_MS, jobId, steps, paneRows, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } };
