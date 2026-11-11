@@ -157,64 +157,46 @@ async fn append_page_rows(directory: &SessionDirectory, rows: &[&str]) {
     handle.request(append).await.expect("the rows are stored");
 }
 
-/// The rows after the newest held row (`sortDirection: asc` from its id): what the live feed adds to the client's window.
-async fn newer_than(directory: &SessionDirectory, held: &[Value]) -> Vec<Value> {
-    let last = held.last().expect("held rows")["id"].clone();
-    let params = json!({ "threadId": "sess_page_host", "limit": 64, "byteBudget": 1_000_000, "cursor": last, "sortDirection": "asc" });
-    call(directory, "thread/items/list", params).await.expect("the newer rows")["data"].as_array().expect("data").clone()
-}
-
-/// Case "a session that changed between reads answers the page in full": the client holds the newest 32 rows (`heldBeforePage`); two
-/// rows are appended (the recorded `appendedRows`, the change between the opening read and the page read); the older page (64 rows) and
-/// the rows after its newest held row are then read, and the window the client displays is the 98 rows they make (the two the older
-/// page reveals beyond Node's 96, then Node's recorded `snapshot.items`). Node's host answered the page in full, the newest 96 rows; the
-/// client that sees the tail move replaces its window by that same read (`transcript-history.test.mjs`, the pager's own detection), and
-/// every row of both windows is compared with the recorded ones.
+/// Case "a session that changed between reads answers the page in full": the recorded `appendedRows` are appended to the session; the
+/// full read of the window the client asked for (the 32 rows it held + 64) then answers the recorded `reads[0].full` and `snapshot`
+/// whole: the newest 96 rows, the appended ones among them, and `transcriptHasOlder`. The client's detection of the moved tail and
+/// its read of that window again are the product pager and hook, driven against the built core by
+/// `benchmarks/rust-core/recorders/replay-session-host-transcript-page.mjs`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_session_that_changed_between_reads_shows_the_recorded_window_as_node_recorded() {
+async fn a_session_that_changed_between_reads_answers_the_recorded_window_as_node_recorded() {
     let name = "a session that changed between reads answers the page in full";
     let observed = observed("session-host-transcript-page-cases", name);
-    let older_page = self::observed("session-host-transcript-page-cases", "an older page crosses the daemon hop as the revealed rows only, and the host keeps its held copy");
     let (_dir, directory) = paged_directory(&[]).await;
-    let (held, opened) = page(&directory, 32, None).await;
-    assert_rows(&folded(&held), &recorded_page_rows(older_page.get("heldBeforePage")), &format!("{name}: the held rows"));
     let appended: Vec<String> = plain(observed.get("appendedRows")).as_array().expect("appended rows").iter().map(|row| row.as_str().expect("row").to_owned()).collect();
     append_page_rows(&directory, &appended.iter().map(String::as_str).collect::<Vec<_>>()).await;
-    let (revealed, _) = page(&directory, 64, Some(&opened["nextCursor"])).await;
-    let newer = newer_than(&directory, &held).await;
-    assert_eq!(newer.len(), appended.len(), "{name}: the appended rows follow the newest held row");
-    let displayed: Vec<Value> = revealed.iter().chain(held.iter()).chain(newer.iter()).cloned().collect();
-    // The 98 rows on screen: the two older rows beyond Node's window, then the recorded 96.
-    let recorded_older = recorded_page_rows(older_page.get("reads").as_array()[0].get("result").get("page").get("items"));
-    let snapshot = observed.get("snapshot");
-    let expected: Vec<Value> = recorded_older[..2].iter().cloned().chain(recorded_page_rows(snapshot.get("items"))).collect();
-    assert_rows(&folded(&displayed), &expected, &format!("{name}: the 98 rows displayed"));
-    // The replacing read: the newest 96 rows, Node's full answer whole.
     let (window, answer) = page(&directory, 96, None).await;
-    assert_rows(&folded(&window), &recorded_page_rows(snapshot.get("items")), &format!("{name}: the window"));
-    assert_eq!(answer["hasOlder"], json!(plain(snapshot)["transcriptHasOlder"]), "{name}: older rows remain");
+    let full = observed.get("reads").as_array()[0].get("result").get("full");
+    assert_rows(&folded(&window), &recorded_page_rows(full.get("items")), &format!("{name}: the full read"));
+    assert_eq!(answer["hasOlder"], json!(plain(full)["transcriptHasOlder"]), "{name}: older rows remain");
+    assert_rows(&folded(&window), &recorded_page_rows(observed.get("snapshot").get("items")), &format!("{name}: the snapshot"));
 }
 
 /// Case "held rows that move while the page is in flight fall back to a full read": the page read is in flight (held before it reaches the
 /// store) and the client's held rows move (the recorder dropped the first held row from the host's own copy; the core is not involved), the
 /// read then answers the recorded page (the 64 rows before the oldest held row, Node's `reads[0].page.items`), and the full read the
 /// client falls back to answers the recorded window whole (`reads[1].full`: the newest 96 rows and `transcriptHasOlder`). The
-/// detection and the fallback are the client's pager (`transcript-history.test.mjs`).
+/// detection and the fallback are the product pager and hook, driven against the built core by
+/// `benchmarks/rust-core/recorders/replay-session-host-transcript-page.mjs`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn held_rows_that_move_during_a_page_read_fall_back_to_a_full_read_as_node_recorded() {
     let name = "held rows that move while the page is in flight fall back to a full read";
     let observed = observed("session-host-transcript-page-cases", name);
     let reads = observed.get("reads").as_array();
     let (_dir, directory, store) = counted_paged_directory(&[]).await;
-    let (mut held, opened) = page(&directory, 32, None).await;
+    let (_, opened) = page(&directory, 32, None).await;
     let mut in_flight = store.hold("history_rows");
     let reader = {
         let (directory, cursor) = (directory.clone(), opened["nextCursor"].clone());
         tokio::spawn(async move { page(&directory, 64, Some(&cursor)).await })
     };
+    // The client's held copy moves while the read is in flight (the recorder dropped its first row): the core is not involved, its
+    // answer to the read held here is the recorded page whatever the client then holds.
     in_flight.entered("history_rows").await;
-    // The recorded movement: the held copy loses its first row while the read is in flight.
-    held.remove(0);
     in_flight.release();
     let (revealed, _) = reader.await.expect("the page read finished");
     assert_rows(&folded(&revealed), &recorded_page_rows(reads[0].get("result").get("page").get("items")), &format!("{name}: the page the read answered"));
@@ -223,7 +205,6 @@ async fn held_rows_that_move_during_a_page_read_fall_back_to_a_full_read_as_node
     assert_rows(&folded(&window), &recorded_page_rows(full.get("items")), &format!("{name}: the full read"));
     assert_eq!(answer["hasOlder"], json!(plain(full)["transcriptHasOlder"]), "{name}: older rows remain");
     assert_rows(&folded(&window), &recorded_page_rows(observed.get("snapshot").get("items")), &format!("{name}: the snapshot"));
-    assert_eq!(held.len(), 31, "{name}: the client's held copy moved");
 }
 // ---- data-dir-retarget ------------------------------------------------------------------------------------------------
 
