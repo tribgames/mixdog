@@ -328,6 +328,10 @@ pub(crate) enum JobDone {
     /// `agentStatusState()` read on load or after a job of this thread changed; `listener`: the
     /// status listener's read (see `read_agent_status`).
     AgentStatus { agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool },
+    /// The context status the load's status pass read (`read_context_display`), `null` for none.
+    ContextStatus(Value),
+    /// The session's live workspace (`read_live_workspace`).
+    LiveWorkspace(u64, Option<Value>),
     /// The idle deadline found the thread quiet; `working`: its background work still runs.
     IdleChecked { working: bool },
     /// A turn operation's answer (`session/turn_ops.rs`) for the request that asked.
@@ -595,6 +599,10 @@ pub(crate) struct SessionActor {
     room_approvals_resolved: Vec<String>,
     /// The running turn is that first turn and has not shown visible output yet.
     turn_prewarm_armed: bool,
+    /// The live-workspace reads started; only the latest one's answer is published.
+    live_workspace_reads: u64,
+    /// Settings announcements that reached the thread before it had a session (`on_settings_changed`).
+    setup_changes_held: u64,
     /// `stats.turns`: the turns this thread closed with an end (`publishTurnClose`), which `pickDoneVerb` reads.
     turns_closed: usize,
     /// state.stats (usage totals), folded from each model call's usage event.
@@ -932,6 +940,8 @@ impl SessionActor {
             room_questions_moved: false,
             room_approvals_resolved: Vec::new(),
             turn_prewarm_armed: false,
+            live_workspace_reads: 0,
+            setup_changes_held: 0,
             turns_closed: 0,
             stats: Default::default(),
             steer_marked: Vec::new(),
@@ -1030,6 +1040,8 @@ impl SessionActor {
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
         // the marks that move agent status are the status listener's signals.
         self.read_agent_status(false);
+        self.read_context_display();
+        self.read_live_workspace();
         let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes().map(SettingsFollow::begin));
         loop {
             let deadline = self.book.next_deadline();
@@ -1320,12 +1332,17 @@ impl SessionActor {
         let record = Arc::new(record);
         let shown = !matches!(display, Display::Suppressed);
         // The session's route moved (`provider`/`model` of the header): its state follows, as Node's route state does.
-        let route_moved = match &*record {
-            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => ["provider", "model"]
+        let moved = |keys: &[&str]| match &*record {
+            Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) => keys
                 .iter()
                 .any(|key| change.set.get(*key).is_some_and(|value| self.projected.header.get(*key) != Some(value)) || (change.unset.iter().any(|unset| unset.as_str() == *key) && self.projected.header.contains_key(*key))),
             _ => false,
         };
+        // A workspace transition moves the runtime's cwd (routeState's `cwd`); its workspace record the transition publishes.
+        let window_moved = moved(&["provider", "model", "contextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"]);
+        // A pick held for the next turn is the runtime's route at once (the state's provider, model, effort and contextPercent).
+        let held_moved = moved(&["pendingRoute"]);
+        let route_moved = moved(&["provider", "model"]) || moved(&["cwd"]) || held_moved;
         let change = Change::Record {
             record: record.clone(),
             display,
@@ -1339,6 +1356,20 @@ impl SessionActor {
             // The route's own values (`autoClear` is the provider's) are read under the new provider; the frame carries the whole route.
             let route = self.deps.compaction.route_config(&self.projected.header);
             self.accept_view_after(Some(entry), Change::Section(Section::Route(route)), Vec::new(), Vec::new());
+        }
+        if window_moved || held_moved {
+            // The context section's settled figures follow the header (the seated window and limits, the held pick's percent); the
+            // frame carries the whole section.
+            self.accept_view_after(Some(entry), Change::Section(Section::Context(Default::default())), Vec::new(), Vec::new());
+        }
+        if window_moved {
+            // A route change marks the status pass (`syncContextStats` of the next pulse); a seated route makes the session the
+            // agent status's scope.
+            self.read_context_display();
+            self.read_agent_status(false);
+            if self.setup_changes_held > 0 && mixdog_core_ports::ports::route::header_names_session(&self.projected.header) {
+                self.on_settings_changed(0);
+            }
         }
         entry
     }
@@ -1563,6 +1594,13 @@ impl SessionActor {
                 self.show_live(turn, item, None);
             }
             JobDone::AgentStatus { agents, listener } => self.agent_status(agents, listener),
+            JobDone::ContextStatus(status) => self.context_display(&status),
+            JobDone::LiveWorkspace(read, workspace) => {
+                if read == self.live_workspace_reads
+                    && !self.tombstoned && !self.cell.closed.load(SeqCst) && self.projected.sections.workspace != workspace {
+                    self.accept_view(Change::Section(Section::Workspace(workspace)), Vec::new());
+                }
+            }
             JobDone::IdleChecked { working } => self.idle_checked(working),
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
             JobDone::GoalEntryChecked { entry, seen } => self.goal_entry_checked(entry, seen),
@@ -3193,6 +3231,15 @@ impl SessionActor {
     /// (notification-router.mjs: `{ action, seq, at }`); the route section follows the saved configuration.
     fn on_settings_changed(&mut self, announced: u64) {
         // Node's router counts every delivery (setupChangeSeq += 1): announcements that reached this thread together count one each.
+        // Node delivers them to a session's listener: a thread with no session yet (no model on its header) holds them until its
+        // route is seated - the save of the route that seats it is the announcement a new task's session counts (its session exists
+        // before the save in Node); a thread never seated counts none (the control session's setupChanged stays null).
+        if !mixdog_core_ports::ports::route::header_names_session(&self.projected.header) {
+            self.setup_changes_held += announced;
+            self.sync_route_config();
+            return;
+        }
+        let announced = announced + std::mem::take(&mut self.setup_changes_held);
         for _ in 0..announced {
             self.setup_changes += 1;
             let change = json!({ "action": "settings_changed", "seq": self.setup_changes, "at": self.deps.clock.now_ms() });
@@ -4765,6 +4812,50 @@ impl SessionActor {
             let agents = status.status(&thread).await;
             let _ = jobs.send(JobDone::AgentStatus { agents, listener });
         });
+    }
+
+    /// The load's status pass also runs `syncContextStats` (local-session-runtime.mjs createRuntimePulse): the context status of
+    /// the thread, read off the actor one settle beat later, fills the display fields.
+    fn read_context_display(&self) {
+        let (jobs, gauge, thread) = (self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
+        tokio::spawn(async move {
+            tokio::time::sleep(STATUS_SETTLE).await;
+            let status = gauge.context_status(Some(thread), None).await.unwrap_or(Value::Null);
+            let _ = jobs.send(JobDone::ContextStatus(status));
+        });
+    }
+
+    /// The workspace `routeState` publishes (`getLiveWorkspace`), read off the actor: at load and whenever the header's `cwd`,
+    /// `workspace` or `desktopSession` moved.
+    fn read_live_workspace(&mut self) {
+        self.live_workspace_reads += 1;
+        let (jobs, live, thread, read) = (self.jobs_tx.clone(), self.deps.live_workspace.clone(), self.id.clone(), self.live_workspace_reads);
+        tokio::spawn(async move {
+            let workspace = live.live(thread.as_str()).await;
+            let _ = jobs.send(JobDone::LiveWorkspace(read, workspace));
+        });
+    }
+
+    /// `syncContextDisplayFields(status)` (context-state.mjs:116-136): the window the status shows, the compaction boundary and
+    /// the auto-compact trigger (`compaction.triggerTokens || compaction.autoCompactTokenLimit || session.autoCompactTokenLimit`),
+    /// each only once known (> 0).
+    fn context_display(&mut self, status: &Value) {
+        if self.tombstoned || self.cell.closed.load(SeqCst) || !status.is_object() {
+            return;
+        }
+        let positive = |value: Option<&Value>| value.and_then(Value::as_f64).filter(|n| n.is_finite() && *n > 0.0).map(|n| n as i64);
+        let compaction = status.get("compaction");
+        let context = ThreadContext {
+            display_context_window: positive(status.get("contextWindow")),
+            compact_boundary_tokens: positive(compaction.and_then(|c| c.get("boundaryTokens"))),
+            auto_compact_token_limit: positive(compaction.and_then(|c| c.get("triggerTokens")))
+                .or_else(|| positive(compaction.and_then(|c| c.get("autoCompactTokenLimit"))))
+                .or_else(|| positive(self.projected.header.get("autoCompactTokenLimit"))),
+            ..Default::default()
+        };
+        if context != ThreadContext::default() {
+            self.on_context_section(context);
+        }
     }
 
     /// `set({ ...agentStatusState() })` publishes the lists only when they changed. A thread

@@ -1398,6 +1398,16 @@ impl super::prewarm_signals::CodeGraphPrewarmSignals for TestCodeGraphPrewarm {
     }
 }
 
+/// The rig's context gauge: no status (the status of no session), so the load's pass publishes no display fields.
+pub struct NoContextStatus;
+
+#[async_trait::async_trait]
+impl super::thread_context::ContextStatusHost for NoContextStatus {
+    async fn context_status(&self, _: Option<ThreadId>, _: Option<Value>) -> Result<Value, mixdog_core_api::error::CoreError> {
+        Ok(Value::Null)
+    }
+}
+
 /// The agent status the rig answers, and the threads it was read for, in order.
 #[derive(Default)]
 pub struct TestAgents {
@@ -1756,6 +1766,8 @@ impl Rig {
             todos: self.todos.clone(),
             work: self.work.clone(),
             agent_status: self.agents.clone(),
+            context_status: Arc::new(NoContextStatus),
+            live_workspace: Arc::new(super::worktree::NoLiveWorkspace),
             code_graph_prewarm: self.code_graph.clone(),
             agent_signals: self.signals.clone(),
             side: self.side.clone(),
