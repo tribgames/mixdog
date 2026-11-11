@@ -202,10 +202,7 @@
             "lastSeenAt": "0",
             "nowMs": 34560000000
           },
-          "result": 1.030560169827299,
-          "stored": {
-            "noSqlArgument": "lastSeenAt is the string \"0\": no BIGINT column holds it"
-          }
+          "result": 1.030560169827299
         },
         {
           "input": {
@@ -213,10 +210,7 @@
             "lastSeenAt": "86400000",
             "nowMs": 34560000000
           },
-          "result": 1.031155468061334,
-          "stored": {
-            "noSqlArgument": "lastSeenAt is the string \"86400000\": no BIGINT column holds it"
-          }
+          "result": 1.031155468061334
         },
         {
           "input": {
@@ -250,10 +244,7 @@
             },
             "nowMs": 34560000000
           },
-          "result": 1.6,
-          "stored": {
-            "noSqlArgument": "lastSeenAt is NaN: no BIGINT column holds it"
-          }
+          "result": 1.6
         },
         {
           "input": {
@@ -261,10 +252,7 @@
             "lastSeenAt": "x",
             "nowMs": 34560000000
           },
-          "result": 1.6,
-          "stored": {
-            "noSqlArgument": "lastSeenAt is the string \"x\": no BIGINT column holds it"
-          }
+          "result": 1.6
         },
         {
           "input": {
@@ -274,10 +262,7 @@
               "$exact": "NaN"
             }
           },
-          "result": null,
-          "stored": {
-            "noSqlArgument": "nowMs is NaN: no BIGINT column holds it"
-          }
+          "result": null
         },
         {
           "input": {
@@ -298,10 +283,7 @@
             "lastSeenAt": 0,
             "nowMs": "34560000000"
           },
-          "result": 1.030560169827299,
-          "stored": {
-            "noSqlArgument": "nowMs is the string \"34560000000\": no BIGINT column holds it"
-          }
+          "result": 1.030560169827299
         },
         {
           "input": {
