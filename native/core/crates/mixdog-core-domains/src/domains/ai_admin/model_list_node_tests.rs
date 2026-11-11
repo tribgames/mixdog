@@ -301,6 +301,7 @@ pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: O
             accounts,
             anthropic_caps: Arc::new(|_| None),
             google_traits: Arc::new(Traits),
+            route_traits: Arc::new(|_| None),
             openai_facts: Arc::new(NoFacts),
             openai_context: Arc::new(SessionContext::new()),
             codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },

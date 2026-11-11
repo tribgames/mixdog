@@ -87,10 +87,12 @@ impl ModelBroker {
     pub async fn send(
         &self,
         adapter: &dyn ProviderAdapter,
-        send: SendRequest,
+        mut send: SendRequest,
         sink: &mut dyn AttemptSink,
         cancel: &CancellationToken,
     ) -> Result<u32, SendError> {
+        // One identity per send, shared by its attempts: the ids Node mints per `send` call are minted from it.
+        Arc::make_mut(&mut send.request).options.send_identity = Default::default();
         let mut permit = self
             .admission
             .acquire(&send.lane, send.admission, cancel)
@@ -104,7 +106,8 @@ impl ModelBroker {
         let mut midstream_state = RetryState::new(RetryClass::Midstream, model.clone());
         let mut attempts = 0;
         let liveness = permit.liveness().cloned();
-        let mut stages = adapter.send_stages(&model);
+        adapter.prepare_send(&send.request).await;
+        let mut stages = adapter.send_stages_of(&send.request);
         for _ in 0..stages.preparing {
             sink.stage("requesting", None);
         }
@@ -134,7 +137,7 @@ impl ModelBroker {
                 Err(Stop::Failed(err)) => err,
             };
             // A gateway knows the wire a send goes out on only once an attempt did: its stages follow it.
-            stages = adapter.send_stages(&model);
+            stages = adapter.send_stages_of(&send.request);
             if failure.status == Some(429) {
                 permit.report_rate_limit(failure.retry_after);
             }
@@ -147,7 +150,7 @@ impl ModelBroker {
             } else {
                 (&mut request_state, RetryClass::Request)
             };
-            let policy = adapter.retry_policy_for(&send.request.model);
+            let policy = adapter.retry_policy_of(&send.request);
             let decision = self.decider.verdict(&failure, state, policy, random_samples());            // `emitProviderRetryStage`'s attempt: the one about to run, of the row's attempts.
             let attempt = decision.next.count(None).retries + 1;
             *state = decision.next;
@@ -167,7 +170,7 @@ impl ModelBroker {
                     if stages.reconnecting {
                         sink.stage("reconnecting", Some(crate::retry::stage::reconnecting(&failure, attempt, max, delay, crate::wall::now_ms())));
                     }
-                    if let Some(line) = adapter.retry_line(&model) {
+                    if let Some(line) = adapter.retry_line_of(&send.request) {
                         // `lastErr?.message || lastErr?.code || 'transient error'`, then `retryDelayLabel(delayMs, delayReason)`.
                         let cause = [Some(failure.message.as_str()), failure.code.as_deref()]
                             .into_iter()

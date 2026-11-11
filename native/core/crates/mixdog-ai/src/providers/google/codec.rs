@@ -79,6 +79,8 @@ pub struct GoogleCodec {
     /// The environment Antigravity's default function-calling mode is read from on every request
     /// ([`Self::with_env`]); none reads the default.
     env: Option<Arc<dyn Environment>>,
+    /// The label a gateway engine's errors carry in place of the Gemini REST one ([`Self::with_error_label`]).
+    error_label: Option<&'static str>,
 }
 
 /// `FUNCTION_CALLING_MODES`: the values `MIXDOG_ANTIGRAVITY_FC_MODE` may override the default with.
@@ -150,7 +152,15 @@ impl GoogleCodec {
             provider: ProviderId::from("gemini"),
             claude_caps: Arc::new(|_| None),
             env: None,
+            error_label: None,
         }
+    }
+
+    /// The Gemini wire of a gateway: its refusals and stream errors name the gateway's route
+    /// (`OpenCode Go Gemini streamGenerateContent`, opencode-go-gemini.mjs:104).
+    pub fn with_error_label(mut self, label: &'static str) -> Self {
+        self.error_label = Some(label);
+        self
     }
 
     pub fn vertex(place: VertexPlace, traits: Arc<dyn ModelTraits>) -> Self {
@@ -160,6 +170,7 @@ impl GoogleCodec {
             provider: ProviderId::from("vertex-ai"),
             claude_caps: Arc::new(|_| None),
             env: None,
+            error_label: None,
         }
     }
 
@@ -179,6 +190,7 @@ impl GoogleCodec {
             provider: ProviderId::from("antigravity-oauth"),
             claude_caps: Arc::new(|_| None),
             env: None,
+            error_label: None,
         }
     }
 
@@ -319,7 +331,7 @@ impl GoogleCodec {
     /// the endpoint `antigravityError` names.
     fn error_dialect(&self) -> ErrorDialect {
         match &self.target {
-            Target::Gemini { .. } => ErrorDialect::gemini("Gemini REST streamGenerateContent"),
+            Target::Gemini { .. } => ErrorDialect::gemini(self.error_label.unwrap_or("Gemini REST streamGenerateContent")),
             Target::Vertex { .. } => ErrorDialect::gemini("Vertex AI Gemini streamGenerateContent"),
             Target::Antigravity { origin, .. } => ErrorDialect::antigravity(origin.clone()),
         }
@@ -421,7 +433,8 @@ impl GoogleCodec {
         };
         // Node's own spelling (`geminiApiHeaders`, gemini.mjs:94; `_sendGemini`, vertex-ai.mjs:355-358), which undici
         // keeps on the wire.
-        let content_type = if matches!(self.target, Target::Gemini { .. } | Target::Vertex { .. }) { "Content-Type" } else { "content-type" };
+        // Antigravity's (`antigravity-oauth.mjs:166-172`) is spelled the same way.
+        let content_type = "Content-Type";
         let mut headers = vec![(content_type.to_owned(), "application/json".to_owned())];
         let (url, body) = match &self.target {
             Target::Gemini { origin } => (
@@ -444,9 +457,9 @@ impl GoogleCodec {
             Target::Antigravity { origin, project, client_version } => {
                 // antigravity-oauth.mjs:166-172: the bearer leads the head (its slot, filled where the request is
                 // authorized), and a Claude model gets the interleaved-thinking beta.
-                headers.insert(0, ("authorization".into(), String::new()));
-                headers.push(("accept".into(), "text/event-stream".into()));
-                headers.push(("user-agent".into(), antigravity_user_agent(&client_version.get())));
+                headers.insert(0, ("Authorization".into(), String::new()));
+                headers.push(("Accept".into(), "text/event-stream".into()));
+                headers.push(("User-Agent".into(), antigravity_user_agent(&client_version.get())));
                 if super::request::antigravity_claude(&id) {
                     headers.push(("anthropic-beta".into(), "interleaved-thinking-2025-05-14".into()));
                 }
@@ -458,7 +471,7 @@ impl GoogleCodec {
                         "request": inner,
                         "requestType": "agent",
                         "userAgent": "antigravity",
-                        "requestId": format!("agent-{}", uuid_v4()),
+                        "requestId": format!("agent-{}", request.options.send_identity.get_or_mint(uuid_v4)),
                 });
                 // An account with no project sends none (`JSON.stringify` drops an undefined `project`).
                 if project.is_empty()

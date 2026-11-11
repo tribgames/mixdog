@@ -219,7 +219,7 @@ fn requests_encode_to_the_recorded_wire() {
             assert!(id.starts_with("agent-") && id.len() == "agent-".len() + 36);
             assert!(
                 wire.headers.contains(&(
-                    "user-agent".into(),
+                    "User-Agent".into(),
                     "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)".into()
                 ))
             );
@@ -781,8 +781,8 @@ async fn antigravity_refreshes_once_on_401_with_the_recorded_requests() {
     );
     let seen = http.seen.lock().unwrap();
     assert_eq!(String::from_utf8_lossy(&seen[1].body), token.body, "the recorded refresh request");
-    assert!(seen[0].headers.contains(&("authorization".into(), "Bearer stale-access".into())));
-    assert!(seen[2].headers.contains(&("authorization".into(), "Bearer fixture-access-token".into())));
+    assert!(seen[0].headers.contains(&("Authorization".into(), "Bearer stale-access".into())));
+    assert!(seen[2].headers.contains(&("Authorization".into(), "Bearer fixture-access-token".into())));
     let stored = store.0.lock().unwrap().clone().unwrap();
     assert_eq!((stored.access_token.as_str(), stored.project_id.as_str()), ("fixture-access-token", "fixture-project"));
     assert_eq!(stored.expires_at_ms, NOW_MS + 3_600_000);

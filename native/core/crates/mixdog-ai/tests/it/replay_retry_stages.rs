@@ -11,6 +11,7 @@
 //! from its run loop) and the stderr lines.
 
 use futures::FutureExt as _;
+use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_rt::node_log::Channel;
@@ -50,6 +51,8 @@ fn config(case: &Case, provider: &str) -> serde_json::Value {
         "antigravity-oauth" => "AntigravityOAuthProvider",
         "vertex-ai" => "VertexAIProvider",
         "devin-oauth" => "DevinOAuthProvider",
+        // The registered OpenCode Go provider wraps the gateway engines the recorder drove (`OpenCodeGoProvider`).
+        "opencode-go-oauth" => "OpenCodeGoProvider",
         other => panic!("{}: a provider this set does not record: {other}", case.id),
     };
     plain(&case.args_of(class, 0)[0])
@@ -59,12 +62,18 @@ fn config(case: &Case, provider: &str) -> serde_json::Value {
 /// the send made (the OpenAI and Anthropic SDK clients draw one per request they make, the compat retry advice one
 /// jitter sample) and which of them is the retry jitter sample, if any. The count is checked against the recorded one,
 /// so a provider that draws another number fails here rather than shifting the sample.
-fn draw_shape(id: &str) -> (u32, Option<u32>) {
+fn draw_shape(id: &str) -> (u32, Option<(u32, u32)>) {
     match id {
         "anthropic-api-key-raises-the-stage" | "gateway-messages-raises-the-stage" | "vertex-maas-raises-the-stage" => (2, None),
-        "xai-responses-raises-the-stage" | "xai-chat-raises-the-stage" => (3, Some(1)),
+        "xai-responses-raises-the-stage" | "xai-chat-raises-the-stage" | "grok-oauth-raises-the-stage" => (3, Some((1, 1))),
+        // Antigravity's capacity ladder draws the one jitter sample (antigravity-retry-policy.mjs:144).
+        "antigravity-raises-the-stage" => (1, Some((0, 0))),
+        // The Gemini ladder by connection draws the step's sample and, the refusal advising a wait, the advice's
+        // (`retryDelayFor`, retry-executor.mjs:320-324; `jitterDelayMs`, retry-backoff.mjs:93-104).
+        "opencode-go-gemini-raises-the-ladder-stage" => (2, Some((0, 1))),
         "vertex-gemini-retries-its-stream-without-the-stage"
         | "anthropic-oauth-raises-the-stage"
+        | "anthropic-oauth-redacts-an-echoed-credential"
         | "vertex-claude-raises-the-stage"
         | "devin-surfaces-the-first-failure" => (0, None),
         other => panic!("{other}: no draw shape for this case"),
@@ -75,14 +84,7 @@ fn draw_shape(id: &str) -> (u32, Option<u32>) {
 #[tokio::test(start_paused = true)]
 async fn every_case_replays_as_nodes() {
     let set = CaseSet::load("retry-stages");
-    assert_eq!(set.cases.len(), 11, "the recorded cases");
-    set.not_replayed(
-        &["grok-oauth-raises-the-stage", "antigravity-raises-the-stage"],
-        "open: Node mints one `x-grok-req-id` (grok-oauth-tokens.mjs `proxyHeaders`, per send) and one Antigravity `requestId` \
-         (antigravity-transport.mjs, per send) for all of a send's attempts, as the recorded requests show; the core mints \
-         them per attempt (providers/grok/mod.rs `request_id`, google/codec.rs `uuid_v4`) and a ModelRequest has no \
-         per-send identity to key one on. Antigravity also reads the update manifest first, which the replay builder does not wire",
-    );
+    assert_eq!(set.cases.len(), 13, "the recorded cases");
     // The recording process's `Math.random`, in order (a draw at module load, `PERIODIC_SNAPSHOT_INTERVAL_MS`,
     // shared/memory-snapshot.mjs:16; per request the Anthropic and OpenAI SDK clients make, one in `makeRequest`,
     // @anthropic-ai/sdk client.js:584, openai client.js:385; per OpenAI-compatible retry the advice's jitter,
@@ -96,9 +98,6 @@ async fn every_case_replays_as_nodes() {
     let mut failures = Vec::new();
     let mut uuids_consumed = 0_u32;
     for case in &set.cases {
-      if matches!(case.id.as_str(), "grok-oauth-raises-the-stage" | "antigravity-raises-the-stage") {
-          continue;
-      }
       let replay = async {
         let what = format!("retry-stages {}", case.id);
         let provider = case.input.get("provider").as_str();
@@ -114,7 +113,7 @@ async fn every_case_replays_as_nodes() {
         consumed += count;
         // One verdict per failed attempt, the retry's first; the core draws the samples of the last verdict too, which
         // Node never draws (a NaN, which any wait it entered would fail).
-        let retry = jitter_at.map_or((f64::NAN, f64::NAN), |at| (drawn[at as usize], drawn[at as usize]));
+        let retry = jitter_at.map_or((f64::NAN, f64::NAN), |(step, advice)| (drawn[step as usize], drawn[advice as usize]));
         mixdog_ai::random::script_jitter([retry, (f64::NAN, f64::NAN)]);
         // The world's `crypto.randomUUID`, a stream of its own: the ids the send drew.
         let (uuid_first, uuid_count) = (recorded_draws.get("uuidFirst").as_f64() as u32, recorded_draws.get("uuidCount").as_f64() as u32);
@@ -138,7 +137,14 @@ async fn every_case_replays_as_nodes() {
             .try_get("adcFile")
             .map(|file| vec![("GOOGLE_APPLICATION_CREDENTIALS".to_owned(), home.path().join(file.as_str()).display().to_string())])
             .unwrap_or_default();
-        let builder = replay_world::builder(&endpoint, home.path(), env).await;
+        // The models.dev catalog the case routes by, its recorded input as the disk copy the product warms from.
+        if let Some(catalog) = case.input.try_get("modelsDev") {
+            let text = serde_json::json!({ "fetchedAt": 1, "data": plain(catalog) }).to_string();
+            std::fs::create_dir_all(home.path().join("catalog")).expect("a catalog directory");
+            std::fs::write(home.path().join("catalog").join("modelsdev-catalog.json"), text).expect("the models.dev disk copy");
+        }
+        // Antigravity reads the updater's manifest before its first send, which the recording holds as its first arrival.
+        let builder = replay_world::builder_versioned(&endpoint, home.path(), env, SessionContext::new(), provider == "antigravity-oauth").await;
         let adapter = replay_world::adapter(&builder, provider, &config(case, provider)).await;
         let args = case.args_of("#send", 0);
         // The options the send was called with: the stage callback (the sink's) and the gateway case's output ceiling.
@@ -147,6 +153,7 @@ async fn every_case_replays_as_nodes() {
             match key.as_str() {
                 "onStageChange" => {}
                 "modelMaxOutputTokens" => options.model_max_output_tokens = Some(value.as_f64() as u32),
+                "sessionId" => options.session_id = Some(value.as_str().to_owned()),
                 other => panic!("{what}: a send option this replay does not read: {other}"),
             }
         }
@@ -194,7 +201,13 @@ async fn every_case_replays_as_nodes() {
                 })
                 .collect(),
         );
-        recorded.get("stages").assert_filtered(&format!("{what}: stages"), OTHER_STAGES, &stages);
+        if provider == "opencode-go-oauth" {
+            // The Gemini engine raises its own `requesting` stages (GeminiProvider's send), so none is the run loop's to
+            // leave out: the stages are compared whole.
+            recorded.get("stages").assert_eq(&format!("{what}: stages"), &stages);
+        } else {
+            recorded.get("stages").assert_filtered(&format!("{what}: stages"), OTHER_STAGES, &stages);
+        }
         let stderr = Exact::Array(
             lines
                 .lock()

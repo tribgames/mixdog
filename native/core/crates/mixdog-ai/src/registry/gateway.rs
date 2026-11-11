@@ -210,19 +210,17 @@ pub struct GatewayAdapter {
     /// The Messages wire's output ceiling for a model (`config.modelMaxOutputTokens(model)`), handed to the Anthropic
     /// request builder when the caller named none (`gatewayMessagesOpts`).
     messages_ceiling: Option<Arc<dyn Fn(&str) -> Option<u32> + Send + Sync>>,
-    /// The wire each model's last attempt went out on: its engine's ladder writes the retry line that follows it.
-    last_wire: Mutex<std::collections::HashMap<String, Wire>>,
 }
 
 impl GatewayAdapter {
     /// `engines` serve the wires other than Chat, which is `account` itself.
     pub fn new(account: Arc<CompatAdapter>, engines: Vec<(Wire, Arc<dyn ProviderAdapter>)>, pick: WirePick) -> Self {
-        Self { account, engines, pick, session_header: false, messages_ceiling: None, last_wire: Mutex::default() }
+        Self { account, engines, pick, session_header: false, messages_ceiling: None }
     }
 
-    /// Whether `model`'s last attempt went out on the Gemini wire.
-    fn on_gemini(&self, model: &str) -> bool {
-        self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model) == Some(&Wire::Gemini)
+    /// The wire the send's last attempt went out on: carried by the send's own identity, never shared between sends.
+    fn wire_of(&self, request: &ModelRequest) -> Option<Wire> {
+        request.options.send_identity.wire().and_then(Wire::parse)
     }
 
     pub fn with_messages_ceiling(mut self, ceiling: Arc<dyn Fn(&str) -> Option<u32> + Send + Sync>) -> Self {
@@ -281,7 +279,7 @@ impl GatewayAdapter {
     /// One attempt on `wire`, with the send's own headers.
     async fn attempt_on(&self, wire: Wire, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let engine = self.engine(wire).ok_or_else(|| self.not_routable(&request.model))?;
-        self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(request.model.clone(), wire);
+        request.options.send_identity.set_wire(wire.as_str());
         let request = self.with_ceiling(wire, request);
         if !self.session_header {
             return engine.attempt(request).await;
@@ -293,7 +291,7 @@ impl GatewayAdapter {
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map_or_else(random_uuid, str::to_owned);
+            .map_or_else(|| request.options.send_identity.get_or_mint(random_uuid), str::to_owned);
         SEND_HEADERS.scope(vec![("x-opencode-session".into(), session)], engine.attempt(request)).await
     }
 
@@ -320,18 +318,30 @@ impl ProviderAdapter for GatewayAdapter {
     /// Each wire's engine runs its own ladder (the Messages wire the Anthropic one, anthropic-api-transport.mjs:197; the
     /// Gemini wire `runGeminiStreamAttempts`, opencode-go-gemini.mjs:137, whose attempts are counted by the connection);
     /// the wire is known once an attempt went out on it, so the first failure of a send reads it.
-    fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
-        let wire = self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model).copied();
-        match wire.and_then(|wire| self.engines.iter().find(|(w, _)| *w == wire)) {
-            Some((_, engine)) => engine.retry_policy_for(model),
+    fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
+        match self.wire_of(request).and_then(|wire| self.engines.iter().find(|(w, _)| *w == wire)) {
+            Some((_, engine)) => engine.retry_policy_of(request),
             None => self.account.retry_policy(),
         }
     }
-    fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
-        if self.on_gemini(model) {
-            return mixdog_core_api::domain::provider::SendStages { each_attempt: true, ladder_by_connection: true, ..Default::default() };
+    fn send_stages_of(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::SendStages {
+        if self.wire_of(request) == Some(Wire::Gemini) {
+            // The Gemini engine is `GeminiProvider`'s send (`OpenCodeGoGeminiEngine`): its stages are the direct route's.
+            return mixdog_core_api::domain::provider::SendStages {
+                preparing: 2,
+                each_attempt: true,
+                before_recovery: true,
+                reconnecting: true,
+                ladder_by_connection: true,
+            };
         }
         Default::default()
+    }
+    /// The send's wire, resolved before its first attempt so the stages it raises ahead of that attempt are its wire's.
+    async fn prepare_send(&self, request: &ModelRequest) {
+        if let Ok((wire, ..)) = self.route_of(request).await {
+            request.options.send_identity.set_wire(wire.as_str());
+        }
     }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.account.keepalive()
@@ -346,15 +356,15 @@ impl ProviderAdapter for GatewayAdapter {
     fn native_pdf(&self) -> bool {
         false
     }
-    /// The line of the ladder of the wire `model`'s last attempt went out on; OpenCode Go's Gemini engine writes
+    /// The line of the ladder of the wire the send's last attempt went out on; OpenCode Go's Gemini engine writes
     /// `[opencode-go:gemini]` (opencode-go-gemini.mjs:143), with no wait.
-    fn retry_line(&self, model: &str) -> Option<RetryLine> {
-        let wire = *self.last_wire.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(model)?;
+    fn retry_line_of(&self, request: &ModelRequest) -> Option<RetryLine> {
+        let wire = self.wire_of(request)?;
         match wire {
             Wire::Gemini => Some(RetryLine { tag: "[opencode-go:gemini]".into(), delay: false, style: RetryLineStyle::Attempt }),
             // The Messages engine is an Anthropic provider named for the gateway (`label: this.name`, anthropic.mjs:411).
             Wire::Messages => Some(RetryLine { tag: format!("[{}]", self.account.id()), delay: true, style: RetryLineStyle::Attempt }),
-            other => self.engine(other)?.retry_line(model),
+            other => self.engine(other)?.retry_line_of(request),
         }
     }
     fn release_session(&self, session_id: &str) {
@@ -640,6 +650,59 @@ mod tests {
         fn on_wire_left(&mut self, left: Left) {
             *self.0.lock().unwrap() = Some(left);
         }
+    }
+
+    struct Nothing;
+
+    #[async_trait]
+    impl HttpSend for Nothing {
+        async fn send(&self, _: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+            unreachable!("no request goes out")
+        }
+    }
+
+    struct Key;
+
+    #[async_trait]
+    impl crate::providers::key_source::ApiKeySource for Key {
+        async fn key(&self) -> Result<String, ProviderError> {
+            Ok("fixture-key".into())
+        }
+        async fn reload(&self) -> Result<String, ProviderError> {
+            self.key().await
+        }
+    }
+
+    fn engine(profile: crate::providers::compat::profile::CompatProfile) -> Arc<CompatAdapter> {
+        let codec = crate::providers::compat::chat::CompatChatCodec::new(profile, crate::providers::compat::chat::CompatConfig::default());
+        Arc::new(CompatAdapter::new(codec, Arc::new(Nothing), Some(Arc::new(Key))))
+    }
+
+    /// Two sends of one model, one on the Messages wire and one on the Gemini wire, each keep their own ladder, stages
+    /// and retry line whichever attempt went out last: the wire is the send's, not the model's.
+    #[tokio::test]
+    async fn concurrent_sends_of_one_model_keep_their_own_wire() {
+        use crate::providers::compat::profile::CompatProfile;
+        let messages = engine(CompatProfile::deepseek());
+        let gemini = engine(CompatProfile::xai());
+        let gateway = GatewayAdapter::new(
+            engine(CompatProfile::opencode_go()),
+            vec![(Wire::Messages, messages.clone() as Arc<dyn ProviderAdapter>), (Wire::Gemini, gemini.clone() as Arc<dyn ProviderAdapter>)],
+            WirePick::Routed,
+        );
+        let request = |wire: Wire| {
+            let request = ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: Default::default() };
+            request.options.send_identity.set_wire(wire.as_str());
+            request
+        };
+        let (on_messages, on_gemini) = (request(Wire::Messages), request(Wire::Gemini));
+        // The Gemini send's attempt went out last; the Messages send reads its own wire all the same.
+        assert!(std::ptr::eq(gateway.retry_policy_of(&on_messages), messages.retry_policy()));
+        assert!(std::ptr::eq(gateway.retry_policy_of(&on_gemini), gemini.retry_policy()));
+        assert!(!gateway.send_stages_of(&on_messages).ladder_by_connection);
+        assert!(gateway.send_stages_of(&on_gemini).ladder_by_connection);
+        assert_eq!(gateway.retry_line_of(&on_messages).map(|line| line.tag), Some(format!("[{}]", gateway.id())));
+        assert_eq!(gateway.retry_line_of(&on_gemini).map(|line| line.tag), Some("[opencode-go:gemini]".to_owned()));
     }
 
     /// No stream the registry puts under a reroute awaits after the wire today, so the production stacks cannot show

@@ -172,6 +172,7 @@ pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dy
         accounts: accounts.clone(),
         anthropic_caps: Arc::new(|_| None),
         google_traits: Arc::new(Traits),
+        route_traits: Arc::new(|_| None),
         openai_facts: Arc::new(NoFacts),
         openai_context: Arc::new(SessionContext::new()),
         codex_identity: CodexIdentity {

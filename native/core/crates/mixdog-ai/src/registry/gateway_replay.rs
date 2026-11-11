@@ -195,6 +195,7 @@ fn world_with(scenario: &Value, chunking: Chunking, accounting: Option<super::ac
         accounts: accounts.clone(),
         anthropic_caps: Arc::new(caps),
         google_traits: Arc::new(NoTraits),
+        route_traits: Arc::new(|_| None),
         openai_facts: Arc::new(NoFacts),
         openai_context: Arc::new(SessionContext::new()),
         codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },

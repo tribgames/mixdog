@@ -2430,6 +2430,486 @@
       ]
     },
     {
+      "id": "anthropic-oauth-redacts-an-echoed-credential",
+      "source": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs:860",
+      "input": {
+        "provider": "anthropic-oauth",
+        "credentials": {
+          "anthropic-oauth-credentials.json": {
+            "claudeAiOauth": {
+              "accessToken": "fixture-access-token",
+              "refreshToken": "fixture-refresh-token",
+              "expiresAt": 4000000000000,
+              "scopes": [
+                "user:inference",
+                "user:profile"
+              ],
+              "subscriptionType": "max"
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Anthropic OAuth API 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"rejected Bearer [REDACTED] and [REDACTED] {\\\"refresh_token\\\":\\\"[REDACTED]\\\"}\"}}",
+          "code": "invalid_request_error",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            }
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[anthropic-oauth] API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"rejected Bearer [REDACTED] and [REDACTED] {\\\"refresh_token\\\":\\\"[REDACTED]\\\"}\"}}\n"
+        ],
+        "attemptRequests": [
+          0
+        ],
+        "draws": {
+          "first": 15,
+          "count": 0,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider",
+          "args": [
+            {}
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs.AnthropicOAuthProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "claude-sonnet-4-6",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.anthropic.com",
+          "path": "/v1/messages",
+          "headers": [
+            [
+              "host",
+              "api.anthropic.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-access-token"
+            ],
+            [
+              "anthropic-version",
+              "2023-06-01"
+            ],
+            [
+              "anthropic-beta",
+              "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,effort-2025-11-24"
+            ],
+            [
+              "anthropic-dangerous-direct-browser-access",
+              "true"
+            ],
+            [
+              "user-agent",
+              "claude-cli/2.1.317 (external, sdk-cli)"
+            ],
+            [
+              "x-app",
+              "cli"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "293"
+            ]
+          ],
+          "body": "{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":16384,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}]}],\"stream\":true,\"system\":[{\"type\":\"text\",\"text\":\"You are Claude Code, Anthropic's official CLI for Claude.\"}],\"thinking\":{\"type\":\"adaptive\"}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"rejected Bearer fixture-access-token and sk-ant-echo-1 {\\\"refresh_token\\\":\\\"fixture-refresh-token\\\"}\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "opencode-go-gemini-raises-the-ladder-stage",
+      "source": "src/runtime/agent/orchestrator/providers/opencode-go-gemini.mjs:141",
+      "input": {
+        "provider": "opencode-go-oauth",
+        "credentials": {
+          "opencode-go-oauth.json": {
+            "access_token": "fixture-key",
+            "refresh_token": "fixture-refresh-token",
+            "expires_at": 4000000000000,
+            "account_id": "acct-fixture",
+            "email": "fixture@example.invalid"
+          }
+        },
+        "modelsDev": {
+          "opencode-go": {
+            "id": "opencode-go",
+            "name": "OpenCode Go",
+            "models": {
+              "gemini-fixture": {
+                "id": "gemini-fixture",
+                "name": "Gemini Fixture",
+                "npm": "@ai-sdk/google",
+                "limit": {
+                  "context": 1000000,
+                  "output": 65536
+                }
+              }
+            }
+          }
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenCode Go Gemini streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "bad field",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "bad field",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 10,
+              "waitMs": 6024,
+              "retryAt": 1794225621211,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 2/10 in 6s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "stderr": [
+          "[opencode-go:gemini] retry attempt 2 after OpenCode Go Gemini streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}\n"
+        ],
+        "attemptRequests": [
+          0,
+          1
+        ],
+        "draws": {
+          "first": 15,
+          "count": 2,
+          "uuidFirst": 3,
+          "uuidCount": 0
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/model-catalog.mjs.warmCatalogFromDisk",
+          "args": [
+            {
+              "background": true
+            }
+          ]
+        },
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/opencode-go.mjs.OpenCodeGoProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/opencode-go.mjs.OpenCodeGoProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-fixture",
+            [],
+            {
+              "sessionId": "fixture-session",
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 6024,
+          "fromMs": 15187,
+          "fired": [
+            {
+              "dueMs": 18187
+            },
+            {
+              "dueMs": 20187
+            },
+            {
+              "dueMs": 21187
+            },
+            {
+              "dueMs": 21211
+            }
+          ],
+          "toMs": 21211
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://opencode.ai",
+          "path": "/inference/go/v1/models/gemini-fixture:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "opencode.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "x-opencode-session",
+              "fixture-session"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "2"
+            },
+            "body": "{\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://opencode.ai",
+          "path": "/inference/go/v1/models/gemini-fixture:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "opencode.ai"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "Authorization",
+              "Bearer fixture-key"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "User-Agent",
+              "mixdog"
+            ],
+            [
+              "x-opencode-session",
+              "fixture-session"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
       "id": "vertex-claude-raises-the-stage",
       "source": "src/runtime/agent/orchestrator/providers/vertex-ai.mjs:516",
       "input": {
@@ -2525,7 +3005,7 @@
               "attempt": 2,
               "max": 11,
               "waitMs": 2000,
-              "retryAt": 1794225617187,
+              "retryAt": 1794225623211,
               "reason": "Provider overloaded",
               "classifier": "overloaded_error",
               "message": "Provider overloaded · retry 2/11 in 2s"
@@ -2538,7 +3018,7 @@
           2
         ],
         "draws": {
-          "first": 15,
+          "first": 17,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -2577,13 +3057,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 15187,
+          "fromMs": 21211,
           "fired": [
             {
-              "dueMs": 17187
+              "dueMs": 23211
             }
           ],
-          "toMs": 17187
+          "toMs": 23211
         }
       ],
       "requests": [
@@ -2816,7 +3296,7 @@
               "attempt": 2,
               "max": 5,
               "waitMs": 2000,
-              "retryAt": 1794225619187,
+              "retryAt": 1794225625211,
               "reason": "Provider server error",
               "classifier": "server_error",
               "message": "Provider server error · retry 2/5 in 2s"
@@ -2834,7 +3314,7 @@
           2
         ],
         "draws": {
-          "first": 15,
+          "first": 17,
           "count": 2,
           "uuidFirst": 3,
           "uuidCount": 0
@@ -2873,13 +3353,13 @@
       "clock": [
         {
           "advanceMs": 2000,
-          "fromMs": 17187,
+          "fromMs": 23211,
           "fired": [
             {
-              "dueMs": 19187
+              "dueMs": 25211
             }
           ],
-          "toMs": 19187
+          "toMs": 25211
         }
       ],
       "requests": [
@@ -3172,7 +3652,7 @@
           2
         ],
         "draws": {
-          "first": 17,
+          "first": 19,
           "count": 0,
           "uuidFirst": 3,
           "uuidCount": 2

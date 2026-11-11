@@ -782,6 +782,7 @@ pub(crate) async fn built_on(
         accounts: crate::accounts::AccountStore::new(dir.path().to_path_buf(), io.clone()),
         anthropic_caps: inputs.caps,
         google_traits: inputs.traits,
+        route_traits: Arc::new(|_| None),
         openai_facts: inputs.facts,
         openai_context: Arc::new(crate::providers::openai::adapter::SessionContext::new()),
         codex_identity: inputs.codex,
