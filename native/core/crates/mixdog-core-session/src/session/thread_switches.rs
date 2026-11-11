@@ -1048,6 +1048,9 @@ impl SessionContextSwitch {
                 }
             });
         }
+        // `releaseSessionWork(session.id, cleanupReason)` (`context-switch.mjs`): the session's own background tasks
+        // are cancelled and its gateway route cleared, as a delete releases them.
+        self.directory.deps().deletion.release_session_work(thread.as_str(), CONTEXT_SWITCH_REASON).await;
         Ok(())
     }
 }

@@ -54,11 +54,11 @@ fn rig() -> Rig {
     rig
 }
 
-fn client() -> CallContext {
+pub(super) fn client() -> CallContext {
     CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new())
 }
 
-fn request(method: &'static str, params: Value) -> CoreRequest {
+pub(super) fn request(method: &'static str, params: Value) -> CoreRequest {
     let op = params.get("opId").and_then(Value::as_str).map(OpId::from);
     CoreRequest { method: Method(method), params, op, ctx: client() }
 }
@@ -81,12 +81,14 @@ async fn resume(directory: &SessionDirectory, id: &str) -> Result<String, CoreEr
 
 /// A directory over the real thread store in a scratch data folder: a delete removes the thread, so its open after the
 /// close answers that it is not there. Fields drop in order: the directory before the databases and their folder.
-struct Real {
-    directory: SessionDirectory,
-    rig: Rig,
-    index: mixdog_store::sqlite::SqliteStore,
+pub(super) struct Real {
+    pub(super) directory: Arc<SessionDirectory>,
+    pub(super) rig: Rig,
+    pub(super) index: mixdog_store::sqlite::SqliteStore,
+    /// The store, as the fence a listing waits on for the index writes acknowledged before it.
+    pub(super) threads: Arc<super::StoreThreads>,
     mark: Arc<MarkHold>,
-    _data: super::testing::DataDir,
+    pub(super) data: super::testing::DataDir,
 }
 
 /// When armed, the next durable commit carrying the delete mark tells `.0` it was reached and waits for `.1` before it writes: Node's canonical close between its fence and the
@@ -209,7 +211,7 @@ impl HeldMark {
     }
 }
 
-async fn real() -> Real {
+pub(super) async fn real() -> Real {
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_store::sqlite::SqliteStore;
     let data = super::testing::DataDir::default();
@@ -223,13 +225,14 @@ async fn real() -> Real {
     .expect("job ran")
     .expect("index");
     let index = data.index(index);
-    let store: Arc<dyn super::ThreadStore> =
+    let threads =
         Arc::new(super::StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let store: Arc<dyn super::ThreadStore> = threads.clone();
     let mark = Arc::new(MarkHold::default());
     let rig = Rig::new();
     rig.set_script(echo());
-    let directory = SessionDirectory::new(rig.deps_on(Arc::new(HeldStore { store, mark: mark.clone() })));
-    Real { directory, rig, index, mark, _data: data }
+    let directory = Arc::new(SessionDirectory::new(rig.deps_on(Arc::new(HeldStore { store, mark: mark.clone() }))));
+    Real { directory, rig, index, threads, mark, data }
 }
 
 /// A thread whose first turn landed, so the catalog lists it (a close acts on a listed session, `isAvailableSession`),
@@ -295,7 +298,7 @@ fn step(label: &Exact, answered: Option<bool>, rt: Option<Exact>, counts: Option
     Exact::Object(fields)
 }
 
-async fn delete(directory: &SessionDirectory, id: &str) -> Result<bool, CoreError> {
+pub(super) async fn delete(directory: &SessionDirectory, id: &str) -> Result<bool, CoreError> {
     let reply = directory.request(request("thread/delete", json!({ "threadId": id, "opId": "op-close" }))).await?;
     Ok(matches!(reply, Reply::Value(Value::Bool(true))))
 }
