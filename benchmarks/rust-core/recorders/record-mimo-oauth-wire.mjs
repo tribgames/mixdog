@@ -27,6 +27,21 @@ const rec = await startRecording({
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
   exclusions: ['result.persisted.mtimeMs of the token-plan probe case is the real modification time of a file the product rewrote, written as a marker (it is not part of the behaviour)', 'the n-th gateway of the recording listens on 127.0.0.1:47831+n (0-based, file order); the address appears literally in urls and stored credentials'],
 });
+// The declared header rule of lib/provider-case-recorder.mjs (the three SDK headers that carry the recording host are written as `<recording host <header name>>`) applies to every copy of a request the
+// manifest names, including the request records a case result holds: the record is normalised when the endpoint receives it, whatever the case does with it afterwards.
+{
+  let scripted = null;
+  Object.defineProperty(rec.net, 'reply', {
+    configurable: true,
+    get: () => scripted,
+    set: (fn) => {
+      scripted = fn && ((record, n) => {
+        for (const pair of record.headers) if (/^x-stainless-(os|arch|runtime-version)$/i.test(pair[0])) pair[1] = `<recording host ${pair[0].toLowerCase()}>`;
+        return fn(record, n);
+      });
+    },
+  });
+}
 registerPort = rec.allowDirect;
 const P = 'agent/orchestrator/providers/';
 process.env.MIMO_OAUTH_CREDENTIALS_PATH = join(rec.dataDir, 'mimo-oauth.json');
@@ -298,10 +313,15 @@ await rec.run('org-project-env-never-sent', `${SRC}:561`, { env: { OPENAI_ORG_ID
   return {};
 }));
 await rec.run('three-regional-401s-typed-reauth', `${SRC}:578`, {}, async () => {
-  const rejected = async () => new Response('{"error":{"message":"bad key tp-secret"}}', { status: 401 });
-  const out = { three401: await attempt(probeTokenPlanBaseUrl('tp-secret', { fetchImpl: rejected })), busy: await attempt(probeTokenPlanBaseUrl('tp-secret', { fetchImpl: async () => new Response('x', { status: 503 }) })) };
+  // The regional probes are real requests to the product\'s regional hosts, answered by the loopback endpoint (no injected fetch): 401 on every host, then 503.
+  const net = rec.net;
+  net.reply = () => ({ status: 401, contentType: 'application/json', body: '{"error":{"message":"bad key tp-secret"}}' });
+  const out = { three401: await attempt(probeTokenPlanBaseUrl('tp-secret')) };
+  net.reply = () => ({ status: 503, contentType: 'text/plain', body: 'x' });
+  out.busy = await attempt(probeTokenPlanBaseUrl('tp-secret'));
+  net.reply = () => ({ status: 401, contentType: 'application/json', body: '{"error":{"message":"bad key tp-secret"}}' });
   signIn('https://api.xiaomimimo.com/v1', 'tp-secret');
-  const provider = newProvider({ fetchImpl: rejected });
+  const provider = newProvider();
   out.send = await attempt(provider.send(hi, 'm', [], {}));
   out.list = await attempt(provider.listModels());
   return out;
@@ -322,40 +342,24 @@ await rec.run('stored-key-redacted-in-logs-and-400', `${SRC}:615`, { key: 'sk-ve
     const lines = [];
     const original = process.stderr.write;
     process.stderr.write = (c, ...rest) => (lines.push(String(c)), typeof rest.at(-1) === 'function' ? rest.at(-1)() : true);
-    const clockSteps = [];
     let first;
     try {
-      const pending = provider.send(hi, 'mimo-v2.6-pro', [], {});
-      let done = false;
-      pending.then(() => (done = true), () => (done = true));
-      await gw.responded(1);
-      const deadline = process.hrtime.bigint() + 30_000_000_000n;
-      while (!done) {
-        if (process.hrtime.bigint() > deadline) throw new Error('recorder: the 503 retry did not complete within 30 s');
-        await new Promise((resolve) => realSetImmediate(resolve));
-        const now = Date.now() - T0;
-        const due = rec.clock.pending().map((t) => t.due).filter((d) => d > now && d - now <= 31_000)[0];
-        if (due !== undefined && gw.requests.filter((r) => r.url.endsWith('/chat/completions')).length < 2) {
-          clockSteps.push(due - now);
-          await rec.clock.advance(due - now);
-        }
-      }
-      first = await pending;
+      // The 503 is retried after the product's backoff timer: the virtual clock follows each retry sleep (every step is in the recorded clock trace) until the send ends; the wait for the timer is woken by its arming, with the case deadline.
+      first = await rec.clock.followRetries(provider.send(hi, 'mimo-v2.6-pro', [], {}), { what: 'mimo 503 retry backoff' });
     } finally {
       process.stderr.write = original;
     }
     const stderr = lines.join('');
     const err = await provider.send(hi, 'mimo-v2.6-pro', [], {}).catch((e) => e);
-    return { first, stderr, keyInStderr: stderr.includes(KEY), clockSteps, err, keyInError: JSON.stringify([err.message, err.error, err.mimoGatewayParam]).includes(KEY) };
+    return { first, stderr, keyInStderr: stderr.includes(KEY), err, keyInError: JSON.stringify([err.message, err.error, err.mimoGatewayParam]).includes(KEY) };
   });
 });
 await rec.run('probe-finishing-after-newer-sign-in-does-not-overwrite', `${SRC}:644`, {}, async () => {
   signIn('https://api.xiaomimimo.com/v1', 'tp-old');
-  let release;
-  const gate = new Promise((resolve) => (release = resolve));
-  const pending = ensureTokenPlanBaseUrl(loadTokens(), { fetchImpl: async () => (await gate, new Response('{}', { status: 200 })) });
+  // The probe is a real request to the loopback endpoint; the newer sign-in is made while that request is in flight (the response cannot arrive before this synchronous call returns).
+  rec.net.reply = () => ({ status: 200, contentType: 'application/json', body: '{}' });
+  const pending = ensureTokenPlanBaseUrl(loadTokens());
   signIn('https://new.example/v1', 'sk-new');
-  release();
   await pending;
   return { stored: loadTokens() };
 });
@@ -372,18 +376,14 @@ await rec.run('abort-during-regional-probe-is-cancellation', `${SRC}:684`, {}, a
   const ctl = new AbortController();
   const reason = new Error('caller cancelled');
   reason.name = 'CallerCancel';
-  const urls = [];
-  const provider = newProvider({
-    fetchImpl: (url, init) => {
-      urls.push(String(url));
-      if (urls.length === 1) return Promise.resolve(new Response('{}', { status: 503 }));
-      return new Promise((_resolve, reject) => {
-        init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
-        ctl.abort(reason);
-      });
-    },
-  });
-  const err = await provider.send(hi, 'm', [], { signal: ctl.signal }).catch((e) => e);
+  // The first regional probe is answered 503, the second is accepted and never answered; the caller cancels once the second request has arrived (an event wait with the case deadline).
+  rec.net.reply = (_record, n) => (n === 1 ? { status: 503, contentType: 'application/json', body: '{}' } : { status: 200, contentType: 'application/json', chunks: [], hold: true });
+  const provider = newProvider();
+  const sent = provider.send(hi, 'm', [], { signal: ctl.signal }).catch((e) => e);
+  await rec.clock.advance(0, { until: () => rec.net.records.length >= 2, what: 'the second regional probe arrived' });
+  ctl.abort(reason);
+  const err = await sent;
+  const urls = rec.net.records.map((record) => record.origin + record.path);
   return { error: err, isTheCallersReason: err === reason, urls };
 });
 await rec.run('widened-stream-waits-and-explicit-first-byte-allowance', `${SRC}:466`, { gateway: 'answers 200 with the SSE head and never writes a body byte', clock: 'every armed timer in due order until the send ends', plainSend: { provider: 'deepseek', model: 'deepseek-chat' } }, async () => {
