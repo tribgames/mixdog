@@ -40,21 +40,24 @@ pub fn profile() -> SpawnProfile {
 #[cfg(feature = "scripted-shell")]
 pub const SCRIPTED_SHELL_VAR: &str = "MIXDOG_TERMINAL_SCRIPTED_SHELL";
 
-/// What ends each chunk the framed scripted shell writes (ASCII RS); never part of a chunk.
+/// The longest frame header the framed scripted shell writes: a byte count in decimal and its `:`.
 #[cfg(feature = "scripted-shell")]
-pub const FRAME_END: u8 = 0x1e;
+const HEADER_MAX: usize = 11;
 
-/// The framed scripted shell: each line it reads is written back as chunks, each ended [`FRAME_END`] and flushed on its own. A line
-/// `@chunks <a>|<b>|…` writes the chunks `<a>`, `<b>`, …, so one chunk can hold several lines and one line can span chunks; any other
-/// line is one chunk, itself ended `\r\n`; in every chunk `\n`, `\e` and `\a` (a backslash and a letter) are written as `\r\n`, ESC and
-/// BEL (so a chunk can carry shell-integration markers); `@exit <code>` exits with `code`.
-/// The same program as benchmarks/rust-core/recorders/lib/scripted-pty.mjs `SCRIPTED_SHELL`, byte for byte.
+/// The framed scripted shell: each line it reads is written back as chunks, each one frame flushed on its own: the chunk's length in
+/// bytes in decimal, `:`, then the chunk's bytes (UTF-8), so a chunk may hold any byte and be of any length. A line
+/// `@chunks <a>|<b>|…` writes the chunks `<a>`, `<b>`, … (`@chunks ` alone: one empty chunk), so one chunk can hold several lines and
+/// one line can span chunks; `@fill <n>` writes one chunk of `n` bytes, `0123456789abcdef` repeated; any other line is one chunk, itself
+/// ended `\r\n`; in every chunk `\n`, `\e` and `\a` (a backslash and a letter) are written as `\r\n`, ESC and BEL (so a chunk can carry
+/// shell-integration markers), then `\xHH` (two lower-case hex digits) as that character; `@exit <code>` exits with `code`.
+/// The same program as benchmarks/rust-core/recorders/lib/scripted-pty.mjs `SCRIPTED_SHELL`, byte for byte. On Windows it calls no
+/// cmdlet: loading one has PowerShell write a progress record (`#< CLIXML`) to the tab's output.
 #[cfg(feature = "scripted-shell")]
 pub fn framed_profile() -> SpawnProfile {
     #[cfg(windows)]
     {
         use base64::Engine;
-        let script = "$in = [Console]::In; $out = [Console]::Out; $nl = [string][char]13 + [char]10; $esc = [string][char]27; $bel = [string][char]7; $end = [string][char]30; while ($null -ne ($l = $in.ReadLine())) { if ($l -match '^@exit (\\d+)$') { exit [int]$Matches[1] }; if ($l -match '^@chunks (.*)$') { $chunks = $Matches[1].Split('|') } else { $chunks = @($l + '\\n') }; foreach ($c in $chunks) { $out.Write($c.Replace('\\n', $nl).Replace('\\e', $esc).Replace('\\a', $bel) + $end); $out.Flush() } }";
+        let script = "$in = [Console]::In; $out = [Console]::OpenStandardOutput(); $utf8 = [Text.Encoding]::UTF8; $nl = [string][char]13 + [char]10; $esc = [string][char]27; $bel = [string][char]7; while ($null -ne ($l = $in.ReadLine())) { if ($l -match '^@exit (\\d+)$') { exit [int]$Matches[1] }; if ($l -match '^@fill (\\d+)$') { $n = [int]$Matches[1]; $chunks = @(('0123456789abcdef' * ($n / 16 + 1)).Substring(0, $n)) } elseif ($l -match '^@chunks (.*)$') { $chunks = $Matches[1].Split('|') } else { $chunks = @($l + '\\n') }; foreach ($c in $chunks) { $t = [regex]::Replace($c.Replace('\\n', $nl).Replace('\\e', $esc).Replace('\\a', $bel), '\\\\x([0-9a-f]{2})', { [string][char][Convert]::ToInt32($args[0].Groups[1].Value, 16) }); $b = $utf8.GetBytes($t); $h = [Text.Encoding]::ASCII.GetBytes([string]$b.Length + ':'); $out.Write($h, 0, $h.Length); $out.Write($b, 0, $b.Length); $out.Flush() } }";
         let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
         SpawnProfile {
             path: "powershell.exe".into(),
@@ -62,11 +65,14 @@ pub fn framed_profile() -> SpawnProfile {
             env: Vec::new(),
         }
     }
+    // `length` counts bytes in the C locale.
     #[cfg(not(windows))]
     SpawnProfile {
-        path: "awk".into(),
+        path: "env".into(),
         args: vec![
-            r#"/^@exit [0-9]+$/ { exit substr($0, 7) + 0 } { if (sub(/^@chunks /, "")) n = split($0, c, "|"); else { n = 1; c[1] = $0 "\\n" } for (i = 1; i <= n; i++) { gsub(/\\n/, "\r\n", c[i]); gsub(/\\e/, "\033", c[i]); gsub(/\\a/, "\007", c[i]); printf "%s\036", c[i]; fflush() } }"#.into(),
+            "LC_ALL=C".into(),
+            "awk".into(),
+            r#"function unhex(s,  o, h, d) { o = ""; h = "0123456789abcdef"; while (match(s, /\\x[0-9a-f][0-9a-f]/)) { d = (index(h, substr(s, RSTART + 2, 1)) - 1) * 16 + index(h, substr(s, RSTART + 3, 1)) - 1; o = o substr(s, 1, RSTART - 1) sprintf("%c", d); s = substr(s, RSTART + RLENGTH) } return o s } /^@exit [0-9]+$/ { exit substr($0, 7) + 0 } { if ($0 ~ /^@fill [0-9]+$/) { m = substr($0, 7) + 0; f = ""; while (length(f) < m) f = f "0123456789abcdef"; n = 1; c[1] = substr(f, 1, m) } else if (sub(/^@chunks /, "")) { n = split($0, c, "|"); if (n == 0) { n = 1; c[1] = "" } } else { n = 1; c[1] = $0 "\\n" } for (i = 1; i <= n; i++) { gsub(/\\n/, "\r\n", c[i]); gsub(/\\e/, "\033", c[i]); gsub(/\\a/, "\007", c[i]); t = unhex(c[i]); printf "%d:%s", length(t), t; fflush() } }"#.into(),
         ],
         env: Vec::new(),
     }
@@ -85,10 +91,8 @@ pub(crate) fn in_place_of(request: &mut mixdog_core_api::domain::process::SpawnR
     true
 }
 
-/// The framed scripted shell's output pipe, read one chunk per `read` whatever the pipe joined or split: each `read` returns exactly the
-/// bytes of the next chunk without its [`FRAME_END`] (a chunk longer than the caller's buffer, in reads of that buffer's size), so each
-/// chunk is one read of the process manager's reader and one output the tab takes, as each is one data event in Node's recording. What
-/// the shell left unended when the pipe closed is returned last.
+/// The framed scripted shell's output pipe, read one whole frame at a time whatever the pipe joined or split and whatever the frame's
+/// length or bytes ([`framed_profile`]): each frame is one output the tab takes, as each is one data event in Node's recording.
 #[cfg(feature = "scripted-shell")]
 pub(crate) struct Frames {
     pipe: Box<dyn std::io::Read + Send>,
@@ -101,30 +105,38 @@ impl Frames {
     pub(crate) fn new(pipe: Box<dyn std::io::Read + Send>) -> Self {
         Self { pipe, pending: Vec::new(), ended: false }
     }
-}
 
-#[cfg(feature = "scripted-shell")]
-impl std::io::Read for Frames {
-    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+    /// The next frame's bytes; `None` once the pipe ended between frames. A header that is not a byte count and `:`, or a pipe that ends
+    /// inside a frame, is the stand-in's error (never a short chunk).
+    pub(crate) fn next_frame(&mut self) -> std::io::Result<Option<Vec<u8>>> {
+        let broken = |what: String| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("the scripted shell's output {what}"));
         loop {
-            let end = self.pending.iter().position(|byte| *byte == FRAME_END);
-            if end == Some(0) {
-                self.pending.remove(0);
-                continue;
+            if let Some(colon) = self.pending.iter().take(HEADER_MAX).position(|byte| *byte == b':') {
+                let length = std::str::from_utf8(&self.pending[..colon])
+                    .ok()
+                    .filter(|digits| !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+                    .and_then(|digits| digits.parse::<usize>().ok())
+                    .ok_or_else(|| broken(format!("has a frame header that is not a byte count: {:?}", String::from_utf8_lossy(&self.pending[..colon]))))?;
+                if self.pending.len() > colon + length {
+                    let frame = self.pending[colon + 1..colon + 1 + length].to_vec();
+                    self.pending.drain(..colon + 1 + length);
+                    return Ok(Some(frame));
+                }
+            } else if self.pending.len() >= HEADER_MAX {
+                return Err(broken(format!("has no frame header: {:?}", String::from_utf8_lossy(&self.pending[..HEADER_MAX]))));
             }
-            if let Some(end) = end.or(self.ended.then_some(self.pending.len())) {
-                let n = end.min(out.len());
-                out[..n].copy_from_slice(&self.pending[..n]);
-                let whole = n == end && n < self.pending.len();
-                self.pending.drain(..n + usize::from(whole));
-                return Ok(n);
+            if self.ended {
+                return match self.pending.len() {
+                    0 => Ok(None),
+                    n => Err(broken(format!("ended inside a frame ({n} bytes of it read)"))),
+                };
             }
-            let mut buffer = [0u8; 8 * 1024];
+            let mut buffer = [0u8; 64 * 1024];
             match self.pipe.read(&mut buffer) {
                 Ok(0) => self.ended = true,
                 Ok(n) => self.pending.extend_from_slice(&buffer[..n]),
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => return Err(error),
-                // As the reader takes an error for the end: what was read before it still goes out.
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                // As the process manager's reader takes an error for the end.
                 Err(_) => self.ended = true,
             }
         }
@@ -136,29 +148,45 @@ mod tests {
     use std::io::Read;
 
     /// A pipe that hands out the given pieces, one per read.
-    struct Pieces(std::collections::VecDeque<&'static [u8]>);
+    struct Pieces(std::collections::VecDeque<Vec<u8>>);
     impl Read for Pieces {
         fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-            let Some(piece) = self.0.pop_front() else { return Ok(0) };
-            out[..piece.len()].copy_from_slice(piece);
-            Ok(piece.len())
+            let Some(mut piece) = self.0.pop_front() else { return Ok(0) };
+            let n = piece.len().min(out.len());
+            out[..n].copy_from_slice(&piece[..n]);
+            if n < piece.len() {
+                self.0.push_front(piece.split_off(n));
+            }
+            Ok(n)
         }
     }
 
+    fn frame(bytes: &[u8]) -> Vec<u8> {
+        [format!("{}:", bytes.len()).into_bytes(), bytes.to_vec()].concat()
+    }
+
+    /// Every frame comes out whole and alone, however the pipe cut the stream: one holding RS and every other control byte, an empty one,
+    /// one of 200 KiB (more than any one read of the pipe), then the end.
     #[test]
-    fn each_read_is_one_chunk_whatever_the_pipe_joined_or_split() {
-        let pipe = Pieces([&b"one\r\ntwo\r\n\x1esp"[..], b"l", b"it\x1e\x1elast\x1eun", b"ended"].into());
-        let mut frames = super::Frames::new(Box::new(pipe));
-        let mut buffer = [0u8; 64];
-        let mut reads = Vec::new();
-        loop {
-            let n = frames.read(&mut buffer).unwrap();
-            if n == 0 {
-                break;
-            }
-            reads.push(String::from_utf8(buffer[..n].to_vec()).unwrap());
+    fn each_frame_is_whole_whatever_its_bytes_or_length_or_how_the_pipe_cut_it() {
+        let controls: Vec<u8> = (0u8..0x20).chain([0x7f]).collect();
+        let big: Vec<u8> = b"0123456789abcdef".iter().copied().cycle().take(200 * 1024).collect();
+        let stream = [frame(b"one\r\ntwo\r\n"), frame(&controls), frame(b""), frame(&big), frame(b"last")].concat();
+        let pieces = [&stream[..3], &stream[3..17], &stream[17..40], &stream[40..]].map(<[u8]>::to_vec);
+        let mut frames = super::Frames::new(Box::new(Pieces(pieces.into())));
+        let mut got = Vec::new();
+        while let Some(frame) = frames.next_frame().unwrap() {
+            got.push(frame);
         }
-        assert_eq!(reads, ["one\r\ntwo\r\n", "split", "last", "unended"]);
+        assert_eq!(got, [b"one\r\ntwo\r\n".to_vec(), controls, Vec::new(), big, b"last".to_vec()]);
+    }
+
+    #[test]
+    fn a_pipe_that_ends_inside_a_frame_is_an_error() {
+        let mut frames = super::Frames::new(Box::new(Pieces([frame(b"whole"), b"9:cut".to_vec()].into())));
+        assert_eq!(frames.next_frame().unwrap(), Some(b"whole".to_vec()));
+        let error = frames.next_frame().unwrap_err();
+        assert!(error.to_string().contains("ended inside a frame"), "{error}");
     }
 }
 

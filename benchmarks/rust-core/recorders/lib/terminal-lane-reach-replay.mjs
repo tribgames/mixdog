@@ -1,6 +1,6 @@
 // The replay of record-terminal-lane-reach.mjs against a built mixdogd (`--features "terminal-lease-clock replay-controls"`): per recorded
 // world a freshly started core whose tabs run the framed scripted shell (MIXDOG_TERMINAL_SCRIPTED_SHELL, the program Node's recording ran in
-// place of node-pty, one chunk per read) and that dials a scripted relay, a desktop connection (loopback) that opens tabs and types into them, and three paired phones
+// place of node-pty, one whole frame per output) and that dials a scripted relay, a desktop connection (loopback) that opens tabs and types into them, and three paired phones
 // behind the relay, each the page's own terminal adapter (apps/desktop/src/renderer/remote-protocol-terminal.ts) and lane feeds
 // (apps/mobile/src/phone-lanes.ts) over its protocol client. The same steps as the recording, with the same waits; each phone's
 // termData, termActivity and termSizeOwner events are recorded the recording's way, in one order, and each world is compared whole with Node's.
@@ -15,7 +15,22 @@ import { endCore } from './core-stop.mjs';
 import { exact } from './exact.mjs';
 import { startCore } from './phone-files-replay.mjs';
 import { assertNoPowerShellProfile, isolatedProfile } from './shell-isolation.mjs';
-import { LANE_REACH_CREDENTIALS, LANE_REACH_TABS, MARK_DONE, MARK_START, chunks, echoed, normaliseKilledExit, pushesOf, typed } from './terminal-lane-reach.mjs';
+import {
+  CONTROLS,
+  CONTROLS_ESCAPED,
+  FILL_BYTES,
+  LANE_REACH_CREDENTIALS,
+  LANE_REACH_TABS,
+  MARK_DONE,
+  MARK_START,
+  chunks,
+  echoed,
+  fill,
+  filled,
+  normaliseKilledExit,
+  pushesOf,
+  typed,
+} from './terminal-lane-reach.mjs';
 
 /** The terminal lane's feed (remote-protocol-terminal.ts LANE_FEED): its `process/outputDelta` frames are the phone's termData. */
 const LANE_FEED = 'process:relay';
@@ -281,6 +296,18 @@ export async function replayLaneReach({ exe, golden }) {
         desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.split, data: typed('@exit 0') });
         await reached(LANE_REACH_TABS.split, EXITED);
         await ask('terminal/dispose', { tabId: LANE_REACH_TABS.split });
+        for (const name of Object.keys(all)) await barrier(name);
+
+        await ask('terminal/ensure', { tabId: LANE_REACH_TABS.bytes, options: { cwd } });
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.bytes, data: chunks(CONTROLS_ESCAPED) });
+        await reached(LANE_REACH_TABS.bytes, CONTROLS);
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.bytes, data: chunks('') });
+        await desktopTypes(LANE_REACH_TABS.bytes, 'lane-after-empty');
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.bytes, data: fill(FILL_BYTES) });
+        await reached(LANE_REACH_TABS.bytes, filled(FILL_BYTES));
+        desktop.notify('terminal/input', { tabId: LANE_REACH_TABS.bytes, data: typed('@exit 0') });
+        await reached(LANE_REACH_TABS.bytes, EXITED);
+        await ask('terminal/dispose', { tabId: LANE_REACH_TABS.bytes });
         for (const name of Object.keys(all)) await barrier(name);
 
         all.p2.router.fire('termResize', [LANE_REACH_TABS.desktop, 100, 30, true]);

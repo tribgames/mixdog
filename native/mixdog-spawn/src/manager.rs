@@ -115,7 +115,7 @@ pub struct SpawnOptions {
     /// A terminal tab's exit, raised when node-pty raised it (see [`NodePtyExit`]) instead of after [`ProcessConfig::output_drain`].
     /// Only a Windows pseudo-console process uses it.
     pub node_pty_exit: Option<NodePtyExit>,
-    /// The process is the framed scripted shell (`crate::scripted::in_place_of`): its output reaches the feed one scripted chunk per read.
+    /// The process is the framed scripted shell (`crate::scripted::in_place_of`): its output reaches the feed one whole scripted frame per output ([`frame_loop`]).
     #[cfg(feature = "scripted-shell")]
     pub scripted_frames: bool,
 }
@@ -781,6 +781,38 @@ fn read_loop(
     }
 }
 
+/// [`read_loop`] for the framed scripted shell: one whole frame per output, of any length (a real PTY's output never comes here). A
+/// broken frame is the stand-in's error, written to stderr; the output ends there.
+#[cfg(feature = "scripted-shell")]
+fn frame_loop(
+    mut frames: crate::scripted::Frames,
+    stream: OutputStream,
+    feed: Arc<Feed>,
+    mut filter: Option<Box<dyn OutputFilter>>,
+    _reading: Reading,
+) {
+    loop {
+        match frames.next_frame() {
+            Ok(Some(frame)) => match filter.as_mut() {
+                Some(filter) => {
+                    let bytes = filter.filter(&frame);
+                    feed.admit(stream, &bytes, || filter.admitted());
+                }
+                None => feed.push_output(stream, &frame),
+            },
+            Ok(None) => break,
+            Err(error) => {
+                eprintln!("mixdog scripted shell: {error}");
+                break;
+            }
+        }
+    }
+    if let Some(filter) = filter.as_mut() {
+        let bytes = filter.finish();
+        feed.admit(stream, &bytes, || filter.admitted());
+    }
+}
+
 /// Waits for the root, then for the output to end (for at most [`ProcessConfig::output_drain`]; a [`NodePtyExit`] process: until
 /// node-pty would have raised its exit), and publishes the exit as the last event.
 fn wait_and_finish(
@@ -955,14 +987,18 @@ fn launch_process(
     let mut filter = options.filter;
     let drain = Drain::new(readers.len());
     for (stream, reader) in readers {
-        #[cfg(feature = "scripted-shell")]
-        let reader: Box<dyn std::io::Read + Send> = if options.scripted_frames { Box::new(crate::scripted::Frames::new(reader)) } else { reader };
         let feed = Arc::clone(&feed);
         let filter = filter.take();
         let reading = Reading(Arc::clone(&drain));
-        let started = thread::Builder::new()
-            .name("io-pty-read".to_owned())
-            .spawn(move || read_loop(reader, stream, feed, filter, reading));
+        #[cfg(feature = "scripted-shell")]
+        let scripted = options.scripted_frames;
+        let started = thread::Builder::new().name("io-pty-read".to_owned()).spawn(move || {
+            #[cfg(feature = "scripted-shell")]
+            if scripted {
+                return frame_loop(crate::scripted::Frames::new(reader), stream, feed, filter, reading);
+            }
+            read_loop(reader, stream, feed, filter, reading)
+        });
         if let Err(error) = started {
             let _ = proc.kill(KillReason::Requested);
             return Err(io_error(&error));
