@@ -311,10 +311,12 @@ pub async fn notify_restart_failures(registry: &AgentRegistry, notices: &dyn Res
         // The card goes first, as every completion's: the queued copy then knows its card stands for it and shows no row of
         // its own (`suppressDisplay`), where Node's queue dedups the later mirror by the same id.
         notices.show(&owner, &execution, text.clone()).await;
+        crate::session::new_task::crash_gate("restart-notice-unstored");
         if let Err(error) = notices.queue_durably(&owner, &execution, text).await {
             tracing::warn!("[agent-tool] restart notification retry pending: {error}");
             continue;
         }
+        crate::session::new_task::crash_gate("restart-notice-stored");
         registry.mark_restart_notified(&[session], stamp).await?;
         register_failed_task(board, &row);
         told += 1;

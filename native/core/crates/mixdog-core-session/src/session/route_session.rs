@@ -252,6 +252,10 @@ impl RouteSession for SessionRouteAdapter {
         has_user_conversation(messages)
     }
 
+    fn loaded(&self, thread: &ThreadId) -> bool {
+        self.directory.handle(thread).is_some()
+    }
+
     /// `updateSessionRoute(id, route, { crossProvider })`: the route fields and what the route
     /// change does to the session, as one durable header change. `false` when the session is
     /// closed or gone.
