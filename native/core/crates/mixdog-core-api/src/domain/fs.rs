@@ -119,6 +119,10 @@ pub struct SearchRequest {
     pub respect_ignore: bool,
     /// The scan stops after this many matches (Node's search server, `collect_until`); `None` reads every match.
     pub limit: Option<usize>,
+    /// Each file's search stops at its first match, as the search server's file list stops a file
+    /// (`--files-with-matches`: grep-printer's summary printer, `PathWithMatch`, quits a file at its first match), so
+    /// the rest of the file is not read.
+    pub first_per_file: bool,
     /// The search server's soft deadline (Node's request `deadlineMs`): once it passes the stream ends with a
     /// [`FsErrorKind::TimedOut`] item after what was found; `None` has no deadline.
     pub deadline: Option<std::time::Instant>,
@@ -263,6 +267,8 @@ pub trait FileService: Send + Sync {
         lane: MaintenanceIo,
         request: WalkRequest,
     ) -> Box<dyn EventSource<Result<DirEntry, FsError>>>;
+    /// The matches of `request`, in the search's file order. An error that names a file (its search failed, or the
+    /// deadline cut it) withdraws the matches of that file already streamed: the file is not answered in part.
     fn search_text(
         &self,
         lane: MaintenanceIo,

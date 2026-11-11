@@ -6,7 +6,7 @@
     "in a stand-in call's `compare` (the real server's answer to each request beside the stand-in's, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call's comparisons, which are stored sorted, as its concurrent requests reach the server in any order",
     "a comparison of the stand-in's saturated answers (search-saturated): the real server refuses a search only when 2,048 others wait (serve_search/server.rs:370-383, scheduler.rs:241), which cannot be arranged on cue; the stand-in sends the refusal's fields as server.rs writes them, the scheduler telemetry taken from the real server's answer to the same request"
   ],
-  "fileCount": 29,
+  "fileCount": 30,
   "files": [
     {
       "bytes": 5739,
@@ -84,6 +84,11 @@
       "sha256": "c959d955a11509f06150bc7a2088f6faae732ae39610c13735895580a474b303"
     },
     {
+      "bytes": 1945,
+      "path": "grep-heap.json",
+      "sha256": "14764ba9fe35039bb9b133a42bea4ab72ea9e9a01e0e86792963b62dd225ddfa"
+    },
+    {
       "bytes": 2592,
       "path": "grep-missing-indexed.json",
       "sha256": "d2a72a68dc52483f26f0766848d193baa96b9e365227e7096be164ab193334e6"
@@ -99,14 +104,14 @@
       "sha256": "5264200a9744bedbeec9da4deb056f167d4da8e6486f2b4414c1476d90a26029"
     },
     {
-      "bytes": 514879,
+      "bytes": 515152,
       "path": "grep-render.json",
-      "sha256": "d512b821ee4d593f17dfc1b7bc3c9340b9548dcb271f09835a4d343c37500f0c"
+      "sha256": "7fc5c13a0b90f16e36bf4882936f50ae8755d850dfbb28e68682653d379f8acb"
     },
     {
-      "bytes": 255449,
+      "bytes": 256801,
       "path": "grep-timeout.json",
-      "sha256": "0f0a18477025ff3e4311fdfca51e4888bf46ae28e4801a8490b99d25f40c1bed"
+      "sha256": "702cca7420ae51f07fad964a527f9a411580a1889f94d7e698f5d7f9681e59b7"
     },
     {
       "bytes": 8255,
@@ -214,7 +219,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "3cfa21e1b0828dc480752338dde0166fd793b8dabb63d618937f6c269dbf0c18",
+  "recorderSha256": "a522fedc509f13f71f3a0f71fa44448ab7964d12ec0a1e896d49ff4b051e5d1a",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -243,9 +248,10 @@
     "grep-path-budget",
     "grep-render",
     "grep-timeout",
+    "grep-heap",
     "search-saturated",
     "path-arg-shapes"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 3055101
+  "totalBytes": 3058671
 }

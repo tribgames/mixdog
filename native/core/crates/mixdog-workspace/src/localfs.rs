@@ -815,10 +815,17 @@ fn search_over(
     };
     let searching = Searching {
         matcher,
-        searcher: SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(b'\x00')).build(),
+        // The server's searcher (serve_search/matching.rs:164-176), its heap limit included: a line its buffer cannot hold
+        // within `search_heap_bytes()` fails the file's search.
+        searcher: SearcherBuilder::new()
+            .line_number(true)
+            .heap_limit(Some(search_heap_bytes()))
+            .binary_detection(BinaryDetection::quit(b'\x00'))
+            .build(),
         listing,
         open,
         left: request.limit,
+        first_per_file: request.first_per_file,
         #[cfg(feature = "count-jobs")]
         root: request.root.as_path().to_path_buf(),
         #[cfg(feature = "count-jobs")]
@@ -920,6 +927,8 @@ struct Collect<'a, P> {
     path: &'a AbsPath,
     out: &'a Out<SearchMatch>,
     left: &'a mut Option<usize>,
+    /// [`SearchRequest::first_per_file`].
+    first_per_file: bool,
     /// Matches queued from this file.
     sent: usize,
     /// The stream was closed under the sink.
@@ -961,7 +970,7 @@ impl<P: Sink<Error = io::Error>> Sink for Collect<'_, P> {
         if let Some(left) = self.left.as_mut() {
             *left -= 1;
         }
-        Ok(*self.left != Some(0))
+        Ok(*self.left != Some(0) && !self.first_per_file)
     }
 }
 
@@ -970,8 +979,14 @@ pub const QUEUE: usize = 256;
 
 /// The bytes of items a stream holds ahead of its consumer ([`Weigh`]: a match's text and path, an entry's path): the
 /// producer waits to queue an item that would take the queue past this. An item larger than this alone waits for an
-/// empty queue, so the queue holds at most `QUEUE_BYTES`, or one item when one is larger, whatever the files hold; a
-/// long line's preview (its first 500 grapheme clusters, [`match_text`]) is kept whole, as Node's server prints it.
+/// empty queue, so the queue holds at most `QUEUE_BYTES`, or one item when one is larger; a long line's preview (its
+/// first 500 grapheme clusters, as the printer writes it) is kept whole, as Node's server prints it.
+///
+/// What one search holds is bounded by the searcher's heap limit ([`search_heap_bytes`], 32 MiB): a line longer than
+/// its buffer can take fails the file's search, as in Node's server (a 100 MB line is such a line: the file answers a
+/// read failure, and its buffer stopped growing at the limit). A match's preview is part of its line, so it is at most
+/// that too; the producer holds the buffer, the printer's copy of the line it prints and the item it builds from it,
+/// beside a queue of `QUEUE_BYTES` or that one item.
 pub const QUEUE_BYTES: usize = 1 << 20;
 
 /// What a queued item weighs against [`QUEUE_BYTES`].
@@ -1607,6 +1622,8 @@ struct Searching {
     listing: Listing,
     open: Opener,
     left: Option<usize>,
+    /// [`SearchRequest::first_per_file`].
+    first_per_file: bool,
     #[cfg(feature = "count-jobs")]
     root: PathBuf,
     #[cfg(feature = "count-jobs")]
@@ -1618,8 +1635,8 @@ impl Produce<SearchMatch> for Searching {
         let ctl = &*out.ctl;
         #[cfg(feature = "count-jobs")]
         let root = self.root.clone();
-        let Searching { matcher, searcher, listing, open, left, .. } = &mut *self;
-        let matcher = &*matcher;
+        let Searching { matcher, searcher, listing, open, left, first_per_file, .. } = &mut *self;
+        let (matcher, first_per_file) = (&*matcher, *first_per_file);
         while *left != Some(0) {
             if ctl.stopped() {
                 return;
@@ -1648,6 +1665,7 @@ impl Produce<SearchMatch> for Searching {
                     opened => break opened,
                 }
             };
+            let mut sent = 0;
             let searched = opened.and_then(|inner| {
                 let printed = Printed::default();
                 let mut printer = StandardBuilder::new()
@@ -1663,12 +1681,15 @@ impl Produce<SearchMatch> for Searching {
                     path: &path,
                     out,
                     left,
+                    first_per_file,
                     sent: 0,
                     closed: false,
                     #[cfg(feature = "count-jobs")]
                     root: &root,
                 };
-                searcher.search_reader(matcher, Checked { inner, ctl }, &mut sink).map(|()| (sink.closed, sink.sent))
+                let searched = searcher.search_reader(matcher, Checked { inner, ctl }, &mut sink);
+                sent = sink.sent;
+                searched.map(|()| sink.closed)
             });
             ctl.in_file.store(false, Ordering::SeqCst);
             match searched {
@@ -1685,6 +1706,12 @@ impl Produce<SearchMatch> for Searching {
                         return;
                     }
                     None => {
+                        // Node's server answers nothing of a file whose search failed (matching.rs:213-250,
+                        // `scan_with_printer`): the error that names the file withdraws its lines already queued
+                        // (the consumer drops them), and they count no more against the request's limit.
+                        if let Some(left) = left.as_mut() {
+                            *left += sent;
+                        }
                         if !out.send(Err(io_error(&error, &file))) {
                             return;
                         }
@@ -2537,6 +2564,7 @@ mod tests {
             include_hidden: true,
             respect_ignore: true,
             limit: None,
+            first_per_file: false,
             deadline: None,
             class: SearchClass::Interactive,
         };
@@ -2566,6 +2594,7 @@ mod tests {
                 include_hidden: true,
                 respect_ignore: false,
                 limit: None,
+                first_per_file: false,
                 deadline: None,
                 class: SearchClass::Interactive,
             };
@@ -2603,6 +2632,7 @@ mod tests {
             include_hidden: true,
             respect_ignore: true,
             limit: None,
+            first_per_file: false,
             deadline: None,
             class: SearchClass::Interactive,
         };
@@ -2662,6 +2692,7 @@ mod tests {
             include_hidden: true,
             respect_ignore: true,
             limit: None,
+            first_per_file: false,
             deadline: None,
             class: SearchClass::Interactive,
         };
@@ -2683,6 +2714,7 @@ mod tests {
             include_hidden: true,
             respect_ignore: false,
             limit: None,
+            first_per_file: false,
             deadline,
             class: SearchClass::Interactive,
         }

@@ -239,12 +239,25 @@ async fn replay_fs_search(scenario: &str) {
         std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
         std::fs::write(ws.join(rel), base64::engine::general_purpose::STANDARD.decode(b64.as_str().unwrap()).unwrap()).unwrap();
     }
+    // Files of parts, each a text or a text repeated so many times (a line longer than the search's heap limit).
+    let repeated = fixture["filesRepeat"].as_object().cloned().unwrap_or_default();
+    for (rel, parts) in &repeated {
+        let mut bytes = Vec::new();
+        for part in parts.as_array().unwrap() {
+            match part.as_str() {
+                Some(text) => bytes.extend_from_slice(text.as_bytes()),
+                None => bytes.extend_from_slice(part[0].as_str().unwrap().repeat(part[1].as_u64().unwrap() as usize).as_bytes()),
+            }
+        }
+        std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
+        std::fs::write(ws.join(rel), bytes).unwrap();
+    }
     for (rel, target) in fixture["junctions"].as_object().cloned().unwrap_or_default() {
         // mklink reads `/` as a switch: the target is built segment by segment.
         let target = target.as_str().unwrap().split('/').fold(ws.clone(), |path, segment| path.join(segment));
         assert!(link_dir(&ws.join(&rel), &target), "junction {rel}");
     }
-    for rel in files.keys().chain(binary.keys()) {
+    for rel in files.keys().chain(binary.keys()).chain(repeated.keys()) {
         set_mtime(&ws.join(rel), at(mtimes.get(rel).and_then(|v| v.as_str()).unwrap_or("2026-01-02T03:04:05Z")));
     }
     // The bulk files are listed from memory: the cap and its wording are applied by the tool after the file service's
@@ -607,6 +620,13 @@ async fn grep_renders_as_node_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grep_answers_a_search_past_its_deadline_as_node_does() {
     replay_fs_search("grep-timeout").await;
+}
+
+/// A line longer than the search's heap limit fails its file's search: none of the file's lines are answered, those
+/// before the long line included, and the answer is partial, as Node's search server answers it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_answers_a_line_past_the_search_heap_as_node_does() {
+    replay_fs_search("grep-heap").await;
 }
 
 /// A search-server queue that is full refuses grep's, glob's and find's searches as Node's server does, and each tool
