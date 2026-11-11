@@ -116,7 +116,46 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "opencode-go",
+              "config": {
+                "preconnect": false
+              },
+              "nativePdf": true,
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
+                    "events": [
+                      {
+                        "type": "response.refusal.delta",
+                        "item_id": "m1",
+                        "content_index": 0,
+                        "delta": "I can"
+                      },
+                      {
+                        "type": "response.refusal.delta",
+                        "item_id": "m1",
+                        "content_index": 0,
+                        "delta": "'t"
+                      }
+                    ],
+                    "output": [
+                      {
+                        "type": "message",
+                        "id": "m1",
+                        "role": "assistant",
+                        "content": [
+                          {
+                            "type": "refusal",
+                            "refusal": "I can't"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
             },
             [
               {
@@ -231,7 +270,33 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "muse-code",
+              "config": {
+                "preconnect": false
+              },
+              "nativePdf": true,
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
+                    "events": [],
+                    "output": [
+                      {
+                        "type": "message",
+                        "id": "m1",
+                        "role": "assistant",
+                        "content": [
+                          {
+                            "type": "refusal",
+                            "refusal": "no"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
             },
             [
               {
@@ -344,7 +409,30 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "opencode-go",
+              "config": {
+                "preconnect": false
+              },
+              "nativePdf": true,
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
+                    "events": [],
+                    "output": [
+                      {
+                        "type": "function_call",
+                        "id": "f1",
+                        "call_id": "c1",
+                        "name": "run",
+                        "namespace": "ns",
+                        "arguments": "{}"
+                      }
+                    ]
+                  }
+                }
+              }
             },
             [
               {
@@ -559,7 +647,32 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "opencode-go",
+              "config": {
+                "preconnect": false
+              },
+              "nativePdf": true,
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
+                    "events": [],
+                    "output": [
+                      {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                          {
+                            "type": "output_text",
+                            "text": "ok"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
             },
             [
               {
@@ -656,7 +769,32 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "opencode-go",
+              "config": {
+                "preconnect": false
+              },
+              "nativePdf": true,
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
+                    "events": [],
+                    "output": [
+                      {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                          {
+                            "type": "output_text",
+                            "text": "ok"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
             },
             [
               {
@@ -802,7 +940,21 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "openrouter",
+              "config": {
+                "preconnect": false
+              },
+              "nativePdf": true,
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
+                    "events": [],
+                    "output": []
+                  }
+                }
+              }
             },
             [
               {
@@ -825,7 +977,21 @@
           "entry": "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs.sendCompatResponses",
           "args": [
             {
-              "unrecordable": "exact: a OpenAICompatProvider at $ has no exact form (give classes.OpenAICompatProvider)"
+              "$instance": "OpenAICompatProvider (prototype instance, fields as set)",
+              "name": "openrouter",
+              "config": {
+                "preconnect": false
+              },
+              "nativePdf": true,
+              "client": {
+                "responses": {
+                  "create": {
+                    "scripted": "records (params, options) and answers with the events, then response.completed with the output",
+                    "events": [],
+                    "output": []
+                  }
+                }
+              }
             },
             [
               {
