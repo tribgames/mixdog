@@ -87,7 +87,7 @@ export async function load(url, context, next) {
     return swap('createSessionStatusScheduler({ subscribeGlobalChanges: subscribeDaemonChanges })', 'createSessionStatusScheduler({ subscribeGlobalChanges: subscribeDaemonChanges, now: globalThis.__vclock.now, timers: globalThis.__vclock.timers })');
   }
   if (url.endsWith('/src/standalone/local-session-runtime.mjs')) {
-    const first = swap('    if (!dirty) return false;\\n', '    if (!dirty) return false;\\n    if (Object.hasOwn(changed, "turnEffort")) globalThis.__published.push(changed.turnEffort);\\n');
+    const first = swap('    if (!dirty) return false;\\n', '    if (!dirty) return false;\\n    globalThis.__published.push(structuredClone(changed));\\n');
     const source = String(first.source).replace('const runtime = await createMixdogSessionRuntime({\\n', 'const runtime = await createMixdogSessionRuntime({\\n    initialConfig: globalThis.__initialConfig,\\n');
     return { ...first, source };
   }
@@ -196,7 +196,8 @@ async function runClient(tree, name, out) {
     },
     `turn-effort-client-${name}`
   );
-  writeFileSync(out, JSON.stringify({ client: { ...client, requests } }));
+  // The runtime names its session with the process id and the clock: written `<session>` (every publication that names it).
+  writeFileSync(out, JSON.stringify({ client: { ...client, requests } }).replace(/sess_\d+_\d+_\d+_[0-9a-f]+/g, '<session>'));
   process.exit(0);
 }
 
@@ -268,7 +269,7 @@ async function main() {
     const parts = {};
     for (const mode of ['exec', 'client']) {
       const out = join(scratch, `${name}-${mode}.json`);
-      const child = spawnSync(process.execPath, [SELF, '--tree', tree, '--case', name, '--mode', mode, '--out', out], { stdio: ['ignore', 'inherit', 'inherit'], timeout: 300_000 });
+      const child = spawnSync(process.execPath, [SELF, '--tree', tree, '--case', name, '--mode', mode, '--out', out], { stdio: ['ignore', 'inherit', 'inherit'], timeout: 300_000, windowsHide: true });
       if (child.status !== 0) throw new Error(`case ${name} (${mode}) failed (${child.status})`);
       Object.assign(parts, JSON.parse(readFileSync(out, 'utf8')));
     }
@@ -279,7 +280,15 @@ async function main() {
     set: 'turn-effort',
     recorder: RECORDER,
     command: `node ${RECORDER} --tree <b6f10295a export>`,
-    extra: { scenarios: Object.keys(SCENARIOS), ...recorderProvenance(import.meta.url) },
+    extra: {
+      scenarios: Object.keys(SCENARIOS),
+      exclusions: [
+        'client.published: the session id the runtime names (process id and clock) is written <session>',
+        'client.published: a publication that does not carry turnEffort (the first snapshot of a route that never changed, scenario none) has no frame in the core, which publishes none for a route that did not change; the replay compares the publications that carry it',
+        'client.published: the replay compares turnEffort in each publication; the other keys of Node\'s first publication (sessionId, sessionProvider, sessionModel, contextWindow, rawContextWindow, effectiveContextWindowPercent, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, agentScope) are recorded but not compared: the replay thread stores no route, and the windows and limits are the core\'s thread/context/updated section',
+      ],
+      ...recorderProvenance(import.meta.url),
+    },
     identity,
   });
   commitStage(stage, finalDir);

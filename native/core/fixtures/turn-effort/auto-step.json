@@ -68,8 +68,24 @@
     "atStart": [],
     "status": "done",
     "published": [
-      "medium",
-      "high"
+      {
+        "sessionId": "<session>",
+        "sessionProvider": "anthropic",
+        "sessionModel": "claude-opus-5",
+        "turnEffort": "medium",
+        "contextWindow": 500000,
+        "rawContextWindow": 500000,
+        "effectiveContextWindowPercent": 100,
+        "displayContextWindow": 0,
+        "compactBoundaryTokens": 0,
+        "autoCompactTokenLimit": 0,
+        "agentScope": {
+          "sessionId": "<session>"
+        }
+      },
+      {
+        "turnEffort": "high"
+      }
     ],
     "requests": 2
   }
