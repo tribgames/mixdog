@@ -76,7 +76,7 @@ pub struct NewTaskReceipts {
     #[allow(clippy::disallowed_types, reason = "held across the awaited securing of the folder, so a second request waits for the first")]
     secured: tokio::sync::Mutex<Option<String>>,
     /// Every receipt written, as `phase` (`+refused` when marked) and whether it was flushed before being reported.
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     pub(super) writes: Mutex<Vec<(String, bool)>>,
 }
 
@@ -289,7 +289,7 @@ impl NewTaskReceipts {
             stall: Mutex::default(),
             #[allow(clippy::disallowed_types, reason = "see the field")]
             secured: tokio::sync::Mutex::new(None),
-            #[cfg(any(test, feature = "test-support"))]
+            #[cfg(test)]
             writes: Mutex::default(),
         })
     }
@@ -302,7 +302,7 @@ impl NewTaskReceipts {
     /// `Err` when a write outlived `bound`.
     pub async fn shutdown(&self, bound: std::time::Duration) -> Result<(), String> {
         self.cut();
-        match tokio::time::timeout(bound, self.alive.write()).await {
+        match mixdog_rt::time::timeout(bound, self.alive.write()).await {
             Ok(_) => Ok(()),
             Err(_) => Err(format!("a new-task receipt write did not end within {bound:?} of shutdown; its receipt holds the phase before or after it")),
         }
@@ -371,7 +371,7 @@ impl NewTaskReceipts {
     /// `writeReceipt`: an atomic rename; `durable` also flushes the file and its folder entry before it is reported.
     async fn write(&self, hold: &Hold, path: &Path, receipt: &Receipt, durable: bool) -> Result<(), CoreError> {
         self.secure().await?;
-        #[cfg(any(test, feature = "test-support"))]
+        #[cfg(test)]
         lock(&self.writes).push((format!("{}{}", receipt.phase().name(), if receipt.refused() { "+refused" } else { "" }), durable));
         let (path, bytes) = (path.to_owned(), receipt.to_bytes());
         let opts = mixdog_statefile::Opts { fsync: durable, fsync_dir: durable, ..mixdog_statefile::Opts::default() };

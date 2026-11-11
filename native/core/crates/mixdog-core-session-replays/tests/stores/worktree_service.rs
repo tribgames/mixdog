@@ -25,9 +25,7 @@ use serde_json::json;
 use mixdog_core_session::session::worktree::worktree_tests::git;
 use mixdog_core_session::session::worktree::worktree_tests::rig;
 use mixdog_core_session::session::worktree::*;
-use std::path::PathBuf;
 use std::sync::Arc;
-use mixdog_core_session::replay_access::plain;
 
 const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/thread-scm/golden.json");
 

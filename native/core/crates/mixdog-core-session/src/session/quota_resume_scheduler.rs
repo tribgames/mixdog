@@ -60,7 +60,7 @@ impl ResumeClock for SystemResumeClock {
     }
 
     async fn sleep(&self, ms: u64) {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        mixdog_rt::time::sleep(std::time::Duration::from_millis(ms)).await;
     }
 }
 

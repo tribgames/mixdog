@@ -212,7 +212,7 @@ async fn run<S: SectionSource>(
         drop(live);
         if ready {
             if let Some(began) = stamp {
-                tokio::time::sleep_until(began + interval).await;
+                mixdog_rt::time::sleep_until(began + interval).await;
             }
             let Some(live) = source.upgrade() else { return };
             // Whatever was signalled while waiting is in this read, too.

@@ -195,7 +195,7 @@ impl Projector {
     /// stopped with projections it never finished: such a read never answers from an index older than the write it depends on.
     async fn caught_up(&self) -> Result<(), CoreError> {
         let bound = self.bound;
-        if tokio::time::timeout(bound, self.drained()).await.is_err() {
+        if mixdog_rt::time::timeout(bound, self.drained()).await.is_err() {
             return Err(internal("index-behind", &format_args!("the index has not taken the writes acknowledged before this read within {bound:?}")));
         }
         if self.stopped.load(std::sync::atomic::Ordering::SeqCst) && self.pending.load(std::sync::atomic::Ordering::SeqCst) != 0 {

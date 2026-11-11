@@ -36,7 +36,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 [dev-dependencies]
 mixdog-exthost = { workspace = true }
 mixdog-statefile = { workspace = true }
-mixdog-tools = { workspace = true }
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
 rand = { workspace = true }
 thiserror = { workspace = true }
 tokio-util = { workspace = true }
@@ -68,11 +68,11 @@ mixdog-core-config = { workspace = true, features = ["count-work"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
 mixdog-core-ports = { workspace = true }
 mixdog-core-prompt = { workspace = true }
-mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support", "virtual-clock"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-services = { workspace = true }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
@@ -89,3 +89,6 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }

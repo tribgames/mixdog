@@ -124,7 +124,7 @@ fn bind_completion_hooks(rig: &Rig, name: &str) {
 
 /// `wait`, or a failure naming `what` once a minute has passed without it.
 async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{what}: not within 60 s"))
+    mixdog_rt::time::timeout(Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{what}: not within 60 s"))
 }
 
 // Node's model-list reads with the statusline-usage warm-up between the full and the web-search read (`model-lists`, the

@@ -13,11 +13,20 @@ use std::path::Path;
 const LIBRARIES: &[&str] = &["mixdog-core", "mixdog-core-session"];
 
 /// `(file under the crates dir, the item the predicate is on, why it may stay bare)`.
-const ALLOWED: &[(&str, &str, &str)] = &[(
-    "mixdog-core/src/run_host/side_question_store.rs",
-    "pub(crate) fn tests_material()",
-    "builds its value with the inline `tests` module's helper; crate-private, so no replay package can reach it",
-)];
+const ALLOWED: &[(&str, &str, &str)] = &[
+    (
+        "mixdog-core/src/run_host/side_question_store.rs",
+        "pub(crate) fn tests_material()",
+        "builds its value with the inline `tests` module's helper; crate-private, so no replay package can reach it",
+    ),
+    (
+        "mixdog-core-session/src/session/new_task.rs",
+        "pub(super) writes: Mutex<Vec<(String, bool)>>,",
+        "a record only the inline tests read (`pub(super)`): kept for a replay build it would grow for the life of its daemon, read by no one",
+    ),
+    ("mixdog-core-session/src/session/new_task.rs", "writes: Mutex::default(),", "the record above"),
+    ("mixdog-core-session/src/session/new_task.rs", "lock(&self.writes).push(", "the record above"),
+];
 
 /// The item an attribute applies to: the next line that is not itself an attribute or a comment.
 fn item_after(lines: &[&str], at: usize) -> String {
@@ -33,19 +42,25 @@ fn is_test_module(item: &str) -> bool {
     let item = item.trim_start_matches("pub(crate) ").trim_start_matches("pub(super) ").trim_start_matches("pub ");
     let Some(name) = item.strip_prefix("mod ") else { return false };
     let name: String = name.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    ["tests", "test", "golden", "goldens"].iter().any(|end| name.ends_with(end))
+    ["tests", "test", "golden", "goldens", "replay", "replays"].iter().any(|end| name.ends_with(end))
 }
 
-/// The `cfg`, `cfg_attr` and `cfg!` sites of a line that name `test` outside `any(test, feature = "test-support")`.
-fn bare_sites(line: &str) -> Vec<String> {
+/// A site on one line, as rustfmt writes a short one: a predicate split over lines reads the same as one that is not.
+fn one_line(site: &str) -> String {
+    site.split_whitespace().collect::<Vec<_>>().join(" ").replace("( ", "(").replace(", )", ")").replace(" )", ")")
+}
+
+/// The `cfg`, `cfg_attr` and `cfg!` sites of a file that name `test` outside `any(test, feature = "test-support")`,
+/// each with the index of the line it ends on.
+fn bare_sites(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     for start in ["#[cfg(", "#![cfg(", "#[cfg_attr(", "#![cfg_attr(", "cfg!("] {
         let mut from = 0;
-        while let Some(at) = line[from..].find(start) {
+        while let Some(at) = text[from..].find(start) {
             let begin = from + at;
             let mut depth = 0;
-            let mut end = line.len();
-            for (i, c) in line[begin..].char_indices() {
+            let mut end = text.len();
+            for (i, c) in text[begin..].char_indices() {
                 match c {
                     '(' => depth += 1,
                     ')' => {
@@ -59,8 +74,8 @@ fn bare_sites(line: &str) -> Vec<String> {
                 }
             }
             // An attribute ends at its closing bracket.
-            let end = if line[end..].starts_with(']') { end + 1 } else { end };
-            let site = &line[begin..end];
+            let end = if text[end..].starts_with(']') { end + 1 } else { end };
+            let site = one_line(&text[begin..end]);
             let unwrapped = site.replace(r#"any(test, feature = "test-support")"#, "");
             let names_test = unwrapped
                 .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-' || c == '"'))
@@ -68,7 +83,7 @@ fn bare_sites(line: &str) -> Vec<String> {
             // `cfg_attr(not(test), allow(..))` only silences lints of the test-support build.
             let lint_only = site.starts_with("#![cfg_attr(not(test), allow(") || site.starts_with("#[cfg_attr(not(test), allow(");
             if names_test && !lint_only {
-                out.push(site.to_owned());
+                out.push((text[..end].matches('\n').count(), site));
             }
             from = end;
         }
@@ -89,19 +104,25 @@ fn scan(dir: &Path, crates: &Path, found: &mut Vec<String>) {
         let text = mixdog_testkit::read_string(&path);
         let rel = path.strip_prefix(crates).expect("under the crates dir").to_string_lossy().replace('\\', "/");
         let lines: Vec<&str> = text.lines().collect();
-        for (at, line) in lines.iter().enumerate() {
-            for site in bare_sites(line) {
-                let item = item_after(&lines, at);
-                if site == "#[cfg(test)]" && is_test_module(&item) {
-                    continue;
-                }
-                if ALLOWED.iter().any(|(file, allowed, _)| *file == rel && item.starts_with(allowed)) {
-                    continue;
-                }
-                found.push(format!("{rel}:{}: {site} on `{item}`", at + 1));
+        for (at, site) in bare_sites(&text) {
+            let item = item_after(&lines, at);
+            if site == "#[cfg(test)]" && is_test_module(&item) {
+                continue;
             }
+            if ALLOWED.iter().any(|(file, allowed, _)| *file == rel && item.starts_with(allowed)) {
+                continue;
+            }
+            found.push(format!("{rel}:{}: {site} on `{item}`", at + 1));
         }
     }
+}
+
+#[test]
+fn a_predicate_split_over_lines_is_read_as_one() {
+    let split = "#[cfg(\n    any(\n        test,\n        feature = \"crash-gates\",\n    )\n)]\nfn gate() {}\n";
+    assert_eq!(bare_sites(split), vec![(5, r#"#[cfg(any(test, feature = "crash-gates"))]"#.to_owned())]);
+    let guarded = "#[cfg(\n    any(\n        test,\n        feature = \"test-support\",\n    )\n)]\nfn hook() {}\n";
+    assert_eq!(bare_sites(guarded), vec![]);
 }
 
 #[test]

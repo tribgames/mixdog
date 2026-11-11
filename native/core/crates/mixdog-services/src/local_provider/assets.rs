@@ -330,7 +330,7 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
         let deadline = deadline.clone();
         let timeout = options.timeout;
         tokio::spawn(async move {
-            tokio::time::sleep(timeout).await;
+            mixdog_rt::time::sleep(timeout).await;
             deadline.cancel();
         });
     }

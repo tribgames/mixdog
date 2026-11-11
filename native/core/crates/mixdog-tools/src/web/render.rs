@@ -245,11 +245,11 @@ impl BrowserRenderer {
                 if reply.pointer("/result/value").and_then(Value::as_bool) == Some(true) {
                     return Ok(());
                 }
-                tokio::time::sleep(TEXT_POLL).await;
+                mixdog_rt::time::sleep(TEXT_POLL).await;
             }
         };
         // Running out of time only means the page has no text yet.
-        tokio::time::timeout(limit, poll).await.unwrap_or(Ok(()))
+        mixdog_rt::time::timeout(limit, poll).await.unwrap_or(Ok(()))
     }
 
     async fn wait_for_network_idle(state: &PageState, limit: Duration) {
@@ -258,7 +258,7 @@ impl BrowserRenderer {
             loop {
                 if *inflight.borrow_and_update() <= IDLE_CONCURRENCY {
                     tokio::select! {
-                        () = tokio::time::sleep(IDLE_TIME) => return,
+                        () = mixdog_rt::time::sleep(IDLE_TIME) => return,
                         changed = inflight.changed() => if changed.is_err() { return },
                     }
                 } else if inflight.changed().await.is_err() {
@@ -266,7 +266,7 @@ impl BrowserRenderer {
                 }
             }
         };
-        let _ = tokio::time::timeout(limit, idle).await;
+        let _ = mixdog_rt::time::timeout(limit, idle).await;
     }
 
     async fn scrape(&self, cdp: &Arc<Cdp>, context_id: &str, url: &Url, budget: Duration) -> Result<StagePage, FetchError> {
@@ -392,7 +392,7 @@ impl PageRenderer for BrowserRenderer {
             .map_err(|error| launch_failed(&error.message))?;
         let context_id = text_of(&context, "browserContextId").to_string();
         let outcome = self.scrape(&cdp, &context_id, url, budget).await;
-        let _ = tokio::time::timeout(
+        let _ = mixdog_rt::time::timeout(
             TEARDOWN,
             cdp.send("Target.disposeBrowserContext", json!({ "browserContextId": context_id }), None),
         )

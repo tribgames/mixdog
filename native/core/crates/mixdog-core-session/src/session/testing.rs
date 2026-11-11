@@ -1233,7 +1233,7 @@ impl mixdog_core_goal::goal::GoalTimers for RigGoalTimers {
         drop(tokio::spawn(async move {
             tokio::select! {
                 () = stop.cancelled() => {}
-                () = tokio::time::sleep(delay) => callback(),
+                () = mixdog_rt::time::sleep(delay) => callback(),
             }
         }));
         mixdog_core_goal::goal::Timer::new(move || cancel.cancel())
@@ -1521,7 +1521,7 @@ impl super::CloseIngest for Closes {
         let (seen, id, delay, timeline) = (self.seen.clone(), id.clone(), *lock(&self.delay), lock(&self.timeline).clone());
         let ended = self.ended.clone();
         Box::pin(async move {
-            tokio::time::sleep(delay).await;
+            mixdog_rt::time::sleep(delay).await;
             lock(&seen).push((id, messages));
             if let Some(log) = timeline {
                 lock(&log).push(json!({ "teardown": "done" }));
@@ -1737,6 +1737,7 @@ impl Rig {
             sensitive: Arc::new(super::store::SensitiveMarksOf(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
+            session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
             feeds: self.feeds.clone(),
             turn_admission: self.admissions.clone(),

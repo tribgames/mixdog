@@ -772,7 +772,7 @@ mod tests {
                     if snapshot(dir.path()).await == want {
                         break;
                     }
-                    tokio::time::sleep(Duration::from_millis(2)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(2)).await;
                 }
                 assert_eq!(snapshot(dir.path()).await, want, "{at}");
                 let injected: Vec<Value> = sink.got.lock().unwrap().drain(..).map(|(event, prompt)| serde_json::json!({"event": event, "instruction": prompt})).collect();

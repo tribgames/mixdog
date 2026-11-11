@@ -229,7 +229,7 @@ impl ProviderReadiness {
         refreshes.not_before = Some(not_before);
         let this = Arc::downgrade(self);
         let task = mixdog_rt::spawn("catalog.refresh-timer", mixdog_rt::TaskClass::Work, async move {
-            tokio::time::sleep_until(not_before).await;
+            mixdog_rt::time::sleep_until(not_before).await;
             let Some(this) = this.upgrade() else { return };
             #[cfg(any(test, feature = "test-support"))]
             this.reach(Point::TimerBeforeLock);

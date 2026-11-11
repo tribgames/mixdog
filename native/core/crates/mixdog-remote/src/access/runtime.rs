@@ -774,7 +774,7 @@ impl RemoteRuntime {
         tokio::spawn(async move {
             tokio::select! {
                 () = cancel.cancelled() => {}
-                () = tokio::time::sleep(delay) => {
+                () = mixdog_rt::time::sleep(delay) => {
                     lock(&runtime.inner.state).retry_cancel = None;
                     let _ = runtime.start(false).await;
                 }
@@ -1032,7 +1032,7 @@ impl RemoteRuntime {
                 return;
             }
             if self.inner.state().live.is_none() || self.list_clients().await.is_err() {
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                mixdog_rt::time::sleep(Duration::from_millis(250)).await;
                 continue;
             }
             let queued = lock(&roster).pending();
@@ -1122,7 +1122,7 @@ impl RemoteRuntime {
         tokio::spawn(async move {
             tokio::select! {
                 () = cancel.cancelled() => {}
-                () = tokio::time::sleep(wait) => { let _ = runtime.resolve_claim(&claim_id, false).await; }
+                () = mixdog_rt::time::sleep(wait) => { let _ = runtime.resolve_claim(&claim_id, false).await; }
             }
         });
         self.inner.refresh();

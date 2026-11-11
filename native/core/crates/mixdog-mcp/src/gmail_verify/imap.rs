@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use tokio::time::{Instant, timeout};
+use mixdog_rt::time::{Instant, timeout};
 
 use super::Leg;
 use super::wire::{Failure, Wire, connect};
