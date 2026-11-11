@@ -450,7 +450,7 @@ async fn glob_path_list(ctx: &ToolContext, raw: &str, hidden: bool, offset: usiz
         ctx,
         "list",
         futures::stream::iter(walked.entries.into_iter().map(|entry| async move {
-            let stat = tokio::time::timeout(FIND_STAT_DEADLINE, ctx.files.stat(ctx.io.interactive, entry.path.clone())).await;
+            let stat = mixdog_rt::time::timeout(FIND_STAT_DEADLINE, ctx.files.stat(ctx.io.interactive, entry.path.clone())).await;
             (entry, stat.ok().and_then(Result::ok))
         }))
         .buffered(64)

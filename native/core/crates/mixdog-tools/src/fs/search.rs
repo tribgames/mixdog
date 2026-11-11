@@ -979,7 +979,7 @@ pub struct GrepTool {
 
 impl GrepTool {
     pub fn new() -> Self {
-        Self::with_timer(Arc::new(|at| Box::pin(tokio::time::sleep_until(at.into()))))
+        Self::with_timer(Arc::new(|at| Box::pin(mixdog_rt::time::sleep_until(at.into()))))
     }
 
     /// A grep whose searches' hard deadlines pass on `timer`.
