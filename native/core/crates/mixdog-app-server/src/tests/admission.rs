@@ -50,12 +50,21 @@ async fn saturating_a_class_is_answered_at_once_and_retries_ride_on_own_response
     assert!(rest.iter().all(|wire| wire.body.get("result").is_some()));
 }
 
-/// Node's model-proxy host refused a payload past its aggregate in-flight bound (`MODEL_PROXY_BUSY`, status 429; recording
-/// `model-proxy-host-trust-cases`, "payloads past the aggregate in-flight limit are refused"). On the typed protocol the bound
-/// is the C2 cap of `modelProxy/run`: eight runs of one connection in flight, the ninth answered at once, `-32001 inflightLimit`.
+const TRUST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/model-proxy-host-trust-cases/golden.json");
+
+/// Node's model-proxy host runs every call it is sent: its recorded burst ("a burst of sends all run, with no rate or
+/// concurrency refusal") has all `sends` in flight at once and none refused. It refuses by payload size alone
+/// (`MODEL_PROXY_BUSY`, answered by `ModelProxyService` and replayed in mixdog-core's trust replay), so the class cap of the
+/// server does not count `modelProxy/run`: every send of the burst, far past the C2 cap, reaches the domain.
 #[tokio::test(start_paused = true)]
-async fn a_ninth_model_proxy_run_is_refused_as_in_flight_limit() {
+async fn the_recorded_burst_of_model_proxy_runs_is_admitted_whole() {
     use mixdog_app_protocol::v2::model_proxy::{ProxyCall, ProxyOptions, ProxyRequest};
+
+    let golden: serde_json::Value = serde_json::from_str(&TRUST).unwrap();
+    let burst = golden["cases"].as_array().unwrap().iter().find(|c| c["case"] == "a burst of sends all run, with no rate or concurrency refusal").expect("the burst is recorded");
+    let sends = burst["observed"]["sends"].as_u64().unwrap() as i64;
+    let cap = 8;
+    assert!(sends > cap, "the recorded burst is past the C2 cap");
 
     let rig = Rig::gated(&["modelProxy"]);
     let client = rig.ready(1, json!({}));
@@ -63,21 +72,12 @@ async fn a_ninth_model_proxy_run_is_refused_as_in_flight_limit() {
         provider: "openai".into(),
         request: Box::new(ProxyRequest { model: "gpt".into(), messages: Vec::new(), tools: Vec::new(), options: ProxyOptions::default() }),
     };
-    let run = |id: i64| client.request(id, "modelProxy/run", json!({ "runId": format!("r{id}"), "call": call, "allowedProviders": null }));
-    for id in 1..=8 {
-        run(id);
+    for id in 1..=sends {
+        client.request(id, "modelProxy/run", json!({ "runId": format!("r{id}"), "call": call, "allowedProviders": null }));
     }
     settle().await;
-    assert_eq!(rig.gate("modelProxy").log().len(), 8);
-    assert!(client.drain().is_empty());
-
-    run(9);
-    let refused = client.drain();
-    assert_eq!(refused.len(), 1);
-    assert_eq!(refused[0].body["id"], json!(9));
-    assert_eq!(refused[0].body["error"]["code"], json!(-32001));
-    assert_eq!(refused[0].body["error"]["data"], json!({ "reason": "inflightLimit", "class": "C2", "limit": 8 }));
-    assert_eq!(rig.gate("modelProxy").log().len(), 8, "the ninth never reached the domain");
+    assert_eq!(rig.gate("modelProxy").log().len(), sends as usize, "every send of the burst reached the domain");
+    assert!(client.drain().is_empty(), "no send was refused");
 }
 
 #[tokio::test(start_paused = true)]
