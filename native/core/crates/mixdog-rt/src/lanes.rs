@@ -61,7 +61,10 @@ pub enum ThreadKind {
     SqliteWriter,
 }
 
-/// The lane's queue is at capacity; the caller answers `overloaded` at once (RL §0.2).
+/// The lane is overloaded: its queue holds its far bound of waiting jobs (overload protection,
+/// not a busy signal: below that bound a job waits for a thread), or it has no healthy worker
+/// left. The caller answers `overloaded` at once (RL §0.2); it is never a closed session, and a
+/// job refused this way never ran, so a reply it carried is still the caller's to send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LaneFull {
     pub lane: LaneKind,
@@ -69,7 +72,30 @@ pub struct LaneFull {
 
 impl std::fmt::Display for LaneFull {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "lane {} queue full", self.lane.name())
+        write!(f, "overloaded: {}", self.lane.name())
+    }
+}
+
+/// The room of a pooled lane's queue: one permit per job it may hold waiting (its far bound),
+/// taken by each queued job until a thread takes the job. [`crate::LaneToken::submit_wait`] waits
+/// for a permit in FIFO order (tokio's semaphore is fair), so no waiter starves.
+#[derive(Clone)]
+pub struct Room {
+    pub(crate) permits: std::sync::Arc<tokio::sync::Semaphore>,
+    /// Tasks waiting in `submit_wait` for a permit.
+    pub(crate) waiters: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Room {
+    pub(crate) fn new(bound: usize) -> Self {
+        Self {
+            permits: std::sync::Arc::new(tokio::sync::Semaphore::new(bound)),
+            waiters: std::sync::Arc::default(),
+        }
+    }
+
+    pub(crate) fn waiters(&self) -> usize {
+        self.waiters.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -149,6 +175,8 @@ pub struct QueuedJob {
     enqueued_at: Instant,
     /// The tool whose call submitted the job, if a tool call did.
     tool: Option<&'static str>,
+    /// The job's place in its lane's [`Room`] while it waits for a thread.
+    room: Option<tokio::sync::OwnedSemaphorePermit>,
     cancel: CancellationToken,
     run: Box<dyn FnOnce() + Send>,
 }
@@ -171,6 +199,7 @@ impl QueuedJob {
             lane,
             enqueued_at: Instant::now(),
             tool: TOOL_CALL.try_with(|tool| *tool).ok(),
+            room: None,
             cancel,
             run,
         }
@@ -179,7 +208,21 @@ impl QueuedJob {
     /// A job of `tool` enqueued at `enqueued_at`.
     #[cfg(test)]
     pub(crate) fn queued_at(lane: LaneKind, tool: Option<&'static str>, enqueued_at: Instant, run: Box<dyn FnOnce() + Send>) -> Self {
-        Self { lane, enqueued_at, tool, cancel: CancellationToken::new(), run }
+        Self { lane, enqueued_at, tool, room: None, cancel: CancellationToken::new(), run }
+    }
+
+    /// The job holds `permit` of its lane's room until a thread takes it.
+    pub(crate) fn hold_room(&mut self, permit: tokio::sync::OwnedSemaphorePermit) {
+        self.room = Some(permit);
+    }
+
+    pub(crate) fn holds_room(&self) -> bool {
+        self.room.is_some()
+    }
+
+    /// A thread took the job: its place in the room is free for the next.
+    pub(crate) fn release_room(&mut self) {
+        self.room = None;
     }
 
     pub fn lane(&self) -> LaneKind {
@@ -203,7 +246,7 @@ impl QueuedJob {
     /// The same job with its body wrapped by `wrap` (the replay's clock counts it while it is queued or running).
     #[cfg(feature = "virtual-clock")]
     pub(crate) fn map_run(self, wrap: impl FnOnce(Box<dyn FnOnce() + Send>) -> Box<dyn FnOnce() + Send>) -> Self {
-        Self { lane: self.lane, enqueued_at: self.enqueued_at, tool: self.tool, cancel: self.cancel, run: wrap(self.run) }
+        Self { lane: self.lane, enqueued_at: self.enqueued_at, tool: self.tool, room: self.room, cancel: self.cancel, run: wrap(self.run) }
     }
 
     /// Runs the job on the calling lane thread, or drops it if it was cancelled while queued.

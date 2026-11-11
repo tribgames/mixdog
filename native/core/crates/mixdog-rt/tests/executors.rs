@@ -32,10 +32,7 @@ fn rt() -> &'static (Arc<Executors>, LaneTokens) {
     static BOOT: OnceLock<(Arc<Executors>, LaneTokens)> = OnceLock::new();
     BOOT.get_or_init(|| {
         let mut config = RtConfig::for_cores(8);
-        let small = PoolParams {
-            threads: 2,
-            queue: 2,
-        };
+        let small = PoolParams::fixed(2, 2);
         config.durability_io = small;
         config.maintenance_io = small;
         config.spawn_io = small;

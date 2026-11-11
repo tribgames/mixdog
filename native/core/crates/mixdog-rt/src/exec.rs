@@ -4,12 +4,12 @@
 //! |---|---|---|
 //! | RT-C (tokio) | 2 | above normal |
 //! | RT-W (tokio) | cores − 2, min 2 | normal |
-//! | cpu-interactive | max(2, cores/4), queue 8 | above normal |
-//! | cpu-bulk | max(1, cores − 2 − k), queue 64 | below normal |
-//! | io-interactive | 4, queue 16 | normal |
-//! | io-durability | 4, queue 256 | normal |
-//! | io-maintenance | 2, queue 256 | below normal |
-//! | io-spawn | 4, queue 256 | normal |
+//! | cpu-interactive | max(2, cores/4) fixed, queue 512 | above normal |
+//! | cpu-bulk | max(1, cores − 2 − k) fixed, queue 1024 | below normal |
+//! | io-interactive | 4 warm, up to 64, queue 512 | normal |
+//! | io-durability | 4 warm, up to 16, queue 1024 | normal |
+//! | io-maintenance | 2 warm, up to 8, queue 1024 | below normal |
+//! | io-spawn | 4 warm, up to 32, queue 1024 | normal |
 //! | io-pty | one thread per job, 64 live per core | normal |
 //! | control / computer / webrtc-media / sqlite-writer | one thread per token spawn | above / normal / below / normal |
 //!
@@ -153,11 +153,30 @@ const WORK_PRIORITY: Priority = Priority::Normal;
 /// Size of one pooled lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PoolParams {
-    /// Worker threads, all started at boot.
+    /// Warm worker threads, all started at boot.
     pub threads: usize,
-    /// Queue capacity: a full queue answers `LaneFull` at once.
+    /// Most worker threads: above `threads` the lane grows while every thread is busy and work
+    /// waits, and a grown thread ends after [`IDLE_GROWN`] idle. Equal to `threads`: a fixed lane.
+    pub max_threads: usize,
+    /// The queue's far bound: jobs wait in the queue for a thread, and only a queue holding this
+    /// many answers `LaneFull` (overloaded).
     pub queue: usize,
 }
+
+impl PoolParams {
+    /// A lane of `threads` workers, never more.
+    pub const fn fixed(threads: usize, queue: usize) -> Self {
+        Self { threads, max_threads: threads, queue }
+    }
+}
+
+/// How long a thread an elastic lane grew stays idle before it ends.
+pub const IDLE_GROWN: Duration = Duration::from_secs(30);
+
+/// Node's call-lane bounds (`session-transport/call-lanes.mjs`): the interactive lane refuses at
+/// 512 waiting, the normal lane at 1,024.
+const NODE_INTERACTIVE_QUEUE: usize = 512;
+const NODE_NORMAL_QUEUE: usize = 1024;
 
 /// Executor sizes. [`RtConfig::for_cores`] gives the RL §3 table for a machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,40 +200,34 @@ impl RtConfig {
         Self {
             control_threads: 2,
             work_threads: cores.saturating_sub(2).max(2),
-            cpu_interactive: PoolParams {
-                threads: interactive_cpu,
-                queue: 8,
-            },
-            cpu_bulk: PoolParams {
-                threads: cores.saturating_sub(2 + interactive_cpu).max(1),
-                queue: 64,
-            },
-            interactive_io: PoolParams {
-                threads: 4,
-                queue: 16,
-            },
-            durability_io: PoolParams {
-                threads: 4,
-                queue: 256,
-            },
-            // Background loops only (walks, censuses, deletes, searches): the lease table above
-            // allows one job minutes, so no tool call's start or output waits here.
-            maintenance_io: PoolParams {
-                threads: 2,
-                queue: 256,
-            },
+            // CPU lanes stay fixed: the processor is their limit, so more threads only contend.
+            // Their queues wait like the others' (Node's interactive and normal bounds).
+            cpu_interactive: PoolParams::fixed(interactive_cpu, NODE_INTERACTIVE_QUEUE),
+            cpu_bulk: PoolParams::fixed(cores.saturating_sub(2 + interactive_cpu).max(1), NODE_NORMAL_QUEUE),
+            // IO lanes are elastic: a thread blocked on a file or a pipe uses no processor, so a
+            // fixed count only queues unrelated work behind a slow file. A thread costs its stack
+            // (2 MiB reserved, tens of KiB committed); all four caps grown is 120 threads above the
+            // warm 14, 240 MiB reserved.
+            // Request reads: 64, one per live process the manager admits (`limits.maxProcesses`),
+            // so a read behind every live shell still gets a thread. Node's interactive bound.
+            interactive_io: PoolParams { threads: 4, max_threads: 64, queue: NODE_INTERACTIVE_QUEUE },
+            // Writes and fsyncs: 16, half a disk's command queue (SATA NCQ and an NVMe queue's
+            // usual depth are 32), leaving the rest to other processes; more concurrent fsyncs
+            // only lengthen each.
+            durability_io: PoolParams { threads: 4, max_threads: 16, queue: NODE_NORMAL_QUEUE },
+            // Background loops only (walks, censuses, deletes, searches), below normal priority:
+            // the lease table allows one job minutes, and no tool call's start or output waits
+            // here. A low cap of 8 keeps walks from flooding the disk.
+            maintenance_io: PoolParams { threads: 2, max_threads: 8, queue: NODE_NORMAL_QUEUE },
             // Every shell call's start: a few single filesystem calls and one process creation,
-            // milliseconds each. The lease table's slow case (a first-run scan) may hold a thread
-            // for seconds, so two may stall while two keep serving; more threads buy nothing at
-            // millisecond service times. A shell call's start steps run one after another (the
+            // milliseconds each, so 4 warm threads serve a burst. The lease table's slow case (a
+            // first-run scan) may hold a thread for seconds; the lane then grows. A shell call's start steps run one after another (the
             // program probe, hoisted script, scratch and launcher directories, PATH lookup, then
             // the spawn; its log files are made on the job's io-pty writer), so a call has at most
-            // one io-spawn job in flight: 30 agents x 8 parallel calls = 240 jobs <= 256 queued
-            // + 4 running, as io-durability's queue.
-            spawn_io: PoolParams {
-                threads: 4,
-                queue: 256,
-            },
+            // one io-spawn job in flight: 30 agents x 8 parallel calls = 240 jobs. The lane grows
+            // to 32 threads when a scan stalls the warm 4, and 240 starts wait far below the
+            // queue's bound (Node's normal 1,024).
+            spawn_io: PoolParams { threads: 4, max_threads: 32, queue: NODE_NORMAL_QUEUE },
             pty_max_live: 64 * cores,
         }
     }
@@ -270,8 +283,10 @@ impl Executors {
                 kind,
                 lane_priority(kind),
                 params.threads,
+                params.max_threads,
                 params.queue,
                 lane_lease(kind),
+                IDLE_GROWN,
                 &priority_failures,
             )
         };
@@ -370,6 +385,16 @@ impl Backend for Executors {
         #[cfg(feature = "virtual-clock")]
         let job = crate::virtual_clock::counted(job);
         self.lanes[lane_index(job.lane())].submit(job)
+    }
+
+    fn try_submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+        #[cfg(feature = "virtual-clock")]
+        let job = crate::virtual_clock::counted(job);
+        self.lanes[lane_index(job.lane())].try_submit(job)
+    }
+
+    fn room(&self, lane: LaneKind) -> Option<crate::lanes::Room> {
+        self.lanes[lane_index(lane)].room()
     }
 
     fn enter_thread(&self, kind: ThreadKind) {
