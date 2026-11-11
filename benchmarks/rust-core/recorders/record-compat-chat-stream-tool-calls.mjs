@@ -8,9 +8,10 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-compat-chat-stream-tool-calls',
   net: false,
+  pure: { '*': 'mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)' },
   entry: 'openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, providerName, parseToolCalls, knownToolNames, onToolCall }) and openai-compat-response-normalization.mjs normalizeCompatChatResponse({ providerName, useModel, opts, assembled }). The test\'s own parseToolCalls (JSON.parse of the arguments) is the callback the collector receives.',
   compare: 'mixdog-ai providers::compat chat decode (decode.rs:295 fragment join, finish handling, leak guard): feed `input.chunks` and compare `result` (assembled response/toolCalls), `dispatched` (calls handed out, in order) and `normalized` (the typed incomplete error: providerIncomplete, finishReason, partialToolCalls).',
-  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  replay: "mixdog-ai/src/providers/compat/chat/decode.rs: `pub struct ChatDecoder` (:155, re-exported pub at providers/compat/chat/mod.rs:18) built by `ChatDecoder::new(profile, owner)` (:193) and `.with_known_tools(names)` (:224), fed each recorded chunk as one SSE `data: <json>\n\n` unit through `WireDecoder::feed(&[u8])` (:578) and ended by `finish()` (:601). `feed` returns the StreamEvents (text, tool dispatches, errors) the Node consumer returns/dispatches for the same chunks; the `normalized` field (normalizeCompatChatResponse over a cut stream) maps to the typed error `finish()` / `feed` returns for a cut finish_reason.",
 });
 const P = 'agent/orchestrator/providers/';
 const { consumeCompatChatCompletionStream } = await rec.P(`${P}openai-compat-stream.mjs`);
