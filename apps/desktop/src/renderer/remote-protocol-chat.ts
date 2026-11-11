@@ -323,13 +323,47 @@ const activityOf = (row: ThreadRow): number => Number(row.activityAt) || Number(
 const inCatalogOrder = (a: ThreadRow, b: ThreadRow): number =>
   activityOf(b) - activityOf(a) || (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0);
 
+/** The catalog clock's timers (the real ones outside a replay). */
+export interface RosterTimers {
+  now(): number;
+  setTimeout(run: () => void, ms: number): unknown;
+}
+
+// Node's catalog clock (session-host-catalog.ts:10-11, 170-180 scheduleCatalogRefresh at b6f10295a): a store change republished the
+// catalog after a 400 ms debounce, no sooner than 2 s after the last such refresh; changes meanwhile joined the one pending refresh.
+export const STORE_REFRESH_DEBOUNCE_MS = 400;
+export const STORE_REFRESH_MIN_GAP_MS = 2_000;
+const realTimers: RosterTimers = { now: () => Date.now(), setTimeout: (run, ms) => setTimeout(run, ms) };
+
 export function createRosterFeed<S>(options: {
   /** The sidebar projection of core rows (`summariesOfThreadRows`, main/protocol/thread-rows.ts). */
   summaries(rows: ThreadRow[]): S[];
   /** `ctx.sessionsCatalog`: what `subscribeSessions` listeners hear. */
   publish(rows: S[]): void;
+  timers?: RosterTimers;
 }) {
+  const timers = options.timers ?? realTimers;
   let held = new Map<string, ThreadRow>();
+  // What was last published (a refresh that changes nothing is not heard: remote-relay-catalog.ts:79-91 isNoListDelta).
+  let shown = '';
+  let refreshTimer: unknown = null;
+  let refreshedAt = 0;
+  const publishHeld = (): void => {
+    const rows = project(held.values());
+    const key = JSON.stringify(rows);
+    if (key === shown) return;
+    shown = key;
+    options.publish(rows);
+  };
+  const scheduleRefresh = (): void => {
+    if (refreshTimer) return;
+    const delay = Math.max(STORE_REFRESH_DEBOUNCE_MS, STORE_REFRESH_MIN_GAP_MS - (timers.now() - refreshedAt));
+    refreshTimer = timers.setTimeout(() => {
+      refreshTimer = null;
+      refreshedAt = timers.now();
+      publishHeld();
+    }, delay);
+  };
   let known = false;
   let reading: Promise<S[]> | null = null;
   // Edges since the read began (or, before any read, since the feed attached): they outrank the listing.
@@ -369,6 +403,7 @@ export function createRosterFeed<S>(options: {
       held = listed;
       known = true;
       const rows = project(held.values());
+      shown = JSON.stringify(rows);
       options.publish(rows);
       return rows;
     })();
@@ -400,11 +435,14 @@ export function createRosterFeed<S>(options: {
     const next = flag === undefined ? row : archiveOf(flag)(was);
     if (next === undefined || JSON.stringify(was) === JSON.stringify(next)) return; // CatalogChannel.publish skipped an unchanged roster
     apply(held, id, next);
-    options.publish(project(held.values()));
+    scheduleRefresh();
   };
 
   return {
     list,
+    /** Node's host republished the catalog itself before answering these calls (session-host-lifecycle.ts:203, 231, 311, 336, 493,
+     *  500, 576): the rows held now are published at once, the pending refresh still to come. */
+    flush: publishHeld,
     /** Watches one connection's client; `listFor` is the read after its app feed is back (no caller's claim is involved). */
     attach(client: RosterClient): () => void {
       const offEvents = client.on((event) => {
@@ -441,6 +479,11 @@ const CHAT_CALLS = [
   'setQuotaAutoResume', 'setSessionArchived', 'setSessionFavorite', 'setSessionProject', 'startProject', 'startProjectTask',
   'startTask', 'stopShellJob', 'submitFeedback', 'submitNewTask', 'submitToSession', 'viewerDevice', 'setFast',
 ] as const satisfies ReadonlyArray<keyof ChatApi>;
+/** The calls Node's host answered after republishing the catalog itself (session-host-lifecycle.ts at b6f10295a: markSessionRead 203,
+ *  renameSession 231, setSessionFavorite 311, setSessionProject 336, setSessionArchived 493/500, deleteSession 576). */
+const CATALOG_PUBLISHING_CALLS = [
+  'markSessionRead', 'renameSession', 'setSessionFavorite', 'setSessionProject', 'setSessionArchived', 'deleteSession',
+] as const satisfies ReadonlyArray<(typeof CHAT_CALLS)[number]>;
 
 /** `sharedFor` and the api are made PER CALL from `host.client()`: that client carries this call's transmission claim
  *  (phone-send-scope.ts), so a request written through anything built from it is claimed; one captured at start would not be. */
@@ -450,7 +493,7 @@ export function createChatAdapter(options: {
   sharedFor(client: ChatClient): ChatHostShared;
   /** The `hostState` value of key `remoteSession` this client holds (remote-chat-host.ts `ChatHostOptions`). */
   remoteSession(client: ChatClient): unknown;
-  roster: { summaries(rows: ThreadRow[]): unknown[] };
+  roster: { summaries(rows: ThreadRow[]): unknown[]; timers?: RosterTimers };
 }): PhoneProtocolAdapter {
   // One roster feed per page context: a feed publishes into the catalog of the page it was made for, so a second page served by this
   // adapter (another phone, or a page made again after a core restarted) gets its own and not the first page's.
@@ -458,7 +501,11 @@ export function createChatAdapter(options: {
   const feedFor = (host: PhoneProtocolHost) => {
     let feed = feeds.get(host.ctx);
     if (!feed) {
-      feed = createRosterFeed({ summaries: options.roster.summaries, publish: (rows) => host.ctx.sessionsCatalog.publish(rows as never) });
+      feed = createRosterFeed({
+        summaries: options.roster.summaries,
+        publish: (rows) => host.ctx.sessionsCatalog.publish(rows as never),
+        ...(options.roster.timers ? { timers: options.roster.timers } : {}),
+      });
       feeds.set(host.ctx, feed);
     }
     return feed;
@@ -472,6 +519,14 @@ export function createChatAdapter(options: {
   const calls: Record<string, (params: unknown[], host: PhoneProtocolHost) => unknown> = {};
   for (const name of CHAT_CALLS) {
     calls[name] = (params, host) => (api(host)[name] as (...args: unknown[]) => unknown)(...params);
+  }
+  // The core sends these calls' row edges before it answers (thread_settings.rs); Node's host published them before answering.
+  for (const name of CATALOG_PUBLISHING_CALLS) {
+    calls[name] = async (params, host) => {
+      const answer = await (api(host)[name] as (...args: unknown[]) => unknown)(...params);
+      feedFor(host).flush();
+      return answer;
+    };
   }
   calls.listSessions = (_params, host) => feedFor(host).list(host.client() as unknown as RosterClient);
   return {
@@ -553,4 +608,8 @@ const sharedFor = (scoped: ChatClient): ChatHostShared => {
 const remoteSession = (scoped: ChatClient): unknown =>
   (scoped as unknown as ProtocolClient<SessionFold>).store.section('hostState', 'remoteSession')?.value;
 
-export const adapter: PhoneProtocolAdapter = createChatAdapter({ sharedFor, remoteSession, roster: { summaries: summariesOfThreadRows } });
+/** The phone's chat adapter; `timers` is the catalog clock (a replay's own; the real one otherwise). */
+export const phoneChatAdapter = (timers?: RosterTimers): PhoneProtocolAdapter =>
+  createChatAdapter({ sharedFor, remoteSession, roster: { summaries: summariesOfThreadRows, ...(timers ? { timers } : {}) } });
+
+export const adapter: PhoneProtocolAdapter = phoneChatAdapter();
