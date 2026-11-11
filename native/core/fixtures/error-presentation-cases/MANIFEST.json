@@ -1,5 +1,5 @@
 {
-  "cases": 19,
+  "cases": 20,
   "command": "node benchmarks/rust-core/recorders/record-error-presentation-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "no provider is called: every input is a constructed error, descriptor or string",
@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 272122,
+      "bytes": 281437,
       "path": "golden.json",
-      "sha256": "82bbcef908e6c9c514c1584d4af8025af0378d4c92abd346a9272089d76f1028"
+      "sha256": "aca0a49ae99b7aae0f42fa2cd0cf0f893b634fc115b2d5beaf348e8a08882d62"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-error-presentation-cases.mjs",
-  "recorderSha256": "b4eb697c752879b479ac1b7b4132405adb6dd52f5f4f8a986ffd4615f44ab77b",
+  "recorderSha256": "b037086cf248a11688b5f1a5084ffc75b19bb1dc9686ce6098ae3ff69536d5d3",
   "replay": {
     "compare": "mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe",
     "declaredExclusions": [
@@ -93,8 +93,8 @@
         "reason": "describeError's notice and its four shown strings are the renderer's, replayed by the desktop test; safeDataOfLongJson, safeDetailsOfString and presentErrorText are replayed in Rust"
       },
       {
-        "probes": "the E probe with code ECONNRESET: message \"read ECONNRESET\"",
-        "reason": "the message is libuv's errno wording, which the core has no typed source for; it stays an input of the replay, the code and kind come from the typed Reset fault (sent_code reads ECONNRESET from it), so the sentence `Connection to the provider was lost (ECONNRESET).`, its persisted code and the kind are the core's"
+        "probes": "the four E probes of \"each socket failure keeps the errno name its error carries\" and the E probe with code ECONNRESET",
+        "reason": "the message is libuv's errno wording, which the core has no typed source for; it stays an input of the replay, the code and kind come from the typed fault (TransportFault::errno_name: Reset is ECONNRESET, an I/O or connect failure with an OS error is the name of that error: EPIPE, ETIMEDOUT, ECONNREFUSED), so each recorded sentence, persisted code and kind are the core's"
       },
       {
         "case": "typed codes classify errors; the wait and reset time are shown when known",
@@ -118,8 +118,8 @@
       "providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds"
     ],
     "normalised": {
-      "socketErrors": "Node's errno text is the core's typed TransportFault: an E probe with code ECONNRESET is built with fault_from_io(ConnectionReset, after connect) and the T probe (undici `TypeError: fetch failed`) with fault_from_io(ConnectionRefused, connecting) (mixdog-ai/src/transport/fault.rs:18); kind_of reads the fault, never the code text",
-      "secretShapedInput":"sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)",
+      "socketErrors": "Node's errno text is the core's typed TransportFault: an E probe with code ECONNRESET is fault_from_io(ConnectionReset, after connect); EPIPE, ETIMEDOUT and ECONNREFUSED are an I/O or connect fault carrying the OS error of that name (taken from the platform's own error numbers); the T probe (undici `TypeError: fetch failed`, which hides the errno) is fault_from_io(ConnectionRefused, connecting) with no OS error (mixdog-ai/src/transport/fault.rs); kind_of reads the fault, never the code text",
+      "secretShapedInput": "sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)",
       "timeZone": "recorded with TZ=UTC (the reset wording is local time); resetAt = the fixed clock + 1 h"
     },
     "protocolMethods": [],
@@ -144,6 +144,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "error-presentation-cases",
-  "totalBytes": 272122,
+  "totalBytes": 281437,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

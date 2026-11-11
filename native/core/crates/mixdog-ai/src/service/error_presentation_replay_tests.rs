@@ -9,8 +9,9 @@
 //! `persistedDescribe`, `summaryReDescribe`, `builtError` and the persisted-descriptor (`D`) probes are the desktop
 //! renderer's reading of a persisted item (`ErrorNotice.tsx` imports the shared JS module): replayed against that
 //! code by `apps/desktop/src/renderer/error-presentation-replay.test.mjs`. A socket error's errno name is not an
-//! input here: the `ECONNRESET` probe carries only the typed fault and the `fetch failed` probe the link's text, so
-//! the recorded sentence `Connection to the provider was lost (ECONNRESET).` and its persisted code are the core's own.
+//! input here: a probe with an errno `code` (`ECONNRESET`, `EPIPE`, `ETIMEDOUT`, `ECONNREFUSED`) carries only the
+//! typed fault and the `fetch failed` probe the link's text, so each recorded sentence (`Connection to the provider
+//! was lost (EPIPE).`) and its persisted code are the core's own.
 
 use std::io;
 use std::time::Duration;
@@ -60,6 +61,22 @@ const KINDS: [ErrorKind; 17] = [
     ErrorKind::Unknown,
 ];
 
+/// The errno names a socket error carries as its `code`.
+const SOCKET_CODES: [&str; 4] = ["ECONNRESET", "EPIPE", "ETIMEDOUT", "ECONNREFUSED"];
+
+/// The fault of the failure Node names `errno`: an I/O error with the operating system's own error number for it
+/// (found through the platform's mapping, so the test holds on any of them), read as the transport reads it.
+fn socket_fault(errno: &str) -> TransportFault {
+    let os_error = |kind: io::ErrorKind| io::Error::from_raw_os_error((1..12_000).find(|code| io::Error::from_raw_os_error(*code).kind() == kind).expect("the platform has an error of this kind"));
+    match errno {
+        "ECONNRESET" => fault_from_io(&io::Error::from(io::ErrorKind::ConnectionReset), false),
+        "EPIPE" => fault_from_io(&os_error(io::ErrorKind::BrokenPipe), false),
+        "ETIMEDOUT" => fault_from_io(&os_error(io::ErrorKind::TimedOut), true),
+        "ECONNREFUSED" => fault_from_io(&os_error(io::ErrorKind::ConnectionRefused), true),
+        other => panic!("{other} is not a socket error code"),
+    }
+}
+
 /// The live error an `E`/`T` spec describes, as the adapter boundary classifies it from its typed fields.
 fn live_error(spec: &Value) -> (ProviderError, String) {
     let fields = &spec["fields"];
@@ -68,15 +85,16 @@ fn live_error(spec: &Value) -> (ProviderError, String) {
     let status = whole("status").filter(|s| *s > 0).map(|s| s as u16);
     let code = fields["code"].as_str().filter(|c| !c.is_empty());
     // A socket error's `code` is Node's errno name: the core holds the typed fault and states the code from it.
-    let socket_code = code == Some("ECONNRESET");
-    let code = code.filter(|_| !socket_code);
+    let socket_code = code.filter(|c| SOCKET_CODES.contains(c));
+    let code = code.filter(|_| socket_code.is_none());
     let retry_after = whole("retryAfterMs").filter(|ms| *ms > 0).map(Duration::from_millis);
     let reauth_required = fields["reauthRequired"] == json!(true);
     let transport = whole("wsCloseCode").map(|c| TransportFault::WsClose { code: Some(c as u16) });
     // A socket failure reaches the core as an I/O error, not as Node's errno text: `code: ECONNRESET` is the
-    // reset socket, undici's `TypeError: fetch failed` the connection that never opened.
+    // reset socket, EPIPE a write to a closed one, ETIMEDOUT and ECONNREFUSED a connect that got no answer, and
+    // undici's `TypeError: fetch failed` the connection that never opened (it hides the errno).
     let transport = match (spec["t"].as_str(), socket_code) {
-        (_, true) => Some(fault_from_io(&io::Error::from(io::ErrorKind::ConnectionReset), false)),
+        (_, Some(name)) => Some(socket_fault(name)),
         (Some("T"), _) => Some(fault_from_io(&io::Error::from(io::ErrorKind::ConnectionRefused), true)),
         _ => transport,
     };
@@ -185,7 +203,7 @@ fn every_recorded_failure_is_presented_and_classified_as_node_did() {
     let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
     let recorded = Exact::decode(&golden).unwrap();
     let cases = recorded.get("cases").as_array();
-    assert_eq!(cases.len(), 19);
+    assert_eq!(cases.len(), 20);
     let mut seen = 0;
     let mut failures = Vec::new();
     for (index, case) in cases.iter().enumerate() {

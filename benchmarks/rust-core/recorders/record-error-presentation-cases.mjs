@@ -173,6 +173,11 @@ await set.run('model wording counts only when the refusal is about the model its
 await set.run('a 404 without model wording keeps the provider words and points at the model and endpoint', () => ({
   policy: probe(E('No endpoints found matching your data policy', { status: 404 })), bare: probe(E('<html><body>404</body></html>', { status: 404 })),
 }));
+// The libuv errno name each socket failure carries as `error.code`: the code decides the sentence (lost, timeout, unreachable) and the persisted kind.
+await set.run('each socket failure keeps the errno name its error carries', () => probes([
+  E('read ECONNRESET', { code: 'ECONNRESET' }), E('write EPIPE', { code: 'EPIPE' }),
+  E('connect ETIMEDOUT 203.0.113.7:443', { code: 'ETIMEDOUT' }), E('connect ECONNREFUSED 127.0.0.1:443', { code: 'ECONNREFUSED' }),
+]));
 await set.run('a refused tool schema names the tool definition instead of a generic rejection', () => ({
   schema: [
     "Invalid schema for function 'mcp__x__search': In context=(), 'additionalProperties' is required",
