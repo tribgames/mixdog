@@ -887,6 +887,9 @@ const deadline = (promise, ms, what) => {
 
 const STANDIN_WAIT_MS = 60_000;
 
+/** JSON with every object's keys in order. */
+const canonical = (value) => JSON.stringify(value, (_, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
+
 /** The search binary becomes the stand-in (lib/search-server-standin.mjs) over `realBin`; returns its control: the
  *  events it reported, `script(s)` (sets the deadline of the next searches) and `until(name, from)`. */
 async function startStandin(realBin) {
@@ -954,7 +957,8 @@ async function silentServerCall(run, standin, from) {
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
   try {
     const answer = run();
-    await standin.until('request', from);
+    // The real server's answer to the request, compared before the clock moves.
+    await standin.until('compare', from);
     mock.timers.tick(17_500);
     const raw = await answer;
     await standin.until('cancel', from);
@@ -1028,11 +1032,7 @@ if (process.argv[2] === '--child') {
     const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
     let outcome;
     const from = standin?.events.length ?? 0;
-    // `--standin-check`: the real server answers each call the stand-in would cut at a deadline, and the stand-in's
-    // answer to the same request is recorded beside it.
-    const checking = process.env.RECORDER_STANDIN_CHECK === '1' && call.server && !call.server.silent;
-    const script = checking ? { compare: true } : call.server;
-    if (call.server) await standin.script(script);
+    if (call.server) await standin.script(call.server);
     try {
       const run = () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd));
       const raw = call.server?.silent ? await silentServerCall(run, standin, from) : await run();
@@ -1047,10 +1047,17 @@ if (process.argv[2] === '--child') {
     }
     if (call.server) {
       // The control pipe is ordered: once the stand-in acknowledges a script sent now, every report it made before is in.
-      if (!call.server.silent) await standin.script(script);
+      if (!call.server.silent) await standin.script(call.server);
       const seen = standin.events.slice(from);
-      if (checking) outcome.compare = seen.filter((e) => e.event === 'compare').map(({ real, standin }) => ({ real, standin }));
       const count = (name) => seen.filter((e) => e.event === name).length;
+      // The stand-in's answer to each request under no deadline must be the real server's answer to it.
+      outcome.compare = seen.filter((e) => e.event === 'compare').map(({ real, standin: mine }) => ({ real, standin: mine }));
+      if (outcome.compare.length !== count('request')) throw new Error(`${scenario.name} #${calls.length}: ${count('request')} request(s), ${outcome.compare.length} compared`);
+      for (const { real, standin: mine } of outcome.compare) {
+        if (canonical(real) !== canonical(mine)) throw new Error(`${scenario.name} #${calls.length}: the stand-in's answer differs from the real server's\nreal:     ${canonical(real)}\nstand-in: ${canonical(mine)}`);
+      }
+      // Stored with the workspace scrubbed, in a fixed order: a call's concurrent requests reach the server in any order.
+      outcome.compare = outcome.compare.map((pair) => JSON.parse(scrub(JSON.stringify(pair)))).sort((a, b) => (canonical(a) < canonical(b) ? -1 : canonical(a) > canonical(b) ? 1 : 0));
       outcome.searchServer = {
         requests: count('request'),
         answered: count('answer'),
@@ -1094,9 +1101,6 @@ if (!graphBin || !existsSync(graphBin)) throw new Error('--graph-bin <mixdog-gra
 const scratch = args.get('scratch');
 if (!scratch) throw new Error('--scratch <scratch parent> is required');
 const only = args.get('only');
-// A check of the search stand-in against the real server (printed, not recorded): `--only <a stand-in scenario>`.
-const standinCheck = args.has('standin-check');
-if (standinCheck && !SCENARIOS.find((s) => s.name === only)?.standin) throw new Error('--standin-check needs --only <a stand-in scenario>');
 const selected = only ? SCENARIOS.filter((s) => s.name === only) : SCENARIOS;
 if (only && selected.length === 0) throw new Error(`no scenario ${only}`);
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
@@ -1109,7 +1113,7 @@ async function recordScenario(scenario) {
   const sandbox = join(run, scenario.name);
   const ws = join(sandbox, 'ws');
   mkdirSync(ws, { recursive: true });
-  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: ws, RECORDER_SCENARIO: scenario.name, RECORDER_RESULT: join(sandbox, 'result.json'), MIXDOG_GRAPH_BIN: graphBin, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', ...(standinCheck ? { RECORDER_STANDIN_CHECK: '1' } : {}) };
+  const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: ws, RECORDER_SCENARIO: scenario.name, RECORDER_RESULT: join(sandbox, 'result.json'), MIXDOG_GRAPH_BIN: graphBin, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0' };
   for (const name of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']) {
     env[name] = join(sandbox, name.toLowerCase());
     mkdirSync(env[name], { recursive: true });
@@ -1162,6 +1166,7 @@ try {
         exclusions: [
           'what each scenario process left running at its exit (Node\'s resident search server) is ended with its job and not recorded',
           'the answers of a scenario\'s warmup calls (they start the search server; the replay runs them too and ignores them)',
+          'in a stand-in call\'s `compare` (the real server\'s answer to each request beside the stand-in\'s, required equal by the recorder), the request id and the fields that time each run (`queueMs`, `handlerMs`, `scheduler`): they differ between any two runs, and the client reads them only to judge a complete empty answer (native-search-client.mjs:725-730); and the order of a call\'s comparisons, which are stored sorted, as its concurrent requests reach the server in any order',
         ],
       },
     });
