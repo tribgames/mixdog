@@ -177,11 +177,13 @@ await runSessionRecorder(import.meta.url, {
       for (let index = 0; index < 3; index += 1) {
         transport.broadcast({ type: 'session-state', key: `session-state:budget-${index}`, sessionId: `budget-${index}`, revision: index + 1, full: { sessionId: `budget-${index}`, items: [{ text: large }] } }, target);
       }
-      const marker = await S.waitForSseFrame(discovery, registered.token, (frame) => frame?.resyncRequired === true);
+      // Read until the last broadcast's frame, so the stream the tap saw ends at the same frame every run (reading
+      // only to the first marker left the later frames racing the close).
+      const last = await S.waitForSseFrame(discovery, registered.token, (frame) => frame?.key === 'session-state:budget-2');
       await S.daemonPost(discovery, '/client/deregister', { token: registered.token });
-      return { registered: exact(registered), marker: exact(marker), serviceCalls: calls, wire: await wire.exchanges() };
+      return { registered: exact(registered), last: exact(last), serviceCalls: calls, wire: await wire.exchanges() };
     });
-    add('disconnected-client-receives-bounded-session-resync-markers-instead-of-a-huge-backlog', 275, { register: { protocol: 'SESSION_PROTOCOL', leadPid: FIXED_PID, cwd: FIXED_CWD, lifecycle: false }, broadcast: '3 session-state frames of one 160 KiB item each (keys session-state:budget-0..2, revisions 1..3) to the registered client while it has no event stream', then: 'the client opens its event stream and the recorder reads until the resyncRequired frame', env: 'MIXDOG_SESSION_SSE_PENDING_MB=0.25 (set by the test scaffold)' }, result);
+    add('disconnected-client-receives-bounded-session-resync-markers-instead-of-a-huge-backlog', 275, { register: { protocol: 'SESSION_PROTOCOL', leadPid: FIXED_PID, cwd: FIXED_CWD, lifecycle: false }, broadcast: '3 session-state frames of one 160 KiB item each (keys session-state:budget-0..2, revisions 1..3) to the registered client while it has no event stream', then: 'the client opens its event stream and the recorder reads until the frame of session-state:budget-2', env: 'MIXDOG_SESSION_SSE_PENDING_MB=0.25 (set by the test scaffold)' }, result);
   }
 
   // test line 303 (the channel transport behind the tap)
