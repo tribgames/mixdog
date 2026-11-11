@@ -103,6 +103,11 @@ function isolatedEnv() {
     MIXDOG_SUPERVISOR_BIN: SUPERVISOR,
     MIXDOG_DAEMON_SKIP_MEMORY: '1',
     MIXDOG_DISABLE_MCP: '1',
+    // Node drops an idle session's wire projection after 90 s of real time (and its runtime after 5 min) and rebuilds it with the
+    // status fields empty until the next pass (session-service.mjs:97-101, retention.mjs:127-143): which case met a rebuilt one
+    // depended on how long the run took. Both stay out of reach of a run; a rebuild is no content (manifest `settledStatus`).
+    MIXDOG_SESSION_PROJECTION_IDLE_MS: '86400000',
+    MIXDOG_SESSION_IDLE_EVICT_MS: '86400000',
     HOME: PATHS.home,
     USERPROFILE: PATHS.home,
     APPDATA: PATHS.appData,
@@ -565,8 +570,9 @@ const statusClock = { dir: join(WORK, 'status-clock'), sent: 0 };
 /** The ordered input before each case: three times every session's pass marked (a daemon-wide change) and the clock moved 1 s - past
  *  the scheduler's settle beat and minimum interval (session-status-scheduler.mjs:14-18). Two passes settle the context windows: the
  *  first publishes the route's window with the display fields 0 (`routeState` keeps them only for an unchanged window,
- *  context-state.mjs:102-114), the second keeps the display fields `syncContextStats` filled; the third publishes nothing more. Then
- *  the control session's and the project session's snapshot are read (getWorktreeSettings) so the host holds what the daemon does. */
+ *  context-state.mjs:102-114), the second keeps the display fields `syncContextStats` filled; the third publishes nothing more. Before
+ *  and after it the control session's and the project session's snapshot are read (getWorktreeSettings): the first read opens a
+ *  runtime not open yet, the second makes the host hold what the daemon does. */
 const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
 
 async function settleStatus(pid) {
@@ -637,6 +643,10 @@ async function recordGroup(group) {
         cases.push({ group, switchRoute: request.switchRoute });
         continue;
       }
+      // Read, settle, read: the first read opens the host's control session's runtime should none be open yet (the first case of a
+      // group), so its status settles as well.
+      await host.invokeCapability(STATUS_SETTLE.read, []);
+      if (ctx.session) await host.invokeCapability(STATUS_SETTLE.read, [], ctx.session);
       await settleStatus(daemonPid);
       await host.invokeCapability(STATUS_SETTLE.read, []);
       if (ctx.session) await host.invokeCapability(STATUS_SETTLE.read, [], ctx.session);
@@ -726,9 +736,9 @@ writeSetManifest(stage, {
         "a call's snapshot leaves out setupChanged: Node hands the settings_changed notice to the session asynchronously (notification-router.mjs:33-36), so which answer first carries it, and its seq, differ between two recordings of this recorder; each group ends with one `settled` entry, the control (and project) session's setupChanged once it holds still, compared whole",
     },
     settledStatus: {
-      fields: ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens'],
-      node: "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values. Which of these a call answered depended on whether a pass had landed",
-      recording: 'holds the settled state: before every case the daemon\'s scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, three marks of every session each followed by 1 s), no real wait',
+      fields: ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope'],
+      node: "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
+      recording: "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)",
       core: 'has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case',
     },
     notRecorded: {
@@ -820,8 +830,10 @@ async function replay(exe) {
           continue;
         }
         // The recording's reads before each case; the core needs no clock moved (its status is settled from the start).
-        await router.call('invokeCapability', [{ capability: golden.beforeEachCase.read, args: [] }]);
-        if (ctx.session) await router.call('invokeCapability', [{ capability: golden.beforeEachCase.read, args: [], sessionId: ctx.session }]);
+        for (let reads = 0; reads < 2; reads += 1) {
+          await router.call('invokeCapability', [{ capability: golden.beforeEachCase.read, args: [] }]);
+          if (ctx.session) await router.call('invokeCapability', [{ capability: golden.beforeEachCase.read, args: [], sessionId: ctx.session }]);
+        }
         const sent = filled(expected.request, ctx);
         const label = `${group} #${index} ${JSON.stringify(expected.request).slice(0, 140)}`;
         let frame;

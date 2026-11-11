@@ -40,11 +40,24 @@ if (dir) {
     }
     at = end;
   };
-  // `scheduler`: the daemon made its scheduler (a session registered a pass).
-  const clock = { now: () => at, timers, scheduler: null };
+  // `scheduler`: the daemon made its scheduler (a session registered a pass). `prewarms`: each agent tool's keychain prewarm
+  // (status-clock-hooks.mjs), real I/O an order waits for (30 s deadline) before it moves the clock.
+  const clock = { now: () => at, timers, scheduler: null, prewarms: new Set() };
   globalThis.__mixdogRecStatusClock = clock;
   let handled = 0;
-  const take = () => {
+  // One reader at a time; a change seen while it reads makes it read once more.
+  let taking = false;
+  let again = false;
+  const take = async () => {
+    if (taking) return void (again = true);
+    taking = true;
+    do {
+      again = false;
+      await takeOrders();
+    } while (again);
+    taking = false;
+  };
+  const takeOrders = async () => {
     for (;;) {
       let request;
       try {
@@ -54,6 +67,13 @@ if (dir) {
       }
       if (request.pid !== process.pid) return;
       handled += 1;
+      let deadline;
+      await Promise.race([
+        Promise.all([...clock.prewarms].map((prewarm) => prewarm())),
+        new Promise((_, reject) => {
+          deadline = setTimeout(() => reject(new Error('status-clock: the keychain prewarm did not finish in 30 s')), 30_000);
+        }),
+      ]).finally(() => clearTimeout(deadline));
       // No scheduler yet: no session has registered a pass, so there is nothing to settle; the clock still moves.
       const recomputes = () => clock.scheduler?.counters().recomputes ?? 0;
       const before = recomputes();

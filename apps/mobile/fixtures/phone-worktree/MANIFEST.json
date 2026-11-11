@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 493584,
+      "bytes": 493907,
       "path": "golden.json",
-      "sha256": "bd77fa48c3521ea07ecd63ba2b64a380e750b9a9892d36170bf07d5f7f83a83f"
+      "sha256": "8ed8421673b87ab57476956eea0e4eecf21d048c625b9015afdeeb4578b57ac0"
     }
   ],
   "inputs": [
@@ -28,11 +28,11 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/status-clock-hooks.mjs",
-      "sha256": "e28867be7d0d03343e2e967257de507d66f80d3dafb150f3341314a819b405e7"
+      "sha256": "a15106679d4b3c6ed8d8922ce89db2d2a352d2cf191816a6e17c30444c6abeee"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/status-clock-preload.mjs",
-      "sha256": "f8feba7579acc677e8a87e858ad041971c1e3a4fe3be8690d911db613eb1eb20"
+      "sha256": "d98cf87c45ea113ec9cc29d55ffa2e9d7d9685a44e590e9413f7e82f7ad282a2"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -65,7 +65,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-worktree.mjs",
-  "recorderSha256": "1485ab530579a33e9eb46a16003b77e6f22cb34751ac7f1a6cfa5e291f15d71b",
+  "recorderSha256": "536f90bd7fc774ff5b5f9685733318c6db6ba6b5b61e15892c70df67e0906788",
   "set": "phone-worktree",
   "settledStatus": {
     "core": "has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case",
@@ -75,13 +75,14 @@
       "effectiveContextWindowPercent",
       "displayContextWindow",
       "autoCompactTokenLimit",
-      "compactBoundaryTokens"
+      "compactBoundaryTokens",
+      "agentScope"
     ],
-    "node": "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values. Which of these a call answered depended on whether a pass had landed",
-    "recording": "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, three marks of every session each followed by 1 s), no real wait"
+    "node": "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
+    "recording": "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)"
   },
   "syntheticInput": {
     "world": "a git repository registered as a Project (main, feature, spare; the review group leaves a.txt changed), a folder that is no Project, and one idle project session created as the new task does (session.create {cwd, desktopSession}); fixed git identity and time for every commit"
   },
-  "totalBytes": 493584
+  "totalBytes": 493907
 }
