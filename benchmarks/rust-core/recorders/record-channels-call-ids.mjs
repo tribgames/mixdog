@@ -103,10 +103,13 @@ async function session(label, makeScript) {
       // The register answer carries this process's pid; it is a label, and the content-length is the length the recorded text has.
       const pidText = `"pid":${SELF}`;
       const pidHits = answer.body.split(pidText).length - 1;
+      // The body as sent is longer than the recorded text wherever a random token was written as its label: every message lists
+      // the labels written in its body with the token's original length and count, so recorded body + rewrites = the real Content-Length.
+      const rewrites = (body) => Object.fromEntries([...tokens, [endpoint.token, wireText(endpoint.token)]].map(([token, label]) => [label, { originalLength: token.length, count: body.split(token).length - 1 }]).filter(([, hit]) => hit.count > 0));
       wire.push({
         step,
-        request: { head: request.head.map((line) => wireText(line)), body: wireText(request.body) },
-        response: { head: answer.head.map((line) => (/^date:/i.test(line) ? 'Date: <date>' : /^content-length:/i.test(line) ? `Content-Length: ${Number(line.split(':')[1]) + pidHits * ('"<pid-self>"'.length - String(SELF).length)}` : line)), body: answer.body.replaceAll(pidText, '"pid":"<pid-self>"') },
+        request: { head: request.head.map((line) => wireText(line)), body: wireText(request.body), rewrites: rewrites(request.body) },
+        response: { head: answer.head.map((line) => (/^date:/i.test(line) ? 'Date: <date>' : /^content-length:/i.test(line) ? `Content-Length: ${Number(line.split(':')[1]) + pidHits * ('"<pid-self>"'.length - String(SELF).length)}` : line)), rewrites: rewrites(answer.body), body: answer.body.replaceAll(pidText, '"pid":"<pid-self>"') },
       });
       return json;
     };
@@ -168,7 +171,7 @@ finish(ctx, {
     entry: { runs: 'createChannelTransport (channel-transport.mjs): its HTTP server, client registry, call dispatch (call-dispatch.mjs: callId idempotency cache keyed by caller owner and callId, rpc-call-identity.mjs) over real loopback fetch', notRun: 'the daemon behind handleCall (scripted: it returns {call: n}); the remote intent files (no remoteIntentPath is given)' },
     replay: "The `channel/call` request a client makes: DomainService::call (mixdog-services channels/service.rs:138) -> call_tool (:94; `req.op` is the callId) -> CallDispatch::dispatch (channels/call.rs:190, pub; cache keyed by owner + call id, CallIdConflict on a different payload). Replay: two connections with different owners send the same op, name and payload, then a retry, then a changed payload (and the case-95 shape with one client); compares per step the answer (result, or the ECALLIDCONFLICT error text) and the list of calls the bridge handler received (name, args, caller owner). The HTTP wire is not the Rust surface (WebSocket, protocol.md:854-865): the `wire` entries are what Node really sent and answered, captured at a TCP relay, for the replay author; `leadPid` maps to the connection's owner",
     exclusions: 'test case 38 (restore vs manual ON order) is not recorded: the Node test polls transport.activeCount and no event exists; 123 is pending branch gaps-memory-channels (benchmarks/rust-core/recorders/record-channel-remote-intent.mjs there); 161 and 191 are WebSocket / core stop concerns',
-    normalised: { 'client tokens': 'random tokens written as <client-token-N> by order of registration', 'pids': 'the two clients use fixed lead pids 41001 and 41002 (not this machine\'s); the pid in the register answer is the recorder process\'s own, written "<pid-self>", and the recorded Content-Length is the length of the recorded text', port: 'not recorded (loopback ephemeral)', date: 'response Date header written as <date>' },
+    normalised: { 'Content-Length': 'every Content-Length is the one Node sent for the real body; where a random token was written as its label the message carries `rewrites` {label: {originalLength, count}} (request and response body), so length(recorded body) + sum(count * (originalLength - label length)) = Content-Length. Request head lines are as sent except the x-mixdog-daemon-token value and Host port (label / <port>)',  'client tokens': 'random tokens written as <client-token-N> by order of registration', 'pids': 'the two clients use fixed lead pids 41001 and 41002 (not this machine\'s); the pid in the register answer is the recorder process\'s own, written "<pid-self>", and the one header that is not the one Node sent is the Content-Length of a register answer, which is the length of the recorded text (the digit count of the pid is machine-dependent)', port: 'not recorded (loopback ephemeral)', date: 'response Date header written as <date>' },
   },
 });
 process.exit(0);
