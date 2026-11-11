@@ -11,7 +11,8 @@ const rec = await startRecording({
   set: 'provider-devin-wire-request',
   net: false,
   entry: 'devin-wire-request.mjs buildDevinChatRequest(messages, { model, modelRow, metadata, cascadeId, executionId, ...options }) -> { request, activeTail }, devinHistoryBytes, devinDeterministicUuid, normalizeDevinToolCallId, responsesCallComponent; devin-wire-identity.mjs devinModelClass / isDevinGeminiModel / devinDemotedThinking; devin-wire-schema.mjs devinToolWireSchema / devinGoogleToolSchema; devin-wire-protobuf.mjs for the bytes. Not run: a send.',
-  replay: 'mixdog-ai providers::devin request.rs (:78-91, :258) and connect/pb.rs: feed each scenario\'s `input.messages` + `input.options` (+ metadata/ids) and compare `result.hex` (the exact request bytes) and `result.activeTail`; `result.wire` is the decoded form for diagnosis; pure rows compare `result` whole.',
+  compare: 'mixdog-ai providers::devin request.rs (:78-91, :258) and connect/pb.rs: feed each scenario\'s `input.messages` + `input.options` (+ metadata/ids) and compare `result.hex` (the exact request bytes) and `result.activeTail`; `result.wire` is the decoded form for diagnosis; pure rows compare `result` whole.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
 });
 const P = 'agent/orchestrator/providers/';
 const { DEVIN_ENUMS, decodeDevinMessage, encodeDevinMessage } = await rec.P(`${P}devin-wire-protobuf.mjs`);
@@ -171,6 +172,6 @@ await rec.run('active-turn-excluded-from-compactable-size', `${SRC}:692`, { note
     { label: 'split user messages', ...build([{ role: 'user', content: big }, { role: 'user', content: 'u' }, { role: 'developer', content: 'd' }]) },
     { label: 'after tool', ...build([{ role: 'user', content: 'small' }, { role: 'assistant', content: '', toolCalls: [{ id: 'c', name: 't', arguments: {} }] }, { role: 'tool', toolCallId: 'c', content: big }]) },
     { label: 'orphan synthetic note stays compactable', ...build([{ role: 'user', content: 'small' }, { role: 'tool', toolCallId: 'gone', toolName: 'read', content: 'o'.repeat(600 * 1024) }]) },
-  ].map(({ wire, hex, ...rest }) => ({ ...rest, hexBytes: hex.length / 2 })),
+  ],
 }));
 await rec.finish();
