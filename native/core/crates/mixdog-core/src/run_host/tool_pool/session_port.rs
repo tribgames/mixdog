@@ -331,13 +331,10 @@ impl SessionPort for DirectorySessionPort {
         Ok(set)
     }
 
-    async fn schedule_compact(&self, _: &ThreadId) -> Result<(), PortError> {
-        // Node leaves a flag the turn settle consumes (`takePendingCompact`); the session actor's
-        // settle has no such flag, and a compaction started while the turn runs is refused busy.
-        Err(PortError::Unavailable {
-            capability: "compact".to_owned(),
-            message: "session: compact is not available in this runtime".to_owned(),
-        })
+    async fn schedule_compact(&self, thread: &ThreadId) -> Result<(), PortError> {
+        // Node leaves a flag the turn settle consumes (`takePendingCompact`): the thread's actor keeps it.
+        let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string(), "options": { "afterTurn": true } });
+        self.parts.requests.request(thread, "thread/compact/start", params).await.map(|_| ()).map_err(core)
     }
 
     async fn fork(&self, thread: &ThreadId, compact: bool) -> Result<(String, bool), PortError> {

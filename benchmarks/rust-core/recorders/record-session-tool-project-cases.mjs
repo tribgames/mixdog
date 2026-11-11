@@ -118,6 +118,24 @@ const cases = [];
   }
   cases.push({ case: 'worktree operations on existing sessions belong to the git tool, not the session tool', recorded: { calls, touched } });
 }
+{
+  // :218, the test's steps: the runtime's session carries its title and route, then a worktree workspace.
+  const { execute, rt } = harness();
+  rt.session.title = 'T';
+  rt.session.provider = 'openai';
+  rt.session.model = 'gpt';
+  const calls = [];
+  calls.push(await run(execute, 'session', { action: 'compact' }, {}, 'compact'));
+  const pending = [...(rt.pendingCompactSessionIds ?? [])];
+  calls.push(await run(execute, 'session', { action: 'compact' }, { callerSessionId: 'w' }, 'worker compact'));
+  calls.push(await run(execute, 'session', { action: 'status' }, {}, 'status'));
+  rt.session.workspace = { projectPath: 'D:/proj', cwd: 'D:/worktrees/fix' };
+  calls.push(await run(execute, 'session', { action: 'status' }, {}, 'status in a worktree'));
+  cases.push({
+    case: 'session compact schedules a one-shot pending compact; status reports the session',
+    recorded: { session: { title: 'T', provider: 'openai', model: 'gpt' }, workspace: rt.session.workspace, calls, pending },
+  });
+}
 rmSync(dir, { recursive: true, force: true });
 rmSync(home, { recursive: true, force: true });
 
@@ -126,7 +144,6 @@ const excluded = {
   'injected runtimes receive the caller context each tool expects': 'GONE (row 84): the ToolContext carries the caller',
   'session rename protects user titles, honors the setting, and is Lead-only': 'COVERED (row 84): core/run_host/tool_pool/tests.rs:536',
   'a manual rename landing while the AI title saves wins on the live session': 'COVERED (row 84): core/run_host/tool_pool/tests.rs:536',
-  'session compact schedules a one-shot pending compact; status reports the session': 'GAP (row 84): the core answers compact as not available',
   'session fork calls the lifecycle API and returns the new session id': 'COVERED (row 84): core/run_host/tool_pool/tests.rs:559',
   'session reports, lists, and switches the Project through the caller or the runtime: the caller-owned switch ({path} with setCallerCwd)':
     "Node's MCP caller may own the cwd switch (setCallerCwd); the core's session tool has one switch, the session port's",

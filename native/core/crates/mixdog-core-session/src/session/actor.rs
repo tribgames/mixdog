@@ -679,6 +679,9 @@ pub(crate) struct SessionActor {
     quota_answered: Option<u64>,
     /// `state.commandBusy` / `flags.autoClearRunning`: compactions running.
     compactions: u32,
+    /// `rt.pendingCompactSessionIds` for this thread: the model's `session compact` asked for a
+    /// compaction once its turn completes (`turn-settle.mjs:118`).
+    pending_compact: bool,
     /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
     retry_hidden: bool,
     /// The transcript was rewritten (a compaction, a rewind, a clear, a restarted context) since its lineage
@@ -973,6 +976,7 @@ impl SessionActor {
             quota_pending: None,
             quota_answered: None,
             compactions: 0,
+            pending_compact: false,
             retry_hidden: false,
             transcript_rewritten: false,
             retry_provenance: None,
@@ -2572,6 +2576,13 @@ impl SessionActor {
         {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
+        // `takePendingCompact` → `runPendingCompact` (`turn-settle.mjs:118`): a completed turn runs the
+        // compaction its `session compact` scheduled, a manual one with no answer awaited; a failed or
+        // interrupted turn leaves it pending.
+        if matches!(outcome, RunOutcome::Completed(_)) && std::mem::take(&mut self.pending_compact) {
+            let (tx, _) = tokio::sync::oneshot::channel();
+            self.compact_start(None, tx, None);
         }
         if !slot.start_failed {
             let (phase, detail) = match outcome {

@@ -41,8 +41,15 @@ impl SessionActor {
                     Ok(params) => params,
                     Err(error) => return Err((error, tx)),
                 };
-                self.compact_start(req.op.clone(), tx, params.options);
-                return Ok(());
+                // `{afterTurn: true}`: the session tool's `compact` (`workspace-tools.mjs:268`) only marks
+                // the thread; the turn's completion runs it.
+                if params.options.as_ref().and_then(|options| options.get("afterTurn")) == Some(&Value::Bool(true)) {
+                    self.pending_compact = true;
+                    Ok(Value::Null)
+                } else {
+                    self.compact_start(req.op.clone(), tx, params.options);
+                    return Ok(());
+                }
             }
             "turn/retryFailed" => {
                 let params: mixdog_app_protocol::v2::thread::TurnRetryFailedParams = match parse(&req.params, "TurnRetryFailedParams") {
@@ -89,7 +96,7 @@ impl SessionActor {
     /// (PreCompact behind its savings gate), a skipped result is the answer as it is, and any
     /// other runs PostCompact, re-marks the Goal reminder (`compaction`: the compaction dropped
     /// the Goal's tool results), re-arms the late tool announcements and answers the result.
-    fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
+    pub(super) fn compact_start(&mut self, op: Option<OpId>, tx: Waiter, options: Option<Value>) {
         if self.ui_busy() {
             return self.replied(op, tx, Ok(super::super::turn_ops::compact_in_turn()));
         }

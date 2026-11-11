@@ -204,6 +204,71 @@
         ],
         "touched": []
       }
+    },
+    {
+      "case": "session compact schedules a one-shot pending compact; status reports the session",
+      "recorded": {
+        "session": {
+          "title": "T",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        "workspace": {
+          "projectPath": "D:/proj",
+          "cwd": "D:/worktrees/fix"
+        },
+        "calls": [
+          {
+            "label": "compact",
+            "tool": "session",
+            "args": {
+              "action": "compact"
+            },
+            "context": {},
+            "outcome": {
+              "ok": "{\n  \"action\": \"compact\",\n  \"sessionId\": \"sess-1\",\n  \"scheduled\": true,\n  \"note\": \"Compaction runs right after the current turn finishes.\"\n}"
+            }
+          },
+          {
+            "label": "worker compact",
+            "tool": "session",
+            "args": {
+              "action": "compact"
+            },
+            "context": {
+              "callerSessionId": "w"
+            },
+            "outcome": {
+              "error": "session: compact belongs to the Lead session"
+            }
+          },
+          {
+            "label": "status",
+            "tool": "session",
+            "args": {
+              "action": "status"
+            },
+            "context": {},
+            "outcome": {
+              "ok": "{\n  \"sessionId\": \"sess-1\",\n  \"title\": \"T\",\n  \"titleSource\": null,\n  \"cwd\": \"C:/work\",\n  \"project\": \"C:/work\",\n  \"provider\": \"openai\",\n  \"model\": \"gpt\",\n  \"effort\": null,\n  \"autoEffort\": true,\n  \"fast\": false\n}"
+            }
+          },
+          {
+            "label": "status in a worktree",
+            "tool": "session",
+            "args": {
+              "action": "status"
+            },
+            "context": {},
+            "outcome": {
+              "ok": "{\n  \"sessionId\": \"sess-1\",\n  \"title\": \"T\",\n  \"titleSource\": null,\n  \"cwd\": \"C:/work\",\n  \"project\": \"D:/proj\",\n  \"provider\": \"openai\",\n  \"model\": \"gpt\",\n  \"effort\": null,\n  \"autoEffort\": true,\n  \"fast\": false\n}"
+            }
+          }
+        ],
+        "pending": [
+          "sess-1"
+        ]
+      }
     }
   ]
 }
