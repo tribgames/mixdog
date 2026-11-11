@@ -1,16 +1,16 @@
 {
   "command": "node --disable-warning=ExperimentalWarning benchmarks/rust-core/recorders/record-memory-core-index.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
-    "notRun": "PostgreSQL (SQLite stand-in of the test file); the real editCoreImpl/deleteCoreImpl (the test file's stand-ins write the SQLite table and are recorded by call)",
-    "runs": "syncCoreMemoryIndexes, indexedCoreRecord, resolveCoreMemoryIndex (core-memory-index.mjs), listManagedMemories/formatManagedMemories (core-memory-management.mjs), createMemoryActionHandlers(...).handleToolCall(\"memory\") (memory-action-handlers.mjs)"
+    "notRun": "PostgreSQL for cases 44 and 94 (SQLite stand-in of the test file); the test file's editCoreImpl/deleteCoreImpl/refresh stand-ins of case 125 (the product's own run instead)",
+    "runs": "syncCoreMemoryIndexes, indexedCoreRecord, resolveCoreMemoryIndex (core-memory-index.mjs), listManagedMemories/formatManagedMemories (core-memory-management.mjs), createMemoryActionHandlers(...).handleToolCall(\"memory\") (memory-action-handlers.mjs); case 125 with the real editCore/deleteCore (core-memory-store.mjs) and the real snapshot refresh on Node's opened memory database (a private bundled PostgreSQL cluster, statements recorded at pg.Client.prototype.query)"
   },
   "exclusions": "none: case 94 asserts parseMemoryCoreRows (the TUI parser, deleted in Rust); it is recorded as a Node round trip, `roundTrip` in the list steps: formatted text, the whole parsed rows (ids, project, summary, index revision) and per entry whether they equal the listed entry. The Rust side proves the same property by parsing its own formatted text with whatever reads it there and comparing the same fields",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 109513,
+      "bytes": 113406,
       "path": "golden.json",
-      "sha256": "c15e2d954650c24296b76da89fe3955d95cba144d3e6ce1f5d71cf5f93f536c0"
+      "sha256": "4d6376c01ad0488f05b9e103ecfb2d4ad9302688940b44c576b681b8f065cbfb"
     }
   ],
   "inputs": [
@@ -53,11 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-core-index.mjs",
-  "recorderSha256": "dde3b7686ccf9d24f34553b3a4b2e90f18254e07b1e6c70f0e36958f896ea6dc",
+  "recorderSha256": "3f02953df1adf6e340a7a28bbe79367eeceeb1459f6611abb17f72052147a8f0",
   "replay": "mixdog-services memory/core/index.rs: pub async fn sync (:38) and resolve (:115); memory/core/list.rs: pub async fn list (:65) and pub fn format (:144); memory/core/action.rs: pub async fn run (:119, the public mutations). The TUI parser round trip (`roundTrip`): Rust proves the same property by reading its own formatted text with whatever reads it there (the structured list result is the source) and comparing id, project, summary and index revision per entry. A replay compares results, statements in order and the meta/core_entries tables after each step",
   "set": "memory-core-index",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 109513,
+  "totalBytes": 113406,
   "uuidsNormalised": "golden.json: 18 UUIDs the product generated during the run (crypto.randomUUID is observed; any other UUID-shaped text is left as is), each written as <uuid-N> by order of first appearance (the same UUID is the same label everywhere)",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

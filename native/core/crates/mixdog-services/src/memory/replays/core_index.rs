@@ -14,19 +14,11 @@
 //!   inline step (`splice(0)`); the replay keeps the same log.
 //! - `indexedCoreRecord(row, directory)` is `address(directory, pool, id)`: `{id: position|null, project_id,
 //!   record_id, index_revision|null}`.
-//! - Mutations: Node's test passes stand-ins for `editCoreImpl` / `deleteCoreImpl` (manifest `notRun`); the core runs
-//!   its real edit and delete. A stand-in call is compared through its effect on the table: `impls` holds, per write, the
-//!   impl (`deleteCoreImpl` for a row that is gone, `editCoreImpl` for a changed row), the record id and the row's project
-//!   before the write; `writesSoFar` the record ids written so far. The stand-ins' argument objects (`options`, `patch`)
-//!   are Node's internal call shape and have no core counterpart. The test's `refreshCoreMemoryFile` stand-in is
-//!   `syncCoreMemoryIndexes` alone; the core runs its real refresh (`snapshot::refresh`, Node's
-//!   `writeCoreMemoryFileSnapshot`: the same sync, then the curated read `snapshot::CURATED_SQL` that the
-//!   memory-core-file replay compares), so that one read is not part of a mutation's recorded statements.
-//!   The `editCoreImpl` stand-in writes only `summary` and `project_id` and returns that row; Node's real
-//!   `_editCoreImpl` (core-memory-store.mjs:206) writes the patch's `element` too, as the core does. Where the recording
-//!   holds the stand-in's element for the edited row (the edit reply, later tables and list entries), the replay expects
-//!   the recorded patch's element (`impls[].patch.element`).
-//! - `roundTrip`: as in `core_management` (the structured list result is the core's reader).
+//! - Case 125 is recorded on Node's own PostgreSQL database with the real edit, delete and snapshot refresh. The core
+//!   runs `action::run` on a `Db` whose sessions PostgreSQL logs (`ReplayPg::observed`); each step's statements are the
+//!   ones PostgreSQL received (`Wire::since`), compared with the recorded ones by `sent_as_recorded`, and the snapshot
+//!   files written to the data directory are compared at the end.
+//! - `roundTrip`: as in `core_management` (the TUI parser run over the core's formatted text).
 
 use mixdog_testkit::Exact;
 
@@ -52,7 +44,7 @@ mod pg {
     use crate::memory::core::list::{ListOptions, format, list};
     use crate::memory::pg::db::Db;
     use crate::memory::replays::core_management::pg::{
-        label_uuids, page_value, round_trip, stand_in, statements,
+        label_uuids, page_value, round_trip, statements,
     };
     use crate::memory::replays::pg::{ReplayPg, memory_db};
     use crate::memory::replays::{case, int, object, same, string};
@@ -161,6 +153,21 @@ mod pg {
                 })
                 .collect();
             object(vec![("meta", Exact::Array(meta)), ("core_entries", Exact::Array(core))])
+        }
+
+        /// Case 125's tables, read as its recorder reads them from PostgreSQL (`meta.value` as jsonb text).
+        async fn pg_tables(&self) -> Exact {
+            let meta = self
+                .db()
+                .query("SELECT key, value::text AS value FROM meta WHERE key LIKE 'memory.core.index.%' ORDER BY key", &[])
+                .await
+                .expect("meta")
+                .iter()
+                .map(|r| object(vec![("key", string(r.get::<_, String>(0))), ("value", string(r.get::<_, String>(1)))]))
+                .collect();
+            let Exact::Object(mut tables) = self.tables().await else { unreachable!("tables are an object") };
+            tables[0].1 = Exact::Array(meta);
+            Exact::Object(tables)
         }
     }
 
@@ -449,41 +456,30 @@ mod pg {
         finish(name, c.get("steps"), steps);
     }
 
-    /// The stand-in's integer booleans inside reply text (the JSON list format).
-    fn stand_in_text(value: &mut Value) {
-        match value {
-            Value::String(text) => {
-                *text = text.replace("\"injection_enabled\":true", "\"injection_enabled\":1").replace(
-                    "\"injection_enabled\":false",
-                    "\"injection_enabled\":0",
-                );
-            }
-            Value::Array(items) => items.iter_mut().for_each(stand_in_text),
-            Value::Object(entries) => entries.values_mut().for_each(stand_in_text),
-            _ => {}
-        }
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn public_mutations_resolve_scope_and_version_before_touching_the_stable_record() {
         let g = golden(SET);
         let name = "public mutations resolve scope and version before touching the stable record (test line 125)";
         let c = case(&g, 2, name);
-        let mut f = Fixture::new(&g).await;
+        let f = Fixture::new(&g).await;
+        STATEMENTS.with(|log| *log.borrow_mut() = None);
+        crate::memory::core::store::NOW_MS.with(|now| now.set(Some(g.get("clock").get("dateNowMs").as_f64() as i64)));
+        let (db, wire) = f.pg.observed().await;
         let data_dir = tempfile::tempdir().expect("data dir");
         let revision = AtomicU64::new(0);
         let offset = label_offset(c.get("steps"));
         let mut steps = Vec::new();
-        let mut writes: Vec<Exact> = Vec::new();
-        let mut impls = Vec::new();
+        // The core's UUIDs in the order the comparison meets them, step by step (label, args, result, statements,
+        // tables), then the files: each step is labelled as it is pushed, so its parameters compare with the
+        // recording's labelled ones as values.
+        let mut seen = Vec::new();
         for recorded in c.get("steps").as_array() {
             let label = recorded.get("label").as_str();
             let mut args = recorded.get("args").to_plain().expect("args JSON");
             // A recorded revision argument is a label: the replay sends the revision its own earlier step returned
             // under that label.
             if let Some(Value::String(rev)) = args.get("index_revision") {
-                let mut seen = Vec::new();
-                label_uuids(&mut Exact::Array(steps.clone()), &mut seen);
                 let at: usize = rev
                     .strip_prefix("<uuid-")
                     .and_then(|r| r.strip_suffix('>'))
@@ -492,117 +488,57 @@ mod pg {
                 let own = seen.get(at - offset - 1).unwrap_or_else(|| panic!("{name}: {label}: {rev} not seen yet"));
                 args["index_revision"] = Value::String(own.clone());
             }
-            let rows_before = f.core_rows().await;
             let ctx = CoreContext {
-                db: f.db(),
+                db: &db,
                 data_dir: data_dir.path(),
                 session_cwd: None,
                 snapshot_revision: &revision,
                 lane: mixdog_rt::testing::tokens().durability_io,
             };
+            let mark = wire.mark();
             let reply = settle(label, run(&ctx, &args)).await;
-            f.collect();
-            // The real refresh's snapshot read (see the header); the test's refresh stand-in is the sync alone.
-            f.log.retain(|statement| statement.get("sql").as_str() != crate::memory::core::snapshot::CURATED_SQL);
-            let rows_after = f.core_rows().await;
-            for row in &rows_before {
-                let after = rows_after.iter().find(|r| r.0 == row.0);
-                let impl_name = match after {
-                    None => "deleteCoreImpl",
-                    Some(after) if after != row => "editCoreImpl",
-                    Some(_) => continue,
-                };
-                writes.push(int(row.0));
-                impls.push(object(vec![
-                    ("impl", string(impl_name)),
-                    ("recordId", int(row.0)),
-                    ("rowProjectId", row.1.clone().map_or(Exact::Null, string)),
-                ]));
-            }
-            let mut result: Value = serde_json::from_str(&reply.envelope()).expect("reply JSON");
-            stand_in(&mut result);
-            stand_in_text(&mut result);
-            steps.push(object(vec![
-                ("label", string(label)),
-                ("args", Exact::plain(&args)),
-                ("result", Exact::plain(&result)),
-                ("writesSoFar", Exact::Array(writes.clone())),
-                ("statements", f.since(0)),
-                ("tables", f.tables().await),
-            ]));
-            f.log.clear();
-        }
-        let mut actual = Exact::Array(steps);
-        label_uuids(&mut actual, &mut Vec::new());
-        STATEMENTS.with(|log| *log.borrow_mut() = None);
-        relabel(&mut actual, offset);
-        let mut expected = c.get("steps").clone();
-        for call in c.get("impls").as_array().iter().filter(|call| call.get("impl").as_str() == "editCoreImpl") {
-            real_edit(&mut expected, call);
-        }
-        by_step(name, &expected, &actual);
-        let recorded_impls = Exact::Array(
-            c.get("impls")
-                .as_array()
-                .iter()
-                .map(|call| {
-                    object(vec![
-                        ("impl", call.get("impl").clone()),
-                        ("recordId", call.get("recordId").clone()),
-                        ("rowProjectId", call.get("rowProjectId").clone()),
-                    ])
-                })
-                .collect(),
-        );
-        same(&format!("{name}: impls"), &recorded_impls, &Exact::Array(impls));
-    }
-
-    /// The real edit's element where the recording holds the stand-in's (see the header): the edited row, its listed
-    /// entries and the replies that name it carry the recorded patch's element once they carry its summary.
-    fn real_edit(steps: &mut Exact, call: &Exact) {
-        let id = call.get("recordId").clone();
-        let patch = call.get("patch");
-        let (Exact::String(after), Exact::String(summary)) = (patch.get("element"), patch.get("summary")) else {
-            panic!("the recorded edit patch has no element and summary: {patch:?}");
-        };
-        let before = steps
-            .as_array()
-            .iter()
-            .flat_map(|step| match step.try_get("tables") {
-                Some(tables) => tables.get("core_entries").as_array().to_vec(),
-                None => Vec::new(),
-            })
-            .find(|row| row.get("id") == &id)
-            .map(|row| row.get("element").as_str().to_owned())
-            .expect("the edited row is in a recorded table");
-        fn walk(value: &mut Exact, before: &str, after: &str, summary: &str) {
-            match value {
-                Exact::String(text) => {
-                    *text = text
-                        .replace(
-                            &format!("\"element\":\"{before}\",\"summary\":\"{summary}\""),
-                            &format!("\"element\":\"{after}\",\"summary\":\"{summary}\""),
-                        )
-                        .replace(&format!("): {before} — {summary}"), &format!("): {after} — {summary}"));
-                }
-                Exact::Array(items) => items.iter_mut().for_each(|item| walk(item, before, after, summary)),
-                Exact::Object(entries) => {
-                    let has = |key: &str, want: &str| {
-                        entries.iter().any(|(k, v)| k == key && matches!(v, Exact::String(s) if s == want))
-                    };
-                    let edited = has("element", before) && has("summary", summary);
-                    for (key, item) in entries.iter_mut() {
-                        if edited && key == "element" {
-                            *item = Exact::String(after.to_owned());
-                        } else {
-                            walk(item, before, after, summary);
-                        }
+            let result: Value = serde_json::from_str(&reply.envelope()).expect("reply JSON");
+            let mut head = object(vec![("label", string(label)), ("args", Exact::plain(&args)), ("result", Exact::plain(&result))]);
+            label_uuids(&mut head, &mut seen);
+            relabel(&mut head, offset);
+            let sent: Vec<_> = wire
+                .since(mark)
+                .into_iter()
+                .map(|mut statement| {
+                    for param in statement.params.iter_mut().flatten() {
+                        let mut text = Exact::String(std::mem::take(param));
+                        label_uuids(&mut text, &mut seen);
+                        relabel(&mut text, offset);
+                        *param = text.as_str().to_owned();
                     }
-                }
-                _ => {}
-            }
+                    statement
+                })
+                .collect();
+            let mut tables = f.pg_tables().await;
+            label_uuids(&mut tables, &mut seen);
+            relabel(&mut tables, offset);
+            let Exact::Object(mut entries) = head else { unreachable!("an object") };
+            entries.push(("statements".into(), crate::memory::replays::pg::sent_as_recorded(recorded.get("statements"), &sent)));
+            entries.push(("tables".into(), tables));
+            steps.push(Exact::Object(entries));
         }
-        walk(steps, &before, after, summary);
+        let mut files = Vec::new();
+        let mut names: Vec<String> = std::fs::read_dir(data_dir.path())
+            .expect("data dir")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("core-memory"))
+            .collect();
+        names.sort();
+        for name in names {
+            let text = std::fs::read_to_string(data_dir.path().join(&name)).expect("snapshot file");
+            files.push(object(vec![("path", string(name)), ("text", string(text))]));
+        }
+        crate::memory::core::store::NOW_MS.with(|now| now.set(None));
+        let mut files = Exact::Array(files);
+        label_uuids(&mut files, &mut seen);
+        relabel(&mut files, offset);
+        by_step(name, c.get("steps"), &Exact::Array(steps));
+        same(&format!("{name}: files"), c.get("files"), &files);
     }
 
     /// `<uuid-N>` → `<uuid-N+offset>`.

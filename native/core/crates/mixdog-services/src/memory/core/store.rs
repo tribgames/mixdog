@@ -10,11 +10,11 @@
 use mixdog_js::{js_trim, slice_utf16, value_to_string};
 use serde::Serialize;
 use serde_json::Value;
-use tokio_postgres::{Row, Transaction};
+use tokio_postgres::{Client, Row};
 
 use crate::memory::core::access::{MemoryCaller, Pool};
 use crate::memory::error::{MemoryError, Result};
-use crate::memory::pg::db::Db;
+use crate::memory::pg::db::{Db, transaction};
 
 /// The category vocabulary shared by curated memory, recall filters and the
 /// score table, in display order.
@@ -36,19 +36,18 @@ pub struct CoreEntry {
     pub updated_at: i64,
 }
 
-const ENTRY_COLUMNS: &str = "id, element, summary, category, project_id, agent_id, created_at, updated_at";
-
 impl CoreEntry {
+    /// The entry's columns by name: a row of `SELECT *`, `RETURNING *` or the stores' column list.
     fn from_row(row: &Row) -> Self {
         Self {
-            id: row.get(0),
-            element: row.get(1),
-            summary: row.get(2),
-            category: row.get(3),
-            project_id: row.get(4),
-            agent_id: row.get(5),
-            created_at: row.get(6),
-            updated_at: row.get(7),
+            id: row.get("id"),
+            element: row.get("element"),
+            summary: row.get("summary"),
+            category: row.get("category"),
+            project_id: row.get("project_id"),
+            agent_id: row.get("agent_id"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
         }
     }
 
@@ -117,7 +116,7 @@ pub fn normalize_input(input: &Value, require: Require) -> CoreInput {
     CoreInput { element, summary, category, supplied_category, errors }
 }
 
-async fn lock_pool(tx: &Transaction<'_>, keys: &[String]) -> Result<()> {
+async fn lock_pool(tx: &Client, keys: &[String]) -> Result<()> {
     tx.batch_execute(LOCK_TIMEOUT).await?;
     for key in keys {
         tx.execute("SELECT pg_advisory_xact_lock(hashtext($1))", &[key]).await?;
@@ -125,11 +124,11 @@ async fn lock_pool(tx: &Transaction<'_>, keys: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Rows already holding `element` in the pool. Called under the pool lock;
-/// this also protects writes while a legacy store still has key conflicts and
-/// cannot carry the unique index.
+/// Rows already holding `element` in the pool (`findCoreKeyRows`, core-memory-uniqueness.mjs:37, its statement text).
+/// Called under the pool lock; this also protects writes while a legacy store still has key conflicts and cannot
+/// carry the unique index.
 async fn key_rows(
-    tx: &Transaction<'_>,
+    tx: &Client,
     project_id: Option<&str>,
     agent_id: Option<&str>,
     element: &str,
@@ -137,14 +136,16 @@ async fn key_rows(
 ) -> Result<Vec<(i64, Option<String>)>> {
     let rows = tx
         .query(
-            "SELECT id, status FROM core_entries
-              WHERE project_id IS NOT DISTINCT FROM $1 AND agent_id IS NOT DISTINCT FROM $4 AND element = $2
-                AND ($3::bigint IS NULL OR id <> $3)
-              ORDER BY id LIMIT 2 FOR UPDATE",
+            "
+    SELECT id, status FROM core_entries
+    WHERE project_id IS NOT DISTINCT FROM $1 AND agent_id IS NOT DISTINCT FROM $4 AND element = $2
+      AND ($3::bigint IS NULL OR id <> $3)
+    ORDER BY id LIMIT 2 FOR UPDATE
+  ",
             &[&project_id, &element, &except_id, &agent_id],
         )
         .await?;
-    Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
+    Ok(rows.iter().map(|row| (row.get(0), row.get::<_, Option<String>>(1))).collect())
 }
 
 fn already_exists(pool: Pool<'_>, element: &str) -> MemoryError {
@@ -174,39 +175,37 @@ pub async fn add(
     }
     let (element, summary) = (normalized.element.unwrap_or_default(), normalized.summary.unwrap_or_default());
     let now = now_ms();
-    let mut client = db.client().await?;
-    let tx = client.transaction().await?;
-    lock_pool(&tx, &[pool_lock_key(project_id, agent_id)]).await?;
-    let collisions = key_rows(&tx, project_id, agent_id, &element, None).await?;
-    if !collisions.is_empty() {
-        let revivable = collisions.len() == 1 && collisions[0].1.as_deref() == Some("archived");
-        if !revivable {
-            return Err(already_exists(pool, &element));
-        }
-        let revived = tx
-            .query_one(
-                &format!(
+    // `_addCoreImpl` (core-memory-store.mjs:132), its statement text.
+    transaction(db, async |tx| {
+        lock_pool(tx, &[pool_lock_key(project_id, agent_id)]).await?;
+        let collisions = key_rows(tx, project_id, agent_id, &element, None).await?;
+        if !collisions.is_empty() {
+            let revivable = collisions.len() == 1 && collisions[0].1.as_deref() == Some("archived");
+            if !revivable {
+                return Err(MemoryError::rejected(format!("{}; use an explicit edit/delete", already_exists(pool, &element).message())));
+            }
+            let revived = tx
+                .query_one(
                     "UPDATE core_entries SET summary = $1, category = $2,
-                       status = 'active', archived_at = NULL, updated_at = $3
-                     WHERE id = $4 RETURNING {ENTRY_COLUMNS}"
-                ),
-                &[&summary, &normalized.category, &now, &collisions[0].0],
+           status = 'active', archived_at = NULL, updated_at = $3
+         WHERE id = $4
+         RETURNING id, element, summary, category, project_id, agent_id, created_at, updated_at",
+                    &[&summary, &normalized.category, &now, &collisions[0].0],
+                )
+                .await?;
+            return Ok(CoreEntry::from_row(&revived));
+        }
+        let inserted = tx
+            .query_one(
+                "INSERT INTO core_entries(element, summary, category, project_id, agent_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, element, summary, category, project_id, agent_id, created_at, updated_at",
+                &[&element, &summary, &normalized.category, &project_id, &agent_id, &now, &now],
             )
             .await?;
-        tx.commit().await?;
-        return Ok(CoreEntry::from_row(&revived));
-    }
-    let inserted = tx
-        .query_one(
-            &format!(
-                "INSERT INTO core_entries(element, summary, category, project_id, agent_id, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING {ENTRY_COLUMNS}"
-            ),
-            &[&element, &summary, &normalized.category, &project_id, &agent_id, &now, &now],
-        )
-        .await?;
-    tx.commit().await?;
-    Ok(CoreEntry::from_row(&inserted))
+        Ok(CoreEntry::from_row(&inserted))
+    })
+    .await
 }
 
 /// What an edit may change: the text, and the project of a project-pool entry.
@@ -218,9 +217,10 @@ pub struct Edit<'a> {
     pub caller: &'a MemoryCaller,
 }
 
+/// `_editCoreImpl` (core-memory-store.mjs:192), its statement text.
 pub async fn edit(db: &Db, id: i64, request: Edit<'_>) -> Result<CoreEntry> {
     let current = db
-        .query_opt(&format!("SELECT {ENTRY_COLUMNS} FROM core_entries WHERE id = $1"), &[&id])
+        .query_opt("SELECT * FROM core_entries WHERE id = $1", &[&id])
         .await?
         .map(|row| CoreEntry::from_row(&row))
         .ok_or_else(|| MemoryError::rejected(format!("no entry with id={id}")))?;
@@ -240,6 +240,7 @@ pub async fn edit(db: &Db, id: i64, request: Edit<'_>) -> Result<CoreEntry> {
     let incoming = normalize_input(request.input, Require::default());
     let element = incoming.element.unwrap_or_else(|| current.element.clone());
     let summary = incoming.summary.unwrap_or_else(|| current.summary.clone());
+    let category = if incoming.supplied_category.is_some() { incoming.category } else { current.category.clone() };
     let target_project = request.target_project_id;
     if agent_id.is_some() && target_project.is_some() {
         return Err(MemoryError::rejected("agent memory has no project scope"));
@@ -248,54 +249,81 @@ pub async fn edit(db: &Db, id: i64, request: Edit<'_>) -> Result<CoreEntry> {
     if target_project != current.project_id.as_deref() {
         request.caller.assert_write("edit", &Pool { project_id: target_project, agent_id })?;
     }
-    if element == current.element && summary == current.summary && target_project == current.project_id.as_deref() {
-        return Err(MemoryError::rejected("no change"));
+    let changed = normalize_input(
+        &serde_json::json!({ "element": element, "summary": summary, "category": category }),
+        Require { element: true, summary: true, category: true },
+    );
+    if !changed.errors.is_empty() {
+        return Err(MemoryError::rejected(changed.errors.join("; ")));
     }
     let project_changed = target_project != current.project_id.as_deref();
+    let text_changed = element != current.element || summary != current.summary;
+    if !text_changed && !project_changed && category == current.category {
+        return Err(MemoryError::rejected("no change"));
+    }
     let now = now_ms();
-    let mut client = db.client().await?;
-    let tx = client.transaction().await?;
+    let edited = |current: CoreEntry| CoreEntry {
+        element: element.clone(),
+        summary: summary.clone(),
+        category: category.clone(),
+        project_id: target_project.map(str::to_owned),
+        updated_at: now,
+        ..current
+    };
+    if !text_changed && !project_changed {
+        // Optimistic guard on the snapshot this patch was computed against.
+        let updated = db
+            .execute(
+                "UPDATE core_entries SET category = $1, updated_at = $2
+       WHERE id = $3 AND element = $4 AND summary = $5
+         AND updated_at IS NOT DISTINCT FROM $6::bigint",
+                &[&category, &now, &id, &current.element, &current.summary, &current.updated_at],
+            )
+            .await?;
+        if updated == 0 {
+            return Err(MemoryError::rejected(format!("core entry id={id} changed concurrently — re-read and retry")));
+        }
+        return Ok(edited(current));
+    }
     let mut lock_keys =
         vec![pool_lock_key(current.project_id.as_deref(), agent_id), pool_lock_key(target_project, agent_id)];
     lock_keys.sort();
     lock_keys.dedup();
-    lock_pool(&tx, &lock_keys).await?;
-    // The snapshot above was read before any lock: revalidate under it, so a
-    // concurrent edit is never silently overwritten by a patch computed from
-    // older content.
-    let fresh = tx
-        .query_opt(&format!("SELECT {ENTRY_COLUMNS} FROM core_entries WHERE id = $1 FOR UPDATE"), &[&id])
-        .await?
-        .map(|row| CoreEntry::from_row(&row))
-        .ok_or_else(|| MemoryError::rejected(format!("no entry with id={id}")))?;
-    if fresh.element != current.element
-        || fresh.summary != current.summary
-        || fresh.project_id != current.project_id
-        || fresh.agent_id != current.agent_id
-        || fresh.updated_at != current.updated_at
-    {
-        return Err(MemoryError::rejected(format!(
-            "core entry id={id} changed concurrently — re-read and retry"
-        )));
-    }
-    if (element != current.element || project_changed)
-        && !key_rows(&tx, target_project, agent_id, &element, Some(id)).await?.is_empty()
-    {
-        return Err(already_exists(Pool { project_id: target_project, agent_id }, &element));
-    }
-    tx.execute(
-        "UPDATE core_entries SET element = $1, summary = $2, project_id = $3, updated_at = $4 WHERE id = $5",
-        &[&element, &summary, &target_project, &now, &id],
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(CoreEntry {
-        element,
-        summary,
-        project_id: target_project.map(str::to_owned),
-        updated_at: now,
-        ..current
+    transaction(db, async |tx| {
+        lock_pool(tx, &lock_keys).await?;
+        // The snapshot above was read before any lock: revalidate under it, so a
+        // concurrent edit is never silently overwritten by a patch computed from
+        // older content.
+        let fresh = tx
+            .query_opt("SELECT * FROM core_entries WHERE id = $1 FOR UPDATE", &[&id])
+            .await?
+            .map(|row| CoreEntry::from_row(&row))
+            .ok_or_else(|| MemoryError::rejected(format!("no entry with id={id}")))?;
+        if fresh.element != current.element
+            || fresh.summary != current.summary
+            || fresh.category != current.category
+            || fresh.project_id != current.project_id
+            || fresh.agent_id != current.agent_id
+            || fresh.updated_at != current.updated_at
+        {
+            return Err(MemoryError::rejected(format!("core entry id={id} changed concurrently — re-read and retry")));
+        }
+        if (element != current.element || project_changed)
+            && !key_rows(tx, target_project, agent_id, &element, Some(id)).await?.is_empty()
+        {
+            return Err(already_exists(Pool { project_id: target_project, agent_id }, &element));
+        }
+        tx.execute(
+            "UPDATE core_entries
+       SET element = $1, summary = $2, category = $3, project_id = $4, updated_at = $5
+       WHERE id = $6",
+            &[&element, &summary, &category, &target_project, &now, &id],
+        )
+        .await?;
+        Ok(())
     })
+    .await?;
+    Ok(edited(current))
 }
 
 /// Deletes one entry of the pool the caller named and was authorised for.
@@ -319,11 +347,8 @@ pub async fn delete(
     // The pool just authorised: a concurrent move out of it deletes nothing.
     let removed = db
         .query_opt(
-            &format!(
-                "DELETE FROM core_entries WHERE id = $1
-                   AND project_id IS NOT DISTINCT FROM $2 AND agent_id IS NOT DISTINCT FROM $3
-                 RETURNING {ENTRY_COLUMNS}"
-            ),
+            "DELETE FROM core_entries WHERE id = $1
+       AND project_id IS NOT DISTINCT FROM $2 AND agent_id IS NOT DISTINCT FROM $3 RETURNING *",
             &[&id, &project, &agent],
         )
         .await?;

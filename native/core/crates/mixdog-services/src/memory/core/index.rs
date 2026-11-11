@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use tokio_postgres::Transaction;
+use tokio_postgres::Client;
 
 use crate::memory::core::access::Pool;
 use crate::memory::error::{MemoryError, Result};
@@ -36,11 +36,7 @@ pub fn scope_key(project_id: Option<&str>, agent_id: Option<&str>) -> String {
 /// entries keep their positions; new ones append; a pool whose membership
 /// changed gets a new revision.
 pub async fn sync(db: &Db) -> Result<Directory> {
-    let mut client = db.client().await?;
-    let tx = client.transaction().await?;
-    let directory = sync_in(&tx).await?;
-    tx.commit().await?;
-    Ok(directory)
+    crate::memory::pg::db::transaction(db, async |client| sync_in(client).await).await
 }
 
 #[cfg(test)]
@@ -71,7 +67,7 @@ const SAVE_SQL: &str = "
           ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
         ";
 
-pub async fn sync_in(tx: &Transaction<'_>) -> Result<Directory> {
+pub async fn sync_in(tx: &Client) -> Result<Directory> {
     #[cfg(test)]
     observe(LOCK_SQL, Some(vec![PREFIX.into()]), true);
     tx.execute(LOCK_SQL, &[&PREFIX]).await?;
