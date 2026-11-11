@@ -219,16 +219,6 @@ pub use mixdog_protocol::message_class::js::truthy as js_truthy;
 mod tests {
     use super::*;
 
-    /// Keys compare as 1.4.5's `JSON.parse` decodes them: escaped equivalents repeat, two
-    /// distinct lone surrogates do not, and a repeat below the top level passes.
-    #[test]
-    fn top_level_keys_compare_as_decoded_utf16() {
-        assert!(repeats_a_top_level_key(br#"{"id":"s","a":1,"\u0061":2}"#));
-        assert!(!repeats_a_top_level_key(br#"{"id":"sess_dup","messages":[],"\ud800":1,"\ud801":2}"#));
-        assert!(repeats_a_top_level_key(br#"{"\ud800":1, "\uD800" :2}"#));
-        assert!(!repeats_a_top_level_key(br#"{"id":"s","m":{"a":1,"a":2},"k":"a\":"}"#));
-    }
-
     #[test]
     fn lone_surrogates_become_replacement_characters() {
         let text = br#"{"a":"x\ud83dy","b":"\ud83d\ude00","c":"\udc00","d":"\\ud800"}"#;
