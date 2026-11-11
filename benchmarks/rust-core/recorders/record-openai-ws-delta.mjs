@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-openai-ws-delta',
   net: false,
   entry: 'openai-ws-delta.mjs _computeDelta / _buildResponseCreateFrame / _sansInput / _stableStringify, openai-oauth-ws.mjs parseToolSearchArgs / _cacheObservationForTest / _cacheContinuityResetReasonForTest / sendViaWebSocket (scripted _acquireWithRetryFn / _sendFrameFn / _streamFn; _agentTraceFn collects the trace rows), openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a real socket.',
-  replay: 'mixdog-ai providers::openai delta.rs (:197-298) and decoder.rs:271-287; mixdog-trace builders.rs:765-781 (no production caller: K1 gaps G12): compare `result` whole (frame mode/reason/previous_response_id/input, hashes of the mismatch diagnostics, parsed tool_search args, cache observations). `traceRows` are the rows Node writes; Rust writes none today (diagnostic only).',
+  compare: 'mixdog-ai providers::openai delta.rs (:197-298) and decoder.rs:271-287; mixdog-trace builders.rs:765-781 (no production caller: K1 gaps G12): compare `result` whole (frame mode/reason/previous_response_id/input, hashes of the mismatch diagnostics, parsed tool_search args, cache observations). `traceRows` are the rows Node writes; Rust writes none today (diagnostic only).',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::openai::OpenAiAdapter (openai/adapter.rs:308) with OpenAiCodec (openai/codec.rs:36) and build_body (openai/profile.rs:494), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079); the socket pool is WsPool::checkout (openai/pool.rs:178).",
 });
 const P = 'agent/orchestrator/providers/';
 const { isInvalidToolArgsMarker } = await rec.P(`${P}openai-compat-stream.mjs`);
@@ -97,11 +98,11 @@ await rec.run('mismatch-diagnostics-reach-trace-rows', `${SRC}:262`, { env: 'ws-
       _streamFn: async () => ({ content: 'ok', model: 'gpt-5.5', toolCalls: [], usage: {}, responseId: 'resp_next', responseItems: [], closeSocket: true }),
       _agentTraceFn: (row) => rows.push(row),
     });
-    const emitted = rows.slice(before).filter((row) => row.payload?.response_output_mismatch_expected_type === expected.type);
-    sends.push({ type: expected.type, expectedDiagnostics, emittedKinds: emitted.map((row) => row.kind).sort(), emittedPayloadsEqualDiagnostics: emitted.map((row) => Object.keys(expectedDiagnostics).every((k) => row.payload[k] === expectedDiagnostics[k])), emittedPayloadMismatchFields: emitted.map((row) => Object.fromEntries(Object.entries(row.payload).filter(([k]) => k.startsWith('response_output_mismatch')))) });
+    const emitted = rows.slice(before);
+    sends.push({ type: expected.type, expectedDiagnostics, emittedRows: emitted, emittedPayloadsEqualDiagnostics: emitted.map((row) => Object.keys(expectedDiagnostics).every((k) => row.payload[k] === expectedDiagnostics[k])) });
   }
   const traceText = JSON.stringify(rows);
-  return { sends, allRowKinds: rows.map((r) => r.kind), secretsInTrace: ['provider-function-secret', 'replayed-function-secret', 'provider-custom-input-secret', 'replayed-custom-input-secret'].map((s) => [s, traceText.includes(s)]) };
+  return { sends, rows, secretsInTrace: ['provider-function-secret', 'replayed-function-secret', 'provider-custom-input-secret', 'replayed-custom-input-secret'].map((s) => [s, traceText.includes(s)]) };
 }));
 await rec.run('native-tool-search-output-replays-canonically', `${SRC}:351`, { env: 'ws-delta' }, () => withEnv('ws-delta', () => {
   const baseTools = [{ type: 'tool_search', execution: 'client', description: 'load tools', parameters: { type: 'object', properties: {} } }];
