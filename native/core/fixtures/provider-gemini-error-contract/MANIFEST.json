@@ -19,7 +19,7 @@
     {
       "bytes": 83298,
       "path": "cases.json",
-      "sha256": "a32b5c9182d71bcb68f8bcb6519ae9b1659b9c25bfc29434649da90bfe4402b4"
+      "sha256": "374ccbfadc1cd7334b98abc3fd239cd261a1fce2b70a0bb0e8ec3bd36001a846"
     }
   ],
   "inputs": [
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-error-contract.mjs",
-  "recorderSha256": "ea861ef3a2b4734204a1000ea8f45d3579402c91903b06464025fffcc7bbccaf",
+  "recorderSha256": "fdd4c33fb306ad6ae890ebdb125e0831291d0f3e5e09a6e32092daf619ceddf5",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:63) and build_request (google/request.rs:446), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Classification: mixdog_ai::retry::classify::kind_of (retry/classify.rs:142).",
   "set": "provider-gemini-error-contract",
   "totalBytes": 83298,
