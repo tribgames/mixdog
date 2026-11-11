@@ -1,6 +1,7 @@
 {
   "set": "provider-custom-provider-route",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "default-provider-validation-gets-saved-config",
@@ -36,7 +37,25 @@
             "sameConfigObject": true
           }
         ]
-      }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs.makeResolveDefaultProvider",
+          "args": [
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs.makeResolveRoute",
+          "args": [
+            {
+              "callback": "resolveDefaultProvider"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

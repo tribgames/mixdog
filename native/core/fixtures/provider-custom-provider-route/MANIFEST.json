@@ -1,16 +1,19 @@
 {
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
   "command": "node benchmarks/rust-core/recorders/record-custom-provider-route.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider` and `result.routeProvider`, and `validatorCalls` (provider id, whether the config passed is the same object as the input).",
   "entry": "src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs makeResolveDefaultProvider(validate)(config) and makeResolveRoute(resolve)(config, { model }). The validator is the test's callback (providers[id].type === \"custom\"); the recorder records the arguments it received.",
   "exclusions": [
-    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
-    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: x-stainless-os / -arch / -runtime-version and the user-agent of the SDK client stack carry the recording host's OS, architecture and Node version",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1016,
+      "bytes": 1513,
       "path": "cases.json",
-      "sha256": "b30af73288eb6581cbf89e598badcbeb1cdcef21a23603c947e84603eefb0350"
+      "sha256": "d4bf23fd4b4302ea2fa155e6624e6aef04716fe186e60e4abb3fe32fe3c8deaa"
     }
   ],
   "inputs": [
@@ -23,12 +26,16 @@
       "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+      "sha256": "6d782e3612aedfcae2c29c09eb00b03e2ef214777329dffe90b64c7f0934de5c"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -50,8 +57,20 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-custom-provider-route.mjs",
-  "recorderSha256": "957c0c995e62ae6e08e36fc123ebeaf693b35d27c9920f19f46855c3a583ff31",
-  "replay": "mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider` and `result.routeProvider`, and `validatorCalls` (provider id, whether the config passed is the same object as the input).",
+  "recorderSha256": "462758efe4e2640e5889aef2521333d5f554dd19c837b8520fe8f04ef7361a89",
+  "replay": "Rust entry (pub, on o1): mixdog_ai::service::admin_route::resolve_route (service/admin_route.rs:311).",
   "set": "provider-custom-provider-route",
-  "totalBytes": 1016
+  "totalBytes": 1513,
+  "valueTags": {
+    "{\"$bigint\":\"<digits>\"}": "bigint",
+    "{\"$bytesHex\":\"<hex>\"}": "Buffer / Uint8Array",
+    "{\"$cycle\":true}": "a reference back to an ancestor object",
+    "{\"$date\":\"<ISO>\"}": "Date",
+    "{\"$function\":\"<name>\"}": "a function",
+    "{\"$map\":[[k,v]...]}": "Map, insertion order",
+    "{\"$number\":\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}": "a number JSON cannot hold",
+    "{\"$set\":[v...]}": "Set, insertion order",
+    "{\"$symbol\":\"<text>\"}": "a symbol",
+    "{\"$undefined\":true}": "undefined (a key or array element that held undefined keeps the tag; none is dropped)"
+  }
 }

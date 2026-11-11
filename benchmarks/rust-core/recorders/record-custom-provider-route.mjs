@@ -9,7 +9,8 @@ const rec = await startRecording({
   set: 'provider-custom-provider-route',
   net: false,
   entry: 'src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs makeResolveDefaultProvider(validate)(config) and makeResolveRoute(resolve)(config, { model }). The validator is the test\'s callback (providers[id].type === "custom"); the recorder records the arguments it received.',
-  replay: 'mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider` and `result.routeProvider`, and `validatorCalls` (provider id, whether the config passed is the same object as the input).',
+  compare: 'mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider` and `result.routeProvider`, and `validatorCalls` (provider id, whether the config passed is the same object as the input).',
+  replay: "Rust entry (pub, on o1): mixdog_ai::service::admin_route::resolve_route (service/admin_route.rs:311).",
 });
 const { makeResolveDefaultProvider, makeResolveRoute } = await rec.P('agent/orchestrator/runtime-core/config-helpers.mjs');
 const SRC = 'src/runtime/agent/orchestrator/runtime-core/custom-provider-route.test.mjs';
