@@ -70,9 +70,9 @@ rows.push(await content('tool role', { role: 'tool', content: 'out' }));
 rows.push(await content('no content', { role: 'user' }));
 
 const helpers = [];
-for (const role of ['user', 'assistant', 'system', 'tool', 'USER', ' user ', null, undefined, 'developer']) helpers.push({ fn: 'normalizeIngestRole', role: role === undefined ? { absent: true } : role, ...(await capture(() => normalizeIngestRole(role))) });
+for (const role of ['user', 'assistant', 'system', 'tool', 'USER', ' user ', null, undefined, 'developer']) helpers.push({ fn: 'normalizeIngestRole', role: role, ...(await capture(() => normalizeIngestRole(role))) });
 for (const value of ['exact', '', null, undefined, [{ type: 'text', text: 'x' }, { type: 'image' }, { type: 'text', text: 'y' }], [{ type: 'text' }], [{ text: 'no type' }], ['str', { type: 'text', text: 'z' }], { type: 'text', text: 'obj' }, 5]) {
-  helpers.push({ fn: 'allTextContent', content: value === undefined ? { absent: true } : value, ...(await capture(() => allTextContent(value))) });
+  helpers.push({ fn: 'allTextContent', content: value, ...(await capture(() => allTextContent(value))) });
 }
 for (const text of ['', 'Task completed', 'Tool use completed', 'normal text', null]) helpers.push({ fn: 'isUnquotedToolCompletionHead', text, ...(await capture(() => isUnquotedToolCompletionHead(text))) });
 
@@ -92,9 +92,9 @@ finish(ctx, {
   },
   extra: {
     entry: { runs: 'projectSessionMessagesForIngest, sessionMessageContentForIngest, shouldExcludeIngestMessage, allTextContent, normalizeIngestRole, isUnquotedToolCompletionHead (session-ingest.mjs)', notRun: 'the ingest runtime that persists the projected rows (session-ingest-runtime)' },
-    replay: 'mixdog-services memory: svc/memory/ingest_shape.rs all_text_content + the projection and exclusion (and mixdog-agent compact/ingest.rs for the compact source list); compares projected rows, stripped content and exclusion flags exactly',
+    replay: "mixdog-services memory/ingest_shape.rs (pub): normalize_ingest_role (:22), all_text_content (:52), session_message_content_for_ingest (:146; envelope stripping is private, reached through it); the whole path is SessionIngest::ingest_session (memory/ingest/mod.rs:133). A replay compares each recorded input's projected role/content/exclusion exactly",
     exclusions: 'the last case holds probes the test file does not run',
-    normalised: { 'undefined arguments': 'written as {"absent":true}' },
+    normalised: { 'values': 'every value is stored through exact (lib/exact.mjs): an explicit undefined, NaN, -0, Date, Error are tagged; an omitted argument is absent' },
   },
 });
 process.exit(0);

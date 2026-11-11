@@ -158,7 +158,10 @@
           "name": "assistant dot",
           "message": {
             "role": "assistant",
-            "content": "."
+            "content": ".",
+            "toolCalls": {
+              "$exact": "undefined"
+            }
           },
           "content": {
             "result": "."
@@ -186,7 +189,7 @@
           }
         },
         {
-          "name": "plain user",
+          "name": "exact user",
           "message": {
             "role": "user",
             "content": "please continue the task"
@@ -199,7 +202,7 @@
           }
         },
         {
-          "name": "plain assistant",
+          "name": "exact assistant",
           "message": {
             "role": "assistant",
             "content": "working on it"
@@ -504,7 +507,7 @@
         {
           "fn": "normalizeIngestRole",
           "role": {
-            "absent": true
+            "$exact": "undefined"
           },
           "result": null
         },
@@ -515,8 +518,8 @@
         },
         {
           "fn": "allTextContent",
-          "content": "plain",
-          "result": "plain"
+          "content": "exact",
+          "result": "exact"
         },
         {
           "fn": "allTextContent",
@@ -531,7 +534,7 @@
         {
           "fn": "allTextContent",
           "content": {
-            "absent": true
+            "$exact": "undefined"
           },
           "result": ""
         },
