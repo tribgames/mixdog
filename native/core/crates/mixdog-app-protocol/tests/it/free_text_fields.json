@@ -4423,8 +4423,8 @@
    ]
   },
   {
-   "class": "free",
-   "reason": "an MCP server's header value, sent on every request to the server: Node saves the server and its fetch refuses the value when it connects (`Cannot convert argument to a ByteString because the character at index <i> has a value of <unit> which is greater than 255.`), sending nothing. The core saves it (U+FFFD in the config, the accepted echo difference) and keeps the lone unit for the connection, which fails with the same text naming the same unit; the call's answer and the listed status are Node's (recorded: native/core/fixtures/lone-surrogate-wire mcp-add-header-lone, mcp-save-header-lone)",
+   "class": "refused",
+   "reason": "an MCP server's header value becomes a header on every request to the server: refused naming the field, nothing saved (decisions.md \"Lone UTF-16 surrogates in client strings\"). Node saves the server and its fetch refuses the value when it connects (`Cannot convert argument to a ByteString ...`), sending nothing; the core's refusal without side effect is the accepted difference (recorded: native/core/fixtures/lone-surrogate-wire mcp-add-header-lone, mcp-save-header-lone)",
    "fields": [
     "request mcp/addMcpServer /input/headers/*",
     "request mcp/saveMcpServer /input/headers/*"

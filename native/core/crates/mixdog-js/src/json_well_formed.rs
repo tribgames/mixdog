@@ -93,8 +93,8 @@ pub enum LoneAt {
     /// The string value at the pointer held one (named once per string).
     Value(String),
     /// One lone unit of the string value at `pointer`, beside its [`LoneAt::Value`]: `unit` stood at UTF-16 index `at` of the
-    /// string, where the core reads U+FFFD (one unit too). For what Node says of the unit itself (a header value's ByteString
-    /// error names it) and for a size Node measures on the serialised value (six characters each).
+    /// string, where the core reads U+FFFD (one unit too). For a size Node measures on the serialised value (six characters
+    /// each); it lives with the request, never beyond it.
     Unit { pointer: String, at: usize, unit: u16 },
     /// The key the pointer ends with held one (the value under it is the key's own).
     Key(String),
