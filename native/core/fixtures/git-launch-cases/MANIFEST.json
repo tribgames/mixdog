@@ -1,0 +1,60 @@
+{
+  "cases": 9,
+  "command": "node benchmarks/rust-core/recorders/record-git-launch-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "startGit/startGitSync get a scripted spawn function; git is run for real only in the two real-install cases",
+    "runs": "src/runtime/shared/git-launch.mjs (resolveGitLaunch with an explicit platform and PATH, gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) and git-runner.mjs runGitOffThread over trees of empty files in a temp folder"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11465,
+      "path": "golden.json",
+      "sha256": "6e1b91327cb0be928080e226a6b404dee911a1fe8c022b2946d192665a726b7b"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "db4c434c9e5db314d766b0efecf3bc81d4a267abdb4eaf23e524bfa5b829a0d2"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-git-launch-cases.mjs",
+  "recorderSha256": "248d29fd7561e94b84094f90f1d6ec568d66bd5a2ca78cd7c4aa66b80c1052fa",
+  "replay": {
+    "entry": "mixdog-scm git_launch.rs: rebuild each case's tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole (paths relative to <root>)",
+    "normalised": {
+      "tempRoots": "every temp root is <root>; a scripted-spawn case records commands relative to <root>"
+    },
+    "platform": "recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere"
+  },
+  "set": "git-launch-cases",
+  "totalBytes": 11465
+}
