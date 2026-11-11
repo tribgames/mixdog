@@ -7,15 +7,13 @@
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-system-proxy-cases.mjs --tree <export of b6f10295a with node_modules>
-import { RecorderError } from './lib/recorder-error.mjs';
+import { within } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('system-proxy-cases', import.meta.url);
 const daemonProxy = await set.load('src/runtime/shared/llm/system-proxy.mjs');
 const { answerSystemProxyRequest, createSystemProxyLease, SYSTEM_PROXY_REQUEST_EVENT } = await set.load('apps/desktop/src/main/system-proxy.ts');
 const { adoptSystemProxy, systemProxyRoute } = daemonProxy;
-/** Waits for the event that ends a step; a step that never happens fails the recording, naming the step. */
-const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new RecorderError(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
 await set.run('the desktop and the runtime agree on the lookup event', () => ({ desktopEvent: SYSTEM_PROXY_REQUEST_EVENT, daemonEvent: daemonProxy.SYSTEM_PROXY_REQUEST_EVENT }));
 await set.run('the window answers a lookup with Chromium’s answer for its origin, and failures by name only', async () => {
   const settled = [];
@@ -47,7 +45,7 @@ await set.run('the lease attaches one resolver while any asking client is connec
   lease.release(1);
   log.push({ step: 'release(1): epoch 2 still attached, so nothing is detached', detached });
   lease.release(2);
-  await within(detachedEvent.promise, 5000, 'the lease to detach the resolver after the last release');
+  await within('the lease to detach the resolver after the last release', detachedEvent.promise, 5000);
   log.push({ step: 'release(2)', detached });
   log.push({ step: 'attach(NaN)', answer: await lease.attach(Number.NaN) });
   log.push({ step: 'older daemon without a per-origin resolver: attach(1)', answer: await createSystemProxyLease(() => undefined, request).attach(1) });
@@ -67,7 +65,7 @@ await set.run('an attached app routes the daemon per origin; when it leaves the 
     await lease.attach(1);
     for (const origin of ['https://api.openai.com', 'https://intranet.corp.example', 'https://api.anthropic.com']) log.push({ step: 'attached', origin, route: await systemProxyRoute(origin) });
     lease.release(1);
-    await within(detachedEvent.promise, 5000, 'the daemon resolver to be released after the app left');
+    await within('the daemon resolver to be released after the app left', detachedEvent.promise, 5000);
     log.push({ step: 'released, fallback again', origin: 'https://intranet.corp.example', route: systemProxyRoute('https://intranet.corp.example') });
   } finally { adoptSystemProxy({}, { platform: 'linux' }); }
   return { registry, pac, otherwise: 'PROXY other.corp:3128', chromiumAskedFor: asked, log };

@@ -21,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "830ff3b6082865118e97f6172b93db038ff887de5f0e197150a7df390acf6954"
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
-      "sha256": "c36e8ec88173d0ee3099fe2134ad03cc777070a2addd6ab2c21b4d64ef32cc7c"
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
@@ -67,7 +67,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-host-lifecycle-cases.mjs",
-  "recorderSha256": "377a575a141725f3ae59896e0ec4d1d7f3d59eedf1a9ceddd6c4a97aabd6cee1",
+  "recorderSha256": "3660fc43ab270431440b4847a77590737c49db4e02f173d25cc0f97702f9de51",
   "replay": {
     "compare": "mixdog-app-server-daemon compose_flip.rs sub-agent retention and the session sidebar: replay each case's calls and compare the archived-id sets after each step, the worktree cleanup hand-off, the retention result, the read cursor and the dispose outcome",
     "entry": "Drive these public items on o1: mixdog-app-server-daemon/src/compose_flip.rs:214 start_sub_agent_retention; mixdog-app-server-daemon/src/compose_flip.rs:223 sub_agent_retention_step; mixdog-core-session/src/session/worktree_maintenance.rs:169 set_archived_session_worktrees; mixdog-core-session/src/session/agent_registry/mod.rs:557 forget_deleted_session; mixdog-core-session/src/session/thread_settings.rs:341 mark_read.",

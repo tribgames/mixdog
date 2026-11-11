@@ -176,7 +176,7 @@ await set.run('the direct binary sees the environment the launcher would give it
   const fallback = controlledInstall();
   const env = { ...BASE_ENV, PATH: join(fallback.root, 'Git', 'cmd'), HOME: 'D:\\h' };
   const args = ['-c', 'alias.dumpenv=!env', 'dumpenv'];
-  const run = (command, childEnv) => { const result = spawnSync(command, args, { encoding: 'utf8', windowsHide: true, cwd: fallback.root, env: childEnv, timeout: 30_000 }); if (result.error?.code === 'ETIMEDOUT') throw new Error(`the git child ${command}: no answer within 30000 ms`); return measured(result); };
+  const run = (command, childEnv) => { const result = spawnSync(command, args, { encoding: 'utf8', windowsHide: true, cwd: fallback.root, env: childEnv, timeout: 30_000 }); if (result.error?.code === 'ETIMEDOUT') throw new RecorderError(`the git child ${command}: no answer within 30000 ms`); return measured(result); };
   const viaLauncher = run('git', env);
   const direct = run(gitCommand(env), gitChildEnv(env));
   const lines = (output) => output.split('\n').filter(Boolean).sort();

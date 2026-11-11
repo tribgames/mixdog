@@ -1,10 +1,8 @@
 // A virtual clock for recorders whose code under test arms timers: setTimeout / setInterval are replaced (every arming and firing is recorded, nothing
-// fires until advance is called), setImmediate is counted and passed through. The real timers are kept for deadlines (realDeadline).
-import { RecorderError } from './recorder-error.mjs';
+// fires until advance is called), setImmediate is counted and passed through. The real timers are kept (realTimers); deadlines are `within`
+// (recorder-error.mjs), which runs on the real clock.
 export const realTimers = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout, setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, setImmediate: globalThis.setImmediate, clearImmediate: globalThis.clearImmediate };
 
-/** A deadline on the real clock for a step whose timers are virtual. */
-export const realDeadline = (label, promise, ms = 60_000) => new Promise((resolve, reject) => { const timer = realTimers.setTimeout(() => reject(new RecorderError(`${label}: no answer within ${ms} ms`)), ms); promise.then((v) => { realTimers.clearTimeout(timer); resolve(v); }, (e) => { realTimers.clearTimeout(timer); reject(e); }); });
 /** A virtual clock for setTimeout / setInterval (armed and fired are recorded; nothing fires until `advance`); setImmediate is counted and passed through,
  *  `idle()` resolves once every setImmediate armed so far (and those they arm) has run, `whenArmed(test)` once a timer matching `test` has been armed, `nextArmed()` once the next timer of any kind is armed. */
 export function virtualTimers({ ordered } = {}) {

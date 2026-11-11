@@ -9,7 +9,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RecorderError } from './lib/recorder-error.mjs';
+import { within } from './lib/recorder-error.mjs';
 import { openSet } from './lib/case-set.mjs';
 
 const set = openSet('session-host-lifecycle-cases', import.meta.url);
@@ -18,8 +18,6 @@ const { sessionSidebarChangeHandler } = await set.load('apps/desktop/src/main/se
 const { applySessionSidebarChange, readSessionSidebarState, registerSessionSidebarHost } = await set.load('src/runtime/shared/session-sidebar-host.mjs');
 const { applySubAgentRetention } = await set.load('src/runtime/agent/orchestrator/session/store/sweep/sub-agent-retention.mjs');
 const roots = [];
-/** Waits for the event that ends a step; a step that never happens fails the recording, naming the step. */
-const within = (promise, ms, step) => new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new RecorderError(`timed out after ${ms} ms waiting for: ${step}`)), ms); promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); }); });
 
 async function fixture(close, sessions = []) {
   const root = await mkdtemp(join(tmpdir(), 'session-host-lifecycle-'));
@@ -28,7 +26,7 @@ async function fixture(close, sessions = []) {
     { userDataPath: root, resourcesPath: root, appPath: root, packaged: false },
     { attachSessionClient: async () => ({ list: async () => ({ sessions }), close }), loadProjects: async () => ({}), loadSessionStore: async () => ({}), loadStatuslineSegments: async () => ({}), executeCodeGraphTool: async () => ({}) },
   );
-  return { host, root, cleanup: async () => { await within(host.dispose().catch(() => {}), 10_000, 'the host disposal at cleanup'); await rm(root, { recursive: true, force: true }); } };
+  return { host, root, cleanup: async () => { await within('the host disposal at cleanup', host.dispose().catch(() => {}), 10_000); await rm(root, { recursive: true, force: true }); } };
 }
 const sub = (id, ownerSessionId) => ({ id, owner: 'agent', agent: 'worker', visibility: 'agent-only', ownerSessionId, messageCount: 2, preview: 'work' });
 
@@ -39,11 +37,11 @@ await set.run('every overlapping host disposal waits for the same attachment cle
   const { host, cleanup } = await fixture(async () => { closes++; events.push('cleanup entered'); entered.resolve(); await release.promise; events.push('cleanup returned'); });
   try {
     const first = host.dispose().then(() => { events.push('first dispose finished'); });
-    await within(entered.promise, 5000, 'the host to start the attachment cleanup');
+    await within('the host to start the attachment cleanup', entered.promise, 5000);
     const second = host.dispose().then(() => { events.push('second dispose finished'); });
     events.push('cleanup released');
     release.resolve();
-    await within(Promise.all([first, second]), 5000, 'both overlapping disposals to finish');
+    await within('both overlapping disposals to finish', Promise.all([first, second]), 5000);
     return { events, closes };
   } finally { await cleanup(); }
 });

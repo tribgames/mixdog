@@ -13,12 +13,12 @@ import { existsSync, mkdirSync, mkdtempSync, promises as fsPromises, readdirSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { RecorderError } from './lib/recorder-error.mjs';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, within, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
+import { RecorderError, within } from './lib/recorder-error.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, writeText } from './lib/common.mjs';
 import { exact } from './lib/exact.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
 import { normalisePaths } from './lib/normalise-paths.mjs';
-import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
+import { virtualTimers } from './lib/virtual-timers.mjs';
 import { recorderProvenance } from './lib/provenance.mjs';
 import { replayFor } from './lib/replay-targets.mjs';
 
@@ -163,7 +163,7 @@ async function coldSidecar(tag) {
   _resetCompactionArchiveState();
   return { session, pending: sidecarOf(session.id) };
 }
-async function parkedSession(tag, guard = (label, promise) => within(label, promise)) {
+async function parkedSession(tag) {
   const session = storedSession(tag);
   const record = recordOf(session.id);
   _setCompactionArchivePublishHook(async () => {
@@ -178,7 +178,7 @@ async function parkedSession(tag, guard = (label, promise) => within(label, prom
   const original = process.stderr.write;
   process.stderr.write = (chunk) => { log.push(String(chunk)); return true; };
   const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
-  await guard('parked write reaching its refusal', Promise.race([parked, scheduled.written.then(() => { throw new RecorderError('publication ended without parking'); })]));
+  await within('parked write reaching its refusal', Promise.race([parked, scheduled.written.then(() => { throw new RecorderError('publication ended without parking'); })]));
   const release = () => { process.stderr.write = original; _setCompactionArchivePublishHook(null); _setCompactionArchiveParkHook(null); takePendingWrite(session.id); };
   return { session, record, scheduled, log, release, restoreStderr: () => { process.stderr.write = original; } };
 }
@@ -660,7 +660,7 @@ await runCase('a publication refused while the session is live waits for its sav
   const virtual = virtualTimers();
   let parked;
   try {
-    parked = await parkedSession('refused-live', realDeadline);
+    parked = await parkedSession('refused-live');
     const { session, record, scheduled, log, release } = parked;
     const second = scheduleCompactionArchive({ session, before: itemsOf(2, 2), after: [] });
     const armedUntilPark = virtual.armed.slice();

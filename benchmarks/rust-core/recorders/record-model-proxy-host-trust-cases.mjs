@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSet } from './lib/case-set.mjs';
 import { scriptUuids } from './lib/scripted-uuid.mjs';
-import { realDeadline, virtualTimers } from './lib/virtual-timers.mjs';
+import { within } from './lib/recorder-error.mjs';
+import { virtualTimers } from './lib/virtual-timers.mjs';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'proxy-trust-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
@@ -23,10 +24,7 @@ const { MODEL_PROXY_REQUEST_EVENT, ModelProxyChannel, encodeModelProxyWire } = a
 const { ModelProxyProvider } = await set.load(`${R}agent/orchestrator/providers/model-proxy-provider.mjs`);
 const { readAttachmentBase64, storeInlineImagePart } = await set.load(`${R}attachments/store.mjs`);
 
-const DEADLINE_MS = 10_000;
 const rejected = async (promise) => { try { return { resolved: await promise }; } catch (e) { return { rejected: e }; } };
-/** Waits for the event that ends a step, with a deadline on the real clock (the clock the code under test sees is virtual). */
-const within = (label, promise, limitMs = DEADLINE_MS) => realDeadline(label, promise, limitMs);
 const disposers = [];
 /** Every message that crosses the JSON hop between the PC host and the daemon channel, as the text that crossed (the hop stands for the session connection: JSON over HTTP). */
 let wireLog = [];
@@ -59,7 +57,7 @@ async function run(name, fn) {
   await set.run(name, async () => {
     const virtual = virtualTimers({ ordered: () => wireLog });
     wireLog = [];
-    try { const observed = await fn(virtual); while (deliveries.length) await realDeadline('the daemon->PC event to reach the host handler', Promise.all(deliveries.splice(0))); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); virtual.restore(); }
+    try { const observed = await fn(virtual); while (deliveries.length) await within('the daemon->PC event to reach the host handler', Promise.all(deliveries.splice(0))); return { ...observed, wire: wireLog, timers: { armed: virtual.armed, fired: virtual.fired, advances: virtual.advances, pending: virtual.pending() } }; } finally { while (disposers.length) disposers.pop()(); virtual.restore(); }
   });
 }
 
