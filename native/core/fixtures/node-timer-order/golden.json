@@ -106,7 +106,7 @@
           ]
         }
       ],
-      "attempts": 2,
+      "attempts": 1,
       "events": [
         [
           "p10",
@@ -527,7 +527,7 @@
           "then": []
         }
       ],
-      "attempts": 2,
+      "attempts": 1,
       "events": [
         [
           "a",
@@ -652,7 +652,7 @@
           ]
         }
       ],
-      "attempts": 1,
+      "attempts": 3,
       "events": [
         [
           "x",
