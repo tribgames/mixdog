@@ -102,6 +102,9 @@ pub struct SearchRequest {
     pub respect_ignore: bool,
     /// The scan stops after this many matches (Node's search server, `collect_until`); `None` reads every match.
     pub limit: Option<usize>,
+    /// The search server's soft deadline (Node's request `deadlineMs`): once it passes the stream ends with a
+    /// [`FsErrorKind::TimedOut`] item after what was found; `None` has no deadline.
+    pub deadline: Option<std::time::Instant>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -139,6 +142,11 @@ pub enum FsErrorKind {
     InvalidPattern {
         message: String,
     },
+    /// The last item of a `search_text` stream whose [`SearchRequest::deadline`] passed: the matches before it are what
+    /// the search found (Node's server answers them as `partial`, `timeout`). The error's path, when set, is the file
+    /// whose search the deadline cut: matches of it already given are not whole and are dropped, as Node's server
+    /// drops a file its deadline interrupted (`serve_search/search.rs`, the swallowed mid-file expiry).
+    TimedOut,
 }
 
 /// The step of an atomic write that failed (Node's `atomicWrite` names it in its error text).

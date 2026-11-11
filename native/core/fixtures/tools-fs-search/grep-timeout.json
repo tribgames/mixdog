@@ -1,0 +1,386 @@
+{
+  "name": "grep-timeout",
+  "standin": true,
+  "files": {
+    "t/a.ts": "needle one\nother one\n",
+    "t/b.ts": "needle two\n",
+    "t/c.ts": "other three\nneedle three\n",
+    "u/d.ts": "needle four\n",
+    "many/m.ts": "needle 1 other\nneedle 2\nneedle 3\nneedle 4 other\nneedle 5\nneedle 6\nneedle 7 other\nneedle 8\nneedle 9\nneedle 10 other\nneedle 11\nneedle 12\nneedle 13 other\nneedle 14\nneedle 15\nneedle 16 other\nneedle 17\nneedle 18\nneedle 19 other\nneedle 20\nneedle 21\nneedle 22 other\nneedle 23\nneedle 24\nneedle 25 other\nneedle 26\nneedle 27\nneedle 28 other\nneedle 29\nneedle 30\nneedle 31 other\nneedle 32\nneedle 33\nneedle 34 other\nneedle 35\nneedle 36\nneedle 37 other\nneedle 38\nneedle 39\nneedle 40 other\nneedle 41\nneedle 42\nneedle 43 other\nneedle 44\nneedle 45\nneedle 46 other\nneedle 47\nneedle 48\nneedle 49 other\nneedle 50\nneedle 51\nneedle 52 other\nneedle 53\nneedle 54\nneedle 55 other\nneedle 56\nneedle 57\nneedle 58 other\nneedle 59\nneedle 60\nneedle 61 other\nneedle 62\nneedle 63\nneedle 64 other\nneedle 65\nneedle 66\nneedle 67 other\nneedle 68\nneedle 69\nneedle 70 other\nneedle 71\nneedle 72\nneedle 73 other\nneedle 74\nneedle 75\nneedle 76 other\nneedle 77\nneedle 78\nneedle 79 other\nneedle 80\nneedle 81\nneedle 82 other\nneedle 83\nneedle 84\nneedle 85 other\nneedle 86\nneedle 87\nneedle 88 other\nneedle 89\nneedle 90\nneedle 91 other\nneedle 92\nneedle 93\nneedle 94 other\nneedle 95\nneedle 96\nneedle 97 other\nneedle 98\nneedle 99\nneedle 100 other\nneedle 101\nneedle 102\nneedle 103 other\nneedle 104\nneedle 105\nneedle 106 other\nneedle 107\nneedle 108\nneedle 109 other\nneedle 110\nneedle 111\nneedle 112 other\nneedle 113\nneedle 114\nneedle 115 other\nneedle 116\nneedle 117\nneedle 118 other\nneedle 119\nneedle 120\nneedle 121 other\nneedle 122\nneedle 123\nneedle 124 other\nneedle 125\nneedle 126\nneedle 127 other\nneedle 128\nneedle 129\nneedle 130 other\nneedle 131\nneedle 132\nneedle 133 other\nneedle 134\nneedle 135\nneedle 136 other\nneedle 137\nneedle 138\nneedle 139 other\nneedle 140\nneedle 141\nneedle 142 other\nneedle 143\nneedle 144\nneedle 145 other\nneedle 146\nneedle 147\nneedle 148 other\nneedle 149\nneedle 150\nneedle 151 other\nneedle 152\nneedle 153\nneedle 154 other\nneedle 155\nneedle 156\nneedle 157 other\nneedle 158\nneedle 159\nneedle 160 other\nneedle 161\nneedle 162\nneedle 163 other\nneedle 164\nneedle 165\nneedle 166 other\nneedle 167\nneedle 168\nneedle 169 other\nneedle 170\nneedle 171\nneedle 172 other\nneedle 173\nneedle 174\nneedle 175 other\nneedle 176\nneedle 177\nneedle 178 other\nneedle 179\nneedle 180\nneedle 181 other\nneedle 182\nneedle 183\nneedle 184 other\nneedle 185\nneedle 186\nneedle 187 other\nneedle 188\nneedle 189\nneedle 190 other\nneedle 191\nneedle 192\nneedle 193 other\nneedle 194\nneedle 195\nneedle 196 other\nneedle 197\nneedle 198\nneedle 199 other\nneedle 200\nneedle 201\nneedle 202 other\nneedle 203\nneedle 204\nneedle 205 other\nneedle 206\nneedle 207\nneedle 208 other\nneedle 209\nneedle 210\nneedle 211 other\nneedle 212\nneedle 213\nneedle 214 other\nneedle 215\nneedle 216\nneedle 217 other\nneedle 218\nneedle 219\nneedle 220 other\nneedle 221\nneedle 222\nneedle 223 other\nneedle 224\nneedle 225\nneedle 226 other\nneedle 227\nneedle 228\nneedle 229 other\nneedle 230\nneedle 231\nneedle 232 other\nneedle 233\nneedle 234\nneedle 235 other\nneedle 236\nneedle 237\nneedle 238 other\nneedle 239\nneedle 240\nneedle 241 other\nneedle 242\nneedle 243\nneedle 244 other\nneedle 245\nneedle 246\nneedle 247 other\nneedle 248\nneedle 249\nneedle 250 other\nneedle 251\nneedle 252\nneedle 253 other\nneedle 254\nneedle 255\nneedle 256 other\nneedle 257\nneedle 258\nneedle 259 other\nneedle 260\nneedle 261\nneedle 262 other\nneedle 263\nneedle 264\nneedle 265 other\nneedle 266\nneedle 267\nneedle 268 other\nneedle 269\nneedle 270\nneedle 271 other\nneedle 272\nneedle 273\nneedle 274 other\nneedle 275\nneedle 276\nneedle 277 other\nneedle 278\nneedle 279\nneedle 280 other\nneedle 281\nneedle 282\nneedle 283 other\nneedle 284\nneedle 285\nneedle 286 other\nneedle 287\nneedle 288\nneedle 289 other\nneedle 290\nneedle 291\nneedle 292 other\nneedle 293\nneedle 294\nneedle 295 other\nneedle 296\nneedle 297\nneedle 298 other\nneedle 299\nneedle 300\nneedle 301 other\nneedle 302\nneedle 303\nneedle 304 other\nneedle 305\nneedle 306\nneedle 307 other\nneedle 308\nneedle 309\nneedle 310 other\nneedle 311\nneedle 312\nneedle 313 other\nneedle 314\nneedle 315\nneedle 316 other\nneedle 317\nneedle 318\nneedle 319 other\nneedle 320\nneedle 321\nneedle 322 other\nneedle 323\nneedle 324\nneedle 325 other\nneedle 326\nneedle 327\nneedle 328 other\nneedle 329\nneedle 330\nneedle 331 other\nneedle 332\nneedle 333\nneedle 334 other\nneedle 335\nneedle 336\nneedle 337 other\nneedle 338\nneedle 339\nneedle 340 other\nneedle 341\nneedle 342\nneedle 343 other\nneedle 344\nneedle 345\nneedle 346 other\nneedle 347\nneedle 348\nneedle 349 other\nneedle 350\nneedle 351\nneedle 352 other\nneedle 353\nneedle 354\nneedle 355 other\nneedle 356\nneedle 357\nneedle 358 other\nneedle 359\nneedle 360\nneedle 361 other\nneedle 362\nneedle 363\nneedle 364 other\nneedle 365\nneedle 366\nneedle 367 other\nneedle 368\nneedle 369\nneedle 370 other\nneedle 371\nneedle 372\nneedle 373 other\nneedle 374\nneedle 375\nneedle 376 other\nneedle 377\nneedle 378\nneedle 379 other\nneedle 380\nneedle 381\nneedle 382 other\nneedle 383\nneedle 384\nneedle 385 other\nneedle 386\nneedle 387\nneedle 388 other\nneedle 389\nneedle 390\nneedle 391 other\nneedle 392\nneedle 393\nneedle 394 other\nneedle 395\nneedle 396\nneedle 397 other\nneedle 398\nneedle 399\nneedle 400 other\nneedle 401\nneedle 402\nneedle 403 other\nneedle 404\nneedle 405\nneedle 406 other\nneedle 407\nneedle 408\nneedle 409 other\nneedle 410\nneedle 411\nneedle 412 other\nneedle 413\nneedle 414\nneedle 415 other\nneedle 416\nneedle 417\nneedle 418 other\nneedle 419\nneedle 420\nneedle 421 other\nneedle 422\nneedle 423\nneedle 424 other\nneedle 425\nneedle 426\nneedle 427 other\nneedle 428\nneedle 429\nneedle 430 other\nneedle 431\nneedle 432\nneedle 433 other\nneedle 434\nneedle 435\nneedle 436 other\nneedle 437\nneedle 438\nneedle 439 other\nneedle 440\nneedle 441\nneedle 442 other\nneedle 443\nneedle 444\nneedle 445 other\nneedle 446\nneedle 447\nneedle 448 other\nneedle 449\nneedle 450\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# t/a.ts:1 [lines 1-2]\nneedle one\nother one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "t/a.ts\n  1: needle one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "mode": "files"
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "t/a.ts\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "mode": "count"
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "t/a.ts:1\n[1 shown, more exist; offset:1 for the rest]\n[total 1 match across 1 file]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": [
+          "t",
+          "u"
+        ],
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep t\nt/a.ts\n  1: needle one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep u\nu/d.ts\n  1: needle four\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 3,
+        "answered": 3,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": [
+          "t",
+          "u"
+        ]
+      },
+      "server": {
+        "afterFiles": 1
+      },
+      "text": "# grep t\n# t/a.ts:1 [lines 1-2]\nneedle one\nother one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep u\n# u/d.ts:1 [lines 1-1]\nneedle four\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 3,
+        "answered": 3,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "needle",
+          "other"
+        ],
+        "path": "t",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 2
+      },
+      "text": "# grep pattern:\"needle\"\nt/a.ts:1:needle one\nt/b.ts:1:needle two\n[2 shown, more exist; offset:2 for the rest]\n\n# grep pattern:\"other\"\nt/a.ts:2:other one\n[1 shown, more exist; offset:1 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "needle",
+          "other"
+        ],
+        "path": "t"
+      },
+      "server": {
+        "afterFiles": 2
+      },
+      "text": "# grep pattern:\"needle\"\n# t/a.ts:1 [lines 1-2]\nneedle one\nother one\n# t/b.ts:1 [lines 1-1]\nneedle two\n[2 shown, more exist; offset:2 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"other\"\n# t/a.ts:2 [lines 1-2]\nneedle one\nother one\n# t/c.ts:1 [lines 1-2]\nother three\nneedle three\n[2 shown, more exist; offset:2 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 3,
+        "answered": 3,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "server": {
+        "afterFiles": 0
+      },
+      "text": "(no matches in partial results)\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 0
+      },
+      "text": "[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": [
+          "t",
+          "u"
+        ],
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 0
+      },
+      "text": "# grep t\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep u\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 3,
+        "answered": 3,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "needle",
+          "other"
+        ],
+        "path": "t",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 0
+      },
+      "text": "# grep pattern:\"needle\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep pattern:\"other\"\n[0 shown, results partial; offset:0 beyond streamed window; narrow path/glob/pattern]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 4,
+        "answered": 4,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "many",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1000000
+      },
+      "text": "many/m.ts (250 hits)\n  1: needle 1 other\n  2: needle 2\n  3: needle 3\n  4: needle 4 other\n  5: needle 5\n  6: needle 6\n  7: needle 7 other\n  8: needle 8\n  9: needle 9\n  10: needle 10 other\n  11: needle 11\n  12: needle 12\n  13: needle 13 other\n  14: needle 14\n  15: needle 15\n  16: needle 16 other\n  17: needle 17\n  18: needle 18\n  19: needle 19 other\n  20: needle 20\n  21: needle 21\n  22: needle 22 other\n  23: needle 23\n  24: needle 24\n  25: needle 25 other\n  26: needle 26\n  27: needle 27\n  28: needle 28 other\n  29: needle 29\n  30: needle 30\n  31: needle 31 other\n  32: needle 32\n  33: needle 33\n  34: needle 34 other\n  35: needle 35\n  36: needle 36\n  37: needle 37 other\n  38: needle 38\n  39: needle 39\n  40: needle 40 other\n  41: needle 41\n  42: needle 42\n  43: needle 43 other\n  44: needle 44\n  45: needle 45\n  46: needle 46 other\n  47: needle 47\n  48: needle 48\n  49: needle 49 other\n  50: needle 50\n  51: needle 51\n  52: needle 52 other\n  53: needle 53\n  54: needle 54\n  55: needle 55 other\n  56: needle 56\n  57: needle 57\n  58: needle 58 other\n  59: needle 59\n  60: needle 60\n  61: needle 61 other\n  62: needle 62\n  63: needle 63\n  64: needle 64 other\n  65: needle 65\n  66: needle 66\n  67: needle 67 other\n  68: needle 68\n  69: needle 69\n  70: needle 70 other\n  71: needle 71\n  72: needle 72\n  73: needle 73 other\n  74: needle 74\n  75: needle 75\n  76: needle 76 other\n  77: needle 77\n  78: needle 78\n  79: needle 79 other\n  80: needle 80\n  81: needle 81\n  82: needle 82 other\n  83: needle 83\n  84: needle 84\n  85: needle 85 other\n  86: needle 86\n  87: needle 87\n  88: needle 88 other\n  89: needle 89\n  90: needle 90\n  91: needle 91 other\n  92: needle 92\n  93: needle 93\n  94: needle 94 other\n  95: needle 95\n  96: needle 96\n  97: needle 97 other\n  98: needle 98\n  99: needle 99\n  100: needle 100 other\n  101: needle 101\n  102: needle 102\n  103: needle 103 other\n  104: needle 104\n  105: needle 105\n  106: needle 106 other\n  107: needle 107\n  108: needle 108\n  109: needle 109 other\n  110: needle 110\n  111: needle 111\n  112: needle 112 other\n  113: needle 113\n  114: needle 114\n  115: needle 115 other\n  116: needle 116\n  117: needle 117\n  118: needle 118 other\n  119: needle 119\n  120: needle 120\n  121: needle 121 other\n  122: needle 122\n  123: needle 123\n  124: needle 124 other\n  125: needle 125\n  126: needle 126\n  127: needle 127 other\n  128: needle 128\n  129: needle 129\n  130: needle 130 other\n  131: needle 131\n  132: needle 132\n  133: needle 133 other\n  134: needle 134\n  135: needle 135\n  136: needle 136 other\n  137: needle 137\n  138: needle 138\n  139: needle 139 other\n  140: needle 140\n  141: needle 141\n  142: needle 142 other\n  143: needle 143\n  144: needle 144\n  145: needle 145 other\n  146: needle 146\n  147: needle 147\n  148: needle 148 other\n  149: needle 149\n  150: needle 150\n  151: needle 151 other\n  152: needle 152\n  153: needle 153\n  154: needle 154 other\n  155: needle 155\n  156: needle 156\n  157: needle 157 other\n  158: needle 158\n  159: needle 159\n  160: needle 160 other\n  161: needle 161\n  162: needle 162\n  163: needle 163 other\n  164: needle 164\n  165: needle 165\n  166: needle 166 other\n  167: needle 167\n  168: needle 168\n  169: needle 169 other\n  170: needle 170\n  171: needle 171\n  172: needle 172 other\n  173: needle 173\n  174: needle 174\n  175: needle 175 other\n  176: needle 176\n  177: needle 177\n  178: needle 178 other\n  179: needle 179\n  180: needle 180\n  181: needle 181 other\n  182: needle 182\n  183: needle 183\n  184: needle 184 other\n  185: needle 185\n  186: needle 186\n  187: needle 187 other\n  188: needle 188\n  189: needle 189\n  190: needle 190 other\n  191: needle 191\n  192: needle 192\n  193: needle 193 other\n  194: needle 194\n  195: needle 195\n  196: needle 196 other\n  197: needle 197\n  198: needle 198\n  199: needle 199 other\n  200: needle 200\n  201: needle 201\n  202: needle 202 other\n  203: needle 203\n  204: needle 204\n  205: needle 205 other\n  206: needle 206\n  207: needle 207\n  208: needle 208 other\n  209: needle 209\n  210: needle 210\n  211: needle 211 other\n  212: needle 212\n  213: needle 213\n  214: needle 214 other\n  215: needle 215\n  216: needle 216\n  217: needle 217 other\n  218: needle 218\n  219: needle 219\n  220: needle 220 other\n  221: needle 221\n  222: needle 222\n  223: needle 223 other\n  224: needle 224\n  225: needle 225\n  226: needle 226 other\n  227: needle 227\n  228: needle 228\n  229: needle 229 other\n  230: needle 230\n  231: needle 231\n  232: needle 232 other\n  233: needle 233\n  234: needle 234\n  235: needle 235 other\n  236: needle 236\n  237: needle 237\n  238: needle 238 other\n  239: needle 239\n  240: needle 240\n  241: needle 241 other\n  242: needle 242\n  243: needle 243\n  244: needle 244 other\n  245: needle 245\n  246: needle 246\n  247: needle 247 other\n  248: needle 248\n  249: needle 249\n  250: needle 250 other\n[250 shown, more exist; offset:250 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "many"
+      },
+      "server": {
+        "afterFiles": 1000000
+      },
+      "text": "# many/m.ts:1 [lines 1-266]\nneedle 1 other\nneedle 2\nneedle 3\nneedle 4 other\nneedle 5\nneedle 6\nneedle 7 other\nneedle 8\nneedle 9\nneedle 10 other\nneedle 11\nneedle 12\nneedle 13 other\nneedle 14\nneedle 15\nneedle 16 other\nneedle 17\nneedle 18\nneedle 19 other\nneedle 20\nneedle 21\nneedle 22 other\nneedle 23\nneedle 24\nneedle 25 other\nneedle 26\nneedle 27\nneedle 28 other\nneedle 29\nneedle 30\nneedle 31 other\nneedle 32\nneedle 33\nneedle 34 other\nneedle 35\nneedle 36\nneedle 37 other\nneedle 38\nneedle 39\nneedle 40 other\nneedle 41\nneedle 42\nneedle 43 other\nneedle 44\nneedle 45\nneedle 46 other\nneedle 47\nneedle 48\nneedle 49 other\nneedle 50\nneedle 51\nneedle 52 other\nneedle 53\nneedle 54\nneedle 55 other\nneedle 56\nneedle 57\nneedle 58 other\nneedle 59\nneedle 60\nneedle 61 other\nneedle 62\nneedle 63\nneedle 64 other\nneedle 65\nneedle 66\nneedle 67 other\nneedle 68\nneedle 69\nneedle 70 other\nneedle 71\nneedle 72\nneedle 73 other\nneedle 74\nneedle 75\nneedle 76 other\nneedle 77\nneedle 78\nneedle 79 other\nneedle 80\nneedle 81\nneedle 82 other\nneedle 83\nneedle 84\nneedle 85 other\nneedle 86\nneedle 87\nneedle 88 other\nneedle 89\nneedle 90\nneedle 91 other\nneedle 92\nneedle 93\nneedle 94 other\nneedle 95\nneedle 96\nneedle 97 other\nneedle 98\nneedle 99\nneedle 100 other\nneedle 101\nneedle 102\nneedle 103 other\nneedle 104\nneedle 105\nneedle 106 other\nneedle 107\nneedle 108\nneedle 109 other\nneedle 110\nneedle 111\nneedle 112 other\nneedle 113\nneedle 114\nneedle 115 other\nneedle 116\nneedle 117\nneedle 118 other\nneedle 119\nneedle 120\nneedle 121 other\nneedle 122\nneedle 123\nneedle 124 other\nneedle 125\nneedle 126\nneedle 127 other\nneedle 128\nneedle 129\nneedle 130 other\nneedle 131\nneedle 132\nneedle 133 other\nneedle 134\nneedle 135\nneedle 136 other\nneedle 137\nneedle 138\nneedle 139 other\nneedle 140\nneedle 141\nneedle 142 other\nneedle 143\nneedle 144\nneedle 145 other\nneedle 146\nneedle 147\nneedle 148 other\nneedle 149\nneedle 150\nneedle 151 other\nneedle 152\nneedle 153\nneedle 154 other\nneedle 155\nneedle 156\nneedle 157 other\nneedle 158\nneedle 159\nneedle 160 other\nneedle 161\nneedle 162\nneedle 163 other\nneedle 164\nneedle 165\nneedle 166 other\nneedle 167\nneedle 168\nneedle 169 other\nneedle 170\nneedle 171\nneedle 172 other\nneedle 173\nneedle 174\nneedle 175 other\nneedle 176\nneedle 177\nneedle 178 other\nneedle 179\nneedle 180\nneedle 181 other\nneedle 182\nneedle 183\nneedle 184 other\nneedle 185\nneedle 186\nneedle 187 other\nneedle 188\nneedle 189\nneedle 190 other\nneedle 191\nneedle 192\nneedle 193 other\nneedle 194\nneedle 195\nneedle 196 other\nneedle 197\nneedle 198\nneedle 199 other\nneedle 200\nneedle 201\nneedle 202 other\nneedle 203\nneedle 204\nneedle 205 other\nneedle 206\nneedle 207\nneedle 208 other\nneedle 209\nneedle 210\nneedle 211 other\nneedle 212\nneedle 213\nneedle 214 other\nneedle 215\nneedle 216\nneedle 217 other\nneedle 218\nneedle 219\nneedle 220 other\nneedle 221\nneedle 222\nneedle 223 other\nneedle 224\nneedle 225\nneedle 226 other\nneedle 227\nneedle 228\nneedle 229 other\nneedle 230\nneedle 231\nneedle 232 other\nneedle 233\nneedle 234\nneedle 235 other\nneedle 236\nneedle 237\nneedle 238 other\nneedle 239\nneedle 240\nneedle 241 other\nneedle 242\nneedle 243\nneedle 244 other\nneedle 245\nneedle 246\nneedle 247 other\nneedle 248\nneedle 249\nneedle 250 other\nneedle 251\nneedle 252\nneedle 253 other\nneedle 254\nneedle 255\nneedle 256 other\nneedle 257\nneedle 258\nneedle 259 other\nneedle 260\nneedle 261\nneedle 262 other\nneedle 263\nneedle 264\nneedle 265 other\nneedle 266\n[250 shown, more exist; offset:125 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "needle",
+          "other"
+        ],
+        "path": "many",
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1000000
+      },
+      "text": "# grep pattern:\"needle\"\nmany/m.ts:1:needle 1 other\nmany/m.ts:2:needle 2\nmany/m.ts:3:needle 3\nmany/m.ts:4:needle 4 other\nmany/m.ts:5:needle 5\nmany/m.ts:6:needle 6\nmany/m.ts:7:needle 7 other\nmany/m.ts:8:needle 8\nmany/m.ts:9:needle 9\nmany/m.ts:10:needle 10 other\nmany/m.ts:11:needle 11\nmany/m.ts:12:needle 12\nmany/m.ts:13:needle 13 other\nmany/m.ts:14:needle 14\nmany/m.ts:15:needle 15\nmany/m.ts:16:needle 16 other\nmany/m.ts:17:needle 17\nmany/m.ts:18:needle 18\nmany/m.ts:19:needle 19 other\nmany/m.ts:20:needle 20\nmany/m.ts:21:needle 21\nmany/m.ts:22:needle 22 other\nmany/m.ts:23:needle 23\nmany/m.ts:24:needle 24\nmany/m.ts:25:needle 25 other\nmany/m.ts:26:needle 26\nmany/m.ts:27:needle 27\nmany/m.ts:28:needle 28 other\nmany/m.ts:29:needle 29\nmany/m.ts:30:needle 30\nmany/m.ts:31:needle 31 other\nmany/m.ts:32:needle 32\nmany/m.ts:33:needle 33\nmany/m.ts:34:needle 34 other\nmany/m.ts:35:needle 35\nmany/m.ts:36:needle 36\nmany/m.ts:37:needle 37 other\nmany/m.ts:38:needle 38\nmany/m.ts:39:needle 39\nmany/m.ts:40:needle 40 other\nmany/m.ts:41:needle 41\nmany/m.ts:42:needle 42\nmany/m.ts:43:needle 43 other\nmany/m.ts:44:needle 44\nmany/m.ts:45:needle 45\nmany/m.ts:46:needle 46 other\nmany/m.ts:47:needle 47\nmany/m.ts:48:needle 48\nmany/m.ts:49:needle 49 other\nmany/m.ts:50:needle 50\nmany/m.ts:51:needle 51\nmany/m.ts:52:needle 52 other\nmany/m.ts:53:needle 53\nmany/m.ts:54:needle 54\nmany/m.ts:55:needle 55 other\nmany/m.ts:56:needle 56\nmany/m.ts:57:needle 57\nmany/m.ts:58:needle 58 other\nmany/m.ts:59:needle 59\nmany/m.ts:60:needle 60\nmany/m.ts:61:needle 61 other\nmany/m.ts:62:needle 62\nmany/m.ts:63:needle 63\nmany/m.ts:64:needle 64 other\nmany/m.ts:65:needle 65\nmany/m.ts:66:needle 66\nmany/m.ts:67:needle 67 other\nmany/m.ts:68:needle 68\nmany/m.ts:69:needle 69\nmany/m.ts:70:needle 70 other\nmany/m.ts:71:needle 71\nmany/m.ts:72:needle 72\nmany/m.ts:73:needle 73 other\nmany/m.ts:74:needle 74\nmany/m.ts:75:needle 75\nmany/m.ts:76:needle 76 other\nmany/m.ts:77:needle 77\nmany/m.ts:78:needle 78\nmany/m.ts:79:needle 79 other\nmany/m.ts:80:needle 80\nmany/m.ts:81:needle 81\nmany/m.ts:82:needle 82 other\nmany/m.ts:83:needle 83\nmany/m.ts:84:needle 84\nmany/m.ts:85:needle 85 other\nmany/m.ts:86:needle 86\nmany/m.ts:87:needle 87\nmany/m.ts:88:needle 88 other\nmany/m.ts:89:needle 89\nmany/m.ts:90:needle 90\nmany/m.ts:91:needle 91 other\nmany/m.ts:92:needle 92\nmany/m.ts:93:needle 93\nmany/m.ts:94:needle 94 other\nmany/m.ts:95:needle 95\nmany/m.ts:96:needle 96\nmany/m.ts:97:needle 97 other\nmany/m.ts:98:needle 98\nmany/m.ts:99:needle 99\nmany/m.ts:100:needle 100 other\nmany/m.ts:101:needle 101\nmany/m.ts:102:needle 102\nmany/m.ts:103:needle 103 other\nmany/m.ts:104:needle 104\nmany/m.ts:105:needle 105\nmany/m.ts:106:needle 106 other\nmany/m.ts:107:needle 107\nmany/m.ts:108:needle 108\nmany/m.ts:109:needle 109 other\nmany/m.ts:110:needle 110\nmany/m.ts:111:needle 111\nmany/m.ts:112:needle 112 other\nmany/m.ts:113:needle 113\nmany/m.ts:114:needle 114\nmany/m.ts:115:needle 115 other\nmany/m.ts:116:needle 116\nmany/m.ts:117:needle 117\nmany/m.ts:118:needle 118 other\nmany/m.ts:119:needle 119\nmany/m.ts:120:needle 120\nmany/m.ts:121:needle 121 other\nmany/m.ts:122:needle 122\nmany/m.ts:123:needle 123\nmany/m.ts:124:needle 124 other\nmany/m.ts:125:needle 125\nmany/m.ts:126:needle 126\nmany/m.ts:127:needle 127 other\nmany/m.ts:128:needle 128\nmany/m.ts:129:needle 129\nmany/m.ts:130:needle 130 other\nmany/m.ts:131:needle 131\nmany/m.ts:132:needle 132\nmany/m.ts:133:needle 133 other\nmany/m.ts:134:needle 134\nmany/m.ts:135:needle 135\nmany/m.ts:136:needle 136 other\nmany/m.ts:137:needle 137\nmany/m.ts:138:needle 138\nmany/m.ts:139:needle 139 other\nmany/m.ts:140:needle 140\nmany/m.ts:141:needle 141\nmany/m.ts:142:needle 142 other\nmany/m.ts:143:needle 143\nmany/m.ts:144:needle 144\nmany/m.ts:145:needle 145 other\nmany/m.ts:146:needle 146\nmany/m.ts:147:needle 147\nmany/m.ts:148:needle 148 other\nmany/m.ts:149:needle 149\nmany/m.ts:150:needle 150\nmany/m.ts:151:needle 151 other\nmany/m.ts:152:needle 152\nmany/m.ts:153:needle 153\nmany/m.ts:154:needle 154 other\nmany/m.ts:155:needle 155\nmany/m.ts:156:needle 156\nmany/m.ts:157:needle 157 other\nmany/m.ts:158:needle 158\nmany/m.ts:159:needle 159\nmany/m.ts:160:needle 160 other\nmany/m.ts:161:needle 161\nmany/m.ts:162:needle 162\nmany/m.ts:163:needle 163 other\nmany/m.ts:164:needle 164\nmany/m.ts:165:needle 165\nmany/m.ts:166:needle 166 other\nmany/m.ts:167:needle 167\nmany/m.ts:168:needle 168\nmany/m.ts:169:needle 169 other\nmany/m.ts:170:needle 170\nmany/m.ts:171:needle 171\nmany/m.ts:172:needle 172 other\nmany/m.ts:173:needle 173\nmany/m.ts:174:needle 174\nmany/m.ts:175:needle 175 other\nmany/m.ts:176:needle 176\nmany/m.ts:177:needle 177\nmany/m.ts:178:needle 178 other\nmany/m.ts:179:needle 179\nmany/m.ts:180:needle 180\nmany/m.ts:181:needle 181 other\nmany/m.ts:182:needle 182\nmany/m.ts:183:needle 183\nmany/m.ts:184:needle 184 other\nmany/m.ts:185:needle 185\nmany/m.ts:186:needle 186\nmany/m.ts:187:needle 187 other\nmany/m.ts:188:needle 188\nmany/m.ts:189:needle 189\nmany/m.ts:190:needle 190 other\nmany/m.ts:191:needle 191\n[output capped at 5 KB; 191 match row(s) shown; narrow: run one pattern/path per call, or add path/glob/type to cut the match set]",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "needle",
+          "other"
+        ],
+        "path": "many",
+        "context": 0,
+        "limit": 5,
+        "offset": 2
+      },
+      "server": {
+        "afterFiles": 1000000
+      },
+      "text": "# grep pattern:\"needle\"\nmany/m.ts:3:needle 3\nmany/m.ts:4:needle 4 other\nmany/m.ts:5:needle 5\nmany/m.ts:6:needle 6\nmany/m.ts:7:needle 7 other\n[5 shown, more exist; offset:7 for the rest]\n\n# grep pattern:\"other\"\nmany/m.ts:10:needle 10 other\nmany/m.ts:13:needle 13 other\nmany/m.ts:16:needle 16 other\nmany/m.ts:19:needle 19 other\n[5 shown, more exist; offset:7 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.",
+      "isError": false,
+      "searchServer": {
+        "requests": 1,
+        "answered": 1,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": [
+          "many",
+          "t"
+        ],
+        "context": 0
+      },
+      "server": {
+        "afterFiles": 1000000
+      },
+      "text": "# grep many\nmany/m.ts (250 hits)\n  1: needle 1 other\n  2: needle 2\n  3: needle 3\n  4: needle 4 other\n  5: needle 5\n  6: needle 6\n  7: needle 7 other\n  8: needle 8\n  9: needle 9\n  10: needle 10 other\n  11: needle 11\n  12: needle 12\n  13: needle 13 other\n  14: needle 14\n  15: needle 15\n  16: needle 16 other\n  17: needle 17\n  18: needle 18\n  19: needle 19 other\n  20: needle 20\n  21: needle 21\n  22: needle 22 other\n  23: needle 23\n  24: needle 24\n  25: needle 25 other\n  26: needle 26\n  27: needle 27\n  28: needle 28 other\n  29: needle 29\n  30: needle 30\n  31: needle 31 other\n  32: needle 32\n  33: needle 33\n  34: needle 34 other\n  35: needle 35\n  36: needle 36\n  37: needle 37 other\n  38: needle 38\n  39: needle 39\n  40: needle 40 other\n  41: needle 41\n  42: needle 42\n  43: needle 43 other\n  44: needle 44\n  45: needle 45\n  46: needle 46 other\n  47: needle 47\n  48: needle 48\n  49: needle 49 other\n  50: needle 50\n  51: needle 51\n  52: needle 52 other\n  53: needle 53\n  54: needle 54\n  55: needle 55 other\n  56: needle 56\n  57: needle 57\n  58: needle 58 other\n  59: needle 59\n  60: needle 60\n  61: needle 61 other\n  62: needle 62\n  63: needle 63\n  64: needle 64 other\n  65: needle 65\n  66: needle 66\n  67: needle 67 other\n  68: needle 68\n  69: needle 69\n  70: needle 70 other\n  71: needle 71\n  72: needle 72\n  73: needle 73 other\n  74: needle 74\n  75: needle 75\n  76: needle 76 other\n  77: needle 77\n  78: needle 78\n  79: needle 79 other\n  80: needle 80\n  81: needle 81\n  82: needle 82 other\n  83: needle 83\n  84: needle 84\n  85: needle 85 other\n  86: needle 86\n  87: needle 87\n  88: needle 88 other\n  89: needle 89\n  90: needle 90\n  91: needle 91 other\n  92: needle 92\n  93: needle 93\n  94: needle 94 other\n  95: needle 95\n  96: needle 96\n  97: needle 97 other\n  98: needle 98\n  99: needle 99\n  100: needle 100 other\n  101: needle 101\n  102: needle 102\n  103: needle 103 other\n  104: needle 104\n  105: needle 105\n  106: needle 106 other\n  107: needle 107\n  108: needle 108\n  109: needle 109 other\n  110: needle 110\n  111: needle 111\n  112: needle 112 other\n  113: needle 113\n  114: needle 114\n  115: needle 115 other\n  116: needle 116\n  117: needle 117\n  118: needle 118 other\n  119: needle 119\n  120: needle 120\n  121: needle 121 other\n  122: needle 122\n  123: needle 123\n  124: needle 124 other\n  125: needle 125\n  126: needle 126\n  127: needle 127 other\n  128: needle 128\n  129: needle 129\n  130: needle 130 other\n  131: needle 131\n  132: needle 132\n  133: needle 133 other\n  134: needle 134\n  135: needle 135\n  136: needle 136 other\n  137: needle 137\n  138: needle 138\n  139: needle 139 other\n  140: needle 140\n  141: needle 141\n  142: needle 142 other\n  143: needle 143\n  144: needle 144\n  145: needle 145 other\n  146: needle 146\n  147: needle 147\n  148: needle 148 other\n  149: needle 149\n  150: needle 150\n  151: needle 151 other\n  152: needle 152\n  153: needle 153\n  154: needle 154 other\n  155: needle 155\n  156: needle 156\n  157: needle 157 other\n  158: needle 158\n  159: needle 159\n  160: needle 160 other\n  161: needle 161\n  162: needle 162\n  163: needle 163 other\n  164: needle 164\n  165: needle 165\n  166: needle 166 other\n  167: needle 167\n  168: needle 168\n  169: needle 169 other\n  170: needle 170\n  171: needle 171\n  172: needle 172 other\n  173: needle 173\n  174: needle 174\n  175: needle 175 other\n  176: needle 176\n  177: needle 177\n  178: needle 178 other\n  179: needle 179\n  180: needle 180\n  181: needle 181 other\n  182: needle 182\n  183: needle 183\n  184: needle 184 other\n  185: needle 185\n  186: needle 186\n  187: needle 187 other\n  188: needle 188\n  189: needle 189\n  190: needle 190 other\n  191: needle 191\n  192: needle 192\n  193: needle 193 other\n  194: needle 194\n  195: needle 195\n  196: needle 196 other\n  197: needle 197\n  198: needle 198\n  199: needle 199 other\n  200: needle 200\n  201: needle 201\n  202: needle 202 other\n  203: needle 203\n  204: needle 204\n  205: needle 205 other\n  206: needle 206\n  207: needle 207\n  208: needle 208 other\n  209: needle 209\n  210: needle 210\n  211: needle 211 other\n  212: needle 212\n  213: needle 213\n  214: needle 214 other\n  215: needle 215\n  216: needle 216\n  217: needle 217 other\n  218: needle 218\n  219: needle 219\n  220: needle 220 other\n  221: needle 221\n  222: needle 222\n  223: needle 223 other\n  224: needle 224\n  225: needle 225\n  226: needle 226 other\n  227: needle 227\n  228: needle 228\n  229: needle 229 other\n  230: needle 230\n  231: needle 231\n  232: needle 232 other\n  233: needle 233\n  234: needle 234\n  235: needle 235 other\n  236: needle 236\n  237: needle 237\n  238: needle 238 other\n  239: needle 239\n  240: needle 240\n  241: needle 241 other\n  242: needle 242\n  243: needle 243\n  244: needle 244 other\n  245: needle 245\n  246: needle 246\n  247: needle 247 other\n  248: needle 248\n  249: needle 249\n  250: needle 250 other\n[250 shown, more exist; offset:250 for the rest]\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.\n\n# grep t\nt/a.ts\n[output capped at 5 KB; 252 match row(s) shown; narrow: run one pattern/path per call, or add path/glob/type to cut the match set]",
+      "isError": false,
+      "searchServer": {
+        "requests": 3,
+        "answered": 3,
+        "cancelled": 0,
+        "killed": false
+      }
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "needle",
+        "path": "t"
+      },
+      "server": {
+        "silent": true
+      },
+      "text": "Error: native content search timed out after 17500ms.",
+      "isError": true,
+      "searchServer": {
+        "requests": 1,
+        "answered": 0,
+        "cancelled": 1,
+        "killed": true
+      }
+    }
+  ]
+}

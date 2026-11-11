@@ -278,12 +278,27 @@ async fn replay_fs_search(scenario: &str) {
     // One instance of each tool for the whole scenario, as one Node process answered it; the arguments go in as
     // recorded and the failure flag is the tool's own outcome.
     let graph_cache = Arc::new(crate::code_graph::GraphCache::new(dir.path().join("graph-cache")));
+    // A recorded search deadline (`server`, the stand-in's script) is an input here too: the soft one passes after the
+    // same files (`deadline_script`), and the hard one on a timer the replay advances past it for a call whose server
+    // never answered (`silent`), as the recording advanced Node's.
+    let advanced = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let timer: super::SearchTimer = {
+        let advanced = advanced.clone();
+        Arc::new(move |_| {
+            let passed = advanced.load(std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move {
+                if !passed {
+                    std::future::pending::<()>().await;
+                }
+            })
+        })
+    };
     let tools: [(&str, Box<dyn Tool>); 7] = [
         ("edit", Box::new(EditTool::new())),
         ("list", Box::new(ListTool::new())),
         ("glob", Box::new(GlobTool::new())),
         ("find", Box::new(FindTool::new())),
-        ("grep", Box::new(GrepTool::new())),
+        ("grep", Box::new(GrepTool::with_timer(timer))),
         ("read", Box::new(ReadTool::new(None, resizer))),
         ("code_graph", Box::new(crate::code_graph::CodeGraphTool::new(Arc::new(NoRoots), graph_cache.clone()))),
     ];
@@ -301,8 +316,21 @@ async fn replay_fs_search(scenario: &str) {
     }
     let mut failures = Vec::new();
     for (index, call) in fixture["calls"].as_array().unwrap().iter().enumerate() {
+        use mixdog_workspace::localfs::deadline_script::Script;
         let tool = call["tool"].as_str().unwrap();
+        let script = call.get("server").map(|server| match server["afterFiles"].as_u64() {
+            Some(n) => Script::AfterFiles(n as usize),
+            None => Script::Silent,
+        });
+        mixdog_workspace::localfs::deadline_script::set(&ws, script);
+        advanced.store(matches!(script, Some(Script::Silent)), std::sync::atomic::Ordering::SeqCst);
         let (is_error, text) = recorded_form(tool_of(tool).call(&ctx, args_of(&call["input"])).await);
+        mixdog_workspace::localfs::deadline_script::set(&ws, None);
+        // Every search of the call has ended and been joined, a timed-out one included.
+        let live = mixdog_workspace::localfs::probe::live_under(&ws);
+        if live != 0 {
+            failures.push(format!("#{index} {tool}: {live} search(es) still running after the call"));
+        }
         // An error message names the workspace behind the prefix it lies under (home, data dir); the recording's
         // workspace lay under none, so that spelling is the workspace too. A rich answer's JSON escapes backslashes.
         let redacted = super::read_paths::redact(&fwd, None);
@@ -530,6 +558,15 @@ async fn grep_over_several_paths_budgets_and_caps_as_node_does() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grep_renders_as_node_does() {
     replay_fs_search("grep-render").await;
+}
+
+/// A search that reaches its deadline, the deadline an input as it was in the recording: the soft one passing after a
+/// given number of files with matches (one path, several paths, several patterns, before any line, after more lines than
+/// the window holds) keeps what was found, with Node's partial notices and warning, a combined pattern scan keeping its
+/// sections; the hard one, on a search that never answers, fails the call. No search of a call runs once it returns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn grep_answers_a_search_past_its_deadline_as_node_does() {
+    replay_fs_search("grep-timeout").await;
 }
 
 /// A grep over far more matches than its window: the scan produces exactly the anchor stream's bound (`limit: 10`:

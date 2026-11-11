@@ -4,7 +4,7 @@
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
   ],
-  "fileCount": 27,
+  "fileCount": 28,
   "files": [
     {
       "bytes": 5739,
@@ -102,6 +102,11 @@
       "sha256": "84e06e0ef38cb9f7f0b93f0105b6f549636cc1198b49b2eb47bd42d3cdd8c954"
     },
     {
+      "bytes": 36730,
+      "path": "grep-timeout.json",
+      "sha256": "1936ba55fefd6639e2c4dda105d578ac53e7a02f729f60256319ccf02b5a418d"
+    },
+    {
       "bytes": 8255,
       "path": "list-glob-path.json",
       "sha256": "4ae556f6f41553e83c040e1139960eeacdff6894d301142a0d6bdbcd21090300"
@@ -137,9 +142,9 @@
       "sha256": "a1c9ffae807ab9945dd4a6035884b33b3cb27081b671319c42968957b632cfd1"
     },
     {
-      "bytes": 21219,
+      "bytes": 21325,
       "path": "read-shapes.json",
-      "sha256": "98917147ae1d97f85bac27117b67e669ef1aa72647393b660717eed5d022acae"
+      "sha256": "9f92c6db24533d394e3f15177f7effad16c8f20ac6caae2770a9ddc248ab482f"
     }
   ],
   "graphBinary": {
@@ -202,7 +207,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "6fb2cd032be99f17046e5c7b933dd055433cb3cdc0fdd49923232bb110e54f8d",
+  "recorderSha256": "b3f2e1de91d4b61d9ea82414ca6c6b1897aad1e04c49515cd56aa7808d099a11",
   "scenarios": [
     "read-modes",
     "read-shapes",
@@ -230,8 +235,9 @@
     "code-graph-self-case",
     "grep-path-budget",
     "grep-render",
+    "grep-timeout",
     "path-arg-shapes"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 2580007
+  "totalBytes": 2616843
 }

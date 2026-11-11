@@ -92,6 +92,9 @@ const SCENARIOS = [
       'UPPER.IPYNB': notebook([{ cell_type: 'markdown', metadata: {}, source: ['upper'] }]),
       'a.txt': Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n') + '\n',
     },
+    // The `n*.ipynb` reads expand through the glob tool (glob-survey.mjs globMatches), which reads a failed or late
+    // search server as no match; the warmup starts the server first.
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
     calls: [
       { tool: 'read', input: { path: 'nb.ipynb' } },
       { tool: 'read', input: { path: 'nb.ipynb', full: true } },
@@ -773,6 +776,54 @@ const SCENARIOS = [
       ],
     }];
   })(),
+  // A search that reaches its deadline. The search binary is the stand-in (lib/search-server-standin.mjs) over the real
+  // server, told each call's deadline (`server`): `afterFiles` is the server's soft deadline passing once that many files
+  // with lines were scanned (it answers what it found: `partial`, `timeout`); `silent` is a server that never answers,
+  // left to the client's own deadline timer (native-search-client.mjs `requestNative`), which the recording advances on
+  // Node's mock clock. Each call also records what the client did to the server (`searchServer`).
+  ...(() => {
+    const at = (afterFiles) => ({ afterFiles });
+    const all = at(1_000_000);
+    const calls = [
+      // One scan: the lines found, the partial warning.
+      [{ pattern: 'needle', path: 't' }, at(1)],
+      [{ pattern: 'needle', path: 't', context: 0 }, at(1)],
+      [{ pattern: 'needle', path: 't', mode: 'files' }, at(1)],
+      [{ pattern: 'needle', path: 't', mode: 'count' }, at(1)],
+      // Several paths: the combined scan, then each path's own.
+      [{ pattern: 'needle', path: ['t', 'u'], context: 0 }, at(1)],
+      [{ pattern: 'needle', path: ['t', 'u'] }, at(1)],
+      // Several patterns: the combined scan (explicit context) or the prefilter and each pattern's own.
+      [{ pattern: ['needle', 'other'], path: 't', context: 0 }, at(2)],
+      [{ pattern: ['needle', 'other'], path: 't' }, at(2)],
+      // The deadline before any line.
+      [{ pattern: 'needle', path: 't' }, at(0)],
+      [{ pattern: 'needle', path: 't', context: 0 }, at(0)],
+      [{ pattern: 'needle', path: ['t', 'u'], context: 0 }, at(0)],
+      [{ pattern: ['needle', 'other'], path: 't', context: 0 }, at(0)],
+      // The deadline after more lines than the scan collects.
+      [{ pattern: 'needle', path: 'many', context: 0 }, all],
+      [{ pattern: 'needle', path: 'many' }, all],
+      [{ pattern: ['needle', 'other'], path: 'many', context: 0 }, all],
+      [{ pattern: ['needle', 'other'], path: 'many', context: 0, limit: 5, offset: 2 }, all],
+      [{ pattern: 'needle', path: ['many', 't'], context: 0 }, all],
+      // A server that never answers: the client's deadline, its cancel, and the kill after the cancel grace.
+      [{ pattern: 'needle', path: 't' }, { silent: true }],
+    ];
+    return [{
+      name: 'grep-timeout',
+      standin: true,
+      files: {
+        't/a.ts': 'needle one\nother one\n',
+        't/b.ts': 'needle two\n',
+        't/c.ts': 'other three\nneedle three\n',
+        'u/d.ts': 'needle four\n',
+        'many/m.ts': `${Array.from({ length: 450 }, (_, i) => `needle ${i + 1}${i % 3 === 0 ? ' other' : ''}`).join('\n')}\n`,
+      },
+      warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+      calls: calls.map(([input, server]) => ({ tool: 'grep', input, server })),
+    }];
+  })(),
   // Every non-string path shape at each path-taking tool (arg-guard.mjs validateBuiltinArgs: null dropped, a blank optional
   // path dropped, a path array flattened one level with blank entries dropped and removed when nothing is left, then the
   // tool's guard; `grep` keeps a path array as its scopes; `edit` (`file_path`) has no guard; code_graph is answered by
@@ -822,6 +873,87 @@ const deadline = (promise, ms, what) => {
   return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms); })]).finally(() => clearTimeout(timer));
 };
 
+const STANDIN_WAIT_MS = 60_000;
+
+/** The search binary becomes the stand-in (lib/search-server-standin.mjs) over `realBin`; returns its control: the
+ *  events it reported, `script(s)` (sets the deadline of the next searches) and `until(name, from)`. */
+async function startStandin(realBin) {
+  const { createServer } = await import('node:net');
+  const { createInterface } = await import('node:readline');
+  const pipe = `\\\\.\\pipe\\mixdog-fs-search-standin-${process.pid}`;
+  // Captured before the silent call mocks Node's timers: every wait on the stand-in has one bound on the real clock.
+  const { setTimeout: realSetTimeout, clearTimeout: realClearTimeout } = globalThis;
+  const events = [];
+  let control = null;
+  let wake = () => {};
+  const push = (event) => {
+    events.push(event);
+    wake();
+  };
+  await new Promise((resolve, reject) => {
+    createServer((socket) => {
+      control = socket;
+      createInterface({ input: socket }).on('line', (line) => push(JSON.parse(line)));
+      socket.on('close', () => push({ event: 'closed' }));
+    })
+      .on('error', reject)
+      .listen(pipe, resolve);
+  });
+  Object.assign(process.env, {
+    STANDIN_PIPE: pipe,
+    STANDIN_REAL_BIN: realBin,
+    MIXDOG_SEARCH_SERVER_BIN: process.execPath,
+    NODE_OPTIONS: `--import=${pathToFileURL(join(dirname(SELF), 'lib', 'search-server-standin.mjs')).href}`,
+  });
+  // The first event named `name` the stand-in reported since `from`; a stand-in that does not report it within
+  // STANDIN_WAIT_MS fails the recording, naming the event.
+  const until = async (name, from) => {
+    let timer;
+    const expired = new Promise((_, reject) => {
+      timer = realSetTimeout(() => reject(new Error(`the search stand-in did not report "${name}" within ${STANDIN_WAIT_MS} ms`)), STANDIN_WAIT_MS);
+    });
+    try {
+      for (;;) {
+        const hit = events.slice(from).find((e) => e.event === name);
+        if (hit) return hit;
+        await Promise.race([new Promise((resolve) => { wake = resolve; }), expired]);
+      }
+    } finally {
+      realClearTimeout(timer);
+    }
+  };
+  return {
+    events,
+    until,
+    async script(script) {
+      const from = events.length;
+      control.write(`${JSON.stringify(script)}\n`);
+      await until('script', from);
+    },
+  };
+}
+
+/** A grep against a server that never answers, on Node's mock clock: once the request reached the server the clock
+ *  passes the client's deadline (native-search-client.mjs REQUEST_TIMEOUT_MS; with the clock frozen no search budget
+ *  was spent before it), then, once the client sent its cancel, the cancel grace (CANCEL_GRACE_MS), after which the
+ *  client ends the server; the call's answer is returned once the server is gone. */
+async function silentServerCall(run, standin, from) {
+  const { mock } = await import('node:test');
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse(FIXED) });
+  try {
+    const answer = run();
+    await standin.until('request', from);
+    mock.timers.tick(17_500);
+    const raw = await answer;
+    await standin.until('cancel', from);
+    mock.timers.tick(1_000);
+    await standin.until('closed', from);
+    return raw;
+  } finally {
+    mock.timers.reset();
+  }
+}
+
 if (process.argv[2] === '--child') {
   const tree = process.env.RECORDER_TREE;
   const ws = process.env.RECORDER_WORKSPACE;
@@ -868,6 +1000,7 @@ if (process.argv[2] === '--child') {
   // A rich answer is its JSON text, where the workspace's backslashes are escaped.
   const scrub = (text) => String(text).replaceAll(JSON.stringify(ws).slice(1, -1), '<ROOT>').replaceAll(ws, '<ROOT>').replaceAll(fwd, '<ROOT>');
   const cwd = scenario.cwd ? join(ws, scenario.cwd) : ws;
+  const standin = scenario.standin ? await startStandin(process.env.MIXDOG_GRAPH_BIN) : null;
   // Unrecorded calls first: the search server's first start can miss Node's 1 s readiness bound, which is a cold-start
   // artefact of the recording machine, not an answer.
   for (const call of scenario.warmup ?? []) {
@@ -882,8 +1015,11 @@ if (process.argv[2] === '--child') {
   for (const call of scenario.calls) {
     const input = JSON.parse(JSON.stringify(call.input).replaceAll('<ROOT>', fwd).replaceAll('<ROOTW>', JSON.stringify(ws).slice(1, -1)));
     let outcome;
+    const from = standin?.events.length ?? 0;
+    if (call.server) await standin.script(call.server);
     try {
-      const raw = call.tool === 'code_graph' ? await executeCodeGraphTool('code_graph', input, cwd) : await executeBuiltinTool(call.tool, input, cwd);
+      const run = () => (call.tool === 'code_graph' ? executeCodeGraphTool('code_graph', input, cwd) : executeBuiltinTool(call.tool, input, cwd));
+      const raw = call.server?.silent ? await silentServerCall(run, standin, from) : await run();
       const env = normalizeToolEnvelope(raw);
       const text = typeof env.result === 'string' ? env.result : JSON.stringify(env.result ?? '');
       // Node's outcome of the call: an explicit failure, or a text its one classifier calls an error (a navigation miss
@@ -893,7 +1029,20 @@ if (process.argv[2] === '--child') {
     } catch (error) {
       outcome = { thrown: scrub(String(error?.message ?? error)) };
     }
-    calls.push({ tool: call.tool, input: call.input, ...outcome });
+    if (call.server) {
+      // The control pipe is ordered: once the stand-in acknowledges a script sent now, every report it made before is in.
+      if (!call.server.silent) await standin.script(call.server);
+      const seen = standin.events.slice(from);
+      const count = (name) => seen.filter((e) => e.event === name).length;
+      outcome.searchServer = {
+        requests: count('request'),
+        answered: count('answer'),
+        cancelled: count('cancel'),
+        // The control pipe closed without the stand-in's own exit report: the process was killed.
+        killed: count('closed') > 0 && count('stdin-end') === 0,
+      };
+    }
+    calls.push({ tool: call.tool, input: call.input, ...(call.server ? { server: call.server } : {}), ...outcome });
   }
   // The resize service's replies, from the module the extension host answers with, on the original image bytes.
   let resizer;
