@@ -16,7 +16,7 @@ const rec = await startRecording({
     'non-streaming-*': 'RUST WORK: no public Rust function takes a non-streaming chat response (looked in providers/compat/chat/decode.rs: pub items are ChatDecoder and usage_from only)',
   },
   set: 'provider-openai-compat-stream-lifecycle',
-  entry: 'src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs consumeCompatChatCompletionStream / consumeCompatResponsesStream(stream, opts), retry-classifier.mjs classifyError, lib/stream-outcome.mjs readStreamOutcome, openai-compat-response-normalization.mjs normalizeCompatChatResponse. A stream is an async iterable over the recorded `events` (a `throws` entry makes the iterator throw it).',
+  entry: 'src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs consumeCompatChatCompletionStream / consumeCompatResponsesStream(stream, opts), retry-classifier.mjs classifyError, lib/stream-outcome.mjs readStreamOutcome, openai-compat-response-normalization.mjs normalizeCompatChatResponse. The malformed-frame cases and the in-band error, cancel and idle cases are WIRE (the provider send against the loopback endpoint); the other cases hand the consumer an async iterable over the recorded `events`.',
   compare: 'WIRE cases (in-band error frames, cancel, idle: the `requests` array holds the request as it arrived; `clock` the ordered virtual-clock steps, retry backoffs included): serve each case\'s frames from a loopback endpoint through the Rust provider send and compare `error` whole (every own property), `outcome` and `classification`. PURE cases (decoder-only): feed `input.events` (chat chunks or Responses events, each as one SSE `data:` unit) to the named public decoder and compare the error / typed interruption it returns; `levels` in this manifest names the Rust function per case.',
   replay: "WIRE: mixdog_ai provider send (ModelBroker::send, mixdog-ai/src/broker/send.rs:75, with the compat adapter providers/compat/adapter.rs:63) against a loopback endpoint; PURE: the public decoders named per case in `levels`: mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub, re-exported at compat/chat/mod.rs:18; feed :578, finish :601, with_known_tools :224); mixdog-ai/src/providers/openai/decoder.rs:140 ResponsesDecoder (pub mod decoder; new :408, with_label :724, compat_events :734, feed/finish in `impl WireDecoder` :1362). The non-streaming normalizer case is Rust work: compat/chat/decode.rs exposes only the streaming ChatDecoder (+ `usage_from` :99), no public function turns an already assembled non-streaming chat response into a typed result.",
 });
@@ -91,15 +91,20 @@ await rec.run('non-streaming-network-error-never-normalizes-to-success', `${SRC}
     return { error };
   }
 });
-for (const { name, consume, event } of protocols) {
+// The malformed frames are SERVED: the endpoint writes the invalid JSON as an SSE data frame and the real provider (real SDK client, real send) reads it from the socket; the Node test hands the
+// consumer a constructed stream that throws the JSON.parse error, the recording shows what the product does with the bytes.
+const wireFrame = (name, event) => (name === 'Responses' ? `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n` : `data: ${JSON.stringify(event)}\n\n`);
+const serveRaw = (chunks) => { rec.net.reply = () => ({ status: 200, contentType: 'text/event-stream', chunks }); };
+for (const { name, event } of protocols) {
   const slug = name.split(' ')[0].toLowerCase();
-  await rec.run(`${slug}-malformed-json-frame-typed-with-exposure`, `${SRC}:213`, { label: 'gateway', events: [event], then: "JSON.parse('{\"choices\": [')" }, async () => {
-    const stream = { async *[Symbol.asyncIterator]() { yield event; JSON.parse('{"choices": ['); } };
-    return rejection(consume(stream, { label: 'gateway', providerName: 'gateway', onTextDelta() {}, parseToolCalls: () => [] }));
+  const malformedWithOutput = '{"choices": [';
+  await rec.run(`${slug}-malformed-json-frame-typed-with-exposure`, `${SRC}:213`, { label: name, served: [event, { rawDataFrame: malformedWithOutput }] }, async () => {
+    serveRaw([wireFrame(name, event), `data: ${malformedWithOutput}\n\n`]);
+    return rec.clock.followRetries(rejection(sendOver(name, {})));
   });
-  await rec.run(`${slug}-malformed-json-before-output-replay-safe`, `${SRC}:234`, { label: 'gateway', events: [], then: "JSON.parse('not json')" }, async () => {
-    const stream = { async *[Symbol.asyncIterator]() { JSON.parse('not json'); } };
-    return rejection(consume(stream, { label: 'gateway', providerName: 'gateway' }));
+  await rec.run(`${slug}-malformed-json-before-output-replay-safe`, `${SRC}:234`, { label: name, served: [{ rawDataFrame: 'not json' }] }, async () => {
+    serveRaw(['data: not json\n\n']);
+    return rec.clock.followRetries(rejection(sendOver(name, {})));
   });
 }
 await rec.run('responses-failure-constructors-carry-the-provider-label', `${SRC}:246`, { label: 'custom-gw:responses' }, async () => {
