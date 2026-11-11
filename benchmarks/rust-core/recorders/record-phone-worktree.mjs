@@ -527,6 +527,18 @@ function noteRevision(frame, ctx) {
   if (Number.isSafeInteger(revision)) ctx.revision = revision;
 }
 
+/** The ordered input before each case: three times every session's pass marked (a daemon-wide change) and the clock moved 1 s - past
+ *  the scheduler's settle beat and minimum interval (session-status-scheduler.mjs:14-18). Two passes settle the context windows: the
+ *  first publishes the route's window with the display fields 0 (`routeState` keeps them only for an unchanged window,
+ *  context-state.mjs:102-114), the second keeps the display fields `syncContextStats` filled; the third publishes nothing more. Before
+ *  and after it the control session's and the project session's snapshot are read (getWorktreeSettings): the first read opens a
+ *  runtime not open yet, the second makes the host hold what the daemon does. */
+const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
+
+/** The read after a case's after-call order: the snapshot of the session the case named (the control session's for none); the replay
+ *  makes it too, so it is set before the replay runs. */
+const settledRead = (sent) => ({ capability: STATUS_SETTLE.read, args: [], ...(sent.sessionId ? { sessionId: sent.sessionId } : {}) });
+
 if (REPLAY) process.exit(await replay(REPLAY));
 
 // ── Node's host ──
@@ -548,22 +560,11 @@ const { createRemoteMethods, executeRemoteFrame } = await importFrom(tree, 'apps
 const statusClock = { dir: join(WORK, 'status-clock'), sent: 0, markers: [], waiters: new Set() };
 /** The frame type that ends an order on every stream (status-clock-preload.mjs `MARKER`). */
 const STATUS_MARKER = 'rec-status-clock';
-/** The ordered input before each case: three times every session's pass marked (a daemon-wide change) and the clock moved 1 s - past
- *  the scheduler's settle beat and minimum interval (session-status-scheduler.mjs:14-18). Two passes settle the context windows: the
- *  first publishes the route's window with the display fields 0 (`routeState` keeps them only for an unchanged window,
- *  context-state.mjs:102-114), the second keeps the display fields `syncContextStats` filled; the third publishes nothing more. Before
- *  and after it the control session's and the project session's snapshot are read (getWorktreeSettings): the first read opens a
- *  runtime not open yet, the second makes the host hold what the daemon does. */
-const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
-
 /** The snapshot fields Node fills on its status pass (manifest `settledStatus`). */
 const SETTLED_FIELDS = ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd', 'workspace'];
 /** The snapshot fields a call moves that Node shows only after its answer, which the core may show in the answer already (manifest
  *  `fasterInCore`): the status fields above and `setupChanged`, which Node moves on its config watch. */
 const FASTER_FIELDS = [...SETTLED_FIELDS, 'setupChanged'];
-
-/** The read after a case's after-call order: the snapshot of the session the case named (the control session's for none). */
-const settledRead = (sent) => ({ capability: STATUS_SETTLE.read, args: [], ...(sent.sessionId ? { sessionId: sent.sessionId } : {}) });
 
 async function settleStatus(pid) {
   statusClock.sent += 1;
@@ -835,7 +836,10 @@ function fasterAs(frame, expected, fields) {
   if (!core || !node || !later) return frame;
   const snapshot = { ...core };
   for (const field of fields) {
-    if (!isDeepStrictEqual(snapshot[field], node[field]) && isDeepStrictEqual(snapshot[field], later[field])) snapshot[field] = node[field];
+    if (isDeepStrictEqual(snapshot[field], node[field]) || !isDeepStrictEqual(snapshot[field], later[field])) continue;
+    // A field Node's answer did not hold yet is absent from it, not present as undefined.
+    if (Object.hasOwn(node, field)) snapshot[field] = node[field];
+    else delete snapshot[field];
   }
   return { ...frame, value: { ...frame.value, snapshot } };
 }
