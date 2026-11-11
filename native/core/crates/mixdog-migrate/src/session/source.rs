@@ -868,6 +868,20 @@ fn released_entries(raw: Option<&RawValue>) -> serde_json::Result<HashMap<String
     }
 }
 
+/// The session ids of a worker index's rows (`agent-workers.json`, `lead-workers.json`); none when it does not parse. Node lists
+/// a row whose session has no record with a null header (`store-agent-worker-rows.mjs:615`), so each is a session of its own.
+pub fn worker_row_session_ids(bytes: &[u8]) -> Vec<String> {
+    let Some(workers) = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str::<Workers<'_>>(text).ok()) else {
+        return Vec::new();
+    };
+    worker_rows(workers.workers)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|raw| json::parse_source(raw.get().as_bytes()).ok())
+        .filter_map(|row| row.value.get("sessionId").and_then(Value::as_str).filter(|id| is_session_id(id)).map(str::to_owned))
+        .collect()
+}
+
 /// What a shared file names: the session ids (`sessions` keys of a spool; `sessionId` of
 /// worker rows and tombstones; keys of the release markers) and the tombstones without a
 /// `sessionId`, whose session `recover_owner` finds. `None` when the file does not parse.
@@ -1272,8 +1286,12 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
     let ckpt_header = read(format!("turn-checkpoints/{id}.json"))?;
     let ckpt_journal = read(format!("turn-checkpoints/{id}.jsonl"))?;
 
-    let (mut header, mut messages) =
-        header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?;
+    // A session only a worker index row names (`worker_row_session_ids`) has no record: Node reads its header as null.
+    let (mut header, mut messages) = if item.sources.is_empty() {
+        (Header::new(), Vec::new())
+    } else {
+        header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?
+    };
 
     let (archive_rows, superseded) =
         archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced)?;
@@ -1327,4 +1345,38 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         superseded_jobs: superseded,
         replaced_surrogates: replaced,
     })
+}
+
+#[cfg(test)]
+mod worker_index_tests {
+    use super::*;
+
+    /// Worker indexes Node's own code wrote (the stores of `fixtures/store-agent-worker-pool-cases`, recorded by
+    /// `record-store-agent-worker-pool-cases.mjs` from Node's tests): case 0's is an id-keyed map, case 2's a list. The
+    /// rows each names are read off the parsed file: a list's in its order, a map's by sorted key.
+    #[test]
+    fn a_worker_index_names_its_rows_sessions_as_a_list_or_as_a_map() {
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/store-agent-worker-pool-cases/golden.json")).unwrap();
+        for (case, shape) in [(0, "map"), (2, "list")] {
+            let text = golden["cases"][case]["observed"]["store"][AGENT_WORKERS].as_str().unwrap();
+            let parsed: Value = serde_json::from_str(text).unwrap();
+            let want: Vec<String> = match &parsed["workers"] {
+                Value::Array(rows) => {
+                    assert_eq!(shape, "list");
+                    rows.iter().map(|row| row["sessionId"].as_str().unwrap().to_owned()).collect()
+                }
+                Value::Object(rows) => {
+                    assert_eq!(shape, "map");
+                    let mut keyed: Vec<(&String, &Value)> = rows.iter().collect();
+                    keyed.sort_by(|a, b| a.0.cmp(b.0));
+                    keyed.into_iter().map(|(_, row)| row["sessionId"].as_str().unwrap().to_owned()).collect()
+                }
+                other => panic!("case {case}: workers is {other}"),
+            };
+            assert!(!want.is_empty(), "case {case}");
+            assert_eq!(worker_row_session_ids(text.as_bytes()), want, "case {case} ({shape}): the rows' sessions");
+            let (named, _) = shared_session_ids(AGENT_WORKERS, text.as_bytes()).expect("the index parses");
+            assert_eq!(named[..want.len()], want[..], "case {case} ({shape}): the sessions the shared file names");
+        }
+    }
 }
