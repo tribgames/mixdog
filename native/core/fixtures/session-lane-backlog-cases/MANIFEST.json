@@ -2,6 +2,7 @@
   "cases": 1,
   "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-lane-backlog-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
+    "hops": "The SSE response is a scripted writer: every write the real session frame stream makes is recorded whole, in order (the wire text); the decoder parses the data events from those writes.",
     "notRun": "no HTTP server; the stream's interval timer is the mocked one",
     "runs": "createSessionFrameStream (attachSse, broadcast, drain handling) with a scripted SSE response (EventEmitter; the first write returns true, later ones false when more than one string has been written), the snapshot delta encoder/decoder"
   },
@@ -63,7 +64,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-lane-backlog-cases.mjs",
-  "recorderSha256": "a26ff7f18a127eb0dbc513e9f722af1035392fa244799bf5331cbd344be0d32d",
+  "recorderSha256": "7a65d6fad9e92595fc16b7e24d968c9b889163077a3db1ec9faafcf632b42370",
   "replay": {
     "compare": "mixdog-app-server thread feed (SSE frame stream under backlog): replay attach, the two session-state broadcasts and the drain; compare the writes in order, whole, and that each data event decodes to the recorded snapshot",
     "entry": "NO RUST ENTRY ON o1: the session frame stream (attachSse, broadcast, drain, maxPendingBytes): no counterpart found.",
