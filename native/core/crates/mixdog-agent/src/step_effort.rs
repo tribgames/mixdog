@@ -118,10 +118,19 @@ impl Run {
             return Ok(());
         }
         if !pending.task.0.is_finished() {
-            match mixdog_rt::Scope::new().cancel(&cancel).within(STEP_EFFORT_GRACE).run(&mut pending.task.0).await {
-                mixdog_rt::Scoped::Cancelled => return Err(AgentError::Aborted),
-                // A judge that panicked or was stopped leaves the step unmarked.
-                mixdog_rt::Scoped::Done(_) | mixdog_rt::Scoped::DeadlineExceeded => {}
+            // The grace runs on the host's timer (`RunEnv::waiter`), so a test moves it explicitly.
+            let waiter = self.env.waiter.clone();
+            let judged = &mut pending.task.0;
+            let grace = async move {
+                tokio::select! {
+                    biased;
+                    // A judge that panicked or was stopped leaves the step unmarked.
+                    _ = judged => {}
+                    () = waiter.wait(STEP_EFFORT_GRACE) => {}
+                }
+            };
+            if mixdog_rt::Scope::new().cancel(&cancel).run(grace).await.done().is_none() {
+                return Err(AgentError::Aborted);
             }
         }
         pending.sent = true;

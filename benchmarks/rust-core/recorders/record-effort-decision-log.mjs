@@ -81,6 +81,9 @@ const legacyLines = [
   `${JSON.stringify(step(11, 31, 1, { skipped: 'busy' }))}\r`,
   JSON.stringify(step(11, 32, 2, { skipped: 'busy', model: 'é' })),
   JSON.stringify(turn(9, 33, answered('high', 80))),
+  // Diagnostic text cut inside a surrogate pair: JSON.stringify writes the lone half as `\udxxx`.
+  JSON.stringify(turn(11, 34, { skipped: 'load-error: model.onnx: \ud83d' })),
+  JSON.stringify(step(11, 35, 3, { provider: 'custom:\ud800', base: 'low\udfff', ...answered('high', 90) })),
 ];
 const legacyFile = Buffer.concat([
   Buffer.from(lines(legacyLines)),

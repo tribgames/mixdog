@@ -16,7 +16,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use mixdog_js::{utf16_len, value_to_string};
+use mixdog_js::{json_parsed_from_utf16, json_parsed_utf16, json_stringify_indent_parsed, value_to_string};
 use mixdog_rt::InLane;
 use mixdog_statefile::WriteLane;
 use serde_json::Value;
@@ -32,19 +32,23 @@ fn ms_bucket(ms: f64) -> String {
     MS_BUCKETS.iter().find(|limit| ms < **limit).map_or_else(|| "from500".to_owned(), |limit| format!("under{limit}"))
 }
 
+// Every text here is parsed text (`mixdog_js::json_parse`): a lone surrogate a line holds (Node writes
+// one for an error message cut inside a pair) stays the UTF-16 unit JavaScript compares, cuts and writes.
+
 /// JavaScript's `<` on strings: UTF-16 code units.
 fn js_cmp(a: &str, b: &str) -> Ordering {
-    a.encode_utf16().cmp(b.encode_utf16())
+    json_parsed_utf16(a).cmp(&json_parsed_utf16(b))
 }
 
 /// `at.slice(0, 10)`.
 fn utf16_head(text: &str, units: usize) -> String {
-    let head: Vec<u16> = text.encode_utf16().take(units).collect();
-    String::from_utf16_lossy(&head)
+    let all = json_parsed_utf16(text);
+    json_parsed_from_utf16(&all[..units.min(all.len())])
 }
 
+/// `JSON.stringify(text)`.
 fn json_string(text: &str) -> String {
-    serde_json::to_string(text).unwrap_or_default()
+    json_stringify_indent_parsed(&Value::String(text.to_owned()), 0)
 }
 
 /// A key JavaScript keeps as an array index: object keys list these first, numerically.
@@ -111,16 +115,16 @@ fn text_or_empty(value: Option<&Value>) -> String {
 
 impl DecisionSummary {
     pub(super) fn add(&mut self, line: &str) {
-        let Ok(entry) = serde_json::from_str::<Value>(line) else { return };
+        let Ok(entry) = mixdog_js::json_parse(line) else { return };
         let Some(at) = entry.get("at").and_then(Value::as_str) else { return };
-        if utf16_len(at) < 10 {
+        if json_parsed_utf16(at).len() < 10 {
             return;
         }
         let day = utf16_head(at, 10);
         let kind = if entry.get("atStep").is_none() { "turn" } else { "step" };
         let provider = text_or_empty(entry.get("provider"));
         let model = text_or_empty(entry.get("model"));
-        let key = serde_json::to_string(&[day.as_str(), provider.as_str(), model.as_str(), kind]).unwrap_or_default();
+        let key = json_stringify_indent_parsed(&serde_json::json!([&day, &provider, &model, kind]), 0);
         let row = self.rows.entry(key.encode_utf16().collect()).or_insert_with(|| Row {
             day,
             provider,
