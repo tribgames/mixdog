@@ -1,0 +1,266 @@
+{
+  "note": "traceCacheBreak: the rows and stderr lines of the image-strip replay of agentLoop, and the payload of every field",
+  "now": 1700000000000,
+  "loop": {
+    "session": "sess_cache_break",
+    "model": "claude-test",
+    "provider": "anthropic",
+    "requests": [
+      {
+        "messages": 2,
+        "images": 1
+      },
+      {
+        "messages": 2,
+        "images": 0
+      }
+    ],
+    "rows": [
+      "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"intentional\",\"reason\":\"image_strip_nonpersistent_rebaseline\",\"source\":\"image_strip_retry\",\"provider\":\"anthropic\",\"model\":\"claude-test\",\"transport\":null,\"payload\":{\"classification\":\"intentional\",\"reason\":\"image_strip_nonpersistent_rebaseline\",\"source\":\"image_strip_retry\",\"provider\":\"anthropic\",\"model\":\"claude-test\",\"previous_count\":2,\"next_count\":2,\"request_prefix_changed\":false,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_break\"}"
+    ],
+    "stderr": [
+      "[cache-break] classification=\"intentional\" reason=\"image_strip_nonpersistent_rebaseline\" source=\"image_strip_retry\" session=\"sess_cache_break\" provider=\"anthropic\" model=\"claude-test\" iteration=1 previousCount=2 nextCount=2"
+    ]
+  },
+  "payloads": [
+    {
+      "record": {
+        "sessionId": "s-all",
+        "iteration": 3,
+        "classification": "unexpected\nline",
+        "reason": "prefix\tchanged",
+        "source": "request_prefix",
+        "provider": "openai-oauth",
+        "model": "gpt-test",
+        "transport": "websocket",
+        "intentionalTransition": "automatic_compaction",
+        "index": 4,
+        "previousCount": 9,
+        "nextCount": "10",
+        "previousHash": "abcdef0123456789abcdef",
+        "nextHash": "fedcba9876543210fedcba",
+        "previousRequestPrefixHash": "0011223344556677889900",
+        "nextRequestPrefixHash": "9988776655443322110011",
+        "requestPrefixChanged": true,
+        "cachedTokens": 1200,
+        "promptTokens": 5000,
+        "uncachedTokens": 3800,
+        "cacheRatio": 0.24,
+        "actualCacheMiss": true,
+        "previousCachedPrefixTokens": 4800,
+        "idleMs": 61000,
+        "missingPrefixGuardBaseline": true,
+        "inputPrefixMismatchIndex": 2,
+        "inputPrefixMismatchPreviousCount": 7,
+        "inputPrefixMismatchCurrentCount": 8,
+        "inputPrefixMismatchExpectedType": "message",
+        "inputPrefixMismatchExpectedHash": "1234567890abcdef1234",
+        "inputPrefixMismatchActualType": "function_call",
+        "inputPrefixMismatchActualHash": "abcdef1234567890abcd",
+        "changedBlocks": "tools,s1",
+        "markersChanged": false,
+        "lostMessageBreakpoints": "m12"
+      },
+      "payload": {
+        "classification": "unexpected line",
+        "reason": "prefix changed",
+        "source": "request_prefix",
+        "provider": "openai-oauth",
+        "model": "gpt-test",
+        "transport": "websocket",
+        "intentional_transition": "automatic_compaction",
+        "index": 4,
+        "previous_count": 9,
+        "next_count": 10,
+        "previous_hash": "abcdef0123456789",
+        "next_hash": "fedcba9876543210",
+        "previous_request_prefix_hash": "0011223344556677",
+        "next_request_prefix_hash": "9988776655443322",
+        "request_prefix_changed": true,
+        "cached_tokens": 1200,
+        "prompt_tokens": 5000,
+        "uncached_tokens": 3800,
+        "cache_ratio": 0.24,
+        "actual_cache_miss": true,
+        "previous_cached_prefix_tokens": 4800,
+        "idle_ms": 61000,
+        "missing_prefix_guard_baseline": true,
+        "input_prefix_mismatch_index": 2,
+        "input_prefix_mismatch_previous_count": 7,
+        "input_prefix_mismatch_current_count": 8,
+        "input_prefix_mismatch_expected_type": "message",
+        "input_prefix_mismatch_expected_hash": "1234567890abcdef",
+        "input_prefix_mismatch_actual_type": "function_call",
+        "input_prefix_mismatch_actual_hash": "abcdef1234567890",
+        "changed_blocks": "tools,s1",
+        "system_markers_changed": false,
+        "lost_message_breakpoints": "m12"
+      },
+      "row": {
+        "sessionId": "s-all",
+        "iteration": 3,
+        "kind": "cache_break",
+        "classification": "unexpected line",
+        "reason": "prefix changed",
+        "source": "request_prefix",
+        "provider": "openai-oauth",
+        "model": "gpt-test",
+        "transport": "websocket",
+        "payload": {
+          "classification": "unexpected line",
+          "reason": "prefix changed",
+          "source": "request_prefix",
+          "provider": "openai-oauth",
+          "model": "gpt-test",
+          "transport": "websocket",
+          "intentional_transition": "automatic_compaction",
+          "index": 4,
+          "previous_count": 9,
+          "next_count": 10,
+          "previous_hash": "abcdef0123456789",
+          "next_hash": "fedcba9876543210",
+          "previous_request_prefix_hash": "0011223344556677",
+          "next_request_prefix_hash": "9988776655443322",
+          "request_prefix_changed": true,
+          "cached_tokens": 1200,
+          "prompt_tokens": 5000,
+          "uncached_tokens": 3800,
+          "cache_ratio": 0.24,
+          "actual_cache_miss": true,
+          "previous_cached_prefix_tokens": 4800,
+          "idle_ms": 61000,
+          "missing_prefix_guard_baseline": true,
+          "input_prefix_mismatch_index": 2,
+          "input_prefix_mismatch_previous_count": 7,
+          "input_prefix_mismatch_current_count": 8,
+          "input_prefix_mismatch_expected_type": "message",
+          "input_prefix_mismatch_expected_hash": "1234567890abcdef",
+          "input_prefix_mismatch_actual_type": "function_call",
+          "input_prefix_mismatch_actual_hash": "abcdef1234567890",
+          "changed_blocks": "tools,s1",
+          "system_markers_changed": false,
+          "lost_message_breakpoints": "m12"
+        }
+      },
+      "stderr": "[cache-break] classification=\"unexpected line\" reason=\"prefix changed\" source=\"request_prefix\" session=\"s-all\" provider=\"openai-oauth\" model=\"gpt-test\" iteration=3 index=4 previousCount=9 nextCount=10 previousHash=\"abcdef0123456789\" nextHash=\"fedcba9876543210\" inputMismatchIndex=2 intent=\"automatic_compaction\" cachedTokens=1200 promptTokens=5000 previousCachedPrefixTokens=4800 idleMs=61000 noGuardBaseline=true changedBlocks=\"tools,s1\" systemMarkersChanged=false lostMessageBreakpoints=\"m12\"\n"
+    },
+    {
+      "record": {
+        "sessionId": "s-empty"
+      },
+      "payload": {
+        "classification": "unknown",
+        "reason": "unknown",
+        "request_prefix_changed": false,
+        "actual_cache_miss": false
+      },
+      "row": {
+        "sessionId": "s-empty",
+        "iteration": null,
+        "kind": "cache_break",
+        "classification": "unknown",
+        "reason": "unknown",
+        "source": null,
+        "provider": null,
+        "model": null,
+        "transport": null,
+        "payload": {
+          "classification": "unknown",
+          "reason": "unknown",
+          "request_prefix_changed": false,
+          "actual_cache_miss": false
+        }
+      },
+      "stderr": "[cache-break] classification=\"unknown\" reason=\"unknown\" session=\"s-empty\"\n"
+    },
+    {
+      "record": {
+        "sessionId": "",
+        "iteration": "7",
+        "classification": "",
+        "reason": null,
+        "index": null,
+        "previousCount": "x",
+        "cachedTokens": "",
+        "idleMs": true,
+        "missingPrefixGuardBaseline": false,
+        "markersChanged": "yes",
+        "requestPrefixChanged": "true",
+        "actualCacheMiss": 1
+      },
+      "payload": {
+        "classification": "unknown",
+        "reason": "unknown",
+        "index": 0,
+        "request_prefix_changed": false,
+        "cached_tokens": 0,
+        "actual_cache_miss": false,
+        "idle_ms": 1
+      },
+      "row": {
+        "sessionId": null,
+        "iteration": 7,
+        "kind": "cache_break",
+        "classification": "unknown",
+        "reason": "unknown",
+        "source": null,
+        "provider": null,
+        "model": null,
+        "transport": null,
+        "payload": {
+          "classification": "unknown",
+          "reason": "unknown",
+          "index": 0,
+          "request_prefix_changed": false,
+          "cached_tokens": 0,
+          "actual_cache_miss": false,
+          "idle_ms": 1
+        }
+      },
+      "stderr": "[cache-break] classification=\"unknown\" reason=\"unknown\" iteration=7 index=0 cachedTokens=0 idleMs=1\n"
+    },
+    {
+      "record": {
+        "sessionId": "s-long",
+        "iteration": 1.5,
+        "classification": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "model": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "previousHash": "\n\nabc\tdef",
+        "changedBlocks": "none",
+        "markersChanged": true
+      },
+      "payload": {
+        "classification": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "reason": "unknown",
+        "model": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "previous_hash": " abc def",
+        "request_prefix_changed": false,
+        "actual_cache_miss": false,
+        "changed_blocks": "none",
+        "system_markers_changed": true
+      },
+      "row": {
+        "sessionId": "s-long",
+        "iteration": 1.5,
+        "kind": "cache_break",
+        "classification": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "reason": "unknown",
+        "source": null,
+        "provider": null,
+        "model": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "transport": null,
+        "payload": {
+          "classification": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "reason": "unknown",
+          "model": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+          "previous_hash": " abc def",
+          "request_prefix_changed": false,
+          "actual_cache_miss": false,
+          "changed_blocks": "none",
+          "system_markers_changed": true
+        }
+      },
+      "stderr": "[cache-break] classification=\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\" reason=\"unknown\" session=\"s-long\" model=\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\" iteration=1.5 previousHash=\" abc def\" changedBlocks=\"none\" systemMarkersChanged=true\n"
+    }
+  ]
+}

@@ -318,6 +318,11 @@ impl Run {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
+                    if self.image_strip_active
+                        && let Some(sent) = self.last_request.clone()
+                    {
+                        self.trace_image_strip_rebaseline(&sent);
+                    }
                     self.image_strip_active = false;
                     self.image_strip_used = false;
                     if let Some(group) = self.send_group.take() {
@@ -338,6 +343,26 @@ impl Run {
                 }
                 Recovery::RetryRound => return Ok(SendResult::RetryRound),
             }
+        }
+    }
+
+    /// `settleImageStrip` (send-phase.mjs): the strip held for the replay alone, so the request the provider cached
+    /// differs from the transcript the next send continues; the change is traced as intentional.
+    fn trace_image_strip_rebaseline(&self, sent: &ModelRequest) {
+        let Some(log) = &self.env.failures else { return };
+        let record = serde_json::json!({
+            "sessionId": self.config.thread_id.as_str(),
+            "iteration": self.iterations + 1,
+            "classification": "intentional",
+            "reason": "image_strip_nonpersistent_rebaseline",
+            "source": "image_strip_retry",
+            "provider": self.provider.id().as_str(),
+            "model": self.model,
+            "previousCount": sent.messages.len(),
+            "nextCount": self.messages.len(),
+        });
+        if let serde_json::Value::Object(record) = record {
+            log.cache_break(record);
         }
     }
 

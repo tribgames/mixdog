@@ -2017,6 +2017,71 @@ async fn a_rejected_image_is_stripped_from_the_latest_turn_and_replayed_once() {
     assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::Image(_))));
 }
 
+/// The `traceCacheBreak` records the loop hands its host.
+#[derive(Default)]
+struct CacheBreaks(Mutex<Vec<serde_json::Map<String, JsonValue>>>);
+
+impl ToolFailureLog for CacheBreaks {
+    fn failed(&self, _call: FailedCall) {}
+
+    fn stall_abort(&self, _ctx: serde_json::Map<String, JsonValue>) {
+        panic!("the agent loop never records a watchdog stop");
+    }
+
+    fn cache_break(&self, record: serde_json::Map<String, JsonValue>) {
+        self.0.lock().unwrap().push(record);
+    }
+}
+
+/// `fixtures/cache-break` (record-cache-break.mjs): Node's loop over a provider that refuses the turn's image once and
+/// answers the replay traces one intentional `image_strip_nonpersistent_rebaseline` cache break; the loop's record makes
+/// the same trace line and stderr line, after the same requests.
+#[tokio::test]
+async fn an_image_strip_replay_traces_the_cache_break_node_traces() {
+    use mixdog_core_api::domain::provider::ContentPart;
+    use mixdog_core_api::domain::provider::ImageSource;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/cache-break/golden.json");
+    let golden: JsonValue = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let node = &golden["loop"];
+    let mut h = Harness::new(Vec::new());
+    h.provider = Arc::new(Scripted {
+        id: ProviderId::from(node["provider"].as_str().unwrap()),
+        policy: RetryPolicy::codex_default(),
+        keepalive: KeepaliveSchedule::SPEC,
+        codec: MockCodec,
+        script: Mutex::new(vec![rejection(ErrorKind::ImageRejected, None), turn(vec![text("ok"), done(StopReason::EndTurn)])].into()),
+        requests: Mutex::new(Vec::new()),
+        settled: Mutex::new(Vec::new()),
+    });
+    let breaks = Arc::new(CacheBreaks::default());
+    h.failures = Some(breaks.clone());
+    let config = RunConfig::new(ThreadId::from(node["session"].as_str().unwrap()), TurnId::from("r"), node["model"].as_str().unwrap());
+    let system = AgentMessage::new(mixdog_core_api::domain::provider::Message::new(
+        mixdog_core_api::domain::provider::Role::System,
+        Content::Text("Stable instructions.".into()),
+    ));
+    let prompt = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("look".into(), None), ContentPart::Image(ImageSource::Url("u".into()))]));
+    finish(h.run(config, vec![], vec![system, prompt])).await;
+
+    let images = |request: &ModelRequest| {
+        request.messages.iter().map(|m| match &m.content {
+            Content::Parts(parts) => parts.iter().filter(|p| matches!(p, ContentPart::Image(_))).count(),
+            _ => 0,
+        }).sum::<usize>()
+    };
+    let requests: Vec<JsonValue> = h.provider.requests().iter().map(|r| json!({ "messages": r.messages.len(), "images": images(&**r) })).collect();
+    assert_eq!(JsonValue::Array(requests), node["requests"], "the refused send and its replay");
+    let records = breaks.0.lock().unwrap().clone();
+    let now = golden["now"].as_i64().unwrap();
+    let rows: Vec<String> = records
+        .iter()
+        .map(|record| mixdog_trace::stringify(&JsonValue::Object(mixdog_trace::build_row(&mixdog_trace::cache_break_trace_record(record), now))))
+        .collect();
+    assert_eq!(json!(rows), node["rows"], "the trace rows");
+    let lines: Vec<String> = records.iter().map(mixdog_trace::cache_break_line).collect();
+    assert_eq!(json!(lines), node["stderr"], "the stderr lines");
+}
+
 #[tokio::test]
 async fn a_retried_send_keeps_one_group_and_settles_nothing_on_success() {
     let h = Harness::new(vec![overloaded(), overloaded(), turn(vec![text("ok"), done(StopReason::EndTurn)])]);

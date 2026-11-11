@@ -1088,6 +1088,9 @@ pub trait ToolFailureLog: Send + Sync {
     /// `recordAgentWatchdogAbort(ctx)`: the progress watchdog stopped the run's turn (`mixdog_trace::watchdog_abort_records`
     /// has the fields of `ctx`); the `stall_abort` rows join the same log.
     fn stall_abort(&self, ctx: serde_json::Map<String, serde_json::Value>);
+    /// `traceCacheBreak(record)`: a send changed what the provider's prompt cache holds (`mixdog_trace::cache_break_payload`
+    /// has the fields of `record`); the `cache_break` row joins the trace and its line goes to stderr.
+    fn cache_break(&self, _record: serde_json::Map<String, serde_json::Value>) {}
 }
 
 /// Everything a run borrows from its host.
