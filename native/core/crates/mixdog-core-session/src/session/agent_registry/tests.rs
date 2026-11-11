@@ -34,6 +34,8 @@ struct Store {
     header_reads: std::sync::atomic::AtomicUsize,
     /// Every row write.
     written: tokio::sync::Notify,
+    /// What a row write tells the agent status listener.
+    on_write: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
 
 #[async_trait]
@@ -56,6 +58,16 @@ impl WorkerStore for Store {
     }
 
     fn write(&self, session: &str, worker: Option<Row>) {
+        self.write_row(session, worker);
+        // `registry.onWorkerRowsChange`: the product's `StoreWorkers::write` announces each row change where it is made.
+        if let Some(changed) = self.on_write.get() {
+            changed();
+        }
+    }
+}
+
+impl Store {
+    fn write_row(&self, session: &str, worker: Option<Row>) {
         let mut maps = self.maps.lock().unwrap();
         let at = maps.iter().position(|(id, _)| id == session);
         match (at, worker) {
@@ -753,6 +765,133 @@ async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event(
     drop(registry);
     clock.advance(HOUR);
     tokio::time::timeout(std::time::Duration::from_secs(10), timer).await.expect("the timer ends with its registry").unwrap();
+}
+
+/// `fixtures/agent-row-deadline` (record-agent-row-deadline.mjs): a Lead's settled worker rows leave the index at their
+/// retention deadlines, on the registry's clock, as Node's maintenance pass removed them, and what the Lead's clients are
+/// told is what Node's were: the status the thread publishes (`thread/agents/updated`, Node's `agentStatusState` after an
+/// `onStatusChange`) lists none of them and changes at no removal, so nothing is published. The row due while the core was
+/// down: Node removes it at its first pass, one event delay (1 s) after the Lead's first status read; the core removes it
+/// at the timer's first look, before that read, so the first two steps differ by that row alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_leads_clients_are_told_of_rows_reaped_at_their_deadline_what_nodes_were() {
+    use crate::session::SessionDirectory;
+    use crate::session::agent_activity::AgentStatus;
+    use crate::session::agent_registry::status_rows::AgentToolStatus;
+    use crate::session::tests::caught_up;
+    use crate::session::tests::start_thread;
+    use mixdog_app_protocol::v2::thread::ThreadAgents;
+    use mixdog_core_api::ids::ThreadId;
+
+    struct NoJobs;
+    impl mixdog_core_run::run_host::progress::WaitedJobs for NoJobs {
+        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
+            None
+        }
+    }
+    /// The directory reads its threads' status through this; it is bound once the status is built over the directory.
+    #[derive(Default)]
+    struct LateStatus(std::sync::OnceLock<Arc<AgentToolStatus>>);
+    #[async_trait]
+    impl AgentStatus for LateStatus {
+        async fn status(&self, thread: &ThreadId) -> ThreadAgents {
+            self.0.get().expect("bound").status(thread).await
+        }
+    }
+
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent-row-deadline/golden.json")).unwrap();
+    let t0 = golden["t0"].as_i64().unwrap();
+    let srig = crate::session::testing::Rig::new();
+    let late = Arc::new(LateStatus::default());
+    let mut deps = srig.deps_parts(srig.store.clone());
+    deps.agent_status = late.clone() as Arc<dyn AgentStatus>;
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let lead = start_thread(&directory).await;
+    let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(t0).0));
+    for row in golden["rows"].as_array().unwrap() {
+        let stamp = row["stampedAt"].clone();
+        let id = row["sessionId"].as_str().unwrap();
+        rig.store.write_row(
+            id,
+            Some(obj(json!({
+                "tag": row["tag"], "sessionId": id, "ownerSessionId": lead.id.as_str(), "parentSessionId": lead.id.as_str(),
+                "agent": "worker", "provider": "p", "model": "m", "status": "idle", "stage": "idle", "clientHostPid": PID,
+                "createdAt": stamp, "updatedAt": stamp, "finishedAt": stamp,
+            }))),
+        );
+    }
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), clock.clone()));
+    /// The status reads the same virtual time through the run's clock trait.
+    struct RunClock(Arc<Virtual>);
+    impl mixdog_agent::env::Clock for RunClock {
+        fn now_ms(&self) -> i64 {
+            Clock::now_ms(self.0.as_ref())
+        }
+    }
+    late.0.set(Arc::new(AgentToolStatus::new(registry.clone(), mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(RunClock(clock.clone())), None, None), directory.clone(), Arc::new(NoJobs), clock.clone()))).ok();
+    // The one listener of the row signal (`AgentActivity::everyone`): every loaded thread re-reads its status.
+    let weak = Arc::downgrade(&directory);
+    rig.store.on_write.set(Box::new(move || {
+        if let Some(directory) = weak.upgrade() {
+            for thread in directory.loaded_ids() {
+                directory.agent_activity(thread.as_str());
+            }
+        }
+    })).ok();
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+
+    let tags = |tombstoned: bool| {
+        let mut tags: Vec<String> = rig
+            .store
+            .maps
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(_, map)| if tombstoned { map.get("tombstone").and_then(|t| t.get("tag")) } else { map.get("sessionId").and(map.get("tag")) })
+            .map(|tag| tag.as_str().unwrap().to_owned())
+            .collect();
+        tags.sort();
+        tags
+    };
+    let published = || srig.feeds.frames(lead.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/agents/updated").count();
+    // The thread's status pass at load (Node's runtime publishes its `agentWorkers` once as it loads, not through
+    // `onStatusChange`): what follows is counted from it.
+    crate::eventually_on!(&[&srig.feeds.published], || (published() == 1).then_some(())).await;
+    let mut told = 1;
+    for step in golden["steps"].as_array().unwrap() {
+        let (step_at, what) = (step["at"].as_i64().unwrap(), step["what"].as_str().unwrap());
+        let shift = Clock::now_ms(clock.as_ref()) - t0;
+        clock.advance(step_at - shift);
+        if step_at == 5000 {
+            // The active row worked again and settled: its stamps move to now.
+            let mut st = registry.lock();
+            let mut active = st.map("sess_rows_active").cloned().expect("the active row");
+            let now = json!(at(t0 + 5000));
+            active.insert("updatedAt".into(), now.clone());
+            active.insert("finishedAt".into(), now);
+            registry.persist(&mut st, "sess_rows_active", Some(active));
+        }
+        let strings = |key: &str| step[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        let (mut indexed, mut tombstoned) = (strings("indexed"), strings("tombstones"));
+        if step_at < 1000 {
+            // The core's timer removed the overdue row before the Lead's first read.
+            indexed.retain(|tag| tag != "overdue");
+            tombstoned.push("overdue".into());
+            tombstoned.sort();
+        }
+        until_written(&rig.store, what, || tags(false) == indexed && tags(true) == tombstoned).await;
+        let status = AgentStatus::status(late.as_ref(), &lead.id).await;
+        let workers: Vec<String> = status.agent_workers.iter().map(|w| format!("{}:{}", w["tag"].as_str().unwrap(), w["status"].as_str().unwrap())).collect();
+        assert_eq!(workers, strings("workers"), "{what}: the workers the Lead's status lists");
+        caught_up(&lead).await;
+        let now = published();
+        assert_eq!((now - told) as u64, step["announced"].as_u64().unwrap(), "{what}: the status changes the Lead's clients were told");
+        told = now;
+        assert_eq!((tags(false), tags(true)), (indexed, tombstoned), "{what}: nothing else left the index");
+    }
+    // The directory's status holds the registry, so the timer is stopped here rather than by the registry going.
+    timer.abort();
 }
 
 /// A settled row past its retention and its continuation window becomes a tombstone when the
