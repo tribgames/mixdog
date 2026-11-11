@@ -6,10 +6,13 @@
 // the agent-workers.json links). A temp data dir holds the stored records; per case the files written and everything read back are recorded.
 //
 //   node benchmarks/rust-core/recorders/record-store-summary-visibility-cases.mjs --tree <export of b6f10295a with node_modules>
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync as writeRaw } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openSet } from './lib/case-set.mjs';
+import { FIXED_NOW, openSet } from './lib/case-set.mjs';
+/** Every file the recorder writes gets the same mtime, one hour before the fixed clock: a recorded input (the store reads file times into its rows). */
+const MTIME = new Date(FIXED_NOW - 3_600_000);
+const writeFileSync = (path, text) => { writeRaw(path, text); utimesSync(path, MTIME, MTIME); };
 
 const roots = [];
 let root;
@@ -31,7 +34,6 @@ const { listStoredSessions, listStoredSessionSummariesAsync: listInternalSummari
 const { projectStoredTranscript } = await set.load(`${S}store-transcript-projection.mjs`);
 const { createTurnCheckpointRecorder, settleTurnCheckpointWrites } = await set.load(`${S}manager/turn-checkpoint.mjs`);
 const { agentDescendantIds, agentParentIds } = await set.load(`${S}store-summary-visibility.mjs`);
-const nul = (v) => (v === null ? { null: true } : v);
 const session = (id, extra = {}) => ({ id, createdAt: 1_000, updatedAt: 2_000, lastUsedAt: 2_000, status: 'idle', owner: 'user', messages: [{ role: 'user', content: `prompt for ${id}` }], ...extra });
 
 await set.run('agent descendants follow every owner/parent link to any depth, agent-only rows only', () => {
@@ -40,10 +42,10 @@ await set.run('agent descendants follow every owner/parent link to any depth, ag
     { id: 'sess_lead', owner: 'user', agent: 'lead' }, sub('sess_w1', { ownerSessionId: 'sess_lead' }), sub('sess_w1_child', { ownerSessionId: 'sess_lead' }), sub('sess_w1_grand', { parentSessionId: 'sess_w1_child' }),
     sub('sess_other', { ownerSessionId: 'sess_lead_other' }), { id: 'sess_task', owner: 'user', agent: 'lead', ownerSessionId: 'sess_lead', taskOrigin: {} }, { id: 'sess_lead_self', owner: 'user', agent: 'lead', ownerSessionId: 'sess_lead_self' },
   ];
-  return { rows, descendants: [['sess_lead'], ['sess_w1_child'], ['sess_lead_self']].map(([id]) => ({ of: id, ids: agentDescendantIds(rows, id) })), ofNullRows: agentDescendantIds(null, 'sess_lead'), sortedOfLead: [...agentDescendantIds(rows, 'sess_lead')].sort() };
+  return { rows, descendants: [['sess_lead'], ['sess_w1_child'], ['sess_lead_self']].map(([id]) => ({ of: id, ids: agentDescendantIds(rows, id) })), ofNullRows: agentDescendantIds(null, 'sess_lead') };
 });
 await set.run('agent parent links are the owner and the parent, never the row itself', () => ({
-  parents: [{ id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_p' }, { id: 'sess_x', ownerSessionId: 'sess_x', parentSessionId: 'sess_x' }, { id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_lead' }, null].map((row) => ({ row: nul(row), ids: agentParentIds(row) })),
+  parents: [{ id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_p' }, { id: 'sess_x', ownerSessionId: 'sess_x', parentSessionId: 'sess_x' }, { id: 'sess_x', ownerSessionId: 'sess_lead', parentSessionId: 'sess_lead' }, null].map((row) => ({ row, ids: agentParentIds(row) })),
 }));
 await set.run('closed Lead and agent records apply the same checkpoint-marker policy', async () => {
   newDataDir();
@@ -86,7 +88,7 @@ await set.run('catalogs expose agent sessions while preserving their presentatio
   writeFileSync(join(root, 'session-summaries.json'), JSON.stringify(indexFile));
   const workersFile = { workers: { review: { tag: 'review', sessionId: 'legacy-child', parentSessionId: 'root-lead', ownerSessionId: 'root-lead', agent: 'reviewer', status: 'idle', stage: 'idle', finishedAt: new Date(Date.now()).toISOString() } } };
   writeFileSync(join(root, 'agent-workers.json'), JSON.stringify(workersFile));
-  const ids = (rows) => rows.map((row) => row.id).sort();
+  const ids = (rows) => rows.map((row) => row.id);
   const internal = await listInternalSummaries({ refreshFromStorage: true });
   const durableIndex = JSON.parse(readFileSync(join(root, 'session-summaries.json'), 'utf8'));
   const metadata = await readStoredSessionTranscript('legacy-child', { metadataOnly: true });
@@ -95,11 +97,11 @@ await set.run('catalogs expose agent sessions while preserving their presentatio
     records, indexFileWritten: indexFile, workersFileWritten: workersFile,
     ordinarySummaries: ids(listOrdinarySummaries({ rebuildIfMissing: false })), ordinarySummariesAsync: ids(await listOrdinarySummariesAsync({ refreshFromStorage: true })),
     storedSessions: ids(listStoredSessions()), storedSessionsIncludingAgentOnly: ids(listStoredSessions({ includeAgentOnly: true })),
-    internalSummaries: ids(internal), internalVisibility: { declaredChild: internal.find((r) => r.id === 'declared-child')?.visibility ?? null, legacyChild: internal.find((r) => r.id === 'legacy-child')?.visibility ?? null },
-    durableLegacyChildVisibility: durableIndex.rows.find((r) => r.id === 'legacy-child')?.visibility ?? null,
+    internalSummaries: ids(internal), internalVisibility: { declaredChild: internal.find((r) => r.id === 'declared-child'), legacyChild: internal.find((r) => r.id === 'legacy-child') },
+    durableLegacyChild: durableIndex.rows.find((r) => r.id === 'legacy-child'),
     storedWorkersHaveLegacyChild: listStoredAgentWorkers().some((row) => row.sessionId === 'legacy-child'), workerLinks: listStoredAgentWorkerLinks(), storedSessionExists: storedSessionExists('legacy-child'),
-    metadata: { parentSessionId: metadata?.parentSessionId ?? null, hasItems: Object.hasOwn(metadata || {}, 'items'), keys: Object.keys(metadata ?? {}).sort() },
-    exact: { sessionId: exact?.sessionId ?? null, hasUserItem: Boolean(exact?.items.some((item) => item.kind === 'user')), itemKinds: exact?.items.map((i) => i.kind) ?? null },
+    metadata,
+    exact,
     normalised: 'finishedAt is the fixed clock as an ISO string',
   };
 });
@@ -108,6 +110,8 @@ await set.finish({
   entry: { runs: 'store-summary-visibility.mjs, store-summary-index.mjs, store-summary-reader.mjs, store/listing.mjs, store-transcript-projection.mjs projectStoredTranscript, manager/turn-checkpoint.mjs recorder, all over session files in a temp data dir', notRun: 'no live runtime: only the stored records and indexes' },
   replay: { entry: 'mixdog-store summary.rs and sqlite/lead.rs (visibility, descendants, catalogs): write the recorded files (records, indexFileWritten, workersFileWritten) into a store and compare each listing, the durable index visibility, the worker links and the transcript reads; the checkpoint cases compare the projected messages', normalised: { dataDir: 'temp, not in the recording' } },
   replaceInText: roots.map((r) => [r, '<data>']),
+  replaceRegex: [[/^\d+(:[0-9a-z]+:[A-Za-z0-9+\/=_-]+\/whole)$/, '<epoch>$1']],
+  normaliseReason: 'the temp data dir is written <data>; a projection stamp starts with the transcript worker epoch (a per-run number), written <epoch>',
 });
 for (const r of roots) rmSync(r, { recursive: true, force: true });
 process.exit(0);
