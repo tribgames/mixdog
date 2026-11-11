@@ -320,6 +320,9 @@ pub struct MemStore {
     /// Runs once, inline, as the next batch that sets `compaction` reaches the store and before it is written: what
     /// happens to the session between a compaction's adoption and its save (Node's commit timing line). Holds nothing.
     pub on_compaction: CompactionHook,
+    /// Another writer took the log (it appended after this writer's last record): the next barrier's ownership check
+    /// (`Ownership::revalidate`) fails and nothing of its batch is applied.
+    pub ownership_lost: Arc<AtomicBool>,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
 }
@@ -357,6 +360,7 @@ struct MemLog {
     commit_gate: CommitGate,
     header_gate: CommitGate,
     on_compaction: CompactionHook,
+    ownership_lost: Arc<AtomicBool>,
     committed: Arc<tokio::sync::Notify>,
 }
 
@@ -385,6 +389,9 @@ impl SessionLog for MemLog {
         let hook = if sets_compaction { lock(&self.on_compaction).take() } else { None };
         if let Some(hook) = hook {
             hook();
+        }
+        if self.ownership_lost.swap(false, Ordering::SeqCst) {
+            return Err(BarrierError::Failed { io_kind: "ownership".into() });
         }
         let mut log = lock(&self.log);
         let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
@@ -574,6 +581,7 @@ impl ThreadStore for MemStore {
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
+            ownership_lost: self.ownership_lost.clone(),
             committed: self.committed.clone(),
         }))
     }
@@ -596,6 +604,7 @@ impl ThreadStore for MemStore {
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
+            ownership_lost: self.ownership_lost.clone(),
             committed: self.committed.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
