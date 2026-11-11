@@ -283,6 +283,12 @@ const excluded = {
   'skill dependencies are callable on the next request without changing the eager tools: the loop session `messages`':
     "the test's `agentLoop` appends to the array it is given and never writes `session.messages` (the turn commit does, " +
     'ask-turn-execute.mjs:122); that transcript is compared whole as each request\'s input',
+  'skill dependencies are callable on the next request without changing the eager tools: the loop session `id`':
+    "an input the recorder gives the test's session (`loopSession.id = skill-wire-<provider>`), not a product output; the core's " +
+    'thread carries the id its directory minted, and every request that carries the id (OpenAI `session_id`) is compared as sent',
+  'skill dependencies are callable on the next request without changing the eager tools: the loop session `compaction`':
+    "an input the recorder gives the test's session (`loopSession.compaction = { auto: false }`), which skill loading never reads or " +
+    "writes; the core's thread holds the compaction record its own installation made (compaction-installation set)",
   'skill dependencies are callable on the next request without changing the eager tools: the loop session `_providerPrefixGuardState`':
     'in-memory only: Node drops it from every stored session (store/serialize.mjs:42,59-81), so no client or file sees it',
   'skill dependencies are callable on the next request without changing the eager tools: the loop session `deferredMcpToolNames`, `deferredLateToolCatalog`, `todoCheck`':

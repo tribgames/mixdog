@@ -68,7 +68,7 @@ async fn uses_during_an_opening_join_it_withdraw_and_share_its_failure_as_in_nod
         }
         let saw_cancel = cancelled.try_recv().is_ok() || aborted;
         // The failed opening is forgotten: the next use installs again (the held install's gate is spent, so it fails at once).
-        let _ = stack.db().client().await;
+        let _ = awaiting("the next use of the database to open it again", stack.db().client()).await;
         let got = json!({ "openingsDuring": during, "initAborted": saw_cancel, "results": results, "openingsAfterNextUse": installs.load(Ordering::SeqCst) });
         let want = json!({ "openingsDuring": case["openingsDuring"], "initAborted": case["initAborted"], "results": case["results"], "openingsAfterNextUse": case["openingsAfterNextUse"] });
         assert_eq!(got, want, "{name}");

@@ -4,7 +4,9 @@
   "declared": "a tool the test defines without `description` (its `Skill`) goes on Node's wire with the key absent; the core's tool definition always has a description string, so its codec sends `description: \"\"`. The replay drops that empty key from only those tools, named from the test input; no product source reaches a request without a description (mcp/client.mjs:1647,323; session/manager/tool-resolution.mjs:35; runtime-core/tool-bridge.mjs:238; builtin-tools.mjs; tool-defs.mjs:216). The core's loop session also holds its turn pipeline's per-turn bookkeeping (usage totals and last-request readings, `turnHop`, `turnBotChain`, `transcriptEpoch`, `turnCoverage`, `title`, `titleUpdatedAt`, `reasoningUsage`, `usageMetricsTurnId`, `lastIterationIndex`, `lastTurnCompletedAt`, `closeProvenance`, the `_repeat*` guards): the test runs `agentLoop` alone, whose turn commit writes them elsewhere (ask-turn-execute.mjs:122); the replay names each in `TURN_BOOKKEEPING` (skill_wire_node_cases.rs) and fails on any other key Node's session lacks. The loop session's `lastProviderSendAt` is each side's own send clock: compared as present and a number",
   "excluded": {
     "skill dependencies are callable on the next request without changing the eager tools: the loop session `_providerPrefixGuardState`": "in-memory only: Node drops it from every stored session (store/serialize.mjs:42,59-81), so no client or file sees it",
+    "skill dependencies are callable on the next request without changing the eager tools: the loop session `compaction`": "an input the recorder gives the test's session (`loopSession.compaction = { auto: false }`), which skill loading never reads or writes; the core's thread holds the compaction record its own installation made (compaction-installation set)",
     "skill dependencies are callable on the next request without changing the eager tools: the loop session `deferredMcpToolNames`, `deferredLateToolCatalog`, `todoCheck`": "written by the loop's per-turn MCP reconcile (tool-catalog.mjs:679,731) and todo cycle (todo-check.mjs:37), not by skill loading; the replay's turn assembly stands in for those steps, which the mcp-fold and todo-list sets replay through the core (`mcp_fold`, `TodoGuards`)",
+    "skill dependencies are callable on the next request without changing the eager tools: the loop session `id`": "an input the recorder gives the test's session (`loopSession.id = skill-wire-<provider>`), not a product output; the core's thread carries the id its directory minted, and every request that carries the id (OpenAI `session_id`) is compared as sent",
     "skill dependencies are callable on the next request without changing the eager tools: the loop session `messages`": "the test's `agentLoop` appends to the array it is given and never writes `session.messages` (the turn commit does, ask-turn-execute.mjs:122); that transcript is compared whole as each request's input",
     "skill dependencies are callable on the next request without changing the eager tools: the office call": "`executeTool('office')` answers through the executor the test injects (`setInternalToolsProvider`, internal-tools.mjs:30), which no product path installs; that the armed dependency is callable is what the next request carries (replayed here, whole) and the call-through's admission of it (native-request-bytes-cases, `callThrough`)"
   },
@@ -13,7 +15,7 @@
     {
       "bytes": 1006262,
       "path": "golden.json",
-      "sha256": "31b144887e67a4811ead6972b95c52aa54402b632bfc56cb21d94255678ebe29"
+      "sha256": "f1bc594c2ebbc08ecc57c1030fbcfa2fb504fb0a9fb694388fef436c4e0bdf07"
     }
   ],
   "inputs": [
@@ -45,7 +47,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-skill-tool-loading-cases.mjs",
-  "recorderSha256": "8ba8f83b0b6e38ed0a6bf8351106c0d11089fe14c451b91c122f6ff52f943a2c",
+  "recorderSha256": "236be8623181125865721f19323adc7498233dfccbd51737e8a8a7482597c107",
   "set": "skill-tool-loading-cases",
   "totalBytes": 1006262
 }
