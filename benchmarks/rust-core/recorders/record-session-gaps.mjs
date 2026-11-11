@@ -258,7 +258,83 @@ async function attachmentPreflight() {
   }
 }
 
-const scenarios = { 'legacy-json-keys': legacyJsonKeys, 'image-strip': imageStrip, 'attachment-preflight': attachmentPreflight };
+// ---- item 7: a pasted text attachment in the compaction summary, through `runSessionCompaction` ----
+// A conversation that opens with a pasted text, compacted by hand; the summary provider is the one part replaced (it
+// records what it is sent and answers a fixed summary). The pasted text is stored by Node's intake; a blob that is gone
+// is a session whose store lost it (its reference names bytes this store never held); a blob the store cannot read
+// for now is one another process holds open with no sharing, as an editor or a scanner does.
+
+const PASTED = Array.from({ length: 900 }, (_, i) => `pasted line ${i} ${'é'.repeat(i % 7)} 🙂`).join('\n');
+const pastedCases = ['stored', 'gone', 'held-open'];
+
+async function compactionPastedText() {
+  const store = await load('src/runtime/attachments/store.mjs');
+  const { runSessionCompaction } = await load('src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs');
+  const { createHash } = await import('node:crypto');
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const { dirname } = await import('node:path');
+  const { spawn } = await import('node:child_process');
+  const words = (n, w) => Array.from({ length: n }, (_, i) => `${w}${i}`).join(' ');
+  const cases = [];
+  for (const name of pastedCases) {
+    const text = `${name}: ${PASTED}`;
+    const bytes = Buffer.from(text, 'utf8');
+    let part;
+    let holder = null;
+    if (name === 'stored') {
+      const submitted = store.materializePromptSubmission('[Pasted text #1 +900 lines]', { pastedTexts: { 1: { id: 1, text } } });
+      part = submitted.prompt.find((p) => p.type === 'text' && p.attachmentRef);
+    } else {
+      const attachmentRef = createHash('sha256').update(bytes).digest('hex');
+      part = { type: 'text', attachmentRef, sizeBytes: bytes.length, textKind: 'paste' };
+      if (name === 'held-open') {
+        // Stored by an earlier run of the process (so no read of it is cached here), then held open by another process.
+        const path = store.attachmentFilePath(attachmentRef);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, bytes);
+        holder = spawn('powershell.exe', ['-NoProfile', '-Command', `$f=[IO.File]::Open('${path}','Open','Read','None'); [Console]::Out.WriteLine('held'); [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ['pipe', 'pipe', 'inherit'] });
+        await new Promise((resolve, reject) => {
+          holder.stdout.once('data', (chunk) => (String(chunk).includes('held') ? resolve() : reject(new Error(String(chunk)))));
+          holder.once('error', reject);
+        });
+      }
+    }
+    const messages = [
+      { role: 'user', content: [{ type: 'text', text: 'Review this paste.' }, part] },
+      ...Array.from({ length: 39 }, (_, i) => (i % 2 ? { role: 'user', content: words(80, `u${i}_`) } : { role: 'assistant', content: words(80, `a${i}_`) })),
+    ];
+    const live = { id: `gaps-pasted-${name}`, provider: 'openai', model: 'gpt-x', contextWindow: 8000, rawContextWindow: 8000, effectiveContextWindowPercent: 100, tools: [], messages, compaction: { auto: true } };
+    const sends = [];
+    const provider = {
+      name: 'openai',
+      send: async (sent, model) => {
+        sends.push({ messages: structuredClone(sent), model });
+        return { content: 'SUMMARY of the conversation so far', usage: { inputTokens: 1000, outputTokens: 50, cachedTokens: 0 } };
+      },
+    };
+    let result;
+    try {
+      const value = await runSessionCompaction(live, { mode: 'manual', force: true, provider, sessionId: live.id });
+      result = { ok: Boolean(value?.ok ?? value) };
+    } catch (error) {
+      result = { error: String(error?.code || error?.message || error) };
+    } finally {
+      if (holder) {
+        holder.stdin.end('\n');
+        await new Promise((resolve) => holder.once('exit', resolve));
+      }
+    }
+    cases.push({ name, blob: name === 'gone' ? null : bytes.toString('base64'), part, messages, sends, result });
+  }
+  return { cases };
+}
+
+const scenarios = {
+  'legacy-json-keys': legacyJsonKeys,
+  'image-strip': imageStrip,
+  'attachment-preflight': attachmentPreflight,
+  'compaction-pasted-text': compactionPastedText,
+};
 
 const finalDir = join(FIXTURES_ROOT, 'session-gaps');
 const outDir = stageSet(finalDir, only ? [`${only}.json`] : null);

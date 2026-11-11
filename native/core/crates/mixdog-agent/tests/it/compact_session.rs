@@ -192,53 +192,6 @@ async fn a_conversation_over_the_sessions_threshold_is_summarized_on_its_plan() 
     assert_eq!(*asked.0.lock().unwrap(), vec![RouteStep::Session], "mode self: the conversation's own model only");
 }
 
-struct FreeMedia;
-impl MediaMeter for FreeMedia {
-    fn part(&self, _: &ContentPart) -> PartMeter {
-        PartMeter { text: String::new(), tokens: 0 }
-    }
-}
-
-/// The store answers every stored text attachment with a transient read error (EBUSY).
-struct BusyStore;
-#[async_trait]
-impl mixdog_agent::compact::fresh::AttachmentSeam for BusyStore {
-    async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
-        message.clone()
-    }
-    fn has_referencable_media(&self, _: &AgentMessage) -> bool {
-        false
-    }
-    fn attachment_tokens(&self, _: &AgentMessage) -> u64 {
-        0
-    }
-    async fn stored_text(&self, _: &ContentPart) -> Result<Option<mixdog_agent::compact::text_utils::StoredText>, String> {
-        Err("EBUSY: busy".into())
-    }
-}
-
-/// `referencedText`: the summary reads a pasted text attachment through the store, so a transient
-/// read error fails the compaction before any summary route is asked, instead of shrinking it.
-#[tokio::test]
-async fn the_summary_reads_pasted_text_through_the_store() {
-    let asked = Arc::new(Asked::default());
-    let mut wired = session(settings(Some(200_000)), Some(1), asked.clone());
-    let parts = Arc::get_mut(&mut wired.parts).unwrap();
-    parts.attachments = Arc::new(BusyStore);
-    parts.media = Arc::new(FreeMedia);
-    let compactor = FreshCompactor::for_session(wired).expect("a compactor");
-    let mut messages = conversation();
-    messages[0].message.content = Content::Parts(vec![ContentPart::File {
-        source: mixdog_core_api::domain::provider::BinarySource::AttachmentRef("a".repeat(64)),
-        mime_type: "text/plain".into(),
-        filename: None,
-        text: Some(mixdog_core_api::domain::provider::TextAttachment { kind: None }),
-    }]);
-    let error = compactor.compact(request(&messages)).await.err().expect("the read fails");
-    assert!(matches!(error, CompactError::Failed(ref m) if m == "EBUSY: busy"), "{error:?}");
-    assert!(asked.0.lock().unwrap().is_empty());
-}
-
 #[tokio::test]
 async fn a_conversation_under_the_threshold_is_rebuilt_by_rules_alone() {
     let asked = Arc::new(Asked::default());
