@@ -65,6 +65,8 @@ pub mod store;
 pub mod tool;
 #[cfg(test)]
 mod tool_twin_tests;
+#[cfg(test)]
+mod feature_tools_node_cases;
 pub mod transfer_source;
 pub mod variants;
 pub mod public_fetch;
