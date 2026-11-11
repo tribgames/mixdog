@@ -135,8 +135,12 @@ fn main() {
         fixture_args: Mutex::new(Vec::new()),
     });
     // `MOCK_SCENARIO`: `{tools, results}` — lists `tools` and answers `tools/call {name, {i}}`
-    // with `results[name][i]` (a recorded case of `record-mcp-output-schema.mjs`).
-    let scenario: Option<Value> = std::env::var("MOCK_SCENARIO").ok().map(|raw| serde_json::from_str(&raw).unwrap());
+    // with `results[name][i]` (a recorded case of `record-mcp-output-schema.mjs`). `MOCK_SCENARIO_FILE`: the same, in a
+    // file (a scenario larger than an environment variable holds).
+    let scenario: Option<Value> = std::env::var("MOCK_SCENARIO")
+        .ok()
+        .or_else(|| std::env::var("MOCK_SCENARIO_FILE").ok().map(|path| std::fs::read_to_string(path).unwrap()))
+        .map(|raw| serde_json::from_str(&raw).unwrap());
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
