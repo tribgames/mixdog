@@ -2841,4 +2841,7 @@ mod tests {
 
     #[path = "../../restart_prefix_tests.rs"]
     mod restart_prefix;
+
+    #[path = "../../session_message_sanitize_replay.rs"]
+    mod session_message_sanitize_replay;
 }
