@@ -5,7 +5,8 @@
 // history/agent-trace.jsonl (normalised by lib/agent-trace-run-rows.mjs), its history/tool-failures.jsonl rows (normalised by
 // lib/tool-failure-rows.mjs), as the recorder normalised Node's, and the workspace files as the run left them. The counts of the
 // other trace kinds are not compared (MANIFEST.json). A reply marked stream: 'settled' keeps its response open after the finish
-// chunk until the core has reported each call's early result (a tool item completed with its result).
+// chunk until the core has reported each call's early result (a tool item completed with its result). The scripted provider
+// records every request (<scenario folder>\requests.json) and fails the scenario on the first one it does not list, naming it.
 //   MIXDOG_RECORDER_SCRATCH=<the recording's scratch parent> node replay-agent-trace-run.mjs --mixdogd <exe> [--only <n>,<n>]
 // The exit code is 1 on any difference.
 import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
@@ -66,12 +67,30 @@ function provider(replies, counter, runs) {
     const body = [];
     req.on('data', (d) => body.push(d));
     req.on('end', async () => {
-      if (req.method === 'GET') {
+      // Every request is recorded; the scenario lists the model list (GET) and, per reply, one chat request of its
+      // conversation: the prompt as the first user text, ending in the results of the reply before it.
+      let parsed = null;
+      try { parsed = JSON.parse(Buffer.concat(body).toString('utf8') || 'null'); } catch {}
+      const messages = Array.isArray(parsed?.messages) ? parsed.messages : [];
+      const textOf = (m) => (typeof m?.content === 'string' ? m.content : Array.isArray(m?.content) ? m.content.map((p) => p?.text ?? '').join('') : '');
+      const seen = { method: req.method, path: req.url, model: parsed?.model ?? null, firstUser: textOf(messages.find((m) => m?.role === 'user')).slice(0, 200) };
+      counter.requests.push(seen);
+      if (req.method === 'GET' && /\/models$/.test(req.url)) {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ object: 'list', data: [{ id: golden.model, object: 'model' }] }));
       }
+      const before = replies[counter.sends - 1];
+      const tail = [];
+      for (let k = messages.length - 1; k >= 0 && messages[k]?.role === 'tool'; k -= 1) tail.unshift(messages[k].tool_call_id);
+      const listed = req.method === 'POST' && /\/chat\/completions$/.test(req.url) && seen.model === golden.model && seen.firstUser === 'go'
+        && counter.sends < replies.length
+        && JSON.stringify(tail) === JSON.stringify(before ? before.calls.map((c) => c.id) : []);
+      if (!listed) {
+        counter.failure ??= new Error(`provider request ${counter.requests.length} is not one the scenario lists: ${JSON.stringify(seen)}`);
+        res.writeHead(500, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: { message: 'not a request of the scenario' } }));
+      }
       const step = replies[counter.sends++];
-      if (!step) return sse(res, [chunk({ role: 'assistant', content: 'extra' }), chunk({}, 'stop'), '[DONE]']);
       if (!step.calls.length) return sse(res, [chunk({ role: 'assistant', content: step.text }), chunk({}, 'stop'), '[DONE]']);
       const tool_calls = step.calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args) } }));
       if (step.stream !== 'settled') return sse(res, [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls'), '[DONE]']);
@@ -108,7 +127,7 @@ async function runScenario(scenario, root, ws, bin, libs) {
   let child;
   let exited;
   let client;
-  const counter = { sends: 0, failure: null };
+  const counter = { sends: 0, failure: null, requests: [] };
   try {
     const runs = editRuns(p.local);
     cleanups.push(() => runs.close());
@@ -178,6 +197,8 @@ async function runScenario(scenario, root, ws, bin, libs) {
     ).finally(() => stopping.abort());
     if (!stopped.ok) throw new Error(`/mgmt/stop answered ${stopped.status}`);
     await deadline(exited, 30_000, 'the core exiting');
+    // A request the scenario does not list may come after the turn (a title generation released by its output).
+    if (counter.failure) throw counter.failure;
     const job = readJobReport(join(root, 'job.json'));
     if (job.exitCode !== 0) throw new Error(`the core exited with ${job.exitCode}`);
     const text = (name) => { const file = join(p.data, 'history', name); return existsSync(file) ? readFileSync(file, 'utf8') : ''; };
@@ -185,6 +206,7 @@ async function runScenario(scenario, root, ws, bin, libs) {
     const finalFiles = Object.fromEntries(readdirSync(ws, { withFileTypes: true }).map((e) => (e.isFile() ? e.name : `${e.name}/`)).sort().map((name) => [name, name.endsWith('/') ? null : readFileSync(join(ws, name), 'utf8')]));
     return { threadId, dataDir: p.data, trace: text('agent-trace.jsonl'), failures: text('tool-failures.jsonl'), sends: counter.sends, finalFiles };
   } finally {
+    writeFileSync(join(root, 'requests.json'), JSON.stringify(counter.requests, null, 1));
     const problems = [];
     for (const cleanup of cleanups.reverse()) {
       try { await cleanup(); } catch (error) { problems.push(error); }
