@@ -1,0 +1,59 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-hybrid-sql-exact.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "embeddings: no vectors are inserted, so only the lexical/exact legs return rows (the dense leg has no candidates)",
+    "runs": "openDatabase/closeDatabase (memory.mjs) on a private bundled PostgreSQL cluster, stopPgForShutdown (pg/supervisor.mjs), recallPlan (recall-hybrid/plan.mjs), buildHybridQuery (recall-hybrid/hybrid-sql.mjs), buildExactTerms (recall-scoring.mjs)"
+  },
+  "exclusions": "none",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 27973,
+      "path": "golden.json",
+      "sha256": "eeea1f3e4ad40f31819a4a1c731d716d7652d859b5c7ec3fc5343e7751ccb7a6"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "ids": "serial ids 1..N from a fresh cluster, in insertion order",
+    "private directory": "temp, not recorded"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-hybrid-sql-exact.mjs",
+  "recorderSha256": "a57feac06c806e795759b3ece960ab0ab48729bc82e253cc9bda14b11740393a",
+  "replay": "mixdog-services memory: mem/recall/hybrid.rs exact_cte (lower + strpos) over a PG with the same `entries` rows inserted in order; compares per query the exact terms, and the set of ids whose exact_rank is not null (sorted). The sql text is Node's: a Rust replay compares ids and exact terms, not SQL text. Needs MIXDOG_PG_RUNTIME",
+  "set": "memory-hybrid-sql-exact",
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 27973,
+  "uuidsNormalised": "none"
+}
