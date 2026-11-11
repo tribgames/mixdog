@@ -254,6 +254,11 @@ impl ExtensionScopes {
         }
         skill.plugin.as_deref().is_none_or(|id| self.allowed_for_cwd(ScopeKind::Plugins, id, cwd))
     }
+
+    /// `mcpServerAllowedForCwd`: the server's own scope intersected with its owning plugin's.
+    pub fn mcp_server_allowed_for_cwd(&self, server: &str, plugin_id: Option<&str>, cwd: &Path) -> bool {
+        self.allowed_for_cwd(ScopeKind::Mcp, server, cwd) && plugin_id.is_none_or(|id| self.allowed_for_cwd(ScopeKind::Plugins, id, cwd))
+    }
 }
 
 #[cfg(test)]
@@ -271,5 +276,22 @@ mod tests {
         assert!(!scopes.allowed_for_cwd(ScopeKind::Skills, "deploy", &std::env::temp_dir().join("proj-ab")));
         assert!(scopes.allowed_for_cwd(ScopeKind::Skills, "other", Path::new("/anywhere")));
         assert!(scopes.allowed_for_cwd(ScopeKind::Mcp, "x", Path::new("/anywhere")));
+    }
+
+    /// `extension-scopes.test.mjs` "MCP tools filter by server scope intersected with the owning plugin scope".
+    #[test]
+    fn a_plugin_servers_scope_is_its_own_intersected_with_its_plugins() {
+        let (a, b) = (std::env::temp_dir().join("work").join("alpha"), std::env::temp_dir().join("work").join("beta"));
+        let (a_text, b_text) = (a.to_string_lossy(), b.to_string_lossy());
+        let scopes = ExtensionScopes::from_config(&json!({
+            "mcp": { "UnityMCP": [b_text], "plugin-unity-editor": [a_text, b_text] },
+            "plugins": { "unity": [a_text] },
+        }));
+        assert!(!scopes.mcp_server_allowed_for_cwd("UnityMCP", None, &a));
+        assert!(scopes.mcp_server_allowed_for_cwd("UnityMCP", None, &b));
+        assert!(!scopes.mcp_server_allowed_for_cwd("plugin-unity-editor", Some("unity"), &b));
+        assert!(scopes.mcp_server_allowed_for_cwd("plugin-unity-editor", Some("unity"), &a));
+        // Owner metadata, not the name, decides: a look-alike server of no plugin is free.
+        assert!(scopes.mcp_server_allowed_for_cwd("plugin-unity-tools", None, &b));
     }
 }
