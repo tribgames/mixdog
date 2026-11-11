@@ -1,0 +1,313 @@
+{
+  "set": "provider-deepseek-replay",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "empty-vs-absent-reasoning:empty",
+      "source": "src/runtime/agent/orchestrator/providers/deepseek-replay.test.mjs:12",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "answer",
+                  "reasoning_content": ""
+                },
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": "answer",
+                  "reasoning_content": ""
+                },
+                "finish_reason": "stop"
+              }
+            ]
+          },
+          "model": "",
+          "content": "answer",
+          "stopReason": "stop",
+          "reasoningContent": "",
+          "reasoningSource": "reasoning_content",
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "messageHasReasoningContent": true
+      }
+    },
+    {
+      "id": "empty-vs-absent-reasoning:absent",
+      "source": "src/runtime/agent/orchestrator/providers/deepseek-replay.test.mjs:12",
+      "input": {
+        "chunks": [
+          {
+            "choices": [
+              {
+                "delta": {
+                  "content": "answer"
+                },
+                "finish_reason": "stop"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "result": {
+          "response": {
+            "id": null,
+            "model": null,
+            "choices": [
+              {
+                "message": {
+                  "content": "answer"
+                },
+                "finish_reason": "stop"
+              }
+            ]
+          },
+          "model": "",
+          "content": "answer",
+          "stopReason": "stop",
+          "reasoningContent": null,
+          "reasoningSource": null,
+          "reasoningDetails": null,
+          "rawUsage": null,
+          "generationMs": 0
+        },
+        "messageHasReasoningContent": false
+      }
+    },
+    {
+      "id": "empty-reasoning-through-tool-history",
+      "source": "src/runtime/agent/orchestrator/providers/deepseek-replay.test.mjs:32",
+      "input": {
+        "replies": [
+          [
+            {
+              "model": "deepseek-v4-pro",
+              "choices": [
+                {
+                  "delta": {
+                    "role": "assistant",
+                    "reasoning_content": "",
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_empty",
+                        "type": "function",
+                        "function": {
+                          "name": "missing_fixture_tool",
+                          "arguments": "{}"
+                        }
+                      }
+                    ]
+                  },
+                  "finish_reason": "tool_calls"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "model": "deepseek-v4-pro",
+              "choices": [
+                {
+                  "delta": {
+                    "content": "done",
+                    "reasoning_content": ""
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "done",
+          "model": "deepseek-v4-pro",
+          "stopReason": "stop",
+          "reasoningContent": "",
+          "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "reasoningTokens": null,
+            "reasoningTokensComplete": false,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "cacheWrite1hTokens": 0,
+            "promptTokens": 0
+          },
+          "generationMs": 0,
+          "lastSendTools": [],
+          "firstTurnUsage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "reasoningTokens": null,
+            "reasoningTokensComplete": false,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "cacheWrite1hTokens": 0,
+            "promptTokens": 0
+          },
+          "iterations": 2,
+          "toolCallsTotal": 1,
+          "providerStateUpdated": false,
+          "providerContinuations": 0
+        },
+        "committed": [
+          {
+            "role": "assistant",
+            "createdAt": 1794225600000,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_empty",
+                "name": "missing_fixture_tool",
+                "arguments": {}
+              }
+            ],
+            "reasoningContent": ""
+          }
+        ],
+        "committedHasReasoningContent": true,
+        "replayDeepseek": [
+          {
+            "role": "user",
+            "content": "Check."
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_empty",
+                "type": "function",
+                "function": {
+                  "name": "missing_fixture_tool",
+                  "arguments": "{}"
+                }
+              }
+            ],
+            "reasoning_content": ""
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_empty",
+            "content": "Error: unknown tool \"missing_fixture_tool\""
+          },
+          {
+            "role": "assistant",
+            "content": "done",
+            "reasoning_content": ""
+          }
+        ],
+        "replayOpenrouter": [
+          {
+            "role": "user",
+            "content": "Check."
+          },
+          {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [
+              {
+                "id": "call_empty",
+                "type": "function",
+                "function": {
+                  "name": "missing_fixture_tool",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_empty",
+            "content": "Error: unknown tool \"missing_fixture_tool\""
+          },
+          {
+            "role": "assistant",
+            "content": "done"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://api.deepseek.com",
+          "path": "/chat/completions",
+          "headers": {
+            "host": "api.deepseek.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer fixture",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "129"
+          },
+          "body": "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"Check.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"model\":\"deepseek-v4-pro\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"\",\"tool_calls\":[{\"index\":0,\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"missing_fixture_tool\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://api.deepseek.com",
+          "path": "/chat/completions",
+          "headers": {
+            "host": "api.deepseek.com",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer fixture",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "402"
+          },
+          "body": "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"user\",\"content\":\"Check.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"missing_fixture_tool\",\"arguments\":\"{}\"}}],\"reasoning_content\":\"\"},{\"role\":\"tool\",\"tool_call_id\":\"call_empty\",\"content\":\"Error: unknown tool \\\"missing_fixture_tool\\\"\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"model\":\"deepseek-v4-pro\",\"choices\":[{\"delta\":{\"content\":\"done\",\"reasoning_content\":\"\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    }
+  ]
+}
