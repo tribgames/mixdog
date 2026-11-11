@@ -11,7 +11,7 @@
     {
       "bytes": 245355,
       "path": "golden.json",
-      "sha256": "217fb5769d88ff4c8c4f2ae4c87a95869f051ca7282a142aef0ec893d76352e4"
+      "sha256": "b747189ccd05ea90919dcbbb6539809e70c28b80844b9557f087b280471d9d63"
     }
   ],
   "inputs": [
@@ -82,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-github-cases.mjs",
-  "recorderSha256": "6e941057e28a692e815cdb5bf5dd70f8fd19cde3ea9abebad1d650fe71f7d5c0",
+  "recorderSha256": "f6f449578a8cf3df9e347b29f0901a5d70cfc6667481c41eab9dd9313c7cc167",
   "replay": {
     "compare": "mixdog-tools src/github/k1_replay.rs: the same request and tool calls with the recorded scripted answers at the client's runner (GhRunner, where Node's tests scripted run), each case compared whole: the commands built, the results or errors, the tool text and the raw file read back",
     "entry": "Requests: GhClient::execute (mixdog-scm/src/gh/client.rs:294), the whole body of github/request (service.rs:452 github_request) and of the agent's tool. Tool cases 9-14: the registered agent tool GithubTool (mixdog-tools/src/github/mod.rs, Tool::call; registered at mixdog-app-server-daemon/src/compose_flip.rs real_core over the desktop's GhClient), which on o1 ran gh itself without tool.mjs's projection, cap and raw file. Pure cases 2 and 15 drive contract::validate and commands::build, as Node's test drove buildGithubCommand.",
@@ -91,7 +91,7 @@
     "normalised": {
       "cwd": "the process cwd is not recorded",
       "tempDirs": "temp dirs (clone destinations, data dirs, raw file paths) are <tmp>/<data>; a replay must substitute its own and compare the rest",
-      "textBytes": "recording defect: textBytes was counted over the text before its temp folder was written <tmp> (the recorder's os.tmpdir(), 54 bytes), so each text holding a raw path counts 49 bytes more than its normalised form; the replay counts the core's text with a 54-byte folder in place of its own"
+      "textBytes": "textBytes and boundedBytes count the UTF-8 bytes of the text as stored (after the temp-folder normalisation above), so they do not depend on the recording host's temp folder; a replay counts its own text after the same normalisation"
     },
     "protocolMethods": [
       "github/request (mixdog-scm/src/service.rs:573, served through `impl DomainService for ScmHandle` :598, `pub struct ScmHandle` :595, `pub mod service`)"
