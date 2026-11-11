@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,17 +66,18 @@
   "recorderSha256": "b140102a06a274e5d3af166db9b8cafd1e71a0802d527ab97bbd3e0c63320c87",
   "replay": {
     "compare": "mixdog-tools policy (gate.rs, grants.rs, card.rs): replay each log step in order (decide / choose / answer / advance / reset / grant / setMode / setAgentPermission / config) on a store and a session-grant registry with the recorded clock (start 1_000_000 ms) and compare every step's output and the grants/audit views",
-    "entry": "Drive these public items on o1: mixdog-tools/src/policy/gate.rs:237 decide; mixdog-tools/src/policy/session_grants.rs:49 grant; mixdog-tools/src/policy/session_grants.rs:68 has; mixdog-tools/src/policy/grants.rs:158 set_mode; mixdog-tools/src/policy/grants.rs:321 GrantStore; mixdog-tools/src/policy/card.rs:59 build.",
+    "entry": "Drive these public items on o1: mixdog-tools/src/policy/gate.rs:237 decide; mixdog-tools/src/policy/session_grants.rs:49 grant; mixdog-tools/src/policy/session_grants.rs:68 has; mixdog-tools/src/policy/grants.rs:158 set_mode; mixdog-tools/src/policy/grants.rs:321 GrantStore; mixdog-tools/src/policy/grants.rs:362 GrantStore::audit (reads the audit entries); mixdog-tools/src/policy/card.rs:59 build; agent/setAgentPermission (setAgentPermission: mixdog-app-protocol/src/methods.rs:1025 AgentSetAgentPermission, inventory.rs:3162-3163; the handler is the match arm mixdog-core-agents/src/setup/agent_settings.rs:264, private).",
     "exclusions": {},
-    "existsButNotPublicOnO1": [],
-    "missingOnO1": [
-      "recordHumanDecision: no public function (the audit write is private, policy/pipeline.rs:587)",
-      "setAgentPermission: only a match arm in mixdog-core-agents/src/setup/agent_settings.rs:264"
+    "existsButNotPublicOnO1": [
+      "recordHumanDecision: the audit writes are private: mixdog-tools/src/policy/pipeline.rs:587 `audit`, mixdog-core/src/run_host/handoff_env.rs:92 `record_decision`, mixdog-app-server-daemon/src/held_requests.rs:305 `record_decision`"
     ],
+    "missingOnO1": [],
     "normalised": {
       "dataDir": "<data> wherever it occurs (paths listed in normalised.paths)"
     },
-    "protocolMethods": [],
+    "protocolMethods": [
+      "agent/setAgentPermission (setAgentPermission: mixdog-app-protocol/src/methods.rs:1025 AgentSetAgentPermission, inventory.rs:3162-3163; the handler is the match arm mixdog-core-agents/src/setup/agent_settings.rs:264, private)"
+    ],
     "rustTargets": [
       {
         "line": 237,
@@ -101,6 +102,12 @@
       {
         "line": 321,
         "name": "GrantStore",
+        "path": "native/core/crates/mixdog-tools/src/policy/grants.rs"
+      },
+      {
+        "line": 362,
+        "methods": "reads the audit entries",
+        "name": "GrantStore::audit",
         "path": "native/core/crates/mixdog-tools/src/policy/grants.rs"
       },
       {
