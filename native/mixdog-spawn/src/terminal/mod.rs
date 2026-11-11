@@ -1259,29 +1259,26 @@ impl TerminalTabs {
             },
             time_limit: None,
         };
-        #[cfg(feature = "scripted-shell")]
-        let spawn = {
-            let mut spawn = spawn;
-            crate::scripted::in_place_of(&mut spawn);
-            spawn
-        };
         let on_exit: ExitHook = {
             let tab = Arc::clone(&tab);
             Box::new(move |exit| tab.exited(exit))
         };
-        self.manager
-            .spawn_with(
-                spawn,
-                SpawnOptions {
-                    ring_bytes: Some(self.config.replay_limit),
-                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
-                    on_exit: Some(on_exit),
-                    // The tab's exit comes when Node's node-pty raised it, on this runtime's clock.
-                    node_pty_exit: Some(NodePtyExit { runtime: tokio::runtime::Handle::current() }),
-                },
-            )
-            .await
-            .map_err(TerminalError::Process)?;
+        #[allow(unused_mut)]
+        let mut spawn = spawn;
+        #[allow(unused_mut)]
+        let mut options = SpawnOptions {
+            ring_bytes: Some(self.config.replay_limit),
+            filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+            on_exit: Some(on_exit),
+            // The tab's exit comes when Node's node-pty raised it, on this runtime's clock.
+            node_pty_exit: Some(NodePtyExit { runtime: tokio::runtime::Handle::current() }),
+            ..SpawnOptions::default()
+        };
+        #[cfg(feature = "scripted-shell")]
+        {
+            options.scripted_frames = crate::scripted::in_place_of(&mut spawn);
+        }
+        self.manager.spawn_with(spawn, options).await.map_err(TerminalError::Process)?;
         Ok(tab)
     }
 
