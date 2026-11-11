@@ -369,7 +369,10 @@ impl MemoryStack {
             };
             let (memory_db, search_db) = (deferred(Schema::Memory), deferred(Schema::SessionSearch));
             let search = SessionSearchIngest::new(SessionSearchDb::over(search_db.clone()), sensitive.clone());
-            let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| provider as Arc<dyn QueryEmbedder>);
+            // `embedQuery` (`query-hybrid-search.mjs:39`): a cold model is warmed within the recall's bounded wait.
+            let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| {
+                Arc::new(crate::memory::recall::readiness::RecallEmbedder::new(provider, flags.secondary)) as Arc<dyn QueryEmbedder>
+            });
             let recall = Recall::new(RecallDeps {
                 db: memory_db.clone(),
                 clock: Arc::new(|| Clock { now_ms: chrono::Utc::now().timestamp_millis(), zone: mixdog_js::time::local_zone() }),
