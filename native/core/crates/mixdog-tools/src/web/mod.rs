@@ -26,6 +26,8 @@ mod document_node_cases;
 #[cfg(test)]
 mod fetch_output_node_cases;
 #[cfg(test)]
+mod fetch_pipeline_node_cases;
+#[cfg(test)]
 mod hosted_native_tests;
 #[cfg(test)]
 mod render_tests;
