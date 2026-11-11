@@ -1,0 +1,75 @@
+{
+  "note": "Node (b6f10295a): per world, whether each paired phone reading the terminal lane got a tab's output from the tab's first output on (a tab the desktop opened, a tab the other phone opened), and whether output written after an unpair of the first phone (refused by the relay, or confirmed with its socket still open) reached that phone. See the recorder's header.",
+  "credentials": {
+    "p1": "aaaaaaa1",
+    "p2": "aaaaaaa2"
+  },
+  "tabs": {
+    "desktop": "term_lane_desk",
+    "phone": "term_lane_ph"
+  },
+  "marks": {
+    "desktop": {
+      "typed": "echo ('LANE' + '-DESK')\r",
+      "seen": "LANE-DESK"
+    },
+    "phone": {
+      "typed": "echo ('LANE' + '-PH')\r",
+      "seen": "LANE-PH"
+    },
+    "unpair": {
+      "typed": "echo ('LANE' + '-UNPAIR')\r",
+      "seen": "LANE-UNPAIR"
+    }
+  },
+  "worlds": [
+    {
+      "name": "the relay refuses the unpair",
+      "relayConfirms": false,
+      "desktopTab": {
+        "p1": {
+          "fromFirstOutput": true
+        },
+        "p2": {
+          "fromFirstOutput": true
+        }
+      },
+      "phoneTab": {
+        "p1": {
+          "fromFirstOutput": true
+        },
+        "p2": {
+          "fromFirstOutput": true
+        }
+      },
+      "unpair": {
+        "unpairedPhoneGotOutput": true,
+        "desktopClosedUnpairedPhone": null
+      }
+    },
+    {
+      "name": "the relay confirms the unpair, the socket still open",
+      "relayConfirms": true,
+      "desktopTab": {
+        "p1": {
+          "fromFirstOutput": true
+        },
+        "p2": {
+          "fromFirstOutput": true
+        }
+      },
+      "phoneTab": {
+        "p1": {
+          "fromFirstOutput": true
+        },
+        "p2": {
+          "fromFirstOutput": true
+        }
+      },
+      "unpair": {
+        "unpairedPhoneGotOutput": true,
+        "desktopClosedUnpairedPhone": null
+      }
+    }
+  ]
+}

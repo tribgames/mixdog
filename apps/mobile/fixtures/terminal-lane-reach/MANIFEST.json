@@ -1,0 +1,57 @@
+{
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "compared": "Each world's values whole. A phone's output is compared only as whether it starts with the tab's own text up to the typed marker's output (and, after the unpair, whether it holds the marker): the shell's text and the frames' cuts are the shell's and the 16 ms window's, not the lanes'.",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1860,
+      "path": "golden.json",
+      "sha256": "75f8847dd73f50b431339036dedf9be386eff4ab19f63b3394e2136b611805e0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+      "sha256": "c21b47dd1896f6245063ad1765a84b4f5faf4c8f5d472881b3c1d094ae1051a6"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/shell-isolation.mjs",
+      "sha256": "5b8bef780c0ddf6008c47e1c833e7a125dc3b058d8fdba681abf4cd5b97c646c"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/terminal-lane-reach.mjs",
+      "sha256": "c8b2b4a8194e7f4da68200cb1cff6a9d0d64306305788e1ce3219980b5486112"
+    }
+  ],
+  "leftProcesses": "0 process(es) of the recording were still running when it ended and were ended with its job (ConPTY hosts outlive node-pty's kill).",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-terminal-lane-reach.mjs",
+  "recorderSha256": "b86ade73173f487e97276feaa85163ba77db8a3482791787308cd48460c42b52",
+  "set": "terminal-lane-reach",
+  "totalBytes": 1860
+}
