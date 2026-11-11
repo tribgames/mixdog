@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "5424c918b2318de4c09c3b9f636ee48753d17da9190cd679d61a284c7b27e549",
   "replay": "mixdog-services memory: mem/schema.rs category_score_params + compute_entry_score (PG function or its Rust twin); compares every score and the null answers exactly (f64 equal)",
   "set": "memory-score",
-  "totalBytes": 5822
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 5822,
+  "uuidsNormalised": "none"
 }

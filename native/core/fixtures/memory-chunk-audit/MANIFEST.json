@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "edcf65dd38d8f36e0e80a60c6a560da2778a6be341823dd364808b27ff1a265d"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,9 +49,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-chunk-audit.mjs",
-  "recorderSha256": "64bd3539ca8b486c1ac029c6592c579bbea25db5b0467144ffa83c6afc9a6a92",
+  "recorderSha256": "1a30d6d78de8663d843a2941f7ee1042985a89126021e41f8a9f1a0e37cbba1b",
   "replay": "mixdog-services memory: mem/recall/browse.rs session recall (recall_session_rows) + mem/recall/compact.rs compact_handoff_rows over a db seam that answers the same statements; compares the returned text/rows and the ordered statements (text and params)",
   "set": "memory-chunk-audit",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 25528
+  "totalBytes": 25528,
+  "uuidsNormalised": "none"
 }

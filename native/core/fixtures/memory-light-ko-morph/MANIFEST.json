@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "8574d0f44ab506893b63330eeb320c747beaa7fc8d452e2456d4b8c0ebdffc3b",
   "replay": "mixdog-services memory: mem/ko_morph.rs strip/normalize/stems and the recall query tokenizer + FTS prefix builder; compares every answer exactly",
   "set": "memory-light-ko-morph",
-  "totalBytes": 19812
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 19812,
+  "uuidsNormalised": "none"
 }

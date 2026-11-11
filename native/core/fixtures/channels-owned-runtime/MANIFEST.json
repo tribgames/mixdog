@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "de8f079c13ab4ddf851f60089c8745abf900afcfd9c8c3fb113a725f2df2bfa0"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "a22496fa096ccdbe4ce096549e9f3dcf9e622659100432dd1a6b11ee2adc95ec",
   "replay": "mixdog-services channels: ch/runtime.rs start_bridge_turn, stop_owned_runtime, reload_runtime/reload_turn and the automation start, driven with a recording scheduler/webhook/pipeline; compares per case the ordered call list (names and arguments, notify method+state, scheduler.reload restart flag, webhook.reload autoStart), the end state and the stderr lines. Rust has no advert/lock files and no snapshot writer: those entries are the Node-only calls (advert, advert.clear, locks.release, snapshot.*) a replay maps or drops by name",
   "set": "channels-owned-runtime",
-  "totalBytes": 6552
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 6552,
+  "uuidsNormalised": "none"
 }

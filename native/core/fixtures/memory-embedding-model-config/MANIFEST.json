@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "336e3c12bc9aecf240099db579703b0de3e406816692e876d4d9be1a23ba108d",
   "replay": "mixdog-services memory: mem/embed/config.rs (DEFAULT_MODEL_ID, profiles, graph_file, prepare_input, pooling); compares every answer exactly. Rust has no environment-selected model override unless the daemon keeps MIXDOG_EMBED_MODEL: the replay compares the env-driven rows only where it supports them",
   "set": "memory-embedding-model-config",
-  "totalBytes": 62999
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 62999,
+  "uuidsNormalised": "none"
 }

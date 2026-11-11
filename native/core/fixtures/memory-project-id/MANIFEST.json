@@ -20,7 +20,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "dda1896d18a698c5a46690624284ec63e65f334bd2a693b27e4be9bf9c0c630b"
+      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -52,5 +52,7 @@
   "recorderSha256": "637f3ce9fa5aed1ab00c7cc50a90d84239c12c44ef8e54bef2bbe45db0551974",
   "replay": "mixdog-services memory: mem/project.rs holds_no_data + the marker read (project id from a directory); writes each case's markerBytesHex into a temp directory, resolves from the stated sub path, compares the id or null",
   "set": "memory-project-id",
-  "totalBytes": 1893
+  "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
+  "totalBytes": 1893,
+  "uuidsNormalised": "none"
 }
