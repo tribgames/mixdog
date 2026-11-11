@@ -89,7 +89,7 @@ impl GithubTool {
         if ctx.thread_id.as_str().is_empty() || ctx.call_id.as_str().is_empty() {
             return None;
         }
-        crate::exec::archive::persist(ctx.io.maintenance, &ctx.cancel, data_dir, ctx.thread_id.as_str(), "github-raw", content)
+        crate::exec::archive::persist(ctx.io.durability, &ctx.cancel, data_dir, ctx.thread_id.as_str(), "github-raw", content)
             .await
             .map(|stored| stored.path)
     }

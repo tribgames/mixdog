@@ -209,6 +209,8 @@ pub fn build_exec(
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             maintenance: tokens.maintenance_io,
+            spawn: tokens.spawn_io,
+            pty: tokens.pty_io,
         },
         spill_dir: data_dir.join("scratch").join("jobs"),
         data_dir: Some(data_dir.to_path_buf()),

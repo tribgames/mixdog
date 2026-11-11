@@ -196,6 +196,8 @@ pub(super) struct Rig {
     /// What the tool sees: the fake, or the real manager of a test that runs real processes.
     manager: Arc<dyn ProcessManager>,
     review: Arc<super::settle::RecordingReview>,
+    /// The lanes the runtime and every call context use: the test backend's, or real executors'.
+    tokens: mixdog_rt::LaneTokens,
 }
 
 fn rig() -> Rig {
@@ -214,15 +216,20 @@ fn rig_with(elevation: Arc<dyn ElevationGate>) -> Rig {
 }
 
 fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
+    rig_on(mixdog_rt::testing::tokens(), elevation, notifier)
+}
+
+fn rig_on(tokens: mixdog_rt::LaneTokens, elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNotifier>>) -> Rig {
     let review = Arc::new(super::settle::RecordingReview::default());
     let dir = tempfile::tempdir().unwrap();
-    let tokens = mixdog_rt::testing::tokens();
     let runtime = ExecRuntime::new(ExecConfig {
         tasks: Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(NoPublisher), golden_ms)),
         lanes: IoLanes {
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             maintenance: tokens.maintenance_io,
+            spawn: tokens.spawn_io,
+            pty: tokens.pty_io,
         },
         spill_dir: dir.path().join("l"),
         data_dir: Some(dir.path().join("data")),
@@ -249,11 +256,12 @@ fn rig_full(elevation: Arc<dyn ElevationGate>, notifier: Option<Arc<dyn TaskNoti
         manager: processes.clone(),
         processes,
         review,
+        tokens,
     }
 }
 
 pub(super) fn ctx(rig: &Rig, call: &str) -> ToolContext {
-    let tokens = mixdog_rt::testing::tokens();
+    let tokens = rig.tokens;
     ToolContext {
         call_id: ToolCallId::from(call),
         thread_id: ThreadId::from("t"),
@@ -1282,15 +1290,144 @@ async fn a_bash_command_is_delivered_through_the_environment() {
 
 pub(super) fn real_rig() -> Rig {
     let mut rig = rig();
-    let tokens = mixdog_rt::testing::tokens();
     rig.manager = Arc::new(mixdog_spawn::LocalProcessManager::new(
-        tokens.spawn_io,
+        rig.tokens.spawn_io,
         mixdog_spawn::ProcessConfig::default(),
     ));
     rig
 }
 
 const LONG_SLEEP: &str = if cfg!(windows) { "Start-Sleep 30" } else { "sleep 30" };
+
+/// Both io-maintenance threads are held by jobs that do not return (two long searches or tree
+/// walks): 30 shell calls still start, run and record their output to their logs. The lanes are
+/// the real pooled ones (the test backend runs every lane job inline on the submitting thread)
+/// and are installed process-wide, so this test needs a process of its own (nextest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn thirty_shell_calls_start_and_record_while_io_maintenance_is_held() {
+    use mixdog_rt::LaneToken;
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let mut releases = Vec::new();
+    for _ in 0..2 {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let started = started_tx.clone();
+        tokens
+            .maintenance_io
+            .submit(&CancellationToken::new(), move |_| {
+                started.send(()).unwrap();
+                let _ = held.recv();
+            })
+            .expect("io-maintenance takes the holder");
+        releases.push(release);
+    }
+    for _ in 0..2 {
+        started_rx.recv_timeout(std::time::Duration::from_secs(60)).expect("both io-maintenance threads are held");
+    }
+    let rig = rig_on(tokens, Arc::new(OsPromptElevation), None);
+    let calls = (0..30).map(|i| {
+        let rig = &rig;
+        async move { body(rig.shell.call(&ctx(rig, &format!("m{i}")), serde_json::json!({"command": format!("echo out{i}")})).await) }
+    });
+    let texts = tokio::time::timeout(std::time::Duration::from_secs(60), futures::future::join_all(calls))
+        .await
+        .expect("30 shell calls finish while io-maintenance is held");
+    for (i, text) in texts.iter().enumerate() {
+        assert_eq!(text, &format!("[exit code: 0]\n\nout{i}\n"));
+        let log = rig.dir.path().join("l").join(format!("task-m{i}.stdout.log"));
+        assert_eq!(std::fs::read_to_string(log).unwrap(), format!("out{i}\n"), "the log of call {i}");
+    }
+    drop(releases);
+}
+
+/// A job's log writes are held (a stalled disk): the writer takes chunks until it holds its cap of
+/// unwritten bytes, the collector then waits, and once the writes resume nothing is lost or
+/// reordered and the logs are complete when the writer closes. The drain runs on a real io-pty
+/// thread (process-wide executors, so a process of its own: nextest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_log_writer_keeps_within_its_cap_and_loses_or_reorders_nothing() {
+    use futures::FutureExt;
+    use super::spill::LOG_PENDING_CAP;
+    const CHUNK: usize = 16 * 1024;
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("the executors");
+    let dir = tempfile::tempdir().unwrap();
+    let logs = [dir.path().join("j.stdout.log"), dir.path().join("j.stderr.log")];
+    for log in &logs {
+        std::fs::write(log, b"").unwrap();
+    }
+    let gate = super::spill::write_gate::arm(dir.path());
+    let writer = super::spill::LogWriter::new(tokens.pty_io, &logs[0], &logs[1]);
+    // Two stdout chunks, then one stderr chunk, each tagged with its number.
+    let chunk = |n: usize| {
+        let tag = format!("[{n:05}]");
+        let bytes: Vec<u8> = tag.bytes().cycle().take(CHUNK).collect();
+        (usize::from(n % 3 == 2), bytes)
+    };
+    let mut expected = [Vec::new(), Vec::new()];
+
+    let (stream, bytes) = chunk(0);
+    expected[stream].extend_from_slice(&bytes);
+    writer.push(stream, bytes).await;
+    gate.wait_reached(1);
+    let mut accepted = 1;
+    let blocked = loop {
+        let (stream, bytes) = chunk(accepted);
+        if writer.push(stream, bytes.clone()).now_or_never().is_none() {
+            break accepted;
+        }
+        expected[stream].extend_from_slice(&bytes);
+        assert!(writer.unwritten() <= LOG_PENDING_CAP);
+        accepted += 1;
+    };
+    assert_eq!(blocked, LOG_PENDING_CAP / CHUNK, "chunks taken while the writes are held");
+    assert_eq!(writer.unwritten(), LOG_PENDING_CAP);
+
+    let total = 3 * blocked;
+    let producer = async {
+        for n in blocked..total {
+            let (stream, bytes) = chunk(n);
+            expected[stream].extend_from_slice(&bytes);
+            writer.push(stream, bytes).await;
+            assert!(writer.unwritten() <= LOG_PENDING_CAP);
+        }
+        writer.close().await;
+    };
+    gate.open();
+    tokio::time::timeout(std::time::Duration::from_secs(60), producer).await.expect("the writer takes and writes every chunk");
+    assert_eq!(writer.unwritten(), 0);
+    for (stream, log) in logs.iter().enumerate() {
+        assert!(std::fs::read(log).unwrap() == expected[stream], "log {stream} holds every chunk in order");
+    }
+}
+
+/// The launchers are written by the first call and their stamps kept; a launcher removed or
+/// rewritten since is written again by the next call.
+#[tokio::test]
+async fn a_launcher_changed_on_disk_is_written_again_by_the_next_call() {
+    let rig = rig();
+    let rt = SkillRuntime {
+        platform: "linux".into(),
+        interpreter: "/opt/mixdog/mixdogd".into(),
+        entry: "/opt/mixdog/skill.js".into(),
+        electron: false,
+    };
+    let mut config = rig.runtime.config.clone_for_test();
+    config.skill_runtime = Some(rt.clone());
+    let shell = ShellTool::new(ExecRuntime::new(config));
+    let data = rig.dir.path().join("data");
+    let file = std::path::PathBuf::from(super::invocation::skill_launcher_dir(&rt, &data.to_string_lossy())).join("mixdog-skill-node");
+    shell.call(&ctx(&rig, "k1"), serde_json::json!({"command": "echo one"})).await.unwrap();
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(written.contains("/opt/mixdog/skill.js"), "{written}");
+
+    std::fs::write(&file, "tampered").unwrap();
+    shell.call(&ctx(&rig, "k2"), serde_json::json!({"command": "echo two"})).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), written, "a rewritten launcher is restored");
+
+    std::fs::remove_file(&file).unwrap();
+    shell.call(&ctx(&rig, "k3"), serde_json::json!({"command": "echo three"})).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), written, "a removed launcher is written again");
+}
 
 #[tokio::test]
 async fn a_real_echo_matches_the_golden_fixture() {
