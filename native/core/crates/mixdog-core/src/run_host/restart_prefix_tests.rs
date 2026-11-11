@@ -450,7 +450,10 @@ fn same(core: &[u8], node: &Value, what: &str) {
     panic!("{what}: the bytes differ at {at} (core {} bytes, node {})\ncore …{}…\nnode …{}…\n{}", core.len(), expected.len(), around(core), around(&expected), out.join("\n"));
 }
 
-/// The conversation of a `thread/read` answer, in order: each user message's text and each agent message's text.
+/// The conversation of a `thread/read` answer, in order: each user message's text, each agent message's text and each
+/// tool call's name and input. Left out, each with where the same case compares it: the reasoning, tool output and turn
+/// end items, which hold the thinking blocks and tool results of the stored rows; the first request after the restart is
+/// built from those same reopened rows and is compared to Node's byte for byte (`replay`, "request {n} after the restart").
 fn read_conversation(read: &Value) -> Vec<(String, String)> {
     read["items"]
         .as_array()
@@ -459,32 +462,39 @@ fn read_conversation(read: &Value) -> Vec<(String, String)> {
         .filter_map(|item| match item["type"].as_str()? {
             "userMessage" => Some(("user".to_owned(), item["content"].as_array()?.iter().filter_map(|part| part["text"].as_str()).collect::<String>())),
             "agentMessage" => Some(("assistant".to_owned(), item["text"].as_str()?.to_owned())),
+            "toolCall" => Some(("call".to_owned(), format!("{} {}", item["name"].as_str()?, item["input"]))),
             _ => None,
         })
         .collect()
 }
 
-/// The conversation Node's first request after the restart carries before the new task: each user message's text blocks
-/// (not tool results, not the turn reminders Node sends as system messages) and each assistant message's text, in order.
-/// The new task rides the request's last user message, after the restart notice (its own text block, or folded into a
-/// cancelled tool result's content), so that message is not part of what was resumed.
+/// The conversation Node's first request after the restart carries before the new task: each user message's text blocks,
+/// each assistant message's text and each of its tool calls' name and input, in order. Not tool results, thinking blocks or
+/// the turn reminders Node sends as system messages: that request is compared whole in the same case (`replay`). The new
+/// task rides the request's last user message, after the restart notice (its own text block, or folded into a cancelled
+/// tool result's content), so that message is not part of what was resumed.
 fn node_conversation(body: &Value) -> Vec<(String, String)> {
     let messages = body["messages"].as_array().unwrap();
     let last = messages.iter().rposition(|message| message["role"] == "user").expect("Node's request has a user message");
     let tail = messages[last]["content"].as_array().and_then(|parts| parts.last()).expect("the last user message's parts");
     let tail = tail["text"].as_str().or_else(|| tail["content"].as_str()).unwrap_or_default();
     assert!(tail.ends_with("third task"), "Node's request ends with the new task: {tail:?}");
-    messages[..last]
-        .iter()
-        .filter_map(|message| {
-            let role = message["role"].as_str()?;
-            if role != "user" && role != "assistant" {
-                return None;
-            }
-            let text: String = message["content"].as_array()?.iter().filter(|part| part["type"] == "text").filter_map(|part| part["text"].as_str()).collect();
-            (!text.is_empty()).then(|| (role.to_owned(), text))
-        })
-        .collect()
+    let mut conversation = Vec::new();
+    for message in &messages[..last] {
+        let role = message["role"].as_str().unwrap();
+        let Some(parts) = message["content"].as_array() else { continue };
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let text: String = parts.iter().filter(|part| part["type"] == "text").filter_map(|part| part["text"].as_str()).collect();
+        if !text.is_empty() {
+            conversation.push((role.to_owned(), text));
+        }
+        for call in parts.iter().filter(|part| part["type"] == "tool_use") {
+            conversation.push(("call".to_owned(), format!("{} {}", call["name"].as_str().unwrap(), call["input"])));
+        }
+    }
+    conversation
 }
 
 /// What both processes of a case are started with, rebuilt by each from the recording and the case's paths.
