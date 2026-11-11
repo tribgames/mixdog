@@ -317,23 +317,14 @@ impl DomainService for TerminalService {
                     .ensure(params.tab_id.as_ref().map(|id| id.as_str()), request)
                     .await
                     .map_err(terminal_failure)?;
-                // Node pushed `termData` of every running terminal to a phone reading the lane: the output feed exists from the
-                // first ensure and pumping, so a `feed/subscribe` of `process:<id>` finds it and reads its output.
+                // Node pushed `termData` of every running terminal to a phone reading the lane: the tab is pumped from its first
+                // ensure, onto its `process:<id>` feed and the terminal lane (`TERMINAL_LANE_FEED`), whoever reads them.
                 // Node answered the ensure in-process before the new shell's first output (all five recorded runs, runs.json): the
                 // feed is held until the answer is in the connection's outgoing queue, as for a disposal.
                 let held = self.feeds.open_terminal(&attached.id, || self.tabs.relay_order(&attached.id));
                 let _ = self.changes.send(Change::Tabs);
                 req.ctx.after_answer.keep(held);
-                let result = attached_reply(&attached, &client);
-                // Node's relay lane took every tab's output while a phone read the terminal lane, a tab's first output included
-                // (remote-relay-push-lanes.ts:97-101), and the relay feed takes output only while it has a reader. A phone's ensure asks
-                // (`relayFeed`, whatever connection the phone came in on) to be subscribed to the tab's relay feed by the answer: the
-                // subscription is made before the hold above ends, so the shell's first output finds it. The phone's lanes' own
-                // `feed/subscribe`, once the tab is listed, comes too late for output the shell wrote at once (conpty's first chunk).
-                if options.get("relayFeed") == Some(&Value::Bool(true)) {
-                    return Ok(Reply::Subscribe(Subscribe { result, feed: self.feeds.relay_feed(&attached.id), window: Window::Fixed, resume_from: None }));
-                }
-                Ok(Reply::Value(result))
+                Ok(Reply::Value(attached_reply(&attached, &client)))
             }
             "terminal/attach" => {
                 let params: TerminalAttachParams = decode(&req.params)?;
@@ -342,16 +333,15 @@ impl DomainService for TerminalService {
                 let Some(attached) = self.tabs.attach(params.tab_id.as_str()).await else {
                     return Ok(Reply::Value(Value::Null));
                 };
-                // A phone reads the tab's output framed as Node's relay lane sent it; the window keeps the raw feed (its own
-                // 5 ms buffer is in the desktop's main process, ipc-terminal.ts).
-                let feed = if req.ctx.origin == mixdog_protocol::Origin::Relay {
-                    self.feeds.relay_feed(&attached.id)
-                } else {
-                    self.feeds.feed(&attached.id, true)
-                };
+                // A phone reads the tab's output on the terminal lane, as Node's relay pushed it whether or not the phone had
+                // attached; its attach subscribes it to nothing more. The window keeps the raw feed (its own 5 ms buffer is in the
+                // desktop's main process, ipc-terminal.ts).
+                if req.ctx.origin == mixdog_protocol::Origin::Relay {
+                    return Ok(Reply::Value(attached_reply(&attached, &client)));
+                }
                 Ok(Reply::Subscribe(Subscribe {
                     result: attached_reply(&attached, &client),
-                    feed,
+                    feed: self.feeds.feed(&attached.id, true),
                     window: Window::Fixed,
                     resume_from,
                 }))
@@ -492,6 +482,7 @@ mod tests {
     use mixdog_protocol::ProcessHandle;
 
     use super::*;
+    use super::super::feeds::TERMINAL_LANE_FEED;
     use crate::manager::ProcessConfig;
     #[cfg(windows)]
     use crate::terminal::SpawnProfile;
@@ -595,7 +586,7 @@ mod tests {
             let handle = ProcessHandle::from(format!("term_claim_{}", std::process::id()));
             manager.spawn(two_writes(&handle)).await.unwrap();
             let opened = feeds.open_terminal(handle.as_str(), || None);
-            let relay = scoped.find(&FeedId::from(format!("process:relay:{handle}"))).expect("the relay feed exists");
+            let relay = scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists");
             *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
             let tap = FeedTap::attach(&relay);
             let mut written = manager.subscribe(&handle, None).unwrap();
@@ -667,7 +658,7 @@ mod tests {
             let handle = ProcessHandle::from(format!("term_parked_{release:?}_{}", std::process::id()));
             manager.spawn(two_writes(&handle)).await.unwrap();
             let opened = feeds.open_terminal(handle.as_str(), || None);
-            let relay = scoped.find(&FeedId::from(format!("process:relay:{handle}"))).expect("the relay feed exists");
+            let relay = scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists");
             *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
             let tap = FeedTap::attach(&relay);
             let mut written = manager.subscribe(&handle, None).unwrap();
@@ -832,7 +823,7 @@ mod tests {
                 .await
                 .unwrap();
             drop(feeds.open_terminal(&id, || service.tabs.relay_order(&id)));
-            let relay = scoped.find(&FeedId::from(format!("process:relay:{id}"))).expect("the relay feed exists");
+            let relay = scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists");
             *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
             let raw = FeedTap::attach(&scoped.find(&FeedId::from(format!("process:{id}"))).expect("the raw feed exists"));
             let tap = FeedTap::attach(&relay);
