@@ -54,6 +54,7 @@ const { listProjects } = await importFrom(tree, 'src/runtime/shared/projects.mjs
 const { getPluginData } = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mjs');
 const { registerAgentRoomHost } = await importFrom(tree, 'src/runtime/shared/agent-room-host.mjs');
 const { roomMemberSessionId } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/agent-room.mjs');
+const { stampTurnHop, sendDepth } = await importFrom(tree, 'src/runtime/shared/bot-hops.mjs');
 
 // A send to a group room goes through the desktop room host (`agentRoomHost().member` / `.ask`): the real room messages
 // (`createRoomMessages` of apps/desktop/src/main/agent-room-messages.ts, bundled with esbuild as it is) over a stand-in
@@ -573,6 +574,27 @@ const SCENARIOS = [
   { name: 'send-room-bot', send: {}, room: {}, caller: ANN_CHAT, args: roomSend({ to: 'bob' }) },
   { name: 'send-room-unknown', send: {}, room: {}, args: { ...roomSend({ to: 'bob' }), session_id: 'sess_room_zzzzzz' } },
   { name: 'send-room-no-host', send: {}, room: { host: false }, args: roomSend({ to: 'bob' }) },
+  // Chains of sends: each step's caller is in the turn an earlier step started, its hop and bot chain what Node's
+  // runtime stamps on that turn (`derive`, worked out before the step runs): `turn`, the turn the earlier step's
+  // submission to `session` starts (`stampTurnHop` over its transcript meta, ask-turn-execute.mjs:171); `report`, the
+  // wake turn its report home starts (`sendDepth` of the report, agent-home-delivery.mjs:942, submitted with
+  // `transcriptMeta: { hop }` only when positive, daemon.mjs:1193); `fresh`, a turn the user starts (no transcript meta),
+  // as in a fork's heir, which no fork submits a turn to.
+  { name: 'send-chain-1', send: {}, caller: ANN_CHAT, args: sendTo('sess_home_bob') },
+  { name: 'send-chain-2', send: {}, caller: { id: 'sess_home_bob', sourceType: 'exec' }, derive: { from: 'send-chain-1', by: 'turn', session: 'sess_home_bob' }, args: sendTo('sess_b') },
+  { name: 'send-chain-3', send: {}, caller: { id: 'sess_b', sourceType: 'lead' }, derive: { from: 'send-chain-2', by: 'turn', session: 'sess_b' }, args: sendTo('sess_other_route') },
+  { name: 'send-chain-4', send: {}, caller: { id: 'sess_other_route', sourceType: 'lead' }, derive: { from: 'send-chain-3', by: 'turn', session: 'sess_other_route' }, args: sendTo('sess_b') },
+  { name: 'send-chain-report-1', send: {}, caller: { ...ANN_CHAT, turnHop: 2 }, args: sendTo('sess_b') },
+  { name: 'send-chain-report-2', send: {}, caller: ANN_CHAT, derive: { from: 'send-chain-report-1', by: 'report' }, args: sendTo('sess_b') },
+  { name: 'send-chain-report-3', send: {}, caller: { id: 'sess_b', sourceType: 'lead' }, derive: { from: 'send-chain-report-2', by: 'turn', session: 'sess_b' }, args: sendTo('sess_other_route') },
+  { name: 'send-chain-create-1', send: {}, create: {}, caller: { ...ANN_CHAT, turnHop: 2 }, args: createWith() },
+  // The created session's turn, as a task session Ann created (ANN_TASK stands for `sess_task_new`).
+  { name: 'send-chain-create-2', send: {}, caller: ANN_TASK, derive: { from: 'send-chain-create-1', by: 'turn', session: CREATED_ID }, args: sendTo('sess_b') },
+  { name: 'send-chain-create-3', send: {}, caller: { id: 'sess_b', sourceType: 'lead' }, derive: { from: 'send-chain-create-2', by: 'turn', session: 'sess_b' }, args: sendTo('sess_other_route') },
+  { name: 'send-chain-fresh-1', send: {}, caller: { ...ANN_CHAT, turnHop: 1 }, args: sendTo('sess_b') },
+  { name: 'send-chain-fresh-2', send: {}, caller: { id: 'sess_b', sourceType: 'lead' }, derive: { from: 'send-chain-fresh-1', by: 'fresh' }, args: sendTo('sess_other_route') },
+  // An ordinary (non-bot) session sending to itself, in a bot-descended turn at the limit.
+  { name: 'send-self-hop', send: {}, caller: { ...HUMAN, turnHop: 3 }, args: sendTo('sess_lead1') },
   // `create` (`agentTasks.create`): a bot's attended conversation starts a task session on a route (an explicit model,
   // else the Lead route, else the last-used model) in a Project or the caller's folder, optionally in its own worktree,
   // and sends it the brief as the bot's turn; "Started" goes to the bot's home before the brief's report.
@@ -946,8 +968,30 @@ async function record(scenario) {
 
 const selected = only ? SCENARIOS.filter((scenario) => scenario.name === only) : SCENARIOS;
 if (only && !selected.length) throw new Error(`no scenario ${only}`);
+// A chain step's caller: in the turn its earlier step started (`derive`), stamped as Node's runtime stamps it.
+function derivedCaller(scenario, recorded) {
+  const { from, by, session } = scenario.derive;
+  const earlier = recorded.find((each) => each.name === from)?.expected;
+  if (!earlier) throw new Error(`recorder: ${scenario.name} derives from ${from}, which is not recorded before it`);
+  let meta;
+  if (by === 'turn') {
+    const submitted = earlier.send.submitted.find((entry) => entry.sessionId === session);
+    if (!submitted) throw new Error(`recorder: ${from} submitted no turn to ${session}`);
+    meta = submitted.options.transcriptMeta;
+  } else if (by === 'report') {
+    const hop = sendDepth(earlier.send.delivered.at(-1).report);
+    meta = hop > 0 ? { hop } : undefined;
+  } else if (by !== 'fresh') throw new Error(`recorder: ${scenario.name}: no derivation ${by}`);
+  const turn = {};
+  stampTurnHop(turn, meta);
+  return { ...scenario.caller, turnHop: turn.turnHop, turnBotChain: turn.turnBotChain };
+}
+
 const scenarios = [];
-for (const scenario of selected) scenarios.push({ ...scenario, expected: await record(scenario) });
+for (const each of selected) {
+  const scenario = each.derive ? { ...each, caller: derivedCaller(each, scenarios) } : each;
+  scenarios.push({ ...scenario, expected: await record(scenario) });
+}
 if (only) {
   console.log(JSON.stringify(scenarios[0], null, 2));
 } else {
@@ -973,6 +1017,7 @@ if (only) {
       exclusions: [
         'The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.',
         "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
+        "A chain step (`derive`) does not run the turn an earlier step started: its caller's `turnHop` / `turnBotChain` are the real `stampTurnHop` over what starts that turn — the earlier step's recorded submission's transcript meta (`turn`), `{ hop: sendDepth(report) }` of its last recorded report when positive, as the home's wake submits it (`report`; the queued item `taskReportItem` keeps the report's `hop` and `target`), or none (`fresh`).",
         "A send to a group room runs the real `createRoomMessages` (apps/desktop/src/main/agent-room-messages.ts, bundled by the tree's esbuild with no change) registered as the desktop room host (`registerAgentRoomHost`: its `addressee` as `member`, its `ask`), over a stand-in host: the room `room` (its record, `memberLabels` from `room.labels`, `names` from `room.names`, a clock fixed at `room.now` and ids `n1`, `n2`, ...), and `post`, `memberSession` (answering `roomMemberSessionId`), `persist` and `republishCatalog` kept as given; the scheduler's `intake` runs the request with no stop pending (the stop latch is not recorded) and its `route` is kept as given, each routed call's member turn ending done with `send.final` after the route returns (the member's exchange itself is the room's, not recorded here). `room.host: false` registers no host. A routed call's functions are recorded as `true`.",
         "A fork's route provider (a registered `fork-model` of a 128000-token window) and its compactor (`compactConversation`: the scenario's rows, or a throw) are stood in, as Node's inheritance tests stand them in; the heir is built, carried into and persisted by the product code. The heir's id is minted per run and recorded as `sess_<heir>`.",
         "A send's session service is stood in (`send.targets`: the target's route for the effort check and its stored record for the report origin; `send.modelRows`: the model menu's catalog; `configureSession` and `submitSession` keep what they are given, every submission accepted, and a reporting turn settles done with `send.final`); `createAgentTaskSessions` is the real one over stand-in stores: the durable watches and the bot's home keep what they are given (a scenario's `send.watch` makes the watch store refuse), the agent's name is its BOTS name, no agent work is pending and the answer is final at once (`settleMs: 0`). A send's minted id (`atask_<uuid>`) is recorded as `atask_<send>`, its watch's process token and time as `<process>` and `<now>`. `rebindDelegation` runs over the recorder's empty store (no target record: it changes nothing) and is not recorded. A refused submission is not recorded. The stand-in replaces the recipient session's intake (`submitSession`, `materializeSession`): what is recorded is what the send path gives the recipient (each submission whole) and what it does with the turn's end; the recipient's own handling of a submission (its queue, a busy or closed session) is the session runtime's, which the core's replay runs for real (its own intake over its session directory) and which this recording does not cover.",

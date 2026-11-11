@@ -549,6 +549,39 @@ async fn session_send_answers_as_node() {
     replay_sends("send-").await;
 }
 
+/// A chain of sends: every step replays as a send above; here each derived step's caller is the turn
+/// the core's runtime starts from what the earlier step recorded (`TurnState::stamp` over the
+/// submission's transcript meta; for a report, over the wake's `{ hop: send_depth(report) }`; for a
+/// turn the user starts, over none), and that turn's hop and bot chain are the ones Node stamped.
+#[test]
+fn a_chain_of_sends_carries_its_hop_as_node() {
+    use mixdog_core_session::session::delegation::TurnState;
+    let golden = golden();
+    let scenarios = golden["scenarios"].as_array().expect("scenarios");
+    let mut checked = 0;
+    for scenario in scenarios.iter().filter(|s| s.get("derive").is_some()) {
+        let (name, derive) = (scenario["name"].as_str().expect("name"), &scenario["derive"]);
+        let earlier = &scenarios.iter().find(|s| s["name"] == derive["from"]).unwrap_or_else(|| panic!("{name}: no earlier step"))["expected"]["send"];
+        let meta = match derive["by"].as_str().expect("by") {
+            "turn" => Some(
+                earlier["submitted"].as_array().expect("submitted").iter().find(|s| s["sessionId"] == derive["session"]).unwrap_or_else(|| panic!("{name}: no submission"))["options"]["transcriptMeta"].clone(),
+            ),
+            "report" => {
+                let depth = mixdog_services::bots::delivery::queue::send_depth(earlier["delivered"].as_array().expect("delivered").last().map(|d| &d["report"]));
+                (depth > 0.0).then(|| json!({ "hop": depth as u32 }))
+            }
+            "fresh" => None,
+            other => panic!("{name}: derivation {other}"),
+        };
+        let turn = TurnState::default();
+        turn.stamp(meta.as_ref());
+        let caller = &scenario["caller"];
+        assert_eq!((json!(turn.hop()), json!(turn.bots())), (caller["turnHop"].clone(), caller["turnBotChain"].clone()), "{name}: the turn its caller is in");
+        checked += 1;
+    }
+    assert!(checked > 0, "no derived chain step recorded");
+}
+
 /// `session action=create` over the same send path as [`session_send_answers_as_node`], its
 /// process reads stood in by [`CreateRecords`]: the answer, the session it created (its route,
 /// place and task origin), the worktree requests and deletions, the brief's turn and the reports
