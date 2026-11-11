@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 22487,
+      "bytes": 27057,
       "path": "golden.json",
-      "sha256": "0e44ab25c6c0c1f037373d1ad1b397bd2b8ee25b318eb5c61c9c2c975cae22fa"
+      "sha256": "f5de18995b0ae637ea9d3b6755d28e752fd2326be078f0ac1b3f483eb0f162db"
     }
   ],
   "inputs": [
@@ -22,7 +22,7 @@
       "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
     }
   ],
-  "keptWhole": "per step: the cwd, the call, what executeTool returned, the server calls, the session MCP snapshot at the next request (after its boundary refresh, `request-boundary.mjs:77`, before the next call moves the cwd)",
+  "keptWhole": "per step: the cwd, the call and its arguments, what executeTool returned, the server calls (name and arguments, in the one order every server received them), the session MCP snapshot at the next request (after its boundary refresh, `request-boundary.mjs:77`, before the next call moves the cwd)",
   "nodeVersion": "v22.20.0",
   "normalisations": {
     "sandboxPath": "the sandbox folder (and its forward-slash form) in every string becomes <SANDBOX>"
@@ -45,7 +45,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-cwd-scope.mjs",
-  "recorderSha256": "20e4902ac419819a6cdd1949822c210f808c6a5435556f6d8f27fa6aa3e1bdf3",
+  "recorderSha256": "1c8bbce5df206c473b79a27bb1624e363bc6bc6083d6bba3bb3b59d4b050eab4",
   "set": "mcp-cwd-scope",
   "syntheticInputs": [
     "the registry: `_registerMcpServerForTest` with the servers of `registry`, whose callTool only records the call and answers `ran <server> <tool>`",
@@ -55,5 +55,5 @@
     "channelCall: `createToolDispatch({ isChannelsDegraded: () => false, lifecycle: {} }).handleToolCall(name, {})`",
     "hook: `executeMcpTool(name, {}, { scopeId, ownerKey: \"hook:<name>\" })`, the call `boot/infrastructure.mjs` mcpToolRunner makes"
   ],
-  "totalBytes": 22487
+  "totalBytes": 27057
 }

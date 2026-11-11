@@ -2768,25 +2768,19 @@ mod tests {
         mixdog_testkit::mcp_server::serve_if_asked();
     }
 
-    /// What reached the real servers: each server's reach log, read for the lines it gained since the last read, named as
-    /// the tools are (`mcp__<server>__<tool>`).
+    /// What reached the real servers: the one log they all append to, read for the calls it gained since the last read, each
+    /// `{"name": "mcp__<server>__<tool>", "arguments": …}` in the order the calls arrived.
     struct ReachLogs {
-        logs: Vec<std::path::PathBuf>,
-        seen: Mutex<Vec<usize>>,
+        log: std::path::PathBuf,
+        seen: Mutex<usize>,
     }
 
     impl ReachLogs {
-        fn take(&self) -> Vec<String> {
+        fn take(&self) -> Vec<Value> {
             let mut seen = lock(&self.seen);
-            let mut gained = Vec::new();
-            for (log, seen) in self.logs.iter().zip(seen.iter_mut()) {
-                let lines = mixdog_testkit::mcp_server::reached(log);
-                gained.extend(lines[*seen..].iter().map(|line| {
-                    let (server, tool) = line.split_once(' ').expect("a reach line");
-                    format!("mcp__{server}__{tool}")
-                }));
-                *seen = lines.len();
-            }
+            let calls = mixdog_testkit::mcp_server::reached(&self.log);
+            let gained = calls[*seen..].to_vec();
+            *seen = calls.len();
             gained
         }
     }
@@ -2878,18 +2872,18 @@ mod tests {
                 sandbox.path().join("artifacts"),
                 mixdog_mcp::result::OutputPolicy::default(),
             );
-            let (mut configs, mut logs) = (Vec::new(), Vec::new());
+            let mut configs = Vec::new();
+            // One log for every server: the order of the calls across servers is the order they reached them in.
+            let reach = sandbox.path().join("reach.log");
             for entry in rec["registry"].as_array().unwrap() {
                 let server = entry["server"].as_str().unwrap();
                 let tools: Vec<&str> = entry["tools"].as_array().unwrap().iter().map(|doc| doc["name"].as_str().unwrap()).collect();
-                let reach = sandbox.path().join(format!("reach-{server}.log"));
                 let launch = mixdog_testkit::mcp_server::launch("run_host::factory::tests::scripted_server", server, &tools, &reach);
                 let mut raw = json!({ "command": launch.command, "args": launch.args, "env": launch.env });
                 if let Some(plugin) = entry["pluginId"].as_str() {
                     raw["_mixdogPlugin"] = json!({ "id": plugin, "key": server.strip_prefix(&format!("plugin-{plugin}-")).unwrap_or(server) });
                 }
                 configs.push(mixdog_mcp::McpServerConfig::from_entry(server, &raw, &std::env::vars().collect()).unwrap());
-                logs.push(reach);
             }
             hub.apply_in("scope-test", configs);
             for entry in rec["registry"].as_array().unwrap() {
@@ -2898,7 +2892,7 @@ mod tests {
                 let ready = tokio::time::timeout(Duration::from_secs(60), state.wait_for(|s| matches!(&**s, mixdog_mcp::server::ServerState::Ready(_)))).await;
                 assert!(ready.is_ok(), "{label}: timed out after 60 s waiting for the server {name} to be ready");
             }
-            let reached = Arc::new(ReachLogs { seen: Mutex::new(vec![0; logs.len()]), logs });
+            let reached = Arc::new(ReachLogs { log: reach, seen: Mutex::new(0) });
             let connected: Vec<Arc<dyn Tool>> = hub.tools_in("scope-test");
             let mcp = Arc::new(ScopedServers { scopes: mixdog_mcp::scopes::ExtensionScopes::from_config(&rec["extensionScopes"]), hub: hub.clone(), scope: "scope-test" });
             let done = |stop| StreamEvent::Completed { stop: Some(stop), pricing_model: None, request_ms: None };
@@ -2909,7 +2903,7 @@ mod tests {
                     // A recorded wire call (`call_tool`) is what the model sent; otherwise the target itself.
                     let (name, arguments) = match step.get("wire") {
                         Some(wire) => (wire["name"].as_str().unwrap().to_owned(), wire["arguments"].clone()),
-                        None => (step["call"].as_str().unwrap().to_owned(), json!({})),
+                        None => (step["call"].as_str().unwrap().to_owned(), step["arguments"].clone()),
                     };
                     let call = ToolCall { id: format!("c{n}"), name, arguments, native_type: None };
                     vec![StreamEvent::ToolCallDone(call), done(StopReason::ToolUse)]
@@ -2976,6 +2970,8 @@ mod tests {
                 assert_eq!(observed[n + 1].1, step["mcpNames"], "{label} step {n}: the session's MCP snapshot");
                 checked += 1;
             }
+            let recorded: Vec<Value> = steps.iter().flat_map(|step| step["ran"].as_array().unwrap().clone()).collect();
+            assert_eq!(mixdog_testkit::mcp_server::reached(&provider.reached.log), recorded, "{label}: every call that reached a server, in the order Node's servers received them");
             hub.close_all().await;
         }
         assert_eq!(checked, 24);
