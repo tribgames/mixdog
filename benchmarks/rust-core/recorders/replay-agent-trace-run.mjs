@@ -6,10 +6,18 @@
 // lib/tool-failure-rows.mjs), as the recorder normalised Node's, and the workspace files as the run left them. The counts of the
 // other trace kinds are not compared (MANIFEST.json). A reply marked stream: 'settled' keeps its response open after the finish
 // chunk until the core has reported each call's early result (a tool item completed with its result). The scripted provider
-// records every request (<scenario folder>\requests.json) and fails the scenario on the first one it does not list, naming it.
+// fails the scenario on the first request it does not list, naming it.
 //   MIXDOG_RECORDER_SCRATCH=<the recording's scratch parent> node replay-agent-trace-run.mjs --mixdogd <exe> [--only <n>,<n>]
 // The exit code is 1 on any difference.
-import { closeSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+//
+// Evidence is written as it happens, so it outlives any end of the replay: the run's folder (named on the first line of output)
+// is removed only after a run with no difference. The replay runs as a child of a supervising process, which writes the child's
+// exit code and signal to <folder>\exit.json when it ends otherwise (a kill, a native crash). Each scenario folder <folder>\s<n>
+// holds harness.jsonl (every wait with its deadline, as begun, ended or failed, and the outcome), requests.jsonl (every request
+// the scripted provider received), events.jsonl (every notification the client received), core.stdout.log and core.stderr.log
+// (the job host's and the core's), job.json (the job host's report, once the core exited) and the core's profile.
+import { spawn } from 'node:child_process';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, closeSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { register } from 'node:module';
 import { join, resolve } from 'node:path';
@@ -27,9 +35,16 @@ const only = arg('--only', null)?.split(',').map(Number);
 const scratch = process.env.MIXDOG_RECORDER_SCRATCH;
 const DROP = /^(MIXDOG_|HTTPS?_PROXY$|ALL_PROXY$|NO_PROXY$|OPENAI_|ANTHROPIC_|GOOGLE_|GEMINI_|AZURE_|XDG_|ELECTRON_)/i;
 const CUSTOM = 'custom-11111111-1111-4111-8111-111111111111';
+// The scenario folder whose harness.jsonl takes the harness's own state.
+let trail = null;
+const note = (file, row) => { if (trail) appendFileSync(join(trail, file), `${JSON.stringify({ at: new Date().toISOString(), ...row })}\n`); };
 const deadline = (p, ms, what) => {
   let timer;
-  return Promise.race([p, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms); })]).finally(() => clearTimeout(timer));
+  note('harness.jsonl', { wait: what, deadlineMs: ms });
+  return Promise.race([p, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms); })]).then(
+    (value) => { note('harness.jsonl', { ended: what }); return value; },
+    (error) => { note('harness.jsonl', { failed: what, error: String(error?.stack ?? error) }); throw error; },
+  ).finally(() => clearTimeout(timer));
 };
 const sse = (res, chunks) => {
   // One write: the response the core receives ends in the bytes that carry its calls (crate::batch::settle_gate).
@@ -47,16 +62,23 @@ const chunk = (delta, finish = null) => ({ id: 's', object: 'chat.completion.chu
 function editRuns(dir) {
   let names = 0;
   const waiters = [];
+  let failed = null;
   const watcher = watch(dir, { recursive: true }, (event, name) => {
     if (event !== 'rename' || !String(name).endsWith('.mixdog-lock')) return;
     names += 1;
+    note('harness.jsonl', { lockRename: String(name), names });
     for (const w of waiters.splice(0)) if (names >= w.at) w.resolve(); else waiters.push(w);
+  });
+  watcher.on('error', (error) => {
+    failed = new Error(`watching the edit locks failed: ${error?.message ?? error}`);
+    for (const w of waiters.splice(0)) w.reject(failed);
   });
   return {
     /** Resolves once `runs` more edit runs have ended. */
     ended(runs) {
       const at = names + 2 * runs;
-      return names >= at ? Promise.resolve() : new Promise((resolve) => waiters.push({ at, resolve }));
+      if (failed) return Promise.reject(failed);
+      return names >= at ? Promise.resolve() : new Promise((resolve, reject) => waiters.push({ at, resolve, reject }));
     },
     close: () => watcher.close(),
   };
@@ -74,7 +96,8 @@ function provider(replies, counter, runs) {
       const messages = Array.isArray(parsed?.messages) ? parsed.messages : [];
       const textOf = (m) => (typeof m?.content === 'string' ? m.content : Array.isArray(m?.content) ? m.content.map((p) => p?.text ?? '').join('') : '');
       const seen = { method: req.method, path: req.url, model: parsed?.model ?? null, firstUser: textOf(messages.find((m) => m?.role === 'user')).slice(0, 200) };
-      counter.requests.push(seen);
+      counter.requests += 1;
+      note('requests.jsonl', { ...seen, toolResults: messages.filter((m) => m?.role === 'tool').map((m) => m.tool_call_id) });
       if (req.method === 'GET' && /\/models$/.test(req.url)) {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ object: 'list', data: [{ id: golden.model, object: 'model' }] }));
@@ -86,7 +109,7 @@ function provider(replies, counter, runs) {
         && counter.sends < replies.length
         && JSON.stringify(tail) === JSON.stringify(before ? before.calls.map((c) => c.id) : []);
       if (!listed) {
-        counter.failure ??= new Error(`provider request ${counter.requests.length} is not one the scenario lists: ${JSON.stringify(seen)}`);
+        counter.failure ??= new Error(`provider request ${counter.requests} is not one the scenario lists: ${JSON.stringify(seen)}`);
         res.writeHead(500, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ error: { message: 'not a request of the scenario' } }));
       }
@@ -95,7 +118,10 @@ function provider(replies, counter, runs) {
       const tool_calls = step.calls.map((c, index) => ({ index, id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args) } }));
       if (step.stream !== 'settled') return sse(res, [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls'), '[DONE]']);
       // The chat wire hands its calls over at the finish chunk; the response stays open until every call's run has settled.
-      if (!step.calls.every((c) => c.name === 'edit')) throw new Error('a settled reply holds edits only (their runs are what the replay sees end)');
+      if (!step.calls.every((c) => c.name === 'edit')) {
+        counter.failure ??= new Error('a settled reply holds edits only (their runs are what the replay sees end)');
+        return res.destroy();
+      }
       const ended = runs.ended(step.calls.length);
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       for (const c of [chunk({ role: 'assistant', tool_calls }), chunk({}, 'tool_calls')]) res.write(`data: ${JSON.stringify(c)}\n\n`);
@@ -123,11 +149,13 @@ async function runScenario(scenario, root, ws, bin, libs) {
   for (const d of Object.values(p)) mkdirSync(d, { recursive: true });
   for (const entry of readdirSync(ws)) rmSync(join(ws, entry), { recursive: true, force: true });
   for (const [name, content] of Object.entries(FILES)) writeFileSync(join(ws, name), content);
+  trail = root;
   const cleanups = [];
   let child;
   let exited;
   let client;
-  const counter = { sends: 0, failure: null, requests: [] };
+  const counter = { sends: 0, failure: null, requests: 0 };
+  let outcome = 'failed';
   try {
     const runs = editRuns(p.local);
     cleanups.push(() => runs.close());
@@ -140,10 +168,15 @@ async function runScenario(scenario, root, ws, bin, libs) {
     const env = {};
     for (const [k, v] of Object.entries(process.env)) if (!DROP.test(k)) env[k] = v;
     Object.assign(env, { MIXDOG_DATA_DIR: p.data, MIXDOG_HOME: join(home, '.mixdog'), MIXDOG_CONFIG_DIR: join(home, '.mixdog'), MIXDOG_DESKTOP_USER_DATA: join(p.appData, 'Mixdog'), MIXDOG_RUNTIME_ROOT: p.runtime, MIXDOG_SKIP_USER_DATA_BACKUP: '1', HOME: home, USERPROFILE: home, APPDATA: p.appData, LOCALAPPDATA: p.local, TEMP: p.tmp, TMP: p.tmp, NO_PROXY: '127.0.0.1,localhost' }, scenario.env);
-    const stderrFile = process.env.REPLAY_STDERR ? openSync(process.env.REPLAY_STDERR, 'a') : 'ignore';
-    child = spawnInJob(exe, ['serve'], { env, cwd: root, stdio: ['ignore', 'ignore', stderrFile], report: join(root, 'job.json') });
-    if (typeof stderrFile === 'number') closeSync(stderrFile);
-    exited = new Promise((r) => child.once('exit', r));
+    const out = openSync(join(root, 'core.stdout.log'), 'a');
+    const err = openSync(join(root, 'core.stderr.log'), 'a');
+    try {
+      child = spawnInJob(exe, ['serve'], { env, cwd: root, stdio: ['ignore', out, err], report: join(root, 'job.json') });
+    } finally {
+      closeSync(out);
+      closeSync(err);
+    }
+    exited = new Promise((r) => child.once('exit', (code, signal) => { note('harness.jsonl', { jobHostExited: code, signal }); r(code); }));
     const doc = await deadline(new Promise((res, rej) => {
       const file = join(p.runtime, 'daemon.json');
       const check = () => { try { const d = JSON.parse(readFileSync(file, 'utf8')); if (d.core?.state === 'blocked') rej(new Error('core blocked')); if (d.core?.state === 'serving' && d.core.rpc?.port) res(d); } catch {} };
@@ -171,6 +204,7 @@ async function runScenario(scenario, root, ws, bin, libs) {
       threadReducer: {
         ...lib.sessionReducer,
         apply(state, notification) {
+          note('events.jsonl', { notification });
           if (notification.method === 'turn/completed') turnCompleted();
           return lib.sessionReducer.apply(state, notification);
         },
@@ -204,9 +238,13 @@ async function runScenario(scenario, root, ws, bin, libs) {
     const text = (name) => { const file = join(p.data, 'history', name); return existsSync(file) ? readFileSync(file, 'utf8') : ''; };
     // The workspace as the run left it, read as the recorder read Node's.
     const finalFiles = Object.fromEntries(readdirSync(ws, { withFileTypes: true }).map((e) => (e.isFile() ? e.name : `${e.name}/`)).sort().map((name) => [name, name.endsWith('/') ? null : readFileSync(join(ws, name), 'utf8')]));
+    outcome = 'ran';
     return { threadId, dataDir: p.data, trace: text('agent-trace.jsonl'), failures: text('tool-failures.jsonl'), sends: counter.sends, finalFiles };
+  } catch (error) {
+    note('harness.jsonl', { error: String(error?.stack ?? error) });
+    throw error;
   } finally {
-    writeFileSync(join(root, 'requests.json'), JSON.stringify(counter.requests, null, 1));
+    note('harness.jsonl', { scenario: outcome });
     const problems = [];
     for (const cleanup of cleanups.reverse()) {
       try { await cleanup(); } catch (error) { problems.push(error); }
@@ -229,10 +267,26 @@ function compare(label, got, want) {
   return same ? 0 : 1;
 }
 
+if (!arg('--base', null)) {
+  // The supervisor: the run's folder is made and named before anything can fail, and how the replay ended is kept with it.
+  if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent the recording was made under (the workspace path length is part of the rows)');
+  // This run's own folder; the workspace is `<it>\ws`, the same shape (and length) as the recorder's `<scratch>\atr-rec-XXXXXX\ws`.
+  const base = mkdtempSync(join(scratch, 'atr-rpl-'));
+  console.log(`the run's folder is ${base}`);
+  const replay = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2), '--base', base], { stdio: 'inherit', windowsHide: true });
+  const [code, signal] = await new Promise((r) => replay.once('exit', (c, s) => r([c, s])));
+  if (code !== 0) {
+    writeFileSync(join(base, 'exit.json'), JSON.stringify({ code, codeHex: code === null ? null : `0x${(code >>> 0).toString(16)}`, signal, at: new Date().toISOString() }));
+    console.log(`the replay ended with code ${code}${signal ? ` (signal ${signal})` : ''}; the run's folder ${base} is kept`);
+  }
+  process.exit(code === 0 ? 0 : 1);
+}
+
 const bin = resolve(arg('--mixdogd'));
-if (!scratch) throw new Error('MIXDOG_RECORDER_SCRATCH must name the scratch parent the recording was made under (the workspace path length is part of the rows)');
-// This run's own folder; the workspace is `<it>\ws`, the same shape (and length) as the recorder's `<scratch>\atr-rec-XXXXXX\ws`.
-const base = mkdtempSync(join(scratch, 'atr-rpl-'));
+const base = arg('--base');
+process.on('uncaughtExceptionMonitor', (error, origin) => appendFileSync(join(base, 'harness.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), [origin]: String(error?.stack ?? error) })}\n`));
+process.report.directory = base;
+process.report.reportOnFatalError = true;
 const ws = join(base, 'ws');
 mkdirSync(ws);
 let bad = 0;
