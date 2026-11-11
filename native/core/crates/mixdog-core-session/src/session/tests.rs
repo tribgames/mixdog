@@ -5114,7 +5114,7 @@ async fn a_reply_committed_while_the_io_lane_is_full_lands_once_it_has_room() {
     turn(&handle, "hello", "op-1").await;
     let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
     release.send(true).expect("release");
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    super::testing::awaiting(|| "the reply's commit to meet the full lane".into(), full.met_by_a_submit()).await;
     assert!(lock(&committed).is_none(), "the commit waits for room");
     assert!(!idle(&handle), "the run waits with it");
     drop(full);
@@ -5136,10 +5136,10 @@ async fn a_turn_submitted_while_the_io_lane_is_full_starts_once_it_has_room() {
         let handle = handle.clone();
         tokio::spawn(async move { turn(&handle, "hello", "op-1").await })
     };
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    super::testing::awaiting(|| "the turn's start to meet the full lane".into(), full.met_by_a_submit()).await;
     assert!(!submitted.is_finished(), "the start waits for room");
     drop(full);
-    let started = submitted.await.expect("the submit's task");
+    let started = super::testing::awaiting(|| "the turn's start once the lane has room".into(), submitted).await.expect("the submit's task");
     assert_eq!(started["kind"], "started", "{started}");
     eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
 }

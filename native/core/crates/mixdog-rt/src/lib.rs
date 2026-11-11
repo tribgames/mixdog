@@ -260,6 +260,17 @@ pub mod testing {
         FULL.with_borrow(|held| held.contains(&lane))
     }
 
+    thread_local! {
+        /// The submits from this thread a held lane refused since the last [`hold_full`].
+        static MET_FULL: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// Notified whenever a held lane refuses a submit.
+    fn met_full() -> Arc<tokio::sync::Notify> {
+        static MET: OnceLock<Arc<tokio::sync::Notify>> = OnceLock::new();
+        MET.get_or_init(Arc::default).clone()
+    }
+
     /// While alive, `lane` is full for jobs submitted from this thread (a current-thread test runtime), as a lane whose threads and queue gated jobs fill: a plain submit is
     /// refused (`LaneFull`) and [`crate::tokens::LaneToken::submit_wait`] waits; dropping the guard frees the lane and wakes
     /// the waiters, as a gate that lets its jobs end does.
@@ -269,7 +280,25 @@ pub mod testing {
     /// Holds `lane` full until the guard is dropped.
     pub fn hold_full(lane: LaneKind) -> HeldFull {
         FULL.with_borrow_mut(|held| held.push(lane));
+        MET_FULL.set(0);
         HeldFull(lane)
+    }
+
+    impl HeldFull {
+        /// Resolves once a submit from this thread has met a held lane (was refused for lack of room) since the hold began:
+        /// the work that submitted it is at the full lane.
+        pub async fn met_by_a_submit(&self) {
+            let met = met_full();
+            loop {
+                let notified = met.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if MET_FULL.get() > 0 {
+                    return;
+                }
+                notified.await;
+            }
+        }
     }
 
     impl Drop for HeldFull {
@@ -310,7 +339,12 @@ pub mod testing {
         fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
             let refused = refusing_next();
             ATTEMPTS.set(ATTEMPTS.get() + 1);
-            if refused || full(job.lane()) {
+            let held = full(job.lane());
+            if held {
+                MET_FULL.set(MET_FULL.get() + 1);
+                met_full().notify_waiters();
+            }
+            if refused || held {
                 return Err(LaneFull { lane: job.lane() });
             }
             job.run();
