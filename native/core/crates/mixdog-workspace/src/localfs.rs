@@ -752,9 +752,30 @@ impl FileService for LocalFileService {
             Ok(entry) => Ok(entry.file_type().is_some_and(|t| t.is_file()).then(|| entry.into_path())),
             Err(error) => Err(walk_error(&error, &walk_root)),
         }));
-        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
+        let open: Opener = Box::new(|path| Ok(Box::new(open_to_search(path)?) as Box<dyn Read + Send>));
         search_over(&PRODUCERS, &request, listing, open)
     }
+}
+
+/// A file opened for its search, as the search server opens it (`File::open`, serve_search/matching.rs:228), except that
+/// on Unix an open a signal interrupts fails with `Interrupted` instead of starting again (std's `File::open` repeats
+/// it), so that [`cancel_io`] can end an open that blocks: the producer opens again unless it was stopped.
+fn open_to_search(path: &Path) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        use std::os::unix::io::FromRawFd as _;
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)?;
+        // SAFETY: `name` is a NUL-terminated path; a descriptor the call returns is owned by the File alone.
+        let fd = unsafe { libc::open(name.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fd` was just opened and nothing else owns it.
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+    #[cfg(not(unix))]
+    File::open(path)
 }
 
 /// `request`'s search of the files `listing` names, each read through `open`, its producer counted in `producers`.
@@ -929,9 +950,10 @@ const READ_CHUNK: usize = 64 * 1024;
 /// Node's search server runs at most `server_parallelism()` searches at once (2 to 8, `serve_search/config.rs:139`) and
 /// queues 2,048 more (`config.rs:17`, `scheduler.rs:234`). A search held in a read that never returns keeps its worker
 /// until the client's cancellation watchdog ends the whole server 1 s after its cancel (native-search-client.mjs:501,
-/// `CANCEL_GRACE_MS`), which ends the stuck threads with it. Nothing ends a thread here, so the cap counts the abandoned
-/// ones until they really end; it is wider than Node's worker count so that a few reads stuck on a dead share do not
-/// stop every other search, and it bounds what they hold: a stack, one file's searcher buffers and a walker's state.
+/// `CANCEL_GRACE_MS`), which ends the stuck threads with it. Here an abandoned producer's blocking call is cancelled
+/// ([`cancel_io`]) and the thread ends; the cap counts it until it really ends, so a call the OS cannot cancel keeps its
+/// slot. The cap is wider than Node's worker count so that a few such calls do not stop every other search, and it
+/// bounds what they hold: a stack, one file's searcher buffers and a walker's state.
 pub const MAX_PRODUCERS: usize = 64;
 
 /// Every stream's producer threads, process-wide.
@@ -948,8 +970,9 @@ pub struct ProducerCounts {
     /// Producer threads started that have not ended.
     pub live: usize,
     /// Of those, the ones their stream has let go of (closed, or dropped, a `close` cut short included) that are still
-    /// running: a thread held in a blocking OS call (a directory or file read on a dead network share), which nothing
-    /// interrupts. Each ends when its call returns; nothing waits for it.
+    /// running: a thread held in a blocking OS call (a directory read, an open or a read on a dead network share, a
+    /// pipe), whose call is being cancelled ([`cancel_io`]), or one the OS cannot cancel. Each ends when its call
+    /// returns; nothing waits for it.
     pub abandoned: usize,
 }
 
@@ -994,8 +1017,9 @@ impl Producers {
         true
     }
 
-    /// `state`'s stream lets go of its producer: one still running is abandoned until it ends.
-    fn release(&self, state: &AtomicU8) {
+    /// `state`'s stream lets go of its producer: one still running is abandoned until it ends, and its blocking OS call,
+    /// if it is in one, is cancelled through `thread` ([`cancel_io`]).
+    fn release(&self, state: &Arc<AtomicU8>, thread: Option<std::thread::JoinHandle<()>>) {
         let mut counts = self.lock();
         match state.load(Ordering::SeqCst) {
             RUNNING => {
@@ -1007,6 +1031,9 @@ impl Producers {
         }
         drop(counts);
         self.changed.notify_waiters();
+        if let Some(thread) = thread {
+            cancel_io::until_ended(thread, state.clone());
+        }
     }
 
     /// `state`'s producer thread ends.
@@ -1193,7 +1220,8 @@ impl Read for Checked<'_> {
             return Err(io::Error::other(Halt::Deadline));
         }
         let n = buf.len().min(READ_CHUNK);
-        self.inner.read(&mut buf[..n])
+        // A read [`cancel_io`] cancelled fails (Windows ERROR_OPERATION_ABORTED, Unix EINTR) once the stop is set.
+        self.inner.read(&mut buf[..n]).map_err(|error| if self.ctl.stopped() { io::Error::other(Halt::Stopped) } else { error })
     }
 }
 
@@ -1242,7 +1270,14 @@ impl Produce<SearchMatch> for Searching {
             };
             let Some(path) = AbsPath::new(&file) else { continue };
             ctl.in_file.store(true, Ordering::SeqCst);
-            let searched = open(&file).and_then(|inner| {
+            // An open [`cancel_io`] interrupted is made again unless the producer was stopped.
+            let opened = loop {
+                match open(&file) {
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted && !ctl.stopped() => {}
+                    opened => break opened,
+                }
+            };
+            let searched = opened.and_then(|inner| {
                 let mut sink = Collect {
                     matcher,
                     path: &path,
@@ -1288,10 +1323,11 @@ impl Produce<SearchMatch> for Searching {
 ///
 /// [`EventSource::close`] stops the producer and waits for its thread to end, at most [`CLOSE_GRACE`]: a producer
 /// checks the stop between entries, before every read of a file and at every item it queues, so it ends at once unless
-/// a blocking OS call holds it (a directory or file read on a dead network share), which nothing can interrupt. Such a
-/// thread is abandoned by design: counted ([`ProducerCounts::abandoned`]) from the moment its stream lets go of it,
-/// never awaited, it ends when its call returns. Dropping the stream, or a `close` cut short by its caller's deadline or
-/// cancellation, stops the producer and counts it the same way without waiting for it.
+/// a blocking OS call holds it (a directory read, an open or a read on a dead network share, a pipe). That call is
+/// cancelled ([`cancel_io`]); the thread is counted ([`ProducerCounts::abandoned`]) from the moment its stream lets go
+/// of it until it ends, never awaited past the grace, and one in a call the OS cannot cancel ends when the call
+/// returns. Dropping the stream, or a `close` cut short by its caller's deadline or cancellation, stops the producer,
+/// cancels its call and counts it the same way without waiting for it.
 ///
 /// A producer starts once a slot of its [`Producers`] is free ([`MAX_PRODUCERS`]); until then the stream answers nothing,
 /// its deadline included, as a search waiting in Node's server queue gets no answer until a worker takes it. One that
@@ -1314,6 +1350,8 @@ struct Streamed<T> {
     state: Arc<AtomicU8>,
     /// The producer, while it waits for a slot.
     waiting: Option<Waiting<T>>,
+    /// The producer's thread once started, through which [`cancel_io`] cancels its blocking call when it is let go of.
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 /// A producer that has not started, with its end of the queue and the end `close` waits for.
@@ -1340,6 +1378,7 @@ fn failed<T: Send + 'static>(error: FsError) -> Box<dyn EventSource<Result<T, Fs
         producers: PRODUCERS.clone(),
         state: Arc::new(AtomicU8::new(ENDED)),
         waiting: None,
+        thread: None,
     })
 }
 
@@ -1360,6 +1399,7 @@ fn streamed<T: Send + 'static>(
         producers: producers.clone(),
         state: Arc::new(AtomicU8::new(WAITING)),
         waiting: Some(Waiting { producer, out, done }),
+        thread: None,
     };
     stream.try_start();
     Box::new(stream)
@@ -1382,10 +1422,13 @@ impl<T: Send + 'static> Streamed<T> {
             let _started = started;
             producer.run(&out);
         });
-        // The closure, dropped unrun, gave up the slot and ended the queue.
-        if let Err(error) = spawned {
-            self.rx = Some(one_item(Err(FsError::new(FsErrorKind::Io { os_code: error.raw_os_error() }, None))));
-            self.finished = None;
+        match spawned {
+            Ok(thread) => self.thread = Some(thread),
+            // The closure, dropped unrun, gave up the slot and ended the queue.
+            Err(error) => {
+                self.rx = Some(one_item(Err(FsError::new(FsErrorKind::Io { os_code: error.raw_os_error() }, None))));
+                self.finished = None;
+            }
         }
         true
     }
@@ -1439,7 +1482,7 @@ impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
         self.rx = None;
         self.waiting = None;
         // Counted before the wait, so a caller that drops this `close` leaves the count right.
-        self.producers.release(&self.state);
+        self.producers.release(&self.state, self.thread.take());
         if let Some(finished) = self.finished.take() {
             let _ = tokio::time::timeout(CLOSE_GRACE, finished).await;
         }
@@ -1449,8 +1492,132 @@ impl<T: Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> {
 impl<T> Drop for Streamed<T> {
     fn drop(&mut self) {
         self.ctl.stop.store(true, Ordering::SeqCst);
-        self.producers.release(&self.state);
+        self.producers.release(&self.state, self.thread.take());
     }
+}
+
+/// The blocking OS call of an abandoned producer thread, cancelled until the thread ends ([`Producers::release`]).
+///
+/// A producer checks its stop between entries, before each read and at each item it queues; what it cannot check is a
+/// blocking OS call in progress: a directory read, an open or a read on a dead network share, a pipe. Node's client
+/// ends such a search by ending its whole search server CANCEL_GRACE_MS after its cancel (native-search-client.mjs:501),
+/// which ends the stuck threads with their process. A thread cannot be ended from outside its process, so its call is
+/// cancelled with the OS's own cancellation of one thread's synchronous I/O: on Windows `CancelSynchronousIo` on the
+/// thread's handle (the call fails with ERROR_OPERATION_ABORTED), on Unix a signal installed without `SA_RESTART`,
+/// delivered to that thread (the call fails with EINTR; [`open_to_search`] does not repeat an interrupted open). The
+/// producer then finds its stop set and ends, which frees its slot.
+///
+/// A cancel that reaches the thread before it enters its call is lost (`CancelSynchronousIo` cancels only an operation
+/// in progress; the signal's handler runs before the call), so it is repeated: at once, then after 1 ms and at doubling
+/// intervals up to 1 s, until the thread ends.
+///
+/// What remains uncancellable is what the OS does not cancel: on Windows an operation whose driver does not support
+/// cancellation (`CancelSynchronousIo` then returns ERROR_NOT_FOUND, or the operation completes normally), on Unix a call
+/// in uninterruptible sleep (Linux `TASK_UNINTERRUPTIBLE`: a read from an NFS share mounted `hard` whose server is gone,
+/// a hung disk), which no signal but SIGKILL ends. Such a thread keeps its slot ([`MAX_PRODUCERS`]) until its call
+/// returns. Node's client starts a new server process and searches on; its old server, with the stuck thread, lingers
+/// until that call returns.
+mod cancel_io {
+    use std::sync::Arc;
+    use std::sync::Condvar;
+    use std::sync::LazyLock;
+    use std::sync::Mutex;
+    use std::sync::PoisonError;
+    use std::sync::atomic::AtomicU8;
+    use std::sync::atomic::Ordering;
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+
+    use super::ENDED;
+
+    const FIRST_RETRY: Duration = Duration::from_millis(1);
+    const LAST_RETRY: Duration = Duration::from_secs(1);
+
+    struct Abandoned {
+        /// Held, not detached, until the thread ends: on Unix its id stays valid for `pthread_kill` until then.
+        thread: JoinHandle<()>,
+        state: Arc<AtomicU8>,
+    }
+
+    struct Canceller {
+        abandoned: Mutex<Vec<Abandoned>>,
+        added: Condvar,
+    }
+
+    static CANCELLER: LazyLock<Arc<Canceller>> = LazyLock::new(|| {
+        let canceller = Arc::new(Canceller { abandoned: Mutex::new(Vec::new()), added: Condvar::new() });
+        let running = canceller.clone();
+        // Without this thread nothing is cancelled: abandoned producers end when their calls return, as before.
+        let _ = std::thread::Builder::new().name("mixdog-fs-cancel".into()).spawn(move || running.run());
+        canceller
+    });
+
+    /// Cancels `thread`'s blocking call now and again until `state` is [`ENDED`].
+    pub(super) fn until_ended(thread: JoinHandle<()>, state: Arc<AtomicU8>) {
+        cancel(&thread);
+        let canceller = &*CANCELLER;
+        canceller.abandoned.lock().unwrap_or_else(PoisonError::into_inner).push(Abandoned { thread, state });
+        canceller.added.notify_one();
+    }
+
+    impl Canceller {
+        fn run(&self) {
+            let mut abandoned = self.abandoned.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut retry = FIRST_RETRY;
+            loop {
+                abandoned.retain(|a| a.state.load(Ordering::SeqCst) != ENDED);
+                if abandoned.is_empty() {
+                    abandoned = self.added.wait(abandoned).unwrap_or_else(PoisonError::into_inner);
+                    retry = FIRST_RETRY;
+                    continue;
+                }
+                let before = abandoned.len();
+                abandoned = self.added.wait_timeout(abandoned, retry).unwrap_or_else(PoisonError::into_inner).0;
+                retry = if abandoned.len() > before { FIRST_RETRY } else { (retry * 2).min(LAST_RETRY) };
+                for a in abandoned.iter().filter(|a| a.state.load(Ordering::SeqCst) != ENDED) {
+                    cancel(&a.thread);
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    fn cancel(thread: &JoinHandle<()>) {
+        use std::os::windows::io::AsRawHandle as _;
+        // SAFETY: the handle stays open while `thread` is held. A thread with no synchronous I/O in progress makes the
+        // call fail with ERROR_NOT_FOUND, which changes nothing.
+        unsafe { windows_sys::Win32::System::IO::CancelSynchronousIo(thread.as_raw_handle()) };
+    }
+
+    /// The signal that interrupts a producer's call: its default action is to ignore it, so one that arrives from
+    /// elsewhere changes nothing either.
+    #[cfg(unix)]
+    const INTERRUPT: libc::c_int = libc::SIGURG;
+
+    #[cfg(unix)]
+    extern "C" fn interrupted(_: libc::c_int) {}
+
+    #[cfg(unix)]
+    fn cancel(thread: &JoinHandle<()>) {
+        use std::os::unix::thread::JoinHandleExt as _;
+        static HANDLER: std::sync::Once = std::sync::Once::new();
+        HANDLER.call_once(|| {
+            // SAFETY: a zeroed sigaction is valid; the handler does nothing, so it is async-signal-safe.
+            unsafe {
+                let mut action: libc::sigaction = std::mem::zeroed();
+                action.sa_sigaction = interrupted as extern "C" fn(libc::c_int) as libc::sighandler_t;
+                libc::sigemptyset(&mut action.sa_mask);
+                // No SA_RESTART: the interrupted call fails with EINTR instead of starting again.
+                action.sa_flags = 0;
+                libc::sigaction(INTERRUPT, &action, std::ptr::null_mut());
+            }
+        });
+        // SAFETY: the thread is joinable (held, not detached), so its id is valid even once it has ended.
+        unsafe { libc::pthread_kill(thread.as_pthread_t(), INTERRUPT) };
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    fn cancel(_: &JoinHandle<()>) {}
 }
 
 /// What a test can observe of the text searches: per search root, the matches produced and the searches whose
@@ -2293,6 +2460,50 @@ mod tests {
         late.close().await;
         found.close().await;
         assert_eq!(producers.counts(), ProducerCounts::default());
+    }
+
+    /// A pipe's reading end that reports its first read as it starts, past the search's last check of its stop.
+    struct Reading {
+        pipe: io::PipeReader,
+        started: Option<oneshot::Sender<()>>,
+    }
+
+    impl Read for Reading {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if let Some(started) = self.started.take() {
+                let _ = started.send(());
+            }
+            self.pipe.read(buf)
+        }
+    }
+
+    /// A producer held in a real blocking read (a pipe whose writer never writes; on Windows an anonymous pipe is a
+    /// named pipe) is cancelled once its stream lets go of it: the read fails, the thread ends and frees its slot, and
+    /// the next search, which had no slot, runs.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_producer_in_a_blocked_pipe_read_is_cancelled_and_its_slot_serves_the_next_search() {
+        let (_dir, root) = root();
+        let file = root.join("a.txt").as_path().to_path_buf();
+        std::fs::write(&file, "needle\n").unwrap();
+        let producers = Arc::new(Producers::new(1));
+        let (reader, writer) = io::pipe().unwrap();
+        let (started, in_read) = oneshot::channel::<()>();
+        let pipe = Mutex::new(Some(Reading { pipe: reader, started: Some(started) }));
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(root.join("pipe").as_path().to_path_buf()))));
+        let open: Opener = Box::new(move |_| Ok(Box::new(pipe.lock().unwrap().take().unwrap()) as Box<dyn Read + Send>));
+        let mut blocked = search_over(&producers, &needle_request(&root, None), listing, open);
+        within("the producer in its pipe read", in_read).await.unwrap();
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(file.clone()))));
+        let open: Opener = Box::new(|path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>));
+        let mut next = search_over(&producers, &needle_request(&root, None), listing, open);
+        assert_eq!(producers.counts(), ProducerCounts { live: 1, abandoned: 0 }, "the next search has no slot");
+        blocked.close().await;
+        until(&producers, "the producer in its pipe read is cancelled and ends", |c| c == ProducerCounts::default()).await;
+        let hit = within("the next search's match", next.next()).await.unwrap().unwrap();
+        assert_eq!((hit.path.as_path(), hit.line), (file.as_path(), 1));
+        assert!(within("the next search's end", next.next()).await.is_none());
+        next.close().await;
+        drop(writer);
     }
 
     /// The native traversal over a real directory of 2,000 files: every file, in path order.
