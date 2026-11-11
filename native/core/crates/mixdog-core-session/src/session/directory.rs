@@ -1157,49 +1157,30 @@ impl DirInner {
 
     /// J1 and J2 on io-interactive, then one decode on cpu-interactive.
     async fn load(&self, id: &ThreadId, prewarm: bool) -> Loaded {
+        use mixdog_core_base::support::on_lane_wait;
         let deps = self.deps.clone();
         let token = CancellationToken::new();
-        let dropped = || CoreError::Internal {
-            incident_id: "session-open-job-dropped".into(),
-        };
+        // An open (for a turn, a carried mark, a worker's report) waits out full lanes rather than failing on them.
         deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let head = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.read_head(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let head = on_lane_wait(deps.lanes.io, &token, move |lane| store.read_head(lane, &thread)).await??;
         deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let (head, window) = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| {
-                let window = store.read_window(lane, &thread, &head);
-                (head, window)
-            })?
-            .await
-            .map_err(|_| dropped())?;
+        let (head, window) = on_lane_wait(deps.lanes.io, &token, move |lane| {
+            let window = store.read_window(lane, &thread, &head);
+            (head, window)
+        })
+        .await?;
         let window = window?;
         let (decode_deps, thread) = (deps.clone(), id.clone());
-        let opened = deps
-            .lanes
-            .cpu
-            .submit(&token, move |lane| {
-                let log = decode_deps.store.decode(lane, &thread, head, window)?;
-                Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
-            })?
-            .await
-            .map_err(|_| dropped())??;
+        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| {
+            let log = decode_deps.store.decode(lane, &thread, head, window)?;
+            Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
+        })
+        .await??;
         deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let fenced = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.fenced_ops(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let fenced = on_lane_wait(deps.lanes.io, &token, move |lane| store.fenced_ops(lane, &thread)).await??;
         let lineage = self.lineage_of(id, &opened.state.header);
         if prewarm {
             deps.effort.prewarm(id, &opened.state.header);

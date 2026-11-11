@@ -221,7 +221,11 @@ impl SessionHandle {
     }
 
     async fn to_actor(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        self.enqueue(req).await?.await.map_err(|_| self.closing())?
+        let method = req.method;
+        self.enqueue(req).await?.await.map_err(|_| {
+            tracing::warn!(thread = %self.id, %method, "the session actor dropped the request's reply without answering it");
+            self.closing()
+        })?
     }
 
     /// `to_actor` for a caller that holds a gate: the request's cancel ends the wait on a full
@@ -254,7 +258,8 @@ impl SessionHandle {
         if !named.is_empty() {
             let originals = self.deps.staged_originals.clone();
             // A claim that cannot run claims nothing, as a throw inside `claimStagedOriginals` does.
-            let claimed = on_lane(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
+            // A full lane is waited out (the claim keeps the user's originals); only a lane that cannot run it claims nothing.
+            let claimed = mixdog_core_base::support::on_lane_wait(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
         }
         // A full inbox must not hold the gate past the caller's cancel.
@@ -262,7 +267,10 @@ impl SessionHandle {
         let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");
         let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?.map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
         drop(in_order);
-        answer.await.map_err(|_| closed())?
+        answer.await.map_err(|_| {
+            tracing::warn!(thread = %self.id, method = "turn/start", "the session actor dropped the request's reply without answering it");
+            closed()
+        })?
     }
 
     fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {

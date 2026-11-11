@@ -547,12 +547,12 @@ impl StoreThreads {
     pub async fn settle_marks(&self, durability: DurabilityIo) -> Result<(), CoreError> {
         let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else { return Ok(()) };
         let refused = |what: &str| internal("sensitive-marks", &what);
+        // Each job waits out a full lane: a mark owed is settled, not skipped for a busy one.
+        use mixdog_core_base::support::on_lane_wait as wait;
+        let never = mixdog_rt::CancellationToken::new();
         let loaded = {
             let journal = journal.clone();
-            mixdog_rt::LaneToken::submit(self.maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| journal.load())
-                .map_err(|_| refused("maintenance lane refused"))?
-                .await
-                .map_err(|_| refused("maintenance job dropped"))?
+            wait(self.maintenance, &never, move |_lane| journal.load()).await?
         };
         for (from, to) in loaded.carries {
             marks.carry(&ThreadId::from(from.as_str()), &ThreadId::from(to.as_str()));
@@ -563,15 +563,12 @@ impl StoreThreads {
                 marks.restore(&ThreadId::from(session.as_str()), &values);
             }
             let journal = journal.clone();
-            mixdog_rt::LaneToken::submit(self.maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| journal.forget(n))
-                .map_err(|_| refused("maintenance lane refused"))?
-                .await
-                .map_err(|_| refused("maintenance job dropped"))?;
+            wait(self.maintenance, &never, move |_lane| journal.forget(n)).await?;
         }
         for session in journal.owed() {
             let (id, dir) = (ThreadId::from(session.as_str()), self.dir(&session));
             let (deps, journal) = (self.writer.clone(), journal.clone());
-            let opened = mixdog_rt::LaneToken::submit(durability, &mixdog_rt::CancellationToken::new(), move |lane| {
+            let opened = wait(durability, &never, move |lane| {
                 if !dir.is_dir() {
                     // A session deleted since holds nothing.
                     journal.applied(&session, u64::MAX);
@@ -580,16 +577,11 @@ impl StoreThreads {
                 let opened = log::open_log(lane, &dir, &deps.blobs, &*deps.index).map_err(|e| e.to_string())?;
                 LogWriter::open(lane, opened, deps).map(Some).map_err(|e| e.to_string())
             })
-            .map_err(|_| refused("durability lane refused"))?
-            .await
-            .map_err(|_| refused("durability job dropped"))?
+            .await?
             .map_err(|error| refused(&error))?;
             let Some(writer) = opened else { continue };
             let mut log = self.store_log(&id, writer);
-            mixdog_rt::LaneToken::submit(durability, &mixdog_rt::CancellationToken::new(), move |lane| log.redact(lane))
-                .map_err(|_| refused("durability lane refused"))?
-                .await
-                .map_err(|_| refused("durability job dropped"))?;
+            wait(durability, &never, move |lane| log.redact(lane)).await?;
         }
         Ok(())
     }

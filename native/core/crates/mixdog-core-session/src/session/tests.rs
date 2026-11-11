@@ -5080,3 +5080,84 @@ async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
     }
     assert!(refused > 15, "the twin refuses {refused} renames");
 }
+
+/// A worker's reply committed while the io-interactive lane is full (its threads and queue taken by jobs a gate holds)
+/// waits for room: once the gate lets the lane go the row lands and the turn ends with it, never dropped as closed.
+#[tokio::test(start_paused = true)]
+async fn a_reply_committed_while_the_io_lane_is_full_lands_once_it_has_room() {
+    let rig = Rig::new();
+    let (release, gate) = tokio::sync::watch::channel(false);
+    let committed: Arc<Mutex<Option<Result<(), super::run::RunError>>>> = Arc::default();
+    let seen = committed.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (mut gate, seen) = (gate.clone(), seen.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = gate.wait_for(|open| *open).await;
+            let done = run
+                .port
+                .commit_item(ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "re: hello" }),
+                    prompt: None,
+                })
+                .await;
+            *lock(&seen) = Some(done);
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    release.send(true).expect("release");
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert!(lock(&committed).is_none(), "the commit waits for room");
+    assert!(!idle(&handle), "the run waits with it");
+    drop(full);
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    assert_eq!(*lock(&committed), Some(Ok(())));
+    let (_, messages) = lock(&rig.ingests.0)[0].clone();
+    assert_eq!(messages[1]["text"], "re: hello", "{messages:?}");
+}
+
+/// A Lead turn submitted while the io-interactive lane is full is accepted once it has room, not refused as closed.
+#[tokio::test(start_paused = true)]
+async fn a_turn_submitted_while_the_io_lane_is_full_starts_once_it_has_room() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let full = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
+    let submitted = {
+        let handle = handle.clone();
+        tokio::spawn(async move { turn(&handle, "hello", "op-1").await })
+    };
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert!(!submitted.is_finished(), "the start waits for room");
+    drop(full);
+    let started = submitted.await.expect("the submit's task");
+    assert_eq!(started["kind"], "started", "{started}");
+    eventually_on!(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+}
+
+/// A turn whose input row's lane job can never run (a lane that cannot take it or signal room) is answered with an error
+/// that names the lane, never "The session is closed.".
+#[tokio::test]
+async fn a_turn_whose_lane_job_is_refused_hears_the_lane_not_closed() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let answer = {
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await
+    };
+    match answer {
+        Err(CoreError::QueueFull { queue }) => assert_eq!(&*queue, mixdog_rt::LaneKind::InteractiveIo.name()),
+        other => panic!("the refused start names the lane: {other:?}"),
+    }
+}

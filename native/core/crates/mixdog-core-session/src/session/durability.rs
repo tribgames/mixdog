@@ -76,14 +76,25 @@ type Slot = Arc<Mutex<Log>>;
 type CommitDone = Result<Vec<u64>, BarrierError>;
 type RetryDone = Result<(), BarrierError>;
 
-enum InFlight {
-    Commit {
-        handle: JobHandle<CommitDone>,
-        generation: u64,
-        ids: Vec<u64>,
-    },
-    Retry(JobHandle<RetryDone>),
-    Redact(JobHandle<()>),
+/// The one job in flight: queued on io-durability (a full queue is waited out, never refused) and run.
+type InFlight = futures::future::BoxFuture<'static, Done>;
+
+/// `job` queued on `lane`, waiting for room, and its result; `Err` when it can never run (the lane has no healthy worker),
+/// which the task treats as a job that was dropped unrun.
+fn queued<R: Send + 'static>(
+    lane: DurabilityIo,
+    job: impl FnOnce(&mixdog_rt::InLane<DurabilityIo>) -> R + Send + 'static,
+) -> impl Future<Output = Result<R, mixdog_rt::JobDropped>> + Send + 'static {
+    async move {
+    let handle: Result<JobHandle<R>, _> = lane.submit_wait(&CancellationToken::new(), job).await;
+    match handle {
+        Ok(handle) => handle.await,
+        Err(error) => {
+            tracing::warn!("an io-durability job could not be queued: {error:?}");
+            Err(mixdog_rt::JobDropped)
+        }
+    }
+    }
 }
 
 pub(crate) struct DurabilityTask {
@@ -166,34 +177,27 @@ impl DurabilityTask {
         }
     }
 
-    /// Submits the next job when none is in flight. A full io-durability queue leaves the work
-    /// queued; the next message or completion tries again.
+    /// Starts the next job when none is in flight; it waits out a full io-durability queue.
     fn start(&mut self, in_flight: &mut Option<InFlight>) {
         if in_flight.is_some() {
             return;
         }
         if self.retry {
             let slot = self.log.clone();
-            let submitted = self.lane.submit(&CancellationToken::new(), move |lane| {
-                match &mut *lock(&slot) {
-                    Log::Ready(writer) => writer.retry(lane),
-                    Log::Init(_) => Ok(()),
-                    Log::Lost => Err(lost()),
-                }
+            self.retry = false;
+            let job = queued(self.lane, move |lane| match &mut *lock(&slot) {
+                Log::Ready(writer) => writer.retry(lane),
+                Log::Init(_) => Ok(()),
+                Log::Lost => Err(lost()),
             });
-            if let Ok(handle) = submitted {
-                self.retry = false;
-                *in_flight = Some(InFlight::Retry(handle));
-            }
+            *in_flight = Some(Box::pin(async move { Done::Retry(job.await) }));
             return;
         }
         // A queued batch rewrites the log before it appends (`SessionLog::commit`); only an idle log needs a job of its own.
         if std::mem::take(&mut self.redact) && self.queue.is_empty() {
             let (store, thread, slot) = (self.store.clone(), self.thread.clone(), self.log.clone());
-            match self.lane.submit(&CancellationToken::new(), move |lane| redact(lane, &*store, &thread, &mut lock(&slot))) {
-                Ok(handle) => *in_flight = Some(InFlight::Redact(handle)),
-                Err(_) => self.redact = true,
-            }
+            let job = queued(self.lane, move |lane| redact(lane, &*store, &thread, &mut lock(&slot)));
+            *in_flight = Some(Box::pin(async move { Done::Redact(job.await) }));
             return;
         }
         if self.queue.is_empty() {
@@ -215,27 +219,12 @@ impl DurabilityTask {
         let store = self.store.clone();
         let thread = self.thread.clone();
         let slot = self.log.clone();
-        let restore = batch.clone();
-        let submitted = self.lane.submit(&CancellationToken::new(), move |lane| {
+        // A full lane is waited out with the batch taken: the records behind it queue here meanwhile, in order.
+        let job = queued(self.lane, move |lane| {
             let mut log = lock(&slot);
             commit(lane, &*store, &thread, &mut log, &batch)
         });
-        match submitted {
-            Ok(handle) => {
-                *in_flight = Some(InFlight::Commit {
-                    handle,
-                    generation,
-                    ids,
-                })
-            }
-            Err(_) => {
-                // The lane is full: the batch goes back to the front, in order.
-                for (id, record) in ids.into_iter().zip(restore).rev() {
-                    let size = record.encoded.bytes();
-                    self.queue.push_front((id, generation, record, size));
-                }
-            }
-        }
+        *in_flight = Some(Box::pin(async move { Done::Commit { result: job.await, generation, ids } }));
     }
 
     /// Handles a finished job; `false` when the actor is gone.
@@ -291,22 +280,7 @@ enum Done {
 }
 
 async fn wait(in_flight: &mut Option<InFlight>) -> Done {
-    match in_flight.as_mut().expect("guarded by is_some") {
-        InFlight::Commit {
-            handle,
-            generation,
-            ids,
-        } => {
-            let result = handle.await;
-            Done::Commit {
-                result,
-                generation: *generation,
-                ids: std::mem::take(ids),
-            }
-        }
-        InFlight::Retry(handle) => Done::Retry(handle.await),
-        InFlight::Redact(handle) => Done::Redact(handle.await),
-    }
+    in_flight.as_mut().expect("guarded by is_some").await
 }
 
 /// One io-durability job: the log's owed rewrite with nothing to append; a log not opened yet is opened for it (as at a
