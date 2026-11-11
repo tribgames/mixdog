@@ -3,6 +3,7 @@
 mod actor;
 mod admission;
 mod approvals;
+mod call_lanes;
 mod closing;
 mod control;
 mod dispatch;
@@ -82,6 +83,10 @@ pub(crate) struct GateDomain {
     pub(crate) permits: Semaphore,
     /// Each call's hold on its reply (`CallContext::after_answer`), in call order.
     pub(crate) held: Mutex<Vec<mixdog_rt::CancellationToken>>,
+    /// What each call, in the order they start, answers when it has its permit; a call past the list answers `{ "done": tag }`.
+    pub(crate) answers: Mutex<std::collections::VecDeque<Value>>,
+    /// How many calls have started.
+    pub(crate) started: watch::Sender<usize>,
 }
 
 impl GateDomain {
@@ -105,9 +110,11 @@ impl DomainService for GateDomain {
         let tag = format!("{}:{tag}", req.method);
         self.held.lock().unwrap().push(req.ctx.after_answer.hold());
         self.log.lock().unwrap().push(format!("start {tag}"));
+        self.started.send_modify(|count| *count += 1);
+        let answer = self.answers.lock().unwrap().pop_front();
         self.permits.acquire().await.unwrap().forget();
         self.log.lock().unwrap().push(format!("end {tag}"));
-        Ok(Reply::Value(json!({ "done": tag })))
+        Ok(Reply::Value(answer.unwrap_or_else(|| json!({ "done": tag }))))
     }
 
     fn notify(&self, _: Method, _: Value, _: ConnectionId) -> Admit {
@@ -374,6 +381,8 @@ impl Rig {
                         log: Mutex::new(Vec::new()),
                         permits: Semaphore::new(0),
                         held: Mutex::new(Vec::new()),
+                        answers: Mutex::default(),
+                        started: watch::channel(0).0,
                     };
                     (name, Arc::new(gate))
                 })

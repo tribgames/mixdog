@@ -13,6 +13,7 @@ mod config;
 mod connection;
 mod error;
 mod frame;
+mod lanes;
 mod late;
 mod media;
 mod outgoing;
