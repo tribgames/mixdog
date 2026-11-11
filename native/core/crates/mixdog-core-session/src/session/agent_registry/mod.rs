@@ -1297,24 +1297,33 @@ impl KeptRows {
         self.ids().contains(session)
     }
 
-    /// Writes `session`'s kept map (`None`: it is kept no more, and its row leaves the table).
+    /// Writes `session`'s kept map (`None`: it is kept no more, and its row leaves the table). Memory follows the table: it
+    /// changes only once the write is committed, so a failed write leaves every later listing as the table is. (Node's index
+    /// queue keeps a failed write queued and retries it, `index-write-queue.mjs:231-245`; here the registry keeps its own copy
+    /// and the session's next write puts the map again.)
     pub async fn put(&self, session: &str, worker: Option<Row>) -> Result<(), String> {
         let mut rows = self.loaded().await?;
         let key = format!("{KEPT_PREFIX}{session}");
+        let written = match &worker {
+            Some(map) => {
+                let text = serde_json::to_string(map).map_err(|e| e.to_string())?;
+                self.state.write(move |tx| tx.put_meta(&key, &text)).await
+            }
+            None => self.state.write(move |tx| tx.delete_meta(&key).map(drop)).await,
+        };
+        written.map_err(|e| format!("kept worker row {session}: {e}"))?;
         let kept = rows.get_or_insert_with(Vec::new);
         kept.retain(|(id, _)| id != session);
         match worker {
             Some(map) => {
                 self.ids().insert(session.to_owned());
-                let text = serde_json::to_string(&map).map_err(|e| e.to_string())?;
                 kept.push((session.to_owned(), map));
-                self.state.write(move |tx| tx.put_meta(&key, &text)).await.map_err(|e| format!("kept worker row {session}: {e}"))
             }
             None => {
                 self.ids().remove(session);
-                self.state.write(move |tx| tx.delete_meta(&key).map(drop)).await.map_err(|e| format!("kept worker row {session}: {e}"))
             }
         }
+        Ok(())
     }
 }
 
