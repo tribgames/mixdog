@@ -2,90 +2,75 @@
 // Every slow replay of the phone page (apps/desktop/src/renderer/remote-protocol-*.slow.test.mjs, remote-shim-*.slow.test.mjs) against one
 // built mixdogd, a few at a time, each in a temp folder of its own. Builds nothing: the core is the argument, built with
 // `--features "terminal-lease-clock replay-controls"`. Prints one line per test and exits 1 on any failure, a deadline, a process the
-// test left running, or a check of that which could not be made.
+// test left running, or an ending of its processes that failed. Each test runs in a Windows job of the runner's own
+// (recorders/lib/process-job.mjs), and only that job's processes are ever ended: none is found by a listing, a name or a pid.
 //   node benchmarks/rust-core/run-slow-replays.mjs <path to mixdogd.exe> [--jobs N]
-import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { openJob, spawnInJob } from './recorders/lib/process-job.mjs';
 
 const DESKTOP = fileURLToPath(new URL('../../apps/desktop/', import.meta.url));
 // A replay over 5 minutes is a defect of its own; the deadline leaves room to see by how much.
 const DEADLINE_MS = 15 * 60_000;
 const SLOW_MS = 5 * 60_000;
+/** How long the job's guard may take for each of its answers. */
+const ANSWER_MS = 10_000;
+/** How long what a test left behind may take to end by itself once it exited (tsx's esbuild service ends when its pipe closes). */
+const LEFT_GRACE_MS = 10_000;
 
-/** Processes whose command line names a path inside `dir`: what a test started there and left behind. A listing that could not be made
- *  throws: it never reads as "nothing left". */
-export function leftIn(dir, powershell = 'powershell.exe') {
-  // With the separator, so a test's folder never matches a sibling whose name starts with it (`files` and `files-downloads`).
-  const inside = `${dir}\\`.replace(/'/g, "''");
-  const listed = spawnSync(
-    powershell,
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      `$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${inside}') } | ForEach-Object { "$($_.ProcessId) $($_.Name)|started $($_.CreationDate.ToString('HH:mm:ss.fff')), parent $($_.ParentProcessId): $($_.CommandLine)" }`,
-    ],
-    { encoding: 'utf8', windowsHide: true, timeout: 60_000 }
-  );
-  if (listed.error || listed.status !== 0) {
-    throw new Error(`the listing of the processes left in ${dir} failed: ${listed.error?.message ?? `exit ${listed.status}: ${listed.stderr.trim()}`}`);
-  }
-  return listed.stdout
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => ({ short: line.split('|')[0], detail: line }));
-}
-
-/** Ends the process tree of `pid`; returns why it could not, or null. */
-export function killTree(pid, taskkill = 'taskkill') {
-  const ended = spawnSync(taskkill, ['/T', '/F', '/PID', String(pid)], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
-  if (ended.error) return ended.error.message;
-  // 128: the process had ended already.
-  return ended.status === 0 || ended.status === 128 ? null : `exit ${ended.status}: ${(ended.stderr || ended.stdout).trim()}`;
-}
-
-/** Runs one test (`command args` in `cwd`) and settles with its result; never waits past `deadlineMs`, whatever ending it did. `dir` is
- *  the test's own folder (what is left running there is ended and counted), `log` where its output is written. */
-export function runTest({ name, dir, log, command, args, cwd, env, deadlineMs = DEADLINE_MS, powershell, taskkill }) {
+/** Runs one test (`command args` in `cwd`) in a job of its own and settles with its result. Its ending (the job's processes ended and
+ *  the job closed) has one deadline of its own after the test's, so the run settles by `deadlineMs` plus that, whatever the ending did.
+ *  `log` is where its output is written; `started` (tests only) is told the job and the test's process once it runs. */
+export async function runTest({ name, log, command, args, cwd, env, deadlineMs = DEADLINE_MS, answerMs = ANSWER_MS, started: told }) {
   const started = Date.now();
-  return new Promise((done) => {
-    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    let out = '';
+  let out = '';
+  const problems = [];
+  const result = (pid) => {
+    const seconds = (Date.now() - started) / 1000;
+    if (seconds * 1000 > SLOW_MS) problems.push('over 5 minutes');
+    const count = (key) => Number(out.match(new RegExp(`^ℹ ${key} (\\d+)`, 'm'))?.[1] ?? NaN);
+    writeFileSync(log, `${out}${problems.length ? `\n${problems.join('\n')}\n` : ''}`);
+    return { name, pid, tests: count('tests'), pass: count('pass'), fail: count('fail'), seconds, problems };
+  };
+  let job;
+  try {
+    job = await openJob(`the slow replay ${name}`, { answerMs });
+  } catch (error) {
+    problems.push(`its job could not be made: ${error.message}`);
+    return result(null);
+  }
+  let child = null;
+  let ended;
+  try {
+    child = await spawnInJob(job, command, args, { cwd, env });
     child.stdout.on('data', (chunk) => (out += chunk));
     child.stderr.on('data', (chunk) => (out += chunk));
-    let settled = false;
-    const settle = (problems) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      const seconds = (Date.now() - started) / 1000;
-      let left = [];
-      try {
-        left = leftIn(dir, powershell);
-      } catch (error) {
-        problems.push(error.message);
-      }
-      for (const { short } of left) {
-        const why = killTree(Number(short.split(' ')[0]), taskkill);
-        if (why) problems.push(`could not end ${short}: ${why}`);
-      }
-      if (left.length) problems.push(`left running: ${left.map(({ short }) => short).join(', ')}`);
-      if (seconds * 1000 > SLOW_MS) problems.push('over 5 minutes');
-      const count = (key) => Number(out.match(new RegExp(`^ℹ ${key} (\\d+)`, 'm'))?.[1] ?? NaN);
-      writeFileSync(log, `${out}${left.length ? `\nleft running at ${new Date().toISOString()}:\n${left.map(({ detail }) => detail).join('\n')}\n` : ''}`);
-      done({ name, pid: child.pid, tests: count('tests'), pass: count('pass'), fail: count('fail'), seconds, problems });
-    };
-    // The deadline settles the run as failed whatever the ending of the test's tree did.
-    const timer = setTimeout(() => {
-      const why = killTree(child.pid, taskkill);
-      settle([`deadline of ${deadlineMs / 1000} s`, ...(why ? [`ending the test (pid ${child.pid}) failed: ${why}`] : [])]);
-    }, deadlineMs);
-    child.once('error', (error) => settle([`the test did not start: ${error.message}`]));
-    child.once('exit', (code) => settle(code === 0 ? [] : [`exit ${code}`]));
-  });
+    told?.({ job, child });
+    ended = await new Promise((done) => {
+      const timer = setTimeout(() => done({ timedOut: true }), deadlineMs);
+      child.once('exit', (code) => {
+        clearTimeout(timer);
+        done({ code });
+      });
+    });
+    problems.push(...(ended.timedOut ? [`deadline of ${deadlineMs / 1000} s`] : ended.code === 0 ? [] : [`exit ${ended.code}`]));
+  } catch (error) {
+    ended = { timedOut: true };
+    problems.push(`the test did not start: ${error.message}`);
+  }
+  // Past the test's deadline what is in the job is ended at once; otherwise it is given the grace first and counted as left running.
+  const grace = ended.timedOut ? 0 : LEFT_GRACE_MS;
+  const until = Date.now() + grace + 4 * answerMs;
+  try {
+    const left = await job.end(grace, until - 2 * answerMs);
+    if (left > 0 && !ended.timedOut) problems.push(`left running: ${left} process(es), ended with its job`);
+  } catch (error) {
+    problems.push(`ending its job: ${error.message}`);
+  }
+  await job.close(until).catch((error) => problems.push(`closing its job: ${error.message}`));
+  return result(child?.pid ?? null);
 }
 
 async function main() {
@@ -116,7 +101,7 @@ async function main() {
       PHONE_TERMINAL_KEEP_TRACE: join(dir, 'terminal-trace.json'),
     };
     const args = ['--import', './scripts/test-env.mjs', '--import', './scripts/test-tsx.mjs', '--test', '--test-reporter=spec', `src/renderer/${name}`];
-    return runTest({ name, dir, log: join(base, `${name}.log`), command: process.execPath, args, cwd: DESKTOP, env });
+    return runTest({ name, log: join(base, `${name}.log`), command: process.execPath, args, cwd: DESKTOP, env });
   };
   const started = Date.now();
   const results = [];

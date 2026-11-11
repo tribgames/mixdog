@@ -158,17 +158,26 @@ async function startGuard(what, answerMs) {
       for (const stream of [guard.stdin, guard.stdout, guard.stderr]) stream.unref();
     },
     assign: (pid) => ask(`assign ${pid}`, 'assigned', answerMs),
-    /** Ends every process in the job once `grace` ms passed without it emptying; resolves with how many it had to end. */
-    end: async (grace) => Number((await ask(`end ${grace} ${answerMs}`, 'ended', grace + answerMs * 2)).split(' ')[1]),
-    close: async () => {
+    /** Ends every process in the job once `grace` ms passed without it emptying; resolves with how many it had to end. The whole of it,
+     *  the guard's answer included, is over by `until` (a clock time): what is left after the grace is split between the guard's wait for
+     *  the ended processes and its answer. */
+    end: async (grace, until = Date.now() + grace + answerMs * 2) => {
+      const remaining = Math.max(0, until - Date.now());
+      const waited = Math.min(grace, remaining);
+      const reply = await ask(`end ${waited} ${Math.floor((remaining - waited) / 2)}`, 'ended', remaining);
+      return Number(reply.split(' ')[1]);
+    },
+    /** Closes the job's handle by letting the guard exit, by `until` (a clock time): the first half for the guard to exit, the rest for
+     *  ending it by force. */
+    close: async (until = Date.now() + answerMs * 2) => {
       guard.stdin.end();
       try {
-        await within(answerMs, exited, `${what}: the job guard to exit`);
+        await within(Math.max(0, (until - Date.now()) / 2), exited, `${what}: the job guard to exit`);
       } catch (error) {
         // A guard that no longer answers still holds the job's one handle. Ending the guard itself closes that handle, and the job
         // (KILL_ON_JOB_CLOSE) ends every process in it; the failure that brought us here is the one reported.
         guard.kill();
-        await within(answerMs, exited, `${what}: the job guard to exit after it was ended by force`);
+        await within(Math.max(0, until - Date.now()), exited, `${what}: the job guard to exit after it was ended by force`);
         throw error;
       }
     },
