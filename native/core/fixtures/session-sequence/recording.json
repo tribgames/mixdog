@@ -43,9 +43,10 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": []
       }
     },
     {
@@ -88,15 +89,23 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_detach_fail_2",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "desktop-context-switch",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_detach_fail_2\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_detach_fail_2\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"desktop-context-switch\"},\"unset\":[]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"3738393a3b3c3d3e3f404142\",\"id\":\"sess_sequence_detach_fail_2\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_detach_fail_2\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"desktop-context-switch\"},\"unset\":[]}\n",
+        "sessionsDir": [
           "sess_sequence_detach_fail_2.log.jsonl"
         ]
       }
@@ -154,7 +163,9 @@
           true,
           null,
           true,
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           "saved",
           1
@@ -174,17 +185,33 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m4",
-            "m6"
-          ],
+          "id": "sess_sequence_random_1_3",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_1_3\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_1_3\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"85868788898a8b8c8d8e8f90\",\"id\":\"sess_sequence_random_1_3\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_1_3\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
           "sess_sequence_random_1_3.log.jsonl"
         ]
       }
@@ -246,9 +273,13 @@
           false,
           1,
           true,
-          null,
+          {
+            "$exact": "undefined"
+          },
           "saved",
-          null,
+          {
+            "$exact": "undefined"
+          },
           "saved",
           1
         ],
@@ -268,19 +299,41 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m4",
-            "m5",
-            "m6",
-            "m7"
-          ],
+          "id": "sess_sequence_random_2_4",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            },
+            {
+              "role": "user",
+              "content": "m7"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_2_4\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_2_4\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"},{\"role\":\"user\",\"content\":\"m7\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c1c2c3c4c5c6c7c8c9cacbcc\",\"id\":\"sess_sequence_random_2_4\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_2_4\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"},{\"role\":\"user\",\"content\":\"m7\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
           "sess_sequence_random_2_4.log.jsonl"
         ]
       }
@@ -366,18 +419,36 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m3",
-            "m7"
-          ],
+          "id": "sess_sequence_random_3_5",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m7"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_3_5\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_3_5\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m7\"}]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"fdfeff000102030405060708\",\"id\":\"sess_sequence_random_3_5\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_3_5\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m7\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
           "sess_sequence_random_3_5.log.jsonl"
         ]
       }
@@ -428,9 +499,15 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl"
+        ]
       }
     },
     {
@@ -471,8 +548,12 @@
       "result": {
         "results": [
           false,
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           1
         ],
         "commitError": null,
@@ -486,17 +567,36 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m2",
-            "m3"
-          ],
+          "id": "sess_sequence_random_5_7",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_5_7\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_5_7\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"393a3b3c3d3e3f4041424344\",\"id\":\"sess_sequence_random_5_7\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_5_7\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
           "sess_sequence_random_5_7.log.jsonl"
         ]
       }
@@ -557,15 +657,29 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_6_8",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_6_8\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_6_8\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5b5c5d5e5f60616263646566\",\"id\":\"sess_sequence_random_6_8\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_6_8\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
           "sess_sequence_random_6_8.log.jsonl"
         ]
       }
@@ -636,17 +750,37 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3",
-            "m5"
-          ],
+          "id": "sess_sequence_random_7_9",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_7_9\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_7_9\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"9798999a9b9c9d9e9fa0a1a2\",\"id\":\"sess_sequence_random_7_9\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_7_9\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
           "sess_sequence_random_7_9.log.jsonl"
         ]
       }
@@ -698,11 +832,17 @@
       "result": {
         "results": [
           1,
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           false,
           true,
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -720,18 +860,40 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m2",
-            "m3",
-            "m6"
-          ],
+          "id": "sess_sequence_random_8_10",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_8_10\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_8_10\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"d3d4d5d6d7d8d9dadbdcddde\",\"id\":\"sess_sequence_random_8_10\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_8_10\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
           "sess_sequence_random_8_10.log.jsonl"
         ]
       }
@@ -793,7 +955,9 @@
           true,
           "saved",
           false,
-          null,
+          {
+            "$exact": "undefined"
+          },
           false,
           false
         ],
@@ -824,17 +988,37 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3",
-            "m5"
-          ],
+          "id": "sess_sequence_random_9_11",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_9_11\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_9_11\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n",
-        "sessionFiles": [
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"0708090a0b0c0d0e0f101112\",\"id\":\"sess_sequence_random_9_11\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_9_11\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
           "sess_sequence_random_9_11.log.jsonl"
         ]
       }
@@ -895,16 +1079,33 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_10_12",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_10_12\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_10_12\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_10_12.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2122232425262728292a2b2c\",\"id\":\"sess_sequence_random_10_12\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_10_12\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -952,7 +1153,9 @@
           "saved",
           1,
           "dropped",
-          null,
+          {
+            "$exact": "undefined"
+          },
           true
         ],
         "commitError": null,
@@ -966,9 +1169,21 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -1028,10 +1243,16 @@
           "dropped",
           "dropped",
           false,
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           "dropped",
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -1042,16 +1263,35 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_12_14",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_12_14\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_12_14\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_12_14.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"65666768696a6b6c6d6e6f70\",\"id\":\"sess_sequence_random_12_14\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_12_14\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1111,7 +1351,9 @@
           true,
           true,
           true,
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -1128,17 +1370,37 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m7"
-          ],
+          "id": "sess_sequence_random_13_15",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m7"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_13_15\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_13_15\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m7\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_13_15.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"a1a2a3a4a5a6a7a8a9aaabac\",\"id\":\"sess_sequence_random_13_15\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_13_15\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m7\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1179,7 +1441,9 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           "saved",
           false,
           1
@@ -1195,18 +1459,45 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m2"
-          ],
+          "id": "sess_sequence_random_14_16",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_14_16\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_14_16\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_14_16.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"bbbcbdbebfc0c1c2c3c4c5c6\",\"id\":\"sess_sequence_random_14_16\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_14_16\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1264,13 +1555,19 @@
       "result": {
         "results": [
           1,
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           "saved",
-          null,
+          {
+            "$exact": "undefined"
+          },
           1,
           "dropped",
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -1284,19 +1581,50 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m2",
-            "m4",
-            "m5"
-          ],
+          "id": "sess_sequence_random_15_17",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_15_17\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_15_17\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_15_17.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"ff000102030405060708090a\",\"id\":\"sess_sequence_random_15_17\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_15_17\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1350,8 +1678,12 @@
       "result": {
         "results": [
           "saved",
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           1,
           "dropped",
           "dropped",
@@ -1368,9 +1700,25 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -1406,7 +1754,9 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           "saved"
         ],
@@ -1421,18 +1771,44 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m3"
-          ],
+          "id": "sess_sequence_random_17_19",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_17_19\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_17_19\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_17_19.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5d5e5f606162636465666768\",\"id\":\"sess_sequence_random_17_19\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_17_19\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1492,9 +1868,26 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -1548,16 +1941,40 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_19_21",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_19_21\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_19_21\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_19_21.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"999a9b9c9d9e9fa0a1a2a3a4\",\"id\":\"sess_sequence_random_19_21\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_19_21\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1617,11 +2034,15 @@
         "results": [
           false,
           false,
-          null,
+          {
+            "$exact": "undefined"
+          },
           "saved",
           1,
           "dropped",
-          null,
+          {
+            "$exact": "undefined"
+          },
           "dropped"
         ],
         "commitError": null,
@@ -1639,18 +2060,49 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3",
-            "m4"
-          ],
+          "id": "sess_sequence_random_20_22",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_20_22\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_20_22\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_20_22.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"bbbcbdbebfc0c1c2c3c4c5c6\",\"id\":\"sess_sequence_random_20_22\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_20_22\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1689,10 +2141,16 @@
       },
       "result": {
         "results": [
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           "saved",
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -1701,20 +2159,55 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m2",
-            "m3",
-            "m4"
-          ],
+          "id": "sess_sequence_random_21_23",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_21_23\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_21_23\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_21_23.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"dddedfe0e1e2e3e4e5e6e7e8\",\"id\":\"sess_sequence_random_21_23\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_21_23\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1771,12 +2264,18 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           1,
           "dropped",
           "dropped",
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           "dropped",
           false
         ],
@@ -1792,17 +2291,47 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1"
-          ],
+          "id": "sess_sequence_random_22_24",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_22_24\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_22_24\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_22_24.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"ff000102030405060708090a\",\"id\":\"sess_sequence_random_22_24\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_22_24\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1862,19 +2391,55 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m2",
-            "m3",
-            "m4"
-          ],
+          "id": "sess_sequence_random_23_25",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_23_25\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_23_25\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_23_25.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"3b3c3d3e3f40414243444546\",\"id\":\"sess_sequence_random_23_25\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_23_25\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -1929,7 +2494,9 @@
           "dropped",
           "dropped",
           true,
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -1946,19 +2513,54 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3",
-            "m4",
-            "m6"
-          ],
+          "id": "sess_sequence_random_24_26",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_24_26\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_24_26\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m4\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_24_26.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7778797a7b7c7d7e7f808182\",\"id\":\"sess_sequence_random_24_26\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_24_26\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m4\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2011,7 +2613,9 @@
           true,
           null,
           true,
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           null
         ],
@@ -2030,9 +2634,32 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -2106,19 +2733,55 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m4",
-            "m6",
-            "m7"
-          ],
+          "id": "sess_sequence_random_26_28",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            },
+            {
+              "role": "user",
+              "content": "m7"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_26_28\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_26_28\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m7\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_26_28.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"dfe0e1e2e3e4e5e6e7e8e9ea\",\"id\":\"sess_sequence_random_26_28\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_26_28\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m7\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2176,7 +2839,9 @@
       "result": {
         "results": [
           "saved",
-          null,
+          {
+            "$exact": "undefined"
+          },
           "saved",
           "saved",
           1,
@@ -2195,9 +2860,33 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -2246,9 +2935,33 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -2301,7 +3014,9 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           1,
           "dropped",
           "dropped",
@@ -2324,17 +3039,50 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1"
-          ],
+          "id": "sess_sequence_random_29_31",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_29_31\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_29_31\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_29_31.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"45464748494a4b4c4d4e4f50\",\"id\":\"sess_sequence_random_29_31\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_29_31\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2381,10 +3129,14 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           1,
           "dropped",
-          null,
+          {
+            "$exact": "undefined"
+          },
           "dropped",
           "dropped"
         ],
@@ -2395,17 +3147,51 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1"
-          ],
+          "id": "sess_sequence_random_30_32",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_30_32\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_30_32\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_30_32.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6768696a6b6c6d6e6f707172\",\"id\":\"sess_sequence_random_30_32\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_30_32\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2460,16 +3246,49 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_31_33",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_31_33\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_31_33\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_31_33.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"898a8b8c8d8e8f9091929394\",\"id\":\"sess_sequence_random_31_33\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_31_33\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2529,7 +3348,9 @@
           "saved",
           false,
           "saved",
-          null,
+          {
+            "$exact": "undefined"
+          },
           1
         ],
         "commitError": null,
@@ -2551,19 +3372,62 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3",
-            "m5",
-            "m6"
-          ],
+          "id": "sess_sequence_random_32_34",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_32_34\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_32_34\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"append\",\"s\":4,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_32_34.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"abacadaeafb0b1b2b3b4b5b6\",\"id\":\"sess_sequence_random_32_34\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_32_34\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"append\",\"s\":4,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2620,7 +3484,9 @@
         "results": [
           true,
           null,
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           true,
           "saved",
@@ -2645,18 +3511,56 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3",
-            "m6"
-          ],
+          "id": "sess_sequence_random_33_35",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_33_35\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_33_35\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_33_35.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"0102030405060708090a0b0c\",\"id\":\"sess_sequence_random_33_35\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_33_35\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2718,7 +3622,9 @@
         "results": [
           true,
           null,
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           null,
           "saved",
@@ -2748,18 +3654,57 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3",
-            "m6"
-          ],
+          "id": "sess_sequence_random_34_36",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_34_36\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_34_36\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_34_36.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"4748494a4b4c4d4e4f505152\",\"id\":\"sess_sequence_random_34_36\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_34_36\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2805,7 +3750,9 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           false,
           true,
           null,
@@ -2826,9 +3773,39 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -2870,9 +3847,15 @@
       },
       "result": {
         "results": [
-          null,
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           1,
           "dropped"
         ],
@@ -2882,19 +3865,65 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m2",
-            "m3"
-          ],
+          "id": "sess_sequence_random_36_38",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_36_38\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_36_38\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_36_38.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"838485868788898a8b8c8d8e\",\"id\":\"sess_sequence_random_36_38\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_36_38\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -2936,7 +3965,9 @@
       "result": {
         "results": [
           1,
-          null,
+          {
+            "$exact": "undefined"
+          },
           "dropped",
           true
         ],
@@ -2951,9 +3982,40 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -3000,7 +4062,9 @@
           "saved",
           1,
           false,
-          null,
+          {
+            "$exact": "undefined"
+          },
           "dropped"
         ],
         "commitError": null,
@@ -3012,17 +4076,57 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1"
-          ],
+          "id": "sess_sequence_random_38_40",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_38_40\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_38_40\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_38_40.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c7c8c9cacbcccdcecfd0d1d2\",\"id\":\"sess_sequence_random_38_40\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_38_40\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3072,7 +4176,9 @@
           "saved",
           "saved",
           1,
-          null,
+          {
+            "$exact": "undefined"
+          },
           "dropped",
           "dropped"
         ],
@@ -3082,18 +4188,63 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m2"
-          ],
+          "id": "sess_sequence_random_39_41",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_39_41\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_39_41\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_39_41.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e9eaebecedeeeff0f1f2f3f4\",\"id\":\"sess_sequence_random_39_41\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_39_41\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":4,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3151,10 +4302,14 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           true,
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           true,
           true,
@@ -3176,9 +4331,42 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -3238,7 +4426,9 @@
         "results": [
           1,
           true,
-          null,
+          {
+            "$exact": "undefined"
+          },
           1,
           false,
           true,
@@ -3264,9 +4454,42 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -3324,14 +4547,20 @@
       },
       "result": {
         "results": [
-          null,
-          null,
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          },
           false,
           false,
           "saved",
           "saved",
           true,
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -3353,21 +4582,73 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m2",
-            "m5",
-            "m6",
-            "m8"
-          ],
+          "id": "sess_sequence_random_42_44",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            },
+            {
+              "role": "user",
+              "content": "m8"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_42_44\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_42_44\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":6,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m5\"},{\"role\":\"user\",\"content\":\"m6\"},{\"role\":\"user\",\"content\":\"m8\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_42_44.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"95969798999a9b9c9d9e9fa0\",\"id\":\"sess_sequence_random_42_44\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_42_44\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":6,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m5\"},{\"role\":\"user\",\"content\":\"m6\"},{\"role\":\"user\",\"content\":\"m8\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3442,17 +4723,58 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m6"
-          ],
+          "id": "sess_sequence_random_43_45",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_43_45\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_43_45\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_43_45.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"c9cacbcccdcecfd0d1d2d3d4\",\"id\":\"sess_sequence_random_43_45\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_43_45\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m6\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3517,18 +4839,65 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m3"
-          ],
+          "id": "sess_sequence_random_44_46",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_44_46\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_44_46\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_44_46.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"fdfeff000102030405060708\",\"id\":\"sess_sequence_random_44_46\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_44_46\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3578,9 +4947,45 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -3634,18 +5039,64 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m2",
-            "m4"
-          ],
+          "id": "sess_sequence_random_46_48",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_46_48\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_46_48\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_46_48.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5b5c5d5e5f60616263646566\",\"id\":\"sess_sequence_random_46_48\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_46_48\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3686,8 +5137,12 @@
         "results": [
           1,
           "dropped",
-          null,
-          null
+          {
+            "$exact": "undefined"
+          },
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -3695,16 +5150,59 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_47_49",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_47_49\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_47_49\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_47_49.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"75767778797a7b7c7d7e7f80\",\"id\":\"sess_sequence_random_47_49\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_47_49\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3784,20 +5282,74 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m4",
-            "m5",
-            "m6",
-            "m7"
-          ],
+          "id": "sess_sequence_random_48_50",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            },
+            {
+              "role": "user",
+              "content": "m6"
+            },
+            {
+              "role": "user",
+              "content": "m7"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_48_50\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_48_50\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"append\",\"s\":4,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m7\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_48_50.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"b1b2b3b4b5b6b7b8b9babbbc\",\"id\":\"sess_sequence_random_48_50\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_48_50\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m6\"}]}\n{\"t\":\"append\",\"s\":4,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"m7\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3872,18 +5424,69 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m3"
-          ],
+          "id": "sess_sequence_random_49_51",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_49_51\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_49_51\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_49_51.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"edeeeff0f1f2f3f4f5f6f7f8\",\"id\":\"sess_sequence_random_49_51\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_49_51\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -3928,9 +5531,13 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           1,
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           "saved"
         ],
@@ -3946,19 +5553,72 @@
           150,
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m3",
-            "m5"
-          ],
+          "id": "sess_sequence_random_50_52",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_50_52\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_50_52\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m5\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_50_52.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"292a2b2c2d2e2f3031323334\",\"id\":\"sess_sequence_random_50_52\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_50_52\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m5\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4016,7 +5676,9 @@
           "saved",
           false,
           true,
-          null,
+          {
+            "$exact": "undefined"
+          },
           false,
           1,
           "dropped"
@@ -4040,18 +5702,71 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m4"
-          ],
+          "id": "sess_sequence_random_51_53",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_51_53\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_51_53\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_51_53.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5d5e5f606162636465666768\",\"id\":\"sess_sequence_random_51_53\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_51_53\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4146,17 +5861,66 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m3"
-          ],
+          "id": "sess_sequence_random_52_54",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_52_54\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_52_54\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_52_54.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"999a9b9c9d9e9fa0a1a2a3a4\",\"id\":\"sess_sequence_random_52_54\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_52_54\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m3\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4205,7 +5969,9 @@
           true,
           null,
           "saved",
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -4218,18 +5984,71 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m4",
-            "m5"
-          ],
+          "id": "sess_sequence_random_53_55",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m4"
+            },
+            {
+              "role": "user",
+              "content": "m5"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_53_55\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_53_55\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_53_55.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"cdcecfd0d1d2d3d4d5d6d7d8\",\"id\":\"sess_sequence_random_53_55\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_53_55\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m4\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m5\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4266,7 +6085,9 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           1,
           true
         ],
@@ -4281,9 +6102,53 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -4319,7 +6184,9 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           true,
           null
         ],
@@ -4334,9 +6201,53 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": null,
         "logFile": null,
-        "sessionFiles": []
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
+        ]
       }
     },
     {
@@ -4378,16 +6289,67 @@
         "unlinkPlanLeft": [],
         "unlinks": [],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_56_58",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_56_58\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_56_58\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_56_58.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2b2c2d2e2f30313233343536\",\"id\":\"sess_sequence_random_56_58\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_56_58\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4426,7 +6388,9 @@
         "results": [
           false,
           "saved",
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -4439,18 +6403,73 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m2",
-            "m3"
-          ],
+          "id": "sess_sequence_random_57_59",
           "generation": 0,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            },
+            {
+              "role": "user",
+              "content": "m3"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_57_59\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_57_59\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"}]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_57_59.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"4d4e4f505152535455565758\",\"id\":\"sess_sequence_random_57_59\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_57_59\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"append\",\"s\":3,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m3\"}]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4489,7 +6508,9 @@
         "results": [
           false,
           1,
-          null
+          {
+            "$exact": "undefined"
+          }
         ],
         "commitError": null,
         "unlinkPlanLeft": [],
@@ -4500,16 +6521,69 @@
           }
         ],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0"
-          ],
+          "id": "sess_sequence_random_58_60",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_58_60\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_58_60\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_58_60.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6f707172737475767778797a\",\"id\":\"sess_sequence_random_58_60\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_58_60\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"patch\",\"s\":2,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_58_60.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4552,7 +6626,9 @@
       },
       "result": {
         "results": [
-          null,
+          {
+            "$exact": "undefined"
+          },
           "saved",
           1,
           "dropped",
@@ -4564,18 +6640,77 @@
         "timersArmed": [
           150
         ],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1",
-            "m2"
-          ],
+          "id": "sess_sequence_random_59_61",
           "generation": 1,
-          "closed": false
+          "closed": false,
+          "tools": [],
+          "updatedAt": 1700000000000,
+          "detachedReason": "detach",
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            },
+            {
+              "role": "user",
+              "content": "m2"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_59_61\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_59_61\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":<ms>,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_59_61.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"9192939495969798999a9b9c\",\"id\":\"sess_sequence_random_59_61\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_59_61\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":3,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"updatedAt\":1700000000000,\"detachedReason\":\"detach\"},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_58_60.log.jsonl",
+          "sess_sequence_random_59_61.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     },
@@ -4628,17 +6763,75 @@
         "unlinkPlanLeft": [],
         "unlinks": [],
         "timersArmed": [],
+        "clockSteps": [],
         "stored": {
-          "messages": [
-            "m0",
-            "m1"
-          ],
+          "id": "sess_sequence_random_60_62",
           "generation": 1,
-          "closed": true
+          "closed": true,
+          "tools": [],
+          "closedReason": "test",
+          "status": "closed",
+          "updatedAt": 1700000000000,
+          "messages": [
+            {
+              "role": "user",
+              "content": "m0"
+            },
+            {
+              "role": "user",
+              "content": "m1"
+            }
+          ]
         },
-        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"<logid>\",\"id\":\"sess_sequence_random_60_62\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_60_62\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":<ms>},\"unset\":[]}\n",
-        "sessionFiles": [
-          "sess_sequence_random_60_62.log.jsonl"
+        "logFile": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"b3b4b5b6b7b8b9babbbcbdbe\",\"id\":\"sess_sequence_random_60_62\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_sequence_random_60_62\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"m0\"}]}\n{\"t\":\"append\",\"s\":2,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"generation\":1,\"closed\":true,\"closedReason\":\"test\",\"status\":\"closed\",\"updatedAt\":1700000000000},\"unset\":[]}\n",
+        "sessionsDir": [
+          "sess_sequence_detach_fail_2.log.jsonl",
+          "sess_sequence_random_10_12.log.jsonl",
+          "sess_sequence_random_12_14.log.jsonl",
+          "sess_sequence_random_13_15.log.jsonl",
+          "sess_sequence_random_14_16.log.jsonl",
+          "sess_sequence_random_15_17.log.jsonl",
+          "sess_sequence_random_17_19.log.jsonl",
+          "sess_sequence_random_19_21.log.jsonl",
+          "sess_sequence_random_1_3.log.jsonl",
+          "sess_sequence_random_20_22.log.jsonl",
+          "sess_sequence_random_21_23.log.jsonl",
+          "sess_sequence_random_22_24.log.jsonl",
+          "sess_sequence_random_23_25.log.jsonl",
+          "sess_sequence_random_24_26.log.jsonl",
+          "sess_sequence_random_26_28.log.jsonl",
+          "sess_sequence_random_29_31.log.jsonl",
+          "sess_sequence_random_2_4.log.jsonl",
+          "sess_sequence_random_30_32.log.jsonl",
+          "sess_sequence_random_31_33.log.jsonl",
+          "sess_sequence_random_32_34.log.jsonl",
+          "sess_sequence_random_33_35.log.jsonl",
+          "sess_sequence_random_34_36.log.jsonl",
+          "sess_sequence_random_36_38.log.jsonl",
+          "sess_sequence_random_38_40.log.jsonl",
+          "sess_sequence_random_39_41.log.jsonl",
+          "sess_sequence_random_3_5.log.jsonl",
+          "sess_sequence_random_42_44.log.jsonl",
+          "sess_sequence_random_43_45.log.jsonl",
+          "sess_sequence_random_44_46.log.jsonl",
+          "sess_sequence_random_46_48.log.jsonl",
+          "sess_sequence_random_47_49.log.jsonl",
+          "sess_sequence_random_48_50.log.jsonl",
+          "sess_sequence_random_49_51.log.jsonl",
+          "sess_sequence_random_50_52.log.jsonl",
+          "sess_sequence_random_51_53.log.jsonl",
+          "sess_sequence_random_52_54.log.jsonl",
+          "sess_sequence_random_53_55.log.jsonl",
+          "sess_sequence_random_56_58.log.jsonl",
+          "sess_sequence_random_57_59.log.jsonl",
+          "sess_sequence_random_58_60.log.jsonl",
+          "sess_sequence_random_59_61.log.jsonl",
+          "sess_sequence_random_5_7.log.jsonl",
+          "sess_sequence_random_60_62.log.jsonl",
+          "sess_sequence_random_6_8.log.jsonl",
+          "sess_sequence_random_7_9.log.jsonl",
+          "sess_sequence_random_8_10.log.jsonl",
+          "sess_sequence_random_9_11.log.jsonl"
         ]
       }
     }
