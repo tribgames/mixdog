@@ -192,8 +192,9 @@ await set.run('the direct binary sees the environment the launcher would give it
 }));
 
 await set.finish({
-  entry: { runs: 'src/runtime/shared/git-launch.mjs (resolveGitLaunch with an explicit platform and PATH, gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) over trees of empty files in a temp folder', notRun: 'no real git: the two cases that start processes run against the stand-in install (lib/git-standin.cs); the retry cases pass startGit a scripted start function, as the Node test does', standIn: { source: 'benchmarks/rust-core/recorders/lib/git-standin.cs', sha256: 'see recorder provenance dataFiles', build: 'csc.exe of the .NET Framework 4 (C:/Windows/Microsoft.NET/Framework64/v4.0.30319), one build per run' } },
+  entry: { runs: 'src/runtime/shared/git-launch.mjs (resolveGitLaunch with an explicit platform and PATH, gitLaunchEnvironment, gitCommand, gitChildEnv, startGit, startGitSync) over trees of empty files in a temp folder', notRun: 'no real git: the two cases that start processes run against the stand-in install (lib/git-standin.cs); the retry cases pass startGit a scripted start function, as the Node test does', standIn: { source: 'benchmarks/rust-core/recorders/lib/git-standin.cs', sha256: 'listed with the recorder inputs of this manifest (benchmarks/rust-core/recorders/lib/git-standin.cs)', build: 'csc.exe of the .NET Framework 4 (C:/Windows/Microsoft.NET/Framework64/v4.0.30319), one build per run' } },
   replay: { entry: 'mixdog-scm git_launch.rs: rebuild each case\'s tree (files list) in a temp root and compare resolutions, environments, spawned-command sequences and retry counts whole', normalised: { tempRoots: 'every temp root is written <root> wherever it occurs (paths listed in normalised.paths); separators are those Node produced (backslashes, win32)' }, platform: 'recorded on win32 (the Node tests that skip elsewhere ran); the cases that need no Windows layout also run elsewhere' },
+  dataFiles: ['benchmarks/rust-core/recorders/lib/git-standin.cs'],
   replaceInText: roots.map((r) => [r, '<root>']),
 });
 for (const r of roots) rmSync(r, { recursive: true, force: true });
