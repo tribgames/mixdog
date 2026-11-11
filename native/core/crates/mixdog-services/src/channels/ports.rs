@@ -148,7 +148,8 @@ pub struct WebhookAutomation {
     settings: Arc<dyn ChannelSettings>,
     service: Arc<WebhookService>,
     listener: Arc<dyn WebhookListener>,
-    listening: Mutex<Option<WorkGuard>>,
+    /// While listening: the service's guard and the port the listener was started on.
+    listening: Mutex<Option<(WorkGuard, Value)>>,
     /// Syncs run one at a time.
     gate: mixdog_rt::Gate,
     /// Ends the syncs that began before the last `stop`, so a stop never waits behind a stuck one.
@@ -179,16 +180,18 @@ impl WebhookAutomation {
             return self.listener.stop().await;
         }
         self.service.set_config(self.settings.webhook_config().await?);
-        let up = self.listening.lock().unwrap().is_some();
-        if up && !reload {
+        let bound = self.listening.lock().unwrap().as_ref().map(|(_, port)| port.clone());
+        // A listener whose port the reload keeps goes on listening: closing it to bind the same port
+        // again would refuse every request arriving in between.
+        if bound.as_ref().is_some_and(|port| !reload || *port == settings.port) {
             return Ok(());
         }
-        if up {
-            // The old listener closes before the new one binds the same port.
+        if bound.is_some() {
+            // The old listener closes before the new one binds.
             self.listener.stop().await?;
         }
         self.listener.start(&settings).await?;
-        *self.listening.lock().unwrap() = Some(self.service.listening());
+        *self.listening.lock().unwrap() = Some((self.service.listening(), settings.port.clone()));
         Ok(())
     }
 

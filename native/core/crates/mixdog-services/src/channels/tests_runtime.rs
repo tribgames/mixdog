@@ -858,29 +858,42 @@ struct LoopbackServer {
     stopped: tokio::sync::Notify,
     /// The save's reload held as [`LateReloads`] holds it, when the test holds it.
     reloads: Option<Arc<LateReloads>>,
-    /// The bind let a held reload go: that reload's restart is the next start.
-    restarting: std::sync::atomic::AtomicBool,
+    /// Set by the test: the next start is announced on `at_relisten` and waits for a `relisten_go` permit.
+    hold_relisten: std::sync::atomic::AtomicBool,
+    at_relisten: tokio::sync::Notify,
+    relisten_go: tokio::sync::Semaphore,
 }
 
 impl LoopbackServer {
     fn new(service: Arc<WebhookService>, tunnels: Arc<dyn TunnelStarter>, reloads: Option<Arc<LateReloads>>) -> Self {
-        Self { service, tunnels, server: tokio::sync::Mutex::new(None), bound: Default::default(), stopped: Default::default(), reloads, restarting: Default::default() }
+        Self {
+            service,
+            tunnels,
+            server: tokio::sync::Mutex::new(None),
+            bound: Default::default(),
+            stopped: Default::default(),
+            reloads,
+            hold_relisten: Default::default(),
+            at_relisten: Default::default(),
+            relisten_go: tokio::sync::Semaphore::new(0),
+        }
     }
 
     async fn listening(&self) -> bool {
         self.server.lock().await.is_some()
+    }
+
+    async fn port(&self) -> Option<u16> {
+        self.server.lock().await.as_ref().and_then(WebhookServer::port)
     }
 }
 
 #[async_trait]
 impl WebhookListener for LoopbackServer {
     async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
-        if self.restarting.load(Ordering::SeqCst) {
-            // The late reload's restart (`syncWebhookAndEventRuntime({ reload: true })`) has stopped
-            // the receiver the start bound; the bind is announced now, with the receiver down, and
-            // the restart binds no more: the readback falls inside the restart.
-            self.bound.notify_one();
-            return std::future::pending().await;
+        if self.hold_relisten.swap(false, Ordering::SeqCst) {
+            self.at_relisten.notify_one();
+            self.relisten_go.acquire().await.expect("the gate stays open").forget();
         }
         let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
         server.start().await?;
@@ -888,11 +901,12 @@ impl WebhookListener for LoopbackServer {
         if let Some(mut old) = replaced {
             old.stop().await;
         }
-        if self.reloads.as_ref().is_some_and(|reloads| reloads.release_late()) {
-            self.restarting.store(true, Ordering::SeqCst);
-        } else {
-            self.bound.notify_one();
+        if let Some(reloads) = &self.reloads {
+            // A reload still held goes on now; it finds the runtime up and the port kept, so the
+            // receiver goes on listening.
+            reloads.release_late();
         }
+        self.bound.notify_one();
         Ok(())
     }
     async fn stop(&self) -> Result<(), String> {
@@ -909,7 +923,7 @@ impl WebhookListener for LoopbackServer {
 /// a busy machine may run it: a read made before the provider init is released is the reload's
 /// (the start reads after the init), and it goes on only once the test waits for that reload, as
 /// Node's recorder awaits `lastReload` (`record-schedule-save-start.mjs:176`, `:203`), or else once
-/// the start's receiver has bound, where the reload finds the runtime up and restarts the receiver.
+/// the start's receiver has bound, where the reload finds the runtime up and its receiver listening.
 struct LateReloads {
     inner: Arc<StateScheduleStore>,
     init_released: std::sync::atomic::AtomicBool,
@@ -924,9 +938,9 @@ impl LateReloads {
         Arc::new(Self { inner, init_released: Default::default(), arrived: Default::default(), open: tokio::sync::watch::Sender::new(false) })
     }
 
-    /// Lets the held reload go at the start's bind; true when it was still held there.
-    fn release_late(&self) -> bool {
-        self.open.send_if_modified(|open| !std::mem::replace(open, true))
+    /// Lets the held reload go at the start's bind.
+    fn release_late(&self) {
+        self.open.send_replace(true);
     }
 }
 
@@ -1152,6 +1166,8 @@ struct Rig {
     clock: Arc<FixedClock>,
     /// The save's reload, held until awaited ([`LateReloads`]), when the rig holds it.
     reloads: Option<Arc<LateReloads>>,
+    /// How many reload syncs of the webhook automation have finished.
+    reloaded: tokio::sync::watch::Sender<usize>,
 }
 
 async fn rig() -> Rig {
@@ -1179,7 +1195,8 @@ async fn rig_with(hold_reload: bool) -> Rig {
     let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
     let reloads = hold_reload.then(|| LateReloads::new(e.schedules.clone()));
     let listener = Arc::new(LoopbackServer::new(service.clone(), tunnels, reloads.clone()));
-    let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener.clone()));
+    let reloaded = tokio::sync::watch::Sender::new(0);
+    let automation = Arc::new(CountedReloads { inner: WebhookAutomation::new(e.settings.clone(), service, listener.clone()), reloaded: reloaded.clone() });
     let stamps = Arc::new(tokio::sync::Semaphore::new(0));
     let stamped = Arc::new(tokio::sync::Notify::new());
     let store = Arc::new(GatedStamps { inner: e.schedules.clone(), gate: stamps.clone(), persisted: stamped.clone() });
@@ -1206,7 +1223,27 @@ async fn rig_with(hold_reload: bool) -> Rig {
     });
     let init = Arc::new(tokio::sync::Semaphore::new(0));
     *e.agent.init_gate.lock().unwrap() = Some(init.clone());
-    Rig { e, admin, runtime, data, init, stamps, stamped, listener, clock, reloads }
+    Rig { e, admin, runtime, data, init, stamps, stamped, listener, clock, reloads, reloaded }
+}
+
+/// The rig's webhook automation, counting the reload syncs it has finished.
+struct CountedReloads {
+    inner: WebhookAutomation,
+    reloaded: tokio::sync::watch::Sender<usize>,
+}
+
+#[async_trait]
+impl AutomationServices for CountedReloads {
+    async fn sync(&self, reload: bool) -> Result<(), String> {
+        let synced = self.inner.sync(reload).await;
+        if reload {
+            self.reloaded.send_modify(|count| *count += 1);
+        }
+        synced
+    }
+    async fn stop(&self) {
+        self.inner.stop().await;
+    }
 }
 
 impl Rig {
@@ -1287,8 +1324,7 @@ async fn assert_step(rig: &Rig, setup: Value, rec: &Value, label: &str) {
 /// listener bound with the identity persisted while the next-fire write is pending; the write
 /// done). Rust gets to each boundary through the real mechanisms: the provider init gate, the
 /// real receiver and relay starter, and the gated store. The save's background reload is held
-/// until the test awaits it before the init is released, as Node's recorder does: a reload that
-/// lands after the start is up restarts the receiver, Node's as Rust's.
+/// until the test awaits it before the init is released, as Node's recorder does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_schedule_save_reads_back_as_node_does_at_each_boundary_of_the_start() {
     let rec = recorded("start-after-save");
@@ -1430,6 +1466,79 @@ async fn a_busy_runtime_parks_the_saved_schedules_start_until_it_is_woken_idle()
     autostart.runtime.scheduled_start_settled().await;
     assert_eq!(autostart.agent.inits.load(Ordering::SeqCst), 1, "the boot autostart ignores the busy state");
     autostart.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// One delivery of the recording on a fresh connection: `{status, body}`, or the error the
+/// connection ended with under Node's code.
+async fn deliver(port: u16, rec: &Value) -> Value {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+        Ok(stream) => stream,
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => return json!({"error": "ECONNREFUSED"}),
+        Err(error) => return json!({"error": error.to_string()}),
+    };
+    let body = rec["body"].as_str().unwrap();
+    let mut request = format!(
+        "POST /webhook/{} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: {}\r\n",
+        rec["entry"]["name"].as_str().unwrap(),
+        body.len()
+    );
+    for (name, value) in rec["headers"].as_object().unwrap() {
+        request += &format!("{name}: {}\r\n", value.as_str().unwrap());
+    }
+    request += "\r\n";
+    request += body;
+    if let Err(error) = stream.write_all(request.as_bytes()).await {
+        return json!({"error": error.to_string()});
+    }
+    let mut reply = String::new();
+    if let Err(error) = stream.read_to_string(&mut reply).await {
+        return json!({"error": error.to_string()});
+    }
+    let status: u16 = reply[9..12].parse().unwrap();
+    let (_, text) = reply.split_once("\r\n\r\n").unwrap();
+    json!({"status": status, "body": serde_json::from_str::<Value>(text).unwrap()})
+}
+
+/// The recording of Node b6f10295a with `node-patches/node-fix-webhook-late-reload.patch`
+/// (`native/core/fixtures/webhook-late-reload/golden.json`, `record-webhook-late-reload.mjs`): the
+/// runtime is up and listening, a webhook edit reloads it, and a delivery lands once the reload's
+/// webhook sync has decided (at its re-listen, or at its end). The port is kept, so the receiver
+/// goes on listening and the delivery is answered; stock Node and the former Rust closed it and bound
+/// it again, and the delivery was refused (with the relay tunnel, which the listener's stop closes).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_during_a_late_reload_is_answered_as_node_answers_it() {
+    let rec: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-late-reload/golden.json")).unwrap();
+    let rig = rig_holding_the_reload().await;
+    assert_eq!(rig.admin.save_webhook(&rec["entry"]).await.unwrap(), rec["saveReply"]);
+    rig.wait_for_init_entered().await;
+    rig.wait_for_reload().await;
+    rig.release_init().await;
+    rig.wait_for_bound().await;
+    rig.runtime.scheduled_start_settled().await;
+    assert_eq!(rig.listener.listening().await, rec["listeningBefore"]);
+    let port = rig.listener.port().await.expect("bound");
+
+    let mut reloads = rig.reloaded.subscribe();
+    let before = *reloads.borrow_and_update();
+    rig.listener.hold_relisten.store(true, Ordering::SeqCst);
+    assert_eq!(rig.admin.save_webhook(&rec["edit"]).await.unwrap(), rec["editReply"]);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::select! {
+            () = rig.listener.at_relisten.notified() => {}
+            changed = reloads.wait_for(|count| *count > before) => { changed.unwrap(); }
+        }
+    })
+    .await
+    .expect("the edit's reload syncs the receiver");
+    let delivery = deliver(port, &rec).await;
+    rig.listener.hold_relisten.store(false, Ordering::SeqCst);
+    rig.listener.relisten_go.add_permits(1);
+    assert_eq!(delivery, rec["delivery"]);
+    reloads.wait_for(|count| *count > before).await.unwrap();
+    assert_eq!(rig.listener.listening().await, rec["listeningAfter"]);
+    rig.runtime.scheduled_start_settled().await;
+    rig.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
 /// `automation-start.mjs:30-42`: the runtime counts as running as soon as the webhook sync is launched
