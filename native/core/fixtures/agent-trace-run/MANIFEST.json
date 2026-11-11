@@ -26,7 +26,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
-      "sha256": "a10d15c87d27bb585b0389ca98d4c8a965033a9fe07fc22247d8daa084470ea2"
+      "sha256": "aa280d5707f3dc1f0bd8b3cc43539262194a917c861e7070cf7b647f2aaccbf4"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
