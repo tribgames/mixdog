@@ -26,7 +26,7 @@ use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
-use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid};
+use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid, wall_ms};
 
 /// What the session knows about a send that the request does not say.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -115,9 +115,7 @@ impl AccountingDeps {
             ledger,
             scope: Arc::new(RequestScope),
             account: Arc::new(NoAccounts),
-            now: Arc::new(|| {
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
-            }),
+            now: Arc::new(wall_ms),
             new_id: Arc::new(random_uuid),
         }
     }

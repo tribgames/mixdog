@@ -15,6 +15,8 @@ test-support = ["dep:rcgen"]
 count-work = ["dep:mixdog-secrets", "mixdog-secrets/count-work"]
 # A replay's barrier on the model's bytes (transport/replay_bytes.rs, MIXDOG_REPLAY_BYTES): development builds only.
 replay-bytes = []
+# A replay's clock (mixdog-rt virtual_clock.rs): the usage row's send times read it once frozen. Development builds only.
+virtual-clock = ["mixdog-rt/virtual-clock"]
 
 [dependencies]
 rcgen = { workspace = true, optional = true }
