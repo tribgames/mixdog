@@ -29,6 +29,7 @@ mod views_node_cases;
 mod result_kind;
 mod run_loop;
 mod settings_service;
+mod spawn_flow_node_cases;
 mod tail_rules;
 mod text_only;
 mod turns;
