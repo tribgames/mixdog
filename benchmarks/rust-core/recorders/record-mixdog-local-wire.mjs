@@ -9,7 +9,7 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { startRecording } from './lib/provider-case-recorder.mjs';
+import { CASE_DEADLINE_MS, startRecording } from './lib/provider-case-recorder.mjs';
 
 // The recorder's endpoint redirects every fetch; the stand-in server is a real loopback process, so loopback fetches go straight to the network stack.
 const nativeFetch = globalThis.fetch;
@@ -40,6 +40,7 @@ copyFileSync(join(standinDir, 'launcher.exe'), join(binDir, 'nvidia-smi.exe'));
 process.env.STANDIN_NODE = process.execPath;
 process.env.STANDIN_SCRIPT = fileURLToPath(new URL('standin.mjs', SOURCE_ROOT));
 process.env.STANDIN_DIR = standinDir;
+process.env.STANDIN_DEADLINE_MS = String(CASE_DEADLINE_MS);
 process.env.PATH = `${binDir}${delimiter}${process.env.PATH}`;
 const logPath = join(standinDir, 'standin.log.jsonl');
 const answerPath = join(standinDir, 'nvidia-smi.answer.json');
