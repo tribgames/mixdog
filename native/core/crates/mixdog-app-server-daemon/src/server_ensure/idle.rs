@@ -16,6 +16,10 @@ pub const ANSWER_IDLE: Duration = Duration::from_millis(1500);
 /// The limit `stopDaemon` gives its `/stop` request.
 pub const STOP_IDLE: Duration = Duration::from_millis(3000);
 
+/// How long, in real time, a test waits for an event of the manual-clock exchange before it fails instead of hanging.
+#[cfg(test)]
+const TEST_DEADLINE: Duration = Duration::from_secs(30);
+
 /// The clock the limit is measured on and the state of the exchange it watches. An exchange starts before the request
 /// is sent, as Node's timeout runs from the socket's creation.
 pub struct IdleWatch {
@@ -175,6 +179,8 @@ impl IdleWatch {
     /// The current exchange's answer, or `None` once it has been silent for its limit (the exchange is then given up:
     /// its reader reports to nobody).
     fn wait(&self) -> Option<std::io::Result<Vec<u8>>> {
+        #[cfg(test)]
+        let give_up = Instant::now() + TEST_DEADLINE;
         let mut state = self.lock();
         loop {
             if let Some(ended) = state.ended.take() {
@@ -191,7 +197,17 @@ impl IdleWatch {
                     self.changed.wait_timeout(state, deadline - now).unwrap_or_else(std::sync::PoisonError::into_inner).0
                 }
                 #[cfg(test)]
-                Clock::Manual => self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner),
+                Clock::Manual => {
+                    // Absolute: the reader's timed-out reads notify without moving the clock.
+                    let left = give_up.saturating_duration_since(Instant::now());
+                    assert!(
+                        !left.is_zero(),
+                        "the exchange waited {TEST_DEADLINE:?} without its limit passing on the manual clock or its \
+                         answer ending: {} chunk(s) received",
+                        state.chunks
+                    );
+                    self.changed.wait_timeout(state, left).unwrap_or_else(std::sync::PoisonError::into_inner).0
+                }
             };
         }
     }
@@ -208,22 +224,34 @@ impl IdleWatch {
         self.lock().readers
     }
 
-    /// Returns once the exchange has received `n` chunks.
+    /// Returns once the exchange has received `n` chunks; fails the test, saying how many had arrived, if they have not
+    /// within [`TEST_DEADLINE`].
     #[cfg(test)]
     pub fn wait_chunks(&self, n: u64) {
-        let mut state = self.lock();
-        while state.chunks < n {
-            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
-        }
+        let state = self.wait_until(|state| state.chunks >= n);
+        assert!(state.chunks >= n, "{} of {n} chunk(s) arrived within {TEST_DEADLINE:?} (ended: {:?})", state.chunks, state.ended);
     }
 
-    /// Returns once a read of the exchange has timed out after this call.
+    /// Returns once a read of the exchange has timed out after this call; fails the test if none has within
+    /// [`TEST_DEADLINE`].
     #[cfg(test)]
     pub fn wait_a_read_timeout(&self) {
-        let mut state = self.lock();
-        let seen = state.read_timeouts;
-        while state.read_timeouts == seen {
-            state = self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
-        }
+        let seen = self.lock().read_timeouts;
+        let state = self.wait_until(|state| state.read_timeouts > seen);
+        assert!(
+            state.read_timeouts > seen,
+            "no read timed out within {TEST_DEADLINE:?}: {} chunk(s) arrived (ended: {:?})",
+            state.chunks,
+            state.ended
+        );
+    }
+
+    /// The state once `done` holds of it, or at [`TEST_DEADLINE`] of real time.
+    #[cfg(test)]
+    fn wait_until(&self, done: impl Fn(&State) -> bool) -> MutexGuard<'_, State> {
+        self.changed
+            .wait_timeout_while(self.lock(), TEST_DEADLINE, |state| !done(state))
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .0
     }
 }
