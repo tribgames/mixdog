@@ -5069,6 +5069,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bstr",
  "bytes",
  "crossbeam-channel",
  "flate2",
@@ -5094,7 +5095,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "trash",
- "unicode-segmentation",
  "uuid",
  "windows-sys 0.61.2",
 ]

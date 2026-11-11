@@ -696,6 +696,12 @@ const SCENARIOS = [
       // letter with 70 combining marks (141 bytes each) the first line's `zed`, at cluster 475 and byte 66,275, is in
       // its preview, where several patterns' attribution finds it.
       'wide/w.ts': `hit ${('e' + '\u0301'.repeat(70)).repeat(470)} zed ${('e' + '\u0301'.repeat(70)).repeat(100)}\nhit ${'w'.repeat(70_000)}\n`,
+      // The clip's boundary: a line is clipped when its bytes with its terminator pass 500 (499, 500, 501 bytes of
+      // two-byte letters, LF and CRLF), and its preview is the first 500 grapheme clusters as bstr segments them, the
+      // terminator among them: a letter with two marks as the 500th cluster, a Devanagari conjunct (one cluster since
+      // Unicode 15.1, two to bstr), and a last line without a terminator at 500 bytes.
+      'clip2/bytes.ts': `hit ${'é'.repeat(247)}\nhit ${'é'.repeat(247)}x\nhit ${'é'.repeat(248)}\nhit ${'é'.repeat(247)}\r\nhit ${'é'.repeat(247)}x\r\n`,
+      'clip2/marks.ts': `hit ${'e\u0301'.repeat(165)}x\nhit ${'a'.repeat(495)}e\u0301\u0302bc\nhit ${'a'.repeat(494)}\u0915\u094D\u0937zz\nhit ${'é'.repeat(248)}`,
     };
     const mtimes = {};
     for (const d of ['f1', 'f2', 'f3', 'f4', 'f5']) {
@@ -712,6 +718,13 @@ const SCENARIOS = [
         Buffer.from(' hit here\nctx ', 'latin1'),
         Buffer.from([0xc3]),
         Buffer.from(' after\nlast hit \xe9\n', 'latin1'),
+      ]).toString('base64'),
+      // An invalid byte before a combining mark at the 499th cluster (bstr: two clusters; a lossy decoding first: one),
+      // and a last line without a terminator at 501 bytes.
+      'clip2/bad.ts': Buffer.concat([
+        Buffer.from(`hit ${'a'.repeat(494)}`),
+        Buffer.from([0xff]),
+        Buffer.from(`\u0301zz\nhit ${'é'.repeat(248)}y`),
       ]).toString('base64'),
     };
     const two = ['m', 'n'];
@@ -754,6 +767,7 @@ const SCENARIOS = [
         ...both({ pattern: 'hit', context: 1 }, ['long', 'edge'], 'long'),
         ...both({ pattern: 'hit', context: 0 }, ['wide', 'edge'], 'wide'),
         ...both({ pattern: ['zed', 'www'], context: 0 }, ['wide', 'edge'], 'wide'),
+        ...['clip2/bytes.ts', 'clip2/marks.ts', 'clip2/bad.ts'].map((path) => ({ tool: 'grep', input: { pattern: 'hit', context: 0, path } })),
         ...both({ pattern: ['hit', 'pad'] }),
         ...both({ pattern: ['hit', 'pad'], context: 0, limit: 5 }),
         ...both({ pattern: ['edge', 'middle'] }, ['edge', 'm'], 'edge'),
