@@ -16,6 +16,7 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
 use mixdog_store::schema::record::Record;
 use serde_json::Value;
@@ -113,8 +114,20 @@ fn mask_attempts(value: &mut Value) {
 /// The compaction Node adopted, committed as the host commits its compactor's output.
 pub fn compaction_of(data: &Path, case: &Value, clock_ms: i64) -> Compaction {
     let compacted = unmask(data, &case["compacted"]);
-    let replacement = compacted.as_array().expect("compacted").iter().enumerate().map(|(index, row)| (ItemId::from(format!("compacted{index}")), row.clone())).collect();
+    // The compacted transcript's system prompt stays in the header, as the session's own does (`migrated`).
+    let rows = compacted.as_array().expect("compacted").iter().filter(|row| row["role"] != "system");
+    let replacement = rows.enumerate().map(|(index, row)| (ItemId::from(format!("compacted{index}")), row.clone())).collect();
     Compaction { replacement, at: clock_ms, dropped_count: 0, dropped: None }
+}
+
+/// A session Node stored as `transcript` (its whole `messages`), as the migration stores it: the leading system
+/// messages become the header's prompt blocks (`migrate_system_messages`), the rows the rest. The header and the rows.
+pub fn migrated(transcript: Value) -> (Header, Value) {
+    let messages = transcript.as_array().cloned().expect("transcript");
+    let mut header = json!({ "cwd": "/ws" }).as_object().cloned().expect("object");
+    let system = mixdog_core_prompt::prompt::migrate::migrate_system_messages(&messages, &header).expect("Node's system prefix");
+    system.apply(&mut header);
+    (header, Value::Array(messages[system.rows_from..].to_vec()))
 }
 
 pub fn header() -> CompactionHeader {
@@ -140,7 +153,16 @@ impl World {
 
     async fn seeded(name: &str, golden: &str, rig: Rig, deps: impl Fn(&Rig) -> Arc<SessionDeps>, data: tempfile::TempDir, through_session: bool) -> World {
         let golden = self::golden(golden);
-        let case = node_case(&golden, name);
+        let mut case = node_case(&golden, name);
+        // The core holds the system prompt in the header's prompt blocks, which carry no message meta: the transcript
+        // id Node's compaction stamps on its system message is not compared (manifest `systemMessageMeta`).
+        for point in case["points"].as_array_mut().into_iter().flatten() {
+            for message in point["transcript"].as_array_mut().into_iter().flatten() {
+                if message["role"] == "system" {
+                    message.as_object_mut().expect("a message").shift_remove("meta");
+                }
+            }
+        }
         let release: Arc<Notify> = Arc::default();
         let gate = release.clone();
         rig.set_script(Arc::new(move |run| {
@@ -156,8 +178,8 @@ impl World {
         rig.clock.0.store(clock, std::sync::atomic::Ordering::SeqCst);
         let mut listings = rig.compaction.listings.subscribe();
         let creator = SessionDirectory::new(deps(&rig));
-        within("the session is created", creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({}))).await.expect("create");
-        let transcript = unmask(data.path(), &case["seed"]["transcript"]);
+        let (header, transcript) = migrated(unmask(data.path(), &case["seed"]["transcript"]));
+        within("the session is created", creator.create_with_id(id.clone(), header, json!({}))).await.expect("create");
         if through_session {
             let created = within("the session opens", creator.open_handle(&id, &CallContext::internal("test"))).await.expect("open");
             let request = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "threadId": id, "messages": transcript }), op: None, ctx: CallContext::internal("test") };
@@ -214,7 +236,16 @@ impl World {
             })
             .collect();
         let rows = within("the context is read", self.directory.model_context(&self.handle.id).read()).await.expect("context");
-        let transcript: Vec<Value> = rows.into_iter().map(|(_, row)| row).collect();
+        // Node's `messages`: the system prompt (the header's prompt blocks) and the rows. The environment a clear writes
+        // for the next request (`sessionStartMetaInjected: false`) Node keeps outside `messages` until that request
+        // (`resetSessionBp3Environment`, session-crud.mjs:361): it is not part of them (manifest `clearedEnvironment`).
+        let header = within("the header is read", self.directory.try_stored_header(&self.handle.id)).await.expect("header").expect("the session");
+        let mut blocks = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(&header);
+        if header.get("sessionStartMetaInjected") == Some(&Value::Bool(false)) {
+            blocks.env = None;
+        }
+        let system = blocks.node_messages();
+        let transcript: Vec<Value> = system.into_iter().chain(rows.into_iter().map(|(_, row)| row)).collect();
         json!({ "at": at, "toolResults": mask(self.data.path(), &json!(tool_results)), "transcript": mask(self.data.path(), &json!(transcript)) })
     }
 

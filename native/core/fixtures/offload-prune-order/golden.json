@@ -6085,6 +6085,260 @@
       ]
     },
     {
+      "name": "linkless-fork",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_linkless_fork",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of linkless-fork",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of linkless-fork",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_linkless_fork\\18ab719be2adda80729c32dae4b92c0300f43f3c49bf03464d7b8e96dbb91bc3.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ],
+        "fork": {
+          "sessionId": "sess_prune_order_linkless_fork_archive",
+          "transcript": [
+            {
+              "role": "user",
+              "content": "the result is at <DATA>\\tool-results\\sess_prune_order_linkless_fork\\18ab719be2adda80729c32dae4b92c0300f43f3c49bf03464d7b8e96dbb91bc3.txt"
+            },
+            {
+              "role": "assistant",
+              "content": "noted"
+            }
+          ]
+        }
+      },
+      "points": [
+        {
+          "at": "after-clear",
+          "toolResults": [
+            [
+              "18ab719be2adda80729c32dae4b92c0300f43f3c49bf03464d7b8e96dbb91bc3.txt",
+              "named output of linkless-fork"
+            ],
+            [
+              "85f3be18ed8d34f816f75b579840f9264ab713d3fe6d21b94eee3650b2ca5b36.txt",
+              "stray output of linkless-fork"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "18ab719be2adda80729c32dae4b92c0300f43f3c49bf03464d7b8e96dbb91bc3.txt",
+              "named output of linkless-fork"
+            ]
+          ],
+          "transcript": []
+        }
+      ]
+    },
+    {
+      "name": "deleted-middle",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_deleted_middle",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of deleted-middle",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of deleted-middle",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_deleted_middle\\8cda869f2f546d00dfc43e30add8860f75d61abc6c94266c2e5de9d636ea51e1.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ]
+      },
+      "points": [
+        {
+          "at": "after-clear",
+          "toolResults": [
+            [
+              "4b5ca59d7158d7a7a38aa10b3c062a7aa4c95ad9eaa49f0f2ee1fed37481d062.txt",
+              "stray output of deleted-middle"
+            ],
+            [
+              "8cda869f2f546d00dfc43e30add8860f75d61abc6c94266c2e5de9d636ea51e1.txt",
+              "named output of deleted-middle"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "8cda869f2f546d00dfc43e30add8860f75d61abc6c94266c2e5de9d636ea51e1.txt",
+              "named output of deleted-middle"
+            ]
+          ],
+          "transcript": []
+        }
+      ]
+    },
+    {
+      "name": "copy-in-progress",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_copy_in_progress",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of copy-in-progress",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of copy-in-progress",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "user",
+            "content": "the result is at <DATA>\\tool-results\\sess_prune_order_copy_in_progress\\9da5244e55a6287f39b5ad6b958ac04ebd75dbe484ff951209b4ef50b2437f44.txt"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ]
+      },
+      "points": [
+        {
+          "at": "after-clear",
+          "toolResults": [
+            [
+              "177cf5ec3c92afddce0820c7a43323d7104dc99d003bae4febf90afc1f7b570e.txt",
+              "stray output of copy-in-progress"
+            ],
+            [
+              "9da5244e55a6287f39b5ad6b958ac04ebd75dbe484ff951209b4ef50b2437f44.txt",
+              "named output of copy-in-progress"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-copying-resume",
+          "toolResults": [
+            [
+              "177cf5ec3c92afddce0820c7a43323d7104dc99d003bae4febf90afc1f7b570e.txt",
+              "stray output of copy-in-progress"
+            ],
+            [
+              "9da5244e55a6287f39b5ad6b958ac04ebd75dbe484ff951209b4ef50b2437f44.txt",
+              "named output of copy-in-progress"
+            ]
+          ],
+          "transcript": []
+        },
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "9da5244e55a6287f39b5ad6b958ac04ebd75dbe484ff951209b4ef50b2437f44.txt",
+              "named output of copy-in-progress"
+            ]
+          ],
+          "transcript": []
+        }
+      ]
+    },
+    {
+      "name": "system-named",
+      "changed": null,
+      "error": null,
+      "seed": {
+        "sessionId": "sess_prune_order_system_named",
+        "sidecars": [
+          {
+            "role": "named",
+            "content": "named output of system-named",
+            "mtimeMs": 1799996400000
+          },
+          {
+            "role": "stray",
+            "content": "stray output of system-named",
+            "mtimeMs": 1799996400000
+          }
+        ],
+        "transcript": [
+          {
+            "role": "system",
+            "content": "the rules are at <DATA>\\tool-results\\sess_prune_order_system_named\\1ccc8f81caaa6a71a5cdef1c7c506bd1d10df58d060c674d800560f7260ac5a5.txt"
+          },
+          {
+            "role": "user",
+            "content": "hello"
+          },
+          {
+            "role": "assistant",
+            "content": "noted"
+          }
+        ]
+      },
+      "points": [
+        {
+          "at": "after-resume",
+          "toolResults": [
+            [
+              "1ccc8f81caaa6a71a5cdef1c7c506bd1d10df58d060c674d800560f7260ac5a5.txt",
+              "named output of system-named"
+            ]
+          ],
+          "transcript": [
+            {
+              "role": "system",
+              "content": "the rules are at <DATA>\\tool-results\\sess_prune_order_system_named\\1ccc8f81caaa6a71a5cdef1c7c506bd1d10df58d060c674d800560f7260ac5a5.txt"
+            },
+            {
+              "role": "user",
+              "content": "hello"
+            },
+            {
+              "role": "assistant",
+              "content": "noted"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "room-row",
       "changed": null,
       "error": null,

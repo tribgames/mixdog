@@ -1,21 +1,9 @@
-diff --git a/src/runtime/agent/orchestrator/session/manager.mjs b/src/runtime/agent/orchestrator/session/manager.mjs
-index 1ab166e..564e13e 100644
---- a/src/runtime/agent/orchestrator/session/manager.mjs
-+++ b/src/runtime/agent/orchestrator/session/manager.mjs
-@@ -120,6 +120,7 @@ export {
-   rewindSessionMessagesTo,
-   compactSessionMessages,
-   updateSessionStatus,
-+  recordOffloadFork,
-   updateSessionGeneratedTitle,
-   updateSessionManualTitle,
-   updateSessionAiTitle,
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
 new file mode 100644
-index 0000000..fff2255
+index 0000000..b7d5ca0
 --- /dev/null
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-prune-after-save.test.mjs
-@@ -0,0 +1,538 @@
+@@ -0,0 +1,615 @@
 +// A manual compaction deletes the tool-result sidecars its result no longer names only once that result is stored: a
 +// process that stops before the save restarts from the stored transcript, which still names them, and a save that does
 +// not store it (dropped by a delete's fence, refused because another writer recorded after this copy, or failed)
@@ -25,9 +13,12 @@ index 0000000..fff2255
 +// prune a close, a stopped process or an unreadable archive kept from finishing happens at the next resume. The copies
 +// of a conversation in other sessions (a clear's fork, an inheritance's heir, and their own copies) keep the sidecars
 +// they name, and a session this process let go while its prune ran is left to its next owner. A copy is found from its
-+// own record (`inheritedFromSessionId`, in the session catalog) as well as from its source's, it is read only once an
-+// old sidecar the session itself does not keep remains, and one that cannot be read keeps everything. A reference is
-+// text in the session's own records and its copies: a room row naming a sidecar keeps nothing.
++// own reference set (the sessions whose sidecars it may name: its source's set and its source, stored when it is made,
++// or for a session an earlier version stored, what its transcript names, checked once), so a copy of a copy counts
++// with the copy between them deleted; while a copy is being made its source is not pruned. The copies are read only
++// once an old sidecar the session itself does not keep remains, and one that cannot be read keeps everything. A
++// reference is text in the session's own messages (its system prompt included) and its copies': a room row naming a
++// sidecar keeps nothing.
 +//
 +// The point between the compaction and its save is the commit's timing line (`recordCompactionTiming`), written once
 +// the compacted transcript is adopted and before `compactSessionMessages` saves it.
@@ -197,15 +188,16 @@ index 0000000..fff2255
 +  await settleDeferredPrunes();
 +}
 +
-+// A stored session, not compacted, holding `sidecars` (role -> content, an hour old) and `messages(files)`.
-+async function plainSession(tag, sidecars, messages) {
++// A stored session, not compacted, holding `sidecars` (role -> content, an hour old) and `messages(files)`, with the
++// record's `fields`.
++async function plainSession(tag, sidecars, messages, fields = {}) {
 +  const sessionId = `sess_prune_after_save_${tag}_${process.pid}`;
 +  const files = {};
 +  for (const [role, content] of Object.entries(sidecars)) {
 +    files[role] = persistToolResultArtifactSync({ sessionId, toolCallId: `call_${role}`, content }).path;
 +    utimesSync(files[role], HOUR_AGO, HOUR_AGO);
 +  }
-+  await saveSessionAsync({ id: sessionId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: messages(files), tools: [], generation: 0, closed: false });
++  await saveSessionAsync({ id: sessionId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: messages(files), tools: [], generation: 0, closed: false, ...fields });
 +  return { sessionId, files };
 +}
 +
@@ -404,15 +396,17 @@ index 0000000..fff2255
 +    assert.deepEqual(left(seeded.files), ['named']);
 +  });
 +
-+  test('a copy made before its source recorded it (an older heir, named in its own record only) keeps the sidecars it names', async () => {
++  test('a copy an earlier version made (no reference set, no link to its source) keeps the sidecars its transcript names', async () => {
 +    const seeded = await plainSession('older', { named: 'named output', stray: 'stray output' }, (files) => [
 +      { role: 'user', content: `the result is at ${files.named}` },
 +      { role: 'assistant', content: 'noted' },
 +    ]);
-+    // What an inheritance stored before its source recorded its copies: the heir's own `inheritedFromSessionId`.
++    // What a clear's fork made by an earlier version stored: a record (its legacy `<id>.json`) holding the
++    // conversation, and no reference set or anything else naming its source.
 +    const heirId = `sess_prune_after_save_older_heir_${process.pid}`;
-+    await saveSessionAsync({ id: heirId, provider: 'anthropic', model: 'fake-model', owner: 'agent', inheritedFromSessionId: seeded.sessionId, messages: loadSession(seeded.sessionId).messages, tools: [], generation: 0, closed: false });
-+    await settleRecorder(heirId);
++    const record = { id: heirId, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: loadSession(seeded.sessionId).messages, tools: [], generation: 0, closed: false };
++    writeFileSync(join(dataDir, 'sessions', `${heirId}.json`), JSON.stringify(record));
++    assert.equal(loadSession(heirId).offloadSources, undefined, 'the copy holds no reference set');
 +    assert.ok(await manager.clearSessionMessages(seeded.sessionId, { fork: false }), 'cleared');
 +    await settleRecorder(seeded.sessionId);
 +    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
@@ -429,7 +423,7 @@ index 0000000..fff2255
 +    assert.ok(await manager.clearSessionMessages(seeded.sessionId, { archiveAs: forkId }), 'cleared');
 +    await settleRecorder(forkId);
 +    await settleRecorder(seeded.sessionId);
-+    assert.equal(loadSession(forkId).inheritedFromSessionId, seeded.sessionId, "the clear's fork names its source in its own record");
++    assert.deepEqual(loadSession(forkId).offloadSources, [seeded.sessionId], "the clear's fork holds its reference set in its own record");
 +    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
 +    const forkLog = join(dataDir, 'sessions', `${forkId}.log.jsonl`);
 +    const stored = readFileSync(forkLog);
@@ -474,6 +468,77 @@ index 0000000..fff2255
 +    await saveSessionAsync({ id: roomLog, provider: 'anthropic', model: 'fake-model', owner: 'agent', messages: [], tools: [], generation: 0, closed: false });
 +    await appendRoomRows(roomLog, [{ id: 'row1', kind: 'speech', speaker: 'agent', text: `the stray result is at ${seeded.files.stray}` }]);
 +    assert.match(JSON.stringify(loadSession(roomLog).messages), new RegExp(basename(seeded.files.stray)));
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named']);
++  });
++
++  test("a sidecar the session's system prompt names is kept", async () => {
++    const seeded = await plainSession('system', { named: 'named output', stray: 'stray output' }, (files) => [
++      { role: 'system', content: `the rules are at ${files.named}` },
++      { role: 'user', content: 'hello' },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named']);
++  });
++
++  test('a copy of a copy keeps the sidecars it names once the copy between them is deleted', async () => {
++    const seeded = await plainSession('chain', { named: 'named output', stray: 'stray output' }, (files) => [
++      { role: 'user', content: `the result is at ${files.named}` },
++      { role: 'assistant', content: 'noted' },
++    ]);
++    const lifecycle = createLifecycleApi({ getSession: () => null, getRoute: () => ({ provider: 'anthropic', model: 'fake-model' }), mgr: manager, invalidateContextStatusCache() {}, saveSession() {} });
++    const provider = { name: 'anthropic', contextWindow: 128_000, send: async () => ({ content: 'no turn runs' }) };
++    const { sessionId: middle } = await _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(seeded.sessionId));
++    const { sessionId: last } = await _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(middle));
++    await manager.deleteSession(middle);
++    assert.equal(loadSession(middle), null, 'the copy between them is deleted');
++    assert.ok(await manager.clearSessionMessages(seeded.sessionId, { fork: false }), 'cleared');
++    await settleRecorder(seeded.sessionId);
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++    await resume(seeded.sessionId);
++    assert.deepEqual(left(seeded.files), ['named']);
++    assert.match(JSON.stringify(loadSession(last).messages), new RegExp(basename(seeded.files.named)));
++  });
++
++  test('while a copy of the conversation is being made, the source is not pruned', async () => {
++    const seeded = await plainSession(
++      'inheriting',
++      { named: 'named output', stray: 'stray output' },
++      (files) => [
++        { role: 'user', content: `the result is at ${files.named}` },
++        { role: 'assistant', content: 'noted' },
++      ],
++      // A boundary the heir's carry is compacted toward.
++      { contextWindow: 100_000, compactBoundaryTokens: 100_000 }
++    );
++    // The heir's carry is compacted; the compaction waits until the source was cleared and resumed.
++    let reached;
++    const atCompaction = new Promise((resolve) => (reached = resolve));
++    let go;
++    const released = new Promise((resolve) => (go = resolve));
++    const compactConversation = async ({ messages }) => {
++      reached();
++      await released;
++      return { messages };
++    };
++    const lifecycle = createLifecycleApi({ getSession: () => null, getRoute: () => ({ provider: 'anthropic', model: 'fake-model' }), mgr: manager, invalidateContextStatusCache() {}, saveSession() {}, compactConversation });
++    const provider = { name: 'anthropic', contextWindow: 128_000, send: async () => ({ content: 'no turn runs' }) };
++    const inheriting = _withRegisteredProviderForTestAsync('anthropic', provider, () => lifecycle.inheritToNewSession(seeded.sessionId, { compact: true }));
++    try {
++      await atCompaction;
++      assert.ok(await manager.clearSessionMessages(seeded.sessionId, { fork: false }), 'cleared');
++      await settleRecorder(seeded.sessionId);
++      assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
++      const logged = await stderrOf(() => resume(seeded.sessionId));
++      assert.deepEqual(left(seeded.files), ['named', 'stray'], 'nothing is deleted while a copy is being made');
++      assert.match(logged, new RegExp(`offload prune skipped \\(sess=${seeded.sessionId}\\): the session \\S+ is still inheriting the conversation of ${seeded.sessionId}`));
++    } finally {
++      go();
++    }
++    const { sessionId: heirId } = await inheriting;
++    assert.match(JSON.stringify(loadSession(heirId).messages), new RegExp(basename(seeded.files.named)));
++    assert.equal(await manager.closeSession(seeded.sessionId, 'manual', { tombstone: false }), true, 'closed');
 +    await resume(seeded.sessionId);
 +    assert.deepEqual(left(seeded.files), ['named']);
 +  });
@@ -555,17 +620,19 @@ index 0000000..fff2255
 +  });
 +}
 diff --git a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-index 923faae..4e9477f 100644
+index 923faae..e272232 100644
 --- a/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs
-@@ -17,9 +17,14 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
+@@ -17,9 +17,15 @@ import { previewFreshContextCompaction, runFreshContextCompact } from '../loop/f
  import { positiveInt } from '../../../../shared/numbers.mjs';
  import { withLiveCompactionConfig } from '../../runtime-core/compaction-config-keys.mjs';
  import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 +import { onSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
  import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
  import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
- import { pruneOffloadSession } from '../tool-result-offload.mjs';
+-import { pruneOffloadSession } from '../tool-result-offload.mjs';
++import { pruneOffloadSession, readOffloadSources, recordOffloadSources } from '../tool-result-offload.mjs';
++import { offloadSourcesOf, safeSessionSegment } from '../offload-sources.mjs';
 +import { loadSession } from '../store.mjs';
 +import { loadSessionCopy } from '../store/load-session.mjs';
 +import { scanStoredSessionSummaries } from '../store/listing.mjs';
@@ -573,7 +640,7 @@ index 923faae..4e9477f 100644
  import { _getPendingMessagesForSession } from './pending-messages.mjs';
  import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
  import { backfillFallbackSessionTitle } from './session-fallback-title.mjs';
-@@ -466,20 +471,115 @@ async function compareTranscriptEncodings(before, after) {
+@@ -466,20 +472,123 @@ async function compareTranscriptEncodings(before, after) {
  }
  
  // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
@@ -646,16 +713,16 @@ index 923faae..4e9477f 100644
    }
  }
  
-+const offloadForksOf = (session) => (Array.isArray(session?.offloadForks) ? session.offloadForks.filter((id) => typeof id === 'string' && id) : []);
-+
-+// The stored message lists of the copies of `sessionId`'s conversation, read
-+// when the prune asks for them: the sessions whose own record names it as their
-+// source (`inheritedFromSessionId`: an inheritance's heir, a clear's fork, found
-+// in the session catalog, so a copy made before its source recorded it counts),
-+// the ones its record names (`offloadForks`), and the copies of each of them.
-+// A copy deleted since names nothing. A stored session whose record cannot be
-+// read (whether it is a copy is unknown then), or a store that cannot be
-+// listed, answers null: nothing is deleted, and the skip says why.
++// The stored message lists of the sessions whose reference set names
++// `sessionId` (the copies of its conversation, and the copies of those),
++// read when the prune asks for them: one lookup in the stored sets, with no
++// session in between needed, so a copy whose source was deleted still counts.
++// Every stored session gets its set once (the one-time check of what an
++// earlier version stored without one, from its stored record); until every
++// one has, nothing is pruned. A copy deleted since names nothing. A stored
++// session whose record cannot be read (whether it names this session is
++// unknown then), a copy still being made, or a store that cannot be listed
++// answers null: nothing is deleted, and the skip says why.
 +async function offloadCopies(sessionId) {
 +  const skipped = (why) => {
 +    writeStderrBestEffort(`[session] offload prune skipped (sess=${sessionId}): ${why}\n`);
@@ -671,19 +738,27 @@ index 923faae..4e9477f 100644
 +  }
 +  if (!scan) return skipped('the session store could not be listed');
 +  if (scan.unreadable.length) return skipped(`the session ${scan.unreadable[0]} cannot be read`);
-+  const summaries = scan.rows;
-+  const copiesOf = (id, session) => [...offloadForksOf(session), ...summaries.filter((row) => row?.inheritedFromSessionId === id).map((row) => row.id)];
++  let sets = readOffloadSources();
++  const checked = {};
++  for (const { id } of scan.rows) {
++    if (!id || sets[id]) continue;
++    const { session, from } = loadSessionCopy(id);
++    if (from === 'unreadable') return skipped(`the session ${id} cannot be read`);
++    if (!session) continue;
++    const sources = offloadSourcesOf(session);
++    if (!sources) return skipped(`the session ${id} cannot be read`);
++    checked[id] = { sources };
++  }
++  if (Object.keys(checked).length) sets = recordOffloadSources(checked);
++  const own = safeSessionSegment(sessionId);
 +  const lists = [];
-+  const seen = new Set([sessionId]);
-+  const forks = copiesOf(sessionId, loadSession(sessionId));
-+  for (let i = 0; i < forks.length; i += 1) {
-+    if (seen.has(forks[i])) continue;
-+    seen.add(forks[i]);
-+    const { session: fork, from } = loadSessionCopy(forks[i]);
-+    if (from === 'unreadable') return skipped(`the session ${forks[i]} cannot be read`);
-+    if (!fork) continue;
-+    lists.push(fork.messages);
-+    forks.push(...copiesOf(forks[i], fork));
++  for (const [id, entry] of Object.entries(sets)) {
++    if (id === sessionId || !entry?.sources?.includes(own)) continue;
++    if (entry.inheriting) return skipped(`the session ${id} is still inheriting the conversation of ${entry.inheriting}`);
++    const { session: copy, from } = loadSessionCopy(id);
++    if (from === 'unreadable') return skipped(`the session ${id} cannot be read`);
++    if (!copy) continue;
++    lists.push(copy.messages);
 +  }
 +  return lists;
 +}
@@ -697,7 +772,7 @@ index 923faae..4e9477f 100644
  function summaryUsageRecord(usage) {
    if (!usage) return null;
    return {
-@@ -697,7 +797,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
+@@ -697,7 +806,6 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
    // change re-roots the system prompt now and needs no notice any more.
    if (changed) applyPendingWorkspaceReroot(session);
    if (changed) resetReadStateAfterCompaction(resolvedSessionId);
@@ -706,7 +781,7 @@ index 923faae..4e9477f 100644
    session.compaction = compactionRecord(plan, {
      stage: mode === 'auto' ? 'post_turn' : 'manual',
 diff --git a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
-index ca19c4c..38710d6 100644
+index ca19c4c..fdef2b1 100644
 --- a/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
 +++ b/src/runtime/agent/orchestrator/session/manager/session-crud.mjs
 @@ -10,8 +10,9 @@ import {
@@ -720,7 +795,15 @@ index ca19c4c..38710d6 100644
  import {
    currentContextEstimateTokens,
    invalidateContextUsageSnapshot,
-@@ -157,6 +158,9 @@ function clearedTokenAccounting(now) {
+@@ -35,6 +36,7 @@ import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs
+ import { forgetSideQuestion } from '../side-question-store.mjs';
+ import { isAgentHomeSessionId } from '../agent-home.mjs';
+ import { messageIdOf } from '../message-ids.mjs';
++import { beginOffloadCopy } from '../tool-result-offload.mjs';
+ 
+ /** Force-flush session metrics to disk. */
+ export async function flushSessionMetrics(sessionId) {
+@@ -157,6 +159,9 @@ function clearedTokenAccounting(now) {
  async function compactBeforeClear(session, sessionId, clearOptions) {
    let messages = Array.isArray(session.messages) ? session.messages : [];
    let clearCompactError = null;
@@ -730,7 +813,7 @@ index ca19c4c..38710d6 100644
    if (messages.length >= 3) {
      try {
        // The clear right after discards this compaction's display too, so it
-@@ -167,6 +171,7 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+@@ -167,6 +172,7 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
          sessionId,
          archive: false,
        });
@@ -738,7 +821,7 @@ index ca19c4c..38710d6 100644
        if (compactResult?.error) clearCompactError = new Error(compactResult.error);
      } catch (err) {
        clearCompactError = err;
-@@ -174,11 +179,11 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+@@ -174,11 +180,11 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
      }
      messages = Array.isArray(session.messages) ? session.messages : [];
    }
@@ -752,7 +835,7 @@ index ca19c4c..38710d6 100644
    const now = Date.now();
    session.compaction = {
      ...(session.compaction || {}),
-@@ -189,7 +194,8 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
+@@ -189,7 +195,8 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
      lastClearCompactError: clearCompactError?.message || String(clearCompactError),
    };
    session.updatedAt = now;
@@ -762,31 +845,43 @@ index ca19c4c..38710d6 100644
    throw new Error(`auto-clear compact failed; conversation kept: ${session.compaction.lastClearCompactError}`);
  }
  
-@@ -223,9 +229,8 @@ function clearTokenAccounting(session, messages, keep, beforeMessageTokens) {
- // `archiveAs` names the fork (an agent home's "대화 새로 시작": the host
- // archives that id before the clear) and makes it durable first: the returned
- // promise settles once the copy is on disk, and the wipe waits on it.
--function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
-+function forkOutgoingTranscript(session, messages, now, archiveAs = '', forkId = archiveAs || mintSessionId()) {
-   try {
--    const forkId = archiveAs || mintSessionId();
-     const fork = {
-       ...session,
-       id: forkId,
-@@ -244,6 +249,12 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
-       ...clearedTokenAccounting(now),
-     };
-     delete fork.liveTurnMessages;
-+    // The forks of the source name the source's sidecars, not the fork's.
-+    delete fork.offloadForks;
-+    // The fork names its source in its own record, as an inheritance's heir
-+    // does (the spread copied the source's own source): the source's prune
-+    // finds the copy from it in the session catalog (`offloadCopies`).
-+    fork.inheritedFromSessionId = session.id;
-     // The spread copied the source's environment: the fork names its own
-     // scratch directory (its shell commands use it), not the source's.
-     if (useOwnScratchEnvironment(fork)) {
-@@ -313,9 +324,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
+@@ -261,11 +268,18 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
+       fork.compaction = { ...fork.compaction };
+       delete fork.compaction.archive;
+     }
++    // The fork's transcript names the source's sidecars: its reference set is
++    // stored before the copy, and the source is not pruned until it is.
++    const copied = beginOffloadCopy(fork, session);
+     setLiveSession(fork);
+     if (archiveAs) {
+       return saveSessionAsync(fork).then(
+-        () => evictLiveSession(forkId),
++        () => {
++          copied(true);
++          evictLiveSession(forkId);
++        },
+         (err) => {
++          copied(false);
+           evictLiveSession(forkId);
+           throw err;
+         }
+@@ -273,6 +287,7 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
+     }
+     void saveSessionAsync(fork)
+       .then(() => {
++        copied(true);
+         // The fork is a cold snapshot kept for /resume. Once durable on
+         // disk it must not pin a full transcript copy (image bytes
+         // included) in the same-process cache for the rest of the
+@@ -281,6 +296,7 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
+         evictLiveSession(forkId);
+       })
+       .catch((err) => {
++        copied(false);
+         writeStderrBestEffort(`[session] clear-fork save failed (sess=${forkId}): ${err?.message || err}\n`);
+       });
+   } catch (err) {
+@@ -313,9 +329,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
    const compact = clearOptions.compact === true && !archiveAs;
    const currentMessages = Array.isArray(session.messages) ? session.messages : [];
    const beforeMessageTokens = estimateMessagesTokens(currentMessages);
@@ -798,20 +893,6 @@ index ca19c4c..38710d6 100644
    const keep = retainedMessagesAfterClear(messages, compact && clearOptions.keepCompactSummary !== false);
    const tokens = clearTokenAccounting(session, messages, keep, beforeMessageTokens);
    const now = Date.now();
-@@ -333,7 +344,12 @@ export async function clearSessionMessages(sessionId, options = {}) {
-   const summaryCarriedForward = keep.some(isCompactSummaryMessage);
-   const keepCopy = clearOptions.fork !== false || Boolean(archiveAs);
-   if (keepCopy && hasUserConversationMessage(messages) && !summaryCarriedForward) {
--    const fork = forkOutgoingTranscript(session, messages, now, archiveAs);
-+    const forkId = archiveAs || mintSessionId();
-+    const fork = forkOutgoingTranscript(session, messages, now, archiveAs, forkId);
-+    // The fork's stored transcript names this session's sidecars: every prune
-+    // of this session reads it (`offloadCopies`, which also finds it from the
-+    // fork's own `inheritedFromSessionId` once the catalog lists it).
-+    session.offloadForks = [...(Array.isArray(session.offloadForks) ? session.offloadForks : []), forkId];
-     if (archiveAs) await fork;
-   }
- 
 @@ -378,7 +394,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
      invalidateContextUsageSnapshot(session);
    }
@@ -823,7 +904,7 @@ index ca19c4c..38710d6 100644
    return session;
  }
  export async function compactSessionMessages(sessionId, options = {}) {
-@@ -413,9 +431,27 @@ export async function compactSessionMessages(sessionId, options = {}) {
+@@ -413,7 +431,12 @@ export async function compactSessionMessages(sessionId, options = {}) {
      session.lastContextTokensStaleAfterCompact = false;
    }
    session.updatedAt = Date.now();
@@ -836,22 +917,7 @@ index ca19c4c..38710d6 100644
 +  if (!result.error && saved === SAVE_OUTCOME_SAVED) await pruneCompactedOffloads(sessionId);
    return result;
  }
-+// A copy of a session's conversation in another session (an inheritance's
-+// heir) names the source's sidecars: every prune of the source reads the
-+// copy's stored transcript (`offloadForks`, as a clear's fork's). Recorded
-+// before the copy is stored, so no prune of the source runs between the two
-+// without it.
-+export async function recordOffloadFork(sourceId, forkId) {
-+  const session = loadSession(sourceId);
-+  if (!session || !forkId) return;
-+  const forks = Array.isArray(session.offloadForks) ? session.offloadForks : [];
-+  if (forks.includes(forkId)) return;
-+  session.offloadForks = [...forks, forkId];
-+  await saveSessionAsync(session, { expectedGeneration: session.generation });
-+}
  export async function updateSessionStatus(id, status) {
-   const session = loadSession(id);
-   if (!session) return false;
 diff --git a/src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs b/src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs
 index 5627bca..01889c5 100644
 --- a/src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs
@@ -874,6 +940,74 @@ index 5627bca..01889c5 100644
 +  reconcileOffloadsOnResume(sessionId);
    return session;
  }
+diff --git a/src/runtime/agent/orchestrator/session/offload-sources.mjs b/src/runtime/agent/orchestrator/session/offload-sources.mjs
+new file mode 100644
+index 0000000..e827d15
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/offload-sources.mjs
+@@ -0,0 +1,42 @@
++// Sanitize sessionId before using it as a path segment. A raw `..` or slash
++// would let the sidecar dir — and clearOffloadSession's readdir+unlink — escape
++// the tool-results root (arbitrary .txt deletion). Strip to [A-Za-z0-9_-];
++// dropping '.' collapses '..' to '__'. Real ids are sess_<digits>, unaffected.
++export function safeSessionSegment(sessionId) {
++  return (
++    String(sessionId ?? '')
++      .replace(/[^A-Za-z0-9_-]/g, '_')
++      .slice(0, 200) || '_invalid'
++  );
++}
++
++// A session's reference set (`offloadSources`, in its record): the sessions
++// whose sidecars its transcript may name (their path segments), its own left
++// out. A copy of a conversation (a clear's fork, an inheritance's heir) is
++// given its source's set and its source when it is made (`beginOffloadCopy`),
++// so a copy of a copy names the first source directly and no session in
++// between is needed to find it. Every record this version stores carries one
++// (`withOffloadSources`, at its save); a record an earlier version stored has
++// none, and its set is what its transcript names (`tool-results/<segment>/`),
++// which finds a copy made without a link to its source. Null when the
++// transcript cannot be serialized.
++const NAMED_SOURCE = /tool-results[\\/]+([A-Za-z0-9_-]+)[\\/]/g;
++
++export function offloadSourcesOf(session) {
++  if (Array.isArray(session?.offloadSources)) return session.offloadSources.filter((source) => typeof source === 'string' && source);
++  let text;
++  try {
++    text = JSON.stringify(session?.messages ?? []) ?? '';
++  } catch {
++    return null;
++  }
++  const sources = new Set([...text.matchAll(NAMED_SOURCE)].map(([, segment]) => segment));
++  sources.delete(safeSessionSegment(session?.id));
++  return [...sources].sort();
++}
++
++/** The record about to be saved carries its reference set. */
++export function withOffloadSources(session) {
++  if (session && typeof session === 'object' && !Array.isArray(session.offloadSources)) session.offloadSources = offloadSourcesOf(session) ?? [];
++  return session;
++}
+diff --git a/src/runtime/agent/orchestrator/session/store.mjs b/src/runtime/agent/orchestrator/session/store.mjs
+index abb3b95..73a82a6 100644
+--- a/src/runtime/agent/orchestrator/session/store.mjs
++++ b/src/runtime/agent/orchestrator/session/store.mjs
+@@ -19,6 +19,7 @@ export {
+   _removeSessionSummary,
+ } from './store-summary-index.mjs';
+ import { TRANSIENT_SESSION_KEYS, _ensureLifecycleFields } from './store/serialize.mjs';
++import { withOffloadSources } from './offload-sources.mjs';
+ import { captureTranscriptSnapshot, recordLandedTranscript } from './store/transcript-durability.mjs';
+ import {
+   _cacheSessionSummary,
+@@ -128,6 +129,7 @@ function _recorderOrRefusal(session) {
+ // then the live snapshot and the optimistic summary row.
+ function _admit(session) {
+   _ensureLifecycleFields(session);
++  withOffloadSources(session);
+   const id = session.id;
+   if (isSessionWriteFenced(id)) {
+     _recordSaveDrop(id);
 diff --git a/src/runtime/agent/orchestrator/session/store/listing.mjs b/src/runtime/agent/orchestrator/session/store/listing.mjs
 index 69eadbe..a8b731a 100644
 --- a/src/runtime/agent/orchestrator/session/store/listing.mjs
@@ -924,10 +1058,83 @@ index b0d58a4..51efab7 100644
  
  // `status` of loadSession(id), for the agent-status pulse: it reads every
 diff --git a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-index f9f9973..f40bc73 100644
+index f9f9973..7ba5ed4 100644
 --- a/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
 +++ b/src/runtime/agent/orchestrator/session/tool-result-offload.mjs
-@@ -509,52 +509,38 @@ registerSessionPurgeHook(clearOffloadSessionSync);
+@@ -19,6 +19,7 @@ import { getPluginData } from '../config.mjs';
+ import { countSplitLines, normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
+ import { classifyResultKind } from './result-classification.mjs';
+ import { registerSessionPurgeHook } from './store.mjs';
++import { offloadSourcesOf, safeSessionSegment } from './offload-sources.mjs';
+ import { SETUP_OUTPUT_MAX_BYTES, capMarker } from '../../../shared/tool-output-limit.mjs';
+ 
+ const TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS = 50_000;
+@@ -147,16 +148,54 @@ function rankAggregateOffloadCandidates(entries) {
+     .map((entry) => entry.index);
+ }
+ 
+-// Sanitize sessionId before using it as a path segment. A raw `..` or slash
+-// would let the sidecar dir — and clearOffloadSession's readdir+unlink — escape
+-// the tool-results root (arbitrary .txt deletion). Strip to [A-Za-z0-9_-];
+-// dropping '.' collapses '..' to '__'. Real ids are sess_<digits>, unaffected.
+-function safeSessionSegment(sessionId) {
+-  return (
+-    String(sessionId ?? '')
+-      .replace(/[^A-Za-z0-9_-]/g, '_')
+-      .slice(0, 200) || '_invalid'
+-  );
++// The session's path segment is `safeSessionSegment` (offload-sources.mjs,
++// where the reference sets name sessions by it too).
++
++// The stored reference sets (`offload-sources.json` in the data dir): each
++// checked session's set (`sources`) and, while a copy of a conversation is
++// being made into it, the session it copies (`inheriting`). A session not
++// listed has not been checked: the prune checks it once from its stored record
++// (`offloadCopies`). A file that cannot be read lists none (every set is then
++// checked again from the records, which hold the copies' own).
++const offloadSourcesPath = () => join(getPluginData(), 'offload-sources.json');
++
++export function readOffloadSources() {
++  try {
++    const sessions = JSON.parse(readFileSync(offloadSourcesPath(), 'utf8'))?.sessions;
++    return sessions && typeof sessions === 'object' ? sessions : {};
++  } catch {
++    return {};
++  }
++}
++
++/** Merges `entries` (id -> entry, or null to drop it) into the stored sets;
++ *  answers the merged sets. */
++export function recordOffloadSources(entries) {
++  const sessions = { ...readOffloadSources() };
++  for (const [id, entry] of Object.entries(entries)) {
++    if (entry) sessions[id] = entry;
++    else delete sessions[id];
++  }
++  writeFileAtomicSync(offloadSourcesPath(), JSON.stringify({ sessions }));
++  return sessions;
++}
++
++/** A copy of `source`'s conversation is being made into `copy`: its reference
++ *  set (what it held, the source's set and the source) is stored before
++ *  anything is copied, marked as still inheriting, so no prune of a session
++ *  the copy will name runs until `done(true)` (the copy is stored);
++ *  `done(false)` (nothing was stored) puts back what was there. */
++export function beginOffloadCopy(copy, source) {
++  const previous = readOffloadSources()[copy.id] ?? null;
++  const field = copy.offloadSources;
++  const held = [...(previous?.sources ?? []), ...(Array.isArray(field) ? field : [])];
++  const sources = [...new Set([...held, ...(offloadSourcesOf(source) ?? []), safeSessionSegment(source.id)])].sort();
++  copy.offloadSources = sources;
++  recordOffloadSources({ [copy.id]: { sources, inheriting: source.id } });
++  return (stored) => {
++    if (!stored) copy.offloadSources = field;
++    recordOffloadSources({ [copy.id]: stored ? { sources } : previous });
++  };
+ }
+ 
+ function ensureToolResultsDir(sessionId) {
+@@ -509,52 +548,38 @@ registerSessionPurgeHook(clearOffloadSessionSync);
  // path match is conservative: if messages cannot be serialized, or a path is
  // mentioned anywhere in a message, retain the file rather than risk deleting
  // one that can still be read by the model.
@@ -996,7 +1203,7 @@ index f9f9973..f40bc73 100644
    if (!unreferenced.length) return;
    // Compact archives may themselves reference older archives or offloaded
    // results. Keep the reachable graph, not just directly visible files. The
-@@ -566,6 +552,32 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+@@ -566,6 +591,32 @@ export async function pruneOffloadSession(sessionId, getMessages) {
      return unreferenced.length > 0;
    };
    if (!retainReachable()) return;
@@ -1029,7 +1236,7 @@ index f9f9973..f40bc73 100644
    const pending = [...reachable];
    for (let i = 0; i < pending.length; i += 1) {
      let text;
-@@ -583,6 +595,7 @@ export async function pruneOffloadSession(sessionId, getMessages) {
+@@ -583,6 +634,7 @@ export async function pruneOffloadSession(sessionId, getMessages) {
      }
      if (grew && !retainReachable()) return;
    }
@@ -1037,39 +1244,73 @@ index f9f9973..f40bc73 100644
    await Promise.all(
      unreferenced.map(({ filePath }) =>
        unlink(filePath).catch(() => {
-diff --git a/src/session-runtime/lifecycle/cold-heir.mjs b/src/session-runtime/lifecycle/cold-heir.mjs
-index f2571f1..d5eac2b 100644
---- a/src/session-runtime/lifecycle/cold-heir.mjs
-+++ b/src/session-runtime/lifecycle/cold-heir.mjs
-@@ -141,6 +141,9 @@ export async function buildColdHeir(source, now = Date.now()) {
-   };
-   for (const key of [...SOURCE_RUNTIME_FIELDS, ...SOURCE_IDENTITY_FIELDS]) delete heir[key];
-   ensureCodexWireSessionId(heir);
-+  // The copies of the source's conversation name the source's sidecars, not
-+  // the heir's (`offloadForks`).
-+  delete heir.offloadForks;
-   // The compaction archive sidecar is keyed by the source id.
-   if (heir.compaction?.archive) {
-     heir.compaction = { ...heir.compaction };
 diff --git a/src/session-runtime/lifecycle/inheritance.mjs b/src/session-runtime/lifecycle/inheritance.mjs
-index 001729f..5876504 100644
+index 001729f..0c25c10 100644
 --- a/src/session-runtime/lifecycle/inheritance.mjs
 +++ b/src/session-runtime/lifecycle/inheritance.mjs
-@@ -228,6 +228,9 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
+@@ -20,6 +20,8 @@ import {
+   requestPrefixIdentity,
+ } from '../../runtime/agent/orchestrator/session/thinking-binding.mjs';
+ import { buildColdHeir, committedSource, persistColdHeir } from './cold-heir.mjs';
++import { beginOffloadCopy } from '../../runtime/agent/orchestrator/session/tool-result-offload.mjs';
++import { settleRecorder } from '../../runtime/agent/orchestrator/session/store/session-writers.mjs';
+ 
+ export function createInheritance(deps, { compactConversation, saveSession }) {
+   const { getSession, getRoute, mgr, createCurrentSession, invalidateContextStatusCache, getReservedSessionId } = deps;
+@@ -227,10 +229,22 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
+     }
      const source = mgr.getSession(id);
      if (!source) throw new Error(`inheritFrom: session ${id} was not found`);
-     const { messages } = await carryConversation(source, target, { compact });
-+    // The heir's conversation names the source's sidecars: the source's
-+    // prunes read it from now on (`recordOffloadFork`), before it is stored.
-+    await mgr.recordOffloadFork?.(source.id, target.id);
+-    const { messages } = await carryConversation(source, target, { compact });
++    // The heir's conversation names the source's sidecars: its reference set
++    // is stored before anything is copied, and no prune of the source runs
++    // until the copy is stored.
++    const copied = beginOffloadCopy(target, source);
++    let messages;
++    try {
++      ({ messages } = await carryConversation(source, target, { compact }));
++    } catch (error) {
++      copied(false);
++      throw error;
++    }
      invalidateContextStatusCache();
      saveSession(target, { immediate: true });
      invalidateContextStatusCache();
-@@ -263,6 +266,7 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
-       heir.titleLocked = true;
-       heir.titleSource = 'ai';
++    await settleRecorder(target.id);
++    copied(true);
+     return {
+       sessionId: target.id,
+       sourceSessionId: source.id,
+@@ -255,15 +269,24 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
+     if (!stored) throw new Error(`inheritFrom: session ${id} was not found`);
+     const source = committedSource(stored);
+     const heir = await buildColdHeir(source);
+-    const { messages, compacted } = await carryConversation(source, heir, { compact: compact === true });
+-    // A suffixed title ("… (Fork)") tells the copy apart in session lists;
+-    // locked as a model title so auto-titling keeps it, renames still win.
+-    if (titleSuffix && clean(heir.title)) {
+-      heir.title = `${clean(heir.title)}${titleSuffix}`;
+-      heir.titleLocked = true;
+-      heir.titleSource = 'ai';
++    const copied = beginOffloadCopy(heir, source);
++    let carry;
++    try {
++      carry = await carryConversation(source, heir, { compact: compact === true });
++      // A suffixed title ("… (Fork)") tells the copy apart in session lists;
++      // locked as a model title so auto-titling keeps it, renames still win.
++      if (titleSuffix && clean(heir.title)) {
++        heir.title = `${clean(heir.title)}${titleSuffix}`;
++        heir.titleLocked = true;
++        heir.titleSource = 'ai';
++      }
++      await persistColdHeir(heir);
++    } catch (error) {
++      copied(false);
++      throw error;
      }
-+    await mgr.recordOffloadFork?.(source.id, heir.id);
-     await persistColdHeir(heir);
+-    await persistColdHeir(heir);
++    copied(true);
++    const { messages, compacted } = carry;
      return { sessionId: heir.id, messages, compacted };
    }
+ 

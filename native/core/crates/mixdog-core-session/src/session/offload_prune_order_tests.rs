@@ -30,11 +30,15 @@
 //! markers drive the cases where Node's recorder itself only marks the session busy (`turn-before-save`,
 //! `closed-before-turn-end`, `process-stopped`, `re-referenced`).
 //!
-//! `clear-fork`, `heir-fork`, `older-fork`, `unreadable-fork`, `room-row` and `owner-let-go` are sessions Node's
-//! recorder does not compact: the copies of a conversation in other sessions keep the sidecars they name (found from
-//! their own source link in the catalog as well as from their source's record), a session the store cannot read keeps
-//! everything, a room log's text keeps nothing, and a session let go while its reconcile runs is left to its next
-//! owner. Node's older heir (made by Node as shipped) and its room log's row are stored in the core as recorded.
+//! `clear-fork`, `heir-fork`, `older-fork`, `unreadable-fork`, `linkless-fork`, `deleted-middle`, `copy-in-progress`,
+//! `system-named`, `room-row` and `owner-let-go` are sessions Node's recorder does not compact: the copies of a
+//! conversation in other sessions keep the sidecars they name (found from their own reference set in the catalog, which
+//! names every session whose sidecars they may name, so a copy whose source was deleted counts; a session Node as
+//! shipped made holds the set its transcript names, as the migration stores it), a copy still being made keeps its
+//! source whole, a session the store cannot read keeps everything, a system prompt naming a sidecar keeps it, a room
+//! log's text keeps nothing, and a session let go while its reconcile runs is left to its next owner. Node's sessions
+//! are stored as the migration stores them (`offload_replay::migrated`: the system prompt in the header's prompt
+//! blocks); the sessions Node as shipped made and the room log's row are stored in the core as recorded.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -45,6 +49,7 @@ use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_protocol::TurnError;
@@ -64,6 +69,7 @@ use super::testing::offload_replay::World;
 use super::testing::offload_replay::compaction_of;
 use super::testing::offload_replay::header;
 use super::testing::offload_replay::item;
+use super::testing::offload_replay::migrated;
 use super::testing::offload_replay::unmask;
 use super::testing::offload_replay::within;
 use super::testing::offload_store;
@@ -432,22 +438,30 @@ async fn an_heirs_fork_keeps_the_sources_sidecars_it_names() {
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
 }
 
-/// Node's `older-fork`: the heir an inheritance made before its source recorded its copies (Node as shipped) names its
-/// source in its own header only (`inheritedFromSessionId`); the source is cleared, closed and opened again: the
-/// catalog lists the heir as a copy (`copies_of`), and its transcript keeps `named`.
+/// A session Node as shipped stored (`transcript`, its whole `messages`), stored as the migration stores it: its system
+/// prompt in the header, the reference set its transcript names (`offload_sources::stamp`), its own `fields`.
+async fn shipped_session(world: &World, id: &ThreadId, transcript: Value, fields: Value) {
+    let (mut header, rows) = migrated(transcript.clone());
+    header.extend(fields.as_object().cloned().expect("fields"));
+    mixdog_store::offload_sources::stamp(&mut header, id.as_str(), transcript.as_array().expect("transcript"));
+    let sessions = SessionDirectory::new(world.rig.deps());
+    within("the session is created", sessions.create_with_id(id.clone(), header, json!({}))).await.expect("create");
+    world.rig.store.seed(id, rows.as_array().expect("rows").iter().enumerate().map(|(index, body)| item(format!("{}{index}", id.as_str()), body)).collect());
+    within("its directory shuts down", sessions.shutdown_for("test close")).await;
+}
+
+/// Node's `older-fork`: the heir an inheritance made with Node as shipped holds no reference set; migrated, its header
+/// holds the one its transcript names (the migration's `offload_sources::stamp`). The source is cleared, closed and
+/// opened again: the catalog lists the heir as naming it (`copies_of`), and its transcript keeps `named`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_heir_its_source_never_recorded_keeps_the_sidecars_it_names() {
     let world = world("older-fork").await;
     let id = world.handle.id.as_str().to_owned();
-    let heir_id = mixdog_core_api::ids::ThreadId::from(format!("{id}_heir"));
+    let heir_id = ThreadId::from(format!("{id}_heir"));
     let heir = &world.case["seed"]["heir"];
-    let header = json!({ "cwd": "/ws", "inheritedFromSessionId": heir["inheritedFromSessionId"] }).as_object().cloned().expect("object");
-    let heirs = SessionDirectory::new(world.rig.deps());
-    within("the heir is created", heirs.create_with_id(heir_id.clone(), header, json!({}))).await.expect("create");
     let carried = serde_json::to_string(&unmask(world.data.path(), &heir["transcript"])).expect("json").replace("<HEIR>", heir_id.as_str());
     let carried: Value = serde_json::from_str(&carried).expect("the heir's transcript");
-    world.rig.store.seed(&heir_id, carried.as_array().expect("transcript").iter().enumerate().map(|(index, body)| item(format!("heir{index}"), body)).collect());
-    within("the heir's directory shuts down", heirs.shutdown_for("test close")).await;
+    shipped_session(&world, &heir_id, carried, json!({ "inheritedFromSessionId": heir["inheritedFromSessionId"] })).await;
     within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
     let after_clear = world.point("after-clear", false).await;
     within("the directory shuts down", world.directory.shutdown_for("test close")).await;
@@ -504,6 +518,99 @@ async fn a_copy_that_cannot_be_read_keeps_every_sidecar() {
     let _reopened = world.reopened(2).await;
     let readable = world.point("after-readable-resume", false).await;
     assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, unreadable, readable]), world.case);
+}
+
+/// Node's `linkless-fork`: the fork of an agent home's fresh start made by Node as shipped names no source and holds no
+/// reference set; migrated, its header holds the set its transcript names. The source, cleared as Node's clear left
+/// it, is opened again: the fork keeps `named`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_made_without_a_link_keeps_the_sidecars_its_transcript_names() {
+    let world = world("linkless-fork").await;
+    let id = world.handle.id.as_str().to_owned();
+    let fork = &world.case["seed"]["fork"];
+    let fork_id = ThreadId::from(fork["sessionId"].as_str().expect("the fork id").to_owned());
+    shipped_session(&world, &fork_id, unmask(world.data.path(), &fork["transcript"]), json!({})).await;
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+}
+
+/// `thread/fork` of `handle` (an inheritance into a new session): the heir's id.
+async fn heir_of(handle: &SessionHandle, op: &str) -> ThreadId {
+    let forked = json!({ "threadId": handle.id.as_str(), "opId": op });
+    let Reply::Value(inherited) = within("the fork answers", handle.request(request("thread/fork", forked, op))).await.expect("thread/fork") else {
+        panic!("thread/fork answers a value");
+    };
+    ThreadId::from(inherited["thread"]["id"].as_str().expect("the heir id").to_owned())
+}
+
+/// Node's `deleted-middle`: a new session inherits the conversation and a third inherits the second's; the second is
+/// deleted, and the source cleared, closed and opened again: the third names the source in its own reference set (its
+/// source's set and its source), so no session between them is needed, and it keeps `named`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copy_of_a_copy_keeps_the_sidecars_it_names_once_the_copy_between_is_deleted() {
+    let world = world("deleted-middle").await;
+    // The catalog lists the sessions (a delete removes only a listed one, `isAvailableSession`).
+    world.rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let id = world.handle.id.as_str().to_owned();
+    let middle = heir_of(&world.handle, "op-middle").await;
+    let middle_handle = within("the middle copy opens", world.directory.open_handle(&middle, &CallContext::internal("test"))).await.expect("open");
+    heir_of(&middle_handle, "op-last").await;
+    let deleted = request("thread/delete", json!({ "threadId": middle, "opId": "op-delete" }), "op-delete");
+    let Reply::Value(gone) = within("the delete answers", world.handle.request(deleted)).await.expect("thread/delete") else {
+        panic!("thread/delete answers a value");
+    };
+    assert_eq!(gone, json!(true), "the copy between them is deleted");
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, after_resume]), world.case);
+}
+
+/// Node's `copy-in-progress`: a new session inherits the conversation; between the copy of the source's rows and their
+/// append to the heir (the heir's fit measurement, held), the source is cleared and opened again by a second owner:
+/// the heir names the source in its reference set and is still inheriting, so nothing is deleted and the skip says
+/// why. The copy is then stored, and the source opened again: the heir keeps `named`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copy_being_made_keeps_its_source_unpruned() {
+    logged();
+    let world = world("copy-in-progress").await;
+    let id = world.handle.id.as_str().to_owned();
+    let (arrived, go) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+    *lock(&world.rig.inherit.fit_gate) = Some((arrived.clone(), go.clone()));
+    let source = world.handle.clone();
+    let forking = tokio::spawn(async move { heir_of(&source, "op-heir").await });
+    within("the copy is measured", arrived.notified()).await;
+    within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+    let after_clear = world.point("after-clear", false).await;
+    let (owner, _handle) = world.reopened(1).await;
+    let copying = world.point("after-copying-resume", false).await;
+    assert_eq!(copying, world.case["points"][1], "while the copy is being made, the open deletes nothing");
+    let skipped = logged().lines().filter(|line| line.contains("offload prune skipped") && line.contains(id.as_str()) && line.contains("is still inheriting")).count();
+    assert_eq!(skipped, 1, "the skip says a copy is still being made:\n{}", logged());
+    within("the second owner lets the session go", owner.shutdown_for("test close")).await;
+    go.notify_one();
+    within("the copy is stored", forking).await.expect("the fork");
+    let _reopened = world.reopened(2).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_clear, copying, after_resume]), world.case);
+}
+
+/// Node's `system-named`: the session's system prompt (the header's prompt blocks, as the migration stores Node's
+/// leading system messages) names `named` and nothing names `stray`; opened again: `named` is kept, as Node's
+/// `messages` holds its system prompt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sidecar_the_system_prompt_names_is_kept() {
+    let world = world("system-named").await;
+    within("the directory shuts down", world.directory.shutdown_for("test close")).await;
+    let _reopened = world.reopened(1).await;
+    let after_resume = world.point("after-resume", false).await;
+    assert_eq!(world.got(world.case["changed"].clone(), world.case["error"].clone(), vec![after_resume]), world.case);
 }
 
 /// Node's `room-row`: a room log (`sess_room_<id>`) takes a member's speech naming `stray` (`thread/roomRows/append`,
