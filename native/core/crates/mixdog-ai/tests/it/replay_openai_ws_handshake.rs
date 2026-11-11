@@ -42,7 +42,7 @@ fn caller_headers(upgrade: &Exact) -> Vec<(String, String)> {
 
 async fn replay(id: &str) {
     let set = CaseSet::load(SET);
-    let case = set.case(id);
+    let case = set.only(id, "each case has its own test function in this file");
     let recorded = case.result();
     let events = recorded.get("events").as_array();
     let endpoint = Endpoint::start().await;
