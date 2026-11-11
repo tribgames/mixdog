@@ -2,11 +2,14 @@
 //! `mixdog_testkit::Exact`). One test per recorded case; each loads its set's golden and drives the public Rust entry
 //! its MANIFEST.json names.
 
+mod chunk_quality_handoff;
 mod light_ko_morph;
 mod model_config;
+mod pg;
 mod project_id;
 mod query_ranking;
 mod recall_fusion;
+mod recall_source;
 mod scope_filter;
 mod session_ingest_projection;
 mod tokenizer;
@@ -155,10 +158,46 @@ pub(crate) fn row(value: &Exact) -> Result<Row, String> {
             "_historicalRootSummary" => row.historical_root_summary = opt_string(v).map_err(at)?,
             "chunk_quality" => row.chunk_quality = Some(v.to_plain().map_err(at)?),
             "members" => row.members = Some(rows(v).map_err(at)?),
+            "_compactRaw" => row.compact_raw = flag(v).map_err(at)?,
+            "_compactBody" => row.compact_body = flag(v).map_err(at)?,
+            "_compactMemberIds" => {
+                row.compact_member_ids =
+                    Some(v.as_array().iter().map(|id| opt_string(id).and_then(|s| s.ok_or("null id".into()))).collect::<Result<_, _>>().map_err(at)?)
+            }
             other => return Err(format!("no Row field for {other:?}")),
         }
     }
     Ok(row)
+}
+
+/// `renderEntryLines(rows, options)`'s options (`undefined` is the defaults); a key the replays never pass fails.
+pub(crate) fn render_options(options: &Exact) -> crate::memory::recall::format::RenderOptions {
+    let mut out = crate::memory::recall::format::RenderOptions::default();
+    if matches!(options, Exact::Undefined) {
+        return out;
+    }
+    for (key, value) in options.entries() {
+        match key.as_str() {
+            "preserveSource" => out.preserve_source = value.as_bool(),
+            // `Number(x) > 0 ? Math.floor(x) : null`: null and 0 disable the bound.
+            "maxBodyChars" => {
+                out.max_body_chars = match value {
+                    Exact::Null => None,
+                    Exact::Number(n) if *n > 0.0 => Some(n.floor() as usize),
+                    other => panic!("maxBodyChars {other:?}"),
+                }
+            }
+            other => panic!("an option the replay does not map: {other}"),
+        }
+    }
+    out
+}
+
+fn flag(value: &Exact) -> Result<bool, String> {
+    match value {
+        Exact::Bool(b) => Ok(*b),
+        other => Err(format!("not a boolean: {other:?}")),
+    }
 }
 
 pub(crate) fn rows(value: &Exact) -> Result<Vec<Row>, String> {
@@ -168,13 +207,19 @@ pub(crate) fn rows(value: &Exact) -> Result<Vec<Row>, String> {
 /// The fields a Rust row holds, under Node's keys: `id`, `ts`, `is_root`, and the `Option` fields that are set.
 fn row_fields(row: &Row) -> Vec<(&'static str, Exact)> {
     let mut out: Vec<(&'static str, Exact)> = Vec::new();
-    let s = |v: &Option<String>| v.clone().map(Exact::String);
-    let i = |v: Option<i64>| v.map(int);
-    let f = |v: Option<f64>| v.map(Exact::from);
     out.push(("id", if row.core { string(row.display_id()) } else { int(row.id) }));
     out.push(("ts", int(row.ts)));
     out.push(("is_root", int(i64::from(row.is_root))));
-    let optional: Vec<(&'static str, Option<Exact>)> = vec![
+    out.extend(row_optional(row).into_iter().filter_map(|(k, v)| v.map(|v| (k, v))));
+    out
+}
+
+/// The `Option` fields of a row under Node's keys; `None` is SQL NULL, which a JS row holds as `null` or not at all.
+fn row_optional(row: &Row) -> Vec<(&'static str, Option<Exact>)> {
+    let s = |v: &Option<String>| v.clone().map(Exact::String);
+    let i = |v: Option<i64>| v.map(int);
+    let f = |v: Option<f64>| v.map(Exact::from);
+    vec![
         ("role", s(&row.role)),
         ("content", s(&row.content)),
         ("source_ref", s(&row.source_ref)),
@@ -212,9 +257,10 @@ fn row_fields(row: &Row) -> Vec<(&'static str, Exact)> {
         ("members", row.members.as_ref().map(|m| Exact::Array(m.iter().map(row_value).collect()))),
         ("_historicalRootElement", s(&row.historical_root_element)),
         ("_historicalRootSummary", s(&row.historical_root_summary)),
-    ];
-    out.extend(optional.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))));
-    out
+        ("_compactRaw", row.compact_raw.then_some(Exact::Bool(true))),
+        ("_compactBody", row.compact_body.then_some(Exact::Bool(true))),
+        ("_compactMemberIds", row.compact_member_ids.as_ref().map(|ids| Exact::Array(ids.iter().map(|id| string(id.as_str())).collect()))),
+    ]
 }
 
 fn row_value(row: &Row) -> Exact {
@@ -244,6 +290,8 @@ fn row_like(row: &Row, recorded: Option<&Exact>) -> Exact {
                     _ => v,
                 };
                 out.push((k.to_owned(), v));
+            } else if *value == Exact::Null && row_optional(row).iter().any(|(k, v)| k == key && v.is_none()) {
+                out.push((key.clone(), Exact::Null));
             }
         }
     }

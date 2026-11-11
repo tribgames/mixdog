@@ -151,7 +151,8 @@ pub fn compact_handoff_rows(rows: Vec<Row>, preserve_latest_user_turns: usize, e
             && members.iter().all(|m| references.get(&m.id) == Some(&1))
             && chunk_quality_usable(row, estimate);
         if compressible {
-            projected.push(Row { element: Some(String::new()), compact_body: true, members: None, ..row.clone() });
+            let compact_member_ids = Some(members.iter().map(|m| m.id.to_string()).collect());
+            projected.push(Row { element: Some(String::new()), compact_body: true, compact_member_ids, members: None, ..row.clone() });
             continue;
         }
         if !members.is_empty() {
