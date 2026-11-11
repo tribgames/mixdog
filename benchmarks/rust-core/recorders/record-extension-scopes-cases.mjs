@@ -24,6 +24,11 @@ const { normalizeExtensionScopes, extensionScopeProjects, cwdWithinProjects, ski
   'src/runtime/agent/orchestrator/runtime-core/extension-scopes.mjs'
 );
 const { createResourceApi } = await importFrom(tree, 'src/session-runtime/resource-api.mjs');
+const { mcpServerAllowedForCwd, filterMcpToolsForCwd, filterMcpToolsForSession } = await importFrom(
+  tree,
+  'src/runtime/agent/orchestrator/runtime-core/extension-scopes.mjs'
+);
+const { _registerMcpServerForTest, disconnectAll, getMcpTools } = await importFrom(tree, 'src/runtime/agent/orchestrator/mcp/client.mjs');
 
 const A = resolve('/work/alpha');
 const B = resolve('/work/beta');
@@ -64,6 +69,70 @@ const cases = [];
   cases.push({ case: 'skill scope and owning plugin scope both gate visibility', kind: 'skills', config, recorded: { checks } });
 }
 {
+  const config = { mcp: { UnityMCP: [B], 'plugin-unity-editor': [A, B] }, plugins: { unity: [A] } };
+  const scopes = normalizeExtensionScopes(config);
+  const checks = [
+    ['UnityMCP', A, null],
+    ['UnityMCP', B, null],
+    ['plugin-unity-editor', B, 'unity'],
+    ['plugin-unity-editor', A, 'unity'],
+  ].map(([server, cwd, pluginId]) => ({
+    server,
+    cwd,
+    pluginId,
+    allowed: mcpServerAllowedForCwd(scopes, server, cwd, pluginId ? { pluginId } : undefined),
+  }));
+  // The test's tool list: each MCP tool's server and the plugin that declared it (`mcpPluginId`).
+  const tools = [
+    { name: 'read' },
+    { name: 'mcp__UnityMCP__manage_scene' },
+    { name: 'mcp__plugin-unity-editor__run', mcpPluginId: 'unity' },
+    { name: 'mcp__plugin-unity-tools__run' },
+    { name: 'mcp__demo__tool' },
+  ];
+  const filters = [A, B].map((cwd) => ({ cwd, names: filterMcpToolsForCwd(tools, scopes, cwd).map((tool) => tool.name) }));
+  cases.push({
+    case: 'MCP tools filter by server scope intersected with the owning plugin scope',
+    kind: 'mcpTools',
+    config,
+    tools,
+    recorded: { checks, filters },
+  });
+}
+{
+  const scopeId = 'scope-test';
+  const servers = [
+    { name: 'UnityMCP', tools: ['manage_scene'], cfg: null },
+    { name: 'plugin-unity-tools', tools: ['run'], cfg: { _mixdogPlugin: { id: 'unity', key: 'tools' } } },
+    { name: 'demo', tools: ['tool'], cfg: null },
+  ];
+  for (const server of servers) {
+    _registerMcpServerForTest(scopeId, server.name, server.tools.map((name) => ({ name })), server.cfg ? { cfg: server.cfg } : undefined);
+  }
+  const live = getMcpTools(scopeId);
+  const config = { extensionScopes: { mcp: { UnityMCP: [B] }, plugins: { unity: [B] } } };
+  const names = (cwd, cfg) =>
+    filterMcpToolsForSession(live, cwd, cfg)
+      .filter((tool) => !tool.name.includes('__mixdog_'))
+      .map((tool) => tool.name)
+      .sort();
+  const recorded = {
+    filters: [
+      { cwd: A, scoped: true, names: names(A, config) },
+      { cwd: join(B, 'Assets'), scoped: true, names: names(join(B, 'Assets'), config) },
+      { cwd: A, scoped: false, names: names(A, {}) },
+    ],
+  };
+  await disconnectAll({ scopeId });
+  cases.push({
+    case: 'a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata',
+    kind: 'live',
+    servers,
+    config,
+    recorded,
+  });
+}
+{
   const config = { other: 1, extensionScopes: { mcp: { UnityMCP: [A] } } };
   const scoped = withExtensionScope(config, 'skills', 'bench', [B, A]);
   const steps = [
@@ -85,12 +154,7 @@ const cases = [];
   });
 }
 
-const excluded = {
-  'MCP tools filter by server scope intersected with the owning plugin scope':
-    'GAP (gaps-rest.md section 2): the MCP tool filter by owner metadata is a listed gap, not part of this replay',
-  'a live MCP registry is filtered per session cwd, cascading the plugin scope from owner metadata':
-    'GAP (gaps-rest.md section 2): the live registry cascade is a listed gap, not part of this replay',
-};
+const excluded = {};
 
 const finalDir = join(FIXTURES_ROOT, 'extension-scopes-cases');
 const stage = stageSet(finalDir);
@@ -103,7 +167,10 @@ writeSetManifest(stage, {
   extra: {
     ...recorderProvenance(import.meta.url),
     compared:
-      "normalize: the whole normalized scopes and each lookup's roots; within: each answer; skills: each answer; set: each step's whole config and the unknown-kind error",
+      "normalize: the whole normalized scopes and each lookup's roots; within: each answer; skills: each answer; set: each step's whole config and the unknown-kind error; " +
+      "mcpTools: each server answer, and each filter's MCP tool names in order through the core's live hub (`McpHub::tools_for_cwd`, the session's MCP tools; " +
+      "the test's non-MCP `read` passes Node's filter untouched and never enters the core's MCP filter, core run_host/session_tools.rs:302); " +
+      "live: each filter's whole sorted name list through the live hub",
     excluded,
   },
 });

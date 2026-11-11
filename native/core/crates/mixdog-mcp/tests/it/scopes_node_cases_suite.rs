@@ -5,7 +5,12 @@
 
 use std::path::Path;
 
+use mixdog_mcp::McpHub;
+use mixdog_mcp::McpIo;
+use mixdog_mcp::McpServerConfig;
+use mixdog_mcp::result::OutputPolicy;
 use mixdog_mcp::scopes::ExtensionScopes;
+use mixdog_mcp::server::ServerState;
 use mixdog_mcp::scopes::ScopeKind;
 use mixdog_mcp::scopes::plan_extension_scope;
 use mixdog_mcp::scopes::within_projects;
@@ -16,8 +21,11 @@ use serde_json::Value;
 use serde_json::json;
 
 fn fixture(name: &str) -> Value {
-    let path = format!("{}/../../fixtures/extension-scopes-cases/{name}", env!("CARGO_MANIFEST_DIR"));
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    let text = match name {
+        "golden.json" => mixdog_testkit::fixture!("../../fixtures/extension-scopes-cases/golden.json"),
+        _ => mixdog_testkit::fixture!("../../fixtures/extension-scopes-cases/MANIFEST.json"),
+    };
+    serde_json::from_str(&text).unwrap()
 }
 
 fn kind(text: &str) -> ScopeKind {
@@ -33,8 +41,45 @@ fn strings(value: &Value) -> Vec<String> {
     value.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
 }
 
-#[test]
-fn every_recorded_extension_scope_answer_is_nodes() {
+/// A live hub of `scope` serving `servers` (`{name, tools, cfg}`: the mock server listing exactly `tools`, declared by
+/// `cfg`'s plugin), every server ready.
+async fn live_hub(dir: &Path, scope: &str, servers: &[(String, Vec<String>, Value)]) -> std::sync::Arc<McpHub> {
+    let tokens = mixdog_rt::testing::tokens();
+    let hub = McpHub::new(McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, dir.join("artifacts"), OutputPolicy::default());
+    let env = std::env::vars().collect();
+    let configs = servers
+        .iter()
+        .map(|(name, tools, cfg)| {
+            let mut entry = json!({ "command": env!("CARGO_BIN_EXE_mixdog-mcp-mock-server"), "env": { "MOCK_TOOLS": serde_json::to_string(tools).unwrap() } });
+            if let Some(cfg) = cfg.as_object() {
+                entry.as_object_mut().unwrap().extend(cfg.clone());
+            }
+            McpServerConfig::from_entry(name, &entry, &env).unwrap()
+        })
+        .collect();
+    hub.apply_in(scope, configs);
+    for (name, _, _) in servers {
+        let server = hub.server_in(scope, name).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !matches!(&*server.state(), ServerState::Ready(_)) {
+            assert!(std::time::Instant::now() < deadline, "{name} never became ready");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+    hub
+}
+
+/// The names of the hub's tools of `scope` the extension scopes let through at `cwd`, in the hub's order.
+fn names_for_cwd(hub: &McpHub, scope: &str, scopes: &ExtensionScopes, cwd: &str) -> Vec<String> {
+    hub.tools_for_cwd(scope, scopes, Path::new(cwd)).iter().map(|tool| tool.spec().name.clone()).collect()
+}
+
+fn servers_of(value: &Value) -> Vec<(String, Vec<String>, Value)> {
+    value.as_array().unwrap().iter().map(|s| (s["name"].as_str().unwrap().to_owned(), strings(&s["tools"]), s["cfg"].clone())).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_recorded_extension_scope_answer_is_nodes() {
     let golden = fixture("golden.json");
     let excluded = fixture("MANIFEST.json")["excluded"].as_object().unwrap().clone();
     let cases = golden["cases"].as_array().unwrap();
@@ -43,6 +88,70 @@ fn every_recorded_extension_scope_answer_is_nodes() {
     for case in cases.iter().filter(|c| !excluded.contains_key(c["case"].as_str().unwrap())) {
         let recorded = &case["recorded"];
         let got = match case["kind"].as_str().unwrap() {
+            "mcpTools" => {
+                let scopes = ExtensionScopes::from_config(&case["config"]);
+                let checks: Vec<Value> = recorded["checks"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|c| {
+                        let allowed = scopes.mcp_server_allowed_for_cwd(c["server"].as_str().unwrap(), c["pluginId"].as_str(), Path::new(c["cwd"].as_str().unwrap()));
+                        json!({ "server": c["server"], "cwd": c["cwd"], "pluginId": c["pluginId"], "allowed": allowed })
+                    })
+                    .collect();
+                // Each MCP tool of the test's list served by its server; `mcpPluginId` is the declaring plugin.
+                let mut servers: Vec<(String, Vec<String>, Value)> = Vec::new();
+                for tool in case["tools"].as_array().unwrap() {
+                    let Some((server, name)) = tool["name"].as_str().unwrap().strip_prefix("mcp__").and_then(|rest| rest.split_once("__")) else { continue };
+                    let cfg = tool["mcpPluginId"].as_str().map_or(Value::Null, |id| json!({ "_mixdogPlugin": { "id": id, "key": "editor" } }));
+                    servers.push((server.to_owned(), vec![name.to_owned()], cfg));
+                }
+                let dir = tempfile::tempdir().unwrap();
+                let hub = live_hub(dir.path(), "scope-test", &servers).await;
+                let filters: Vec<Value> = recorded["filters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| {
+                        let cwd = f["cwd"].as_str().unwrap();
+                        json!({ "cwd": cwd, "names": names_for_cwd(&hub, "scope-test", &scopes, cwd) })
+                    })
+                    .collect();
+                hub.close_all().await;
+                // Node's filter passes the test's non-MCP `read` through; only its MCP names are the hub's.
+                let want_filters: Vec<Value> = recorded["filters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| json!({ "cwd": f["cwd"], "names": f["names"].as_array().unwrap().iter().filter(|n| n.as_str().unwrap().starts_with("mcp__")).collect::<Vec<_>>() }))
+                    .collect();
+                replayed += 1;
+                let got = json!({ "checks": checks, "filters": filters });
+                let want = json!({ "checks": recorded["checks"], "filters": want_filters });
+                if got != want {
+                    failures.push(format!("{}:\n  want {want}\n  got  {got}", case["case"]));
+                }
+                continue;
+            }
+            "live" => {
+                let dir = tempfile::tempdir().unwrap();
+                let hub = live_hub(dir.path(), "scope-test", &servers_of(&case["servers"])).await;
+                let scoped = ExtensionScopes::from_config(&case["config"]["extensionScopes"]);
+                let filters: Vec<Value> = recorded["filters"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|f| {
+                        let scopes = if f["scoped"] == true { scoped.clone() } else { ExtensionScopes::default() };
+                        let mut names = names_for_cwd(&hub, "scope-test", &scopes, f["cwd"].as_str().unwrap());
+                        names.retain(|name| !name.contains("__mixdog_"));
+                        names.sort();
+                        json!({ "cwd": f["cwd"], "scoped": f["scoped"], "names": names })
+                    })
+                    .collect();
+                hub.close_all().await;
+                json!({ "filters": filters })
+            }
             "normalize" => {
                 let scopes = ExtensionScopes::from_config(&case["input"]);
                 let lookups: Vec<Value> = recorded["lookups"]
@@ -126,5 +235,5 @@ fn every_recorded_extension_scope_answer_is_nodes() {
         }
     }
     assert!(failures.is_empty(), "{} case(s) differ:\n{}", failures.len(), failures.join("\n"));
-    assert_eq!(replayed + excluded.len(), cases.len() + 2, "the two GAP cases are named without a recording");
+    assert_eq!(replayed + excluded.len(), cases.len(), "every case is replayed or named");
 }
