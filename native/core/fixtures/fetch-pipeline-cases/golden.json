@@ -639,8 +639,8 @@
               },
               {
                 "extractor": "puppeteer",
-                "error": "puppeteer timed out",
-                "code": "STAGE_TIMEOUT"
+                "error": "Fetch exceeded 120ms total budget",
+                "code": "FETCH_TIMEOUT"
               }
             ],
             "attempts": [
@@ -652,7 +652,7 @@
               {
                 "stage": "puppeteer",
                 "status": "error",
-                "code": "STAGE_TIMEOUT"
+                "code": "FETCH_TIMEOUT"
               }
             ],
             "delays": []

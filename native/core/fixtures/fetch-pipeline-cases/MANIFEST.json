@@ -1,16 +1,13 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-fetch-pipeline-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
   "compared": "runs: each whole outcome of Pipeline::run against a local server serving the recorded responses (page or error, failures, attempts without elapsed times; the tried stages are the attempts' stages); a run that asked for retry waits took at least that long and less than one more retry floor. pacer: the order the operations reached the server, and that the cancelled fetch never ran",
-  "excluded": {
-    "total deadline and caller cancellation stop queued or hanging stages #0": "DIFFERENCE: Node traces the render stage cut off by the total deadline (failure and attempt FETCH_TIMEOUT); Rust drops the stage with the deadline and its trace holds only the http attempt",
-    "total deadline and caller cancellation stop queued or hanging stages #1": "DIFFERENCE: a caller cancel during the http stage: Node fails with the abort reason ('user stopped') and traces the http attempt as NETWORK_ERROR; Rust fails with 'Fetch cancelled' and traces no attempt"
-  },
+  "excluded": {},
   "fileCount": 1,
   "files": [
     {
-      "bytes": 17980,
+      "bytes": 17994,
       "path": "golden.json",
-      "sha256": "5bea5d4e7efed5fa0e907bb9c60590c5aab16ed8858f809e5e66ccee85f0575a"
+      "sha256": "ff5090f3a3b4fd2c6a0ab41fac34e10c91c5d0e6ac9bcafc75a954a2a5f038f7"
     }
   ],
   "inputs": [
@@ -42,7 +39,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-fetch-pipeline-cases.mjs",
-  "recorderSha256": "df6a2291a01de6115f791c8a3000d79247cbff1ebb9ef5a69d8465a7cebd94c0",
+  "recorderSha256": "dc0d2960b57980d73898b605e5f76360963de3e75d43e740f278fc6f2d3ec16a",
   "set": "fetch-pipeline-cases",
-  "totalBytes": 17980
+  "totalBytes": 17994
 }
