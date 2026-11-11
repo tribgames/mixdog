@@ -10,20 +10,26 @@ use mixdog_tools::orch::session::SessionTool;
 use super::*;
 
 fn golden() -> Value {
-    #[allow(clippy::disallowed_methods)] // the recording, read at run time
-    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-tool-project-cases/golden.json")).expect("the recording");
-    serde_json::from_str(&text).expect("json")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-tool-project-cases/golden.json")).expect("json")
 }
 
 /// The test's workspace switch: records the switch and answers `switchProject:ok`.
 struct Switch {
     threads: Arc<Threads>,
     calls: Mutex<Vec<Value>>,
+    /// The threads a `session compact` marked.
+    pending: Mutex<Vec<String>>,
 }
 
 #[async_trait]
 impl ThreadRequests for Switch {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        if method == "thread/compact/start" {
+            // The thread's actor marks itself (`pendingCompactSessionIds`); its run is the actor's own test.
+            assert_eq!(params["options"], json!({ "afterTurn": true }), "a compaction after the turn");
+            self.pending.lock().expect("pending").push(thread.as_str().to_owned());
+            return Ok(Value::Null);
+        }
         self.calls.lock().expect("calls").push(json!([method, params["path"]]));
         let set = Map::from_iter([("cwd".to_owned(), json!("switchProject:ok"))]);
         self.threads.patch_header(thread, set, Vec::new()).await.expect("the thread");
@@ -45,10 +51,14 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
     let shown_dir = dir.path().to_string_lossy().into_owned();
     for case in golden["cases"].as_array().unwrap() {
         let threads = Arc::new(Threads::default());
-        for id in ["sess-1", "worker-1"] {
+        for id in ["sess-1", "worker-1", "w"] {
             threads.0.lock().expect("threads").insert(id.to_owned(), Map::new());
         }
-        let switch = Arc::new(Switch { threads: threads.clone(), calls: Mutex::default() });
+        // The runtime session's fields the case set (`rt.session.title`, its route).
+        if let Some(session) = case["recorded"]["session"].as_object() {
+            threads.0.lock().expect("threads").insert("sess-1".to_owned(), session.clone());
+        }
+        let switch = Arc::new(Switch { threads: threads.clone(), calls: Mutex::default(), pending: Mutex::default() });
         let marks = HeartbeatSessions::new();
         let runs = UnattendedRunRegistry::new(Arc::new(NoStamps));
         let callers = Arc::new(ThreadCallers::new(threads.clone(), marks, runs));
@@ -71,8 +81,12 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
                 continue;
             }
             let args: Value = serde_json::from_str(&call["args"].to_string().replace("<dir>", &shown_dir.replace('\\', "\\\\"))).unwrap();
+            if call["label"] == "status in a worktree" {
+                let workspace = Map::from_iter([("workspace".to_owned(), case["recorded"]["workspace"].clone())]);
+                threads.patch_header(&ThreadId::from("sess-1"), workspace, Vec::new()).await.expect("the thread");
+            }
             let caller = call["context"]["callerSessionId"].as_str().unwrap_or("sess-1");
-            let surface = if caller == "worker-1" { SurfaceKind::Agent } else { SurfaceKind::Lead };
+            let surface = if caller == "sess-1" { SurfaceKind::Lead } else { SurfaceKind::Agent };
             let outcome = match tool.call(&call_ctx(caller, surface), args).await {
                 Ok(output) => {
                     let text: String = output.parts.iter().filter_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).collect();
@@ -88,6 +102,10 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
             // Node's switch got the resolved directory and its own-turn flag; the core's thread request carries the directory.
             got["switches"] = json!(switch.calls.lock().expect("calls").iter().map(|c| c[1].as_str().unwrap().replace(&shown_dir, "<dir>")).collect::<Vec<_>>());
             want["switches"] = json!(switches.as_array().unwrap().iter().map(|s| s[0].clone()).collect::<Vec<_>>());
+        }
+        if let Some(pending) = case["recorded"].get("pending") {
+            got["pending"] = json!(*switch.pending.lock().expect("pending"));
+            want["pending"] = pending.clone();
         }
         if let Some(touched) = case["recorded"].get("touched") {
             got["touched"] = json!(switch.calls.lock().expect("calls").clone());

@@ -5,7 +5,6 @@
     "a manual rename landing while the AI title saves wins on the live session": "COVERED (row 84): core/run_host/tool_pool/tests.rs:536",
     "injected runtimes receive the caller context each tool expects": "GONE (row 84): the ToolContext carries the caller",
     "model-tool calls to disabled features are refused before any dispatch": "COVERED (gaps-tools.md row 84): tools/policy/surface.rs:382",
-    "session compact schedules a one-shot pending compact; status reports the session": "GAP (row 84): the core answers compact as not available",
     "session fork calls the lifecycle API and returns the new session id": "COVERED (row 84): core/run_host/tool_pool/tests.rs:559",
     "session rename protects user titles, honors the setting, and is Lead-only": "COVERED (row 84): core/run_host/tool_pool/tests.rs:536",
     "session reports, lists, and switches the Project through the caller or the runtime: the caller-owned switch ({path} with setCallerCwd)": "Node's MCP caller may own the cwd switch (setCallerCwd); the core's session tool has one switch, the session port's",
@@ -14,9 +13,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6004,
+      "bytes": 8209,
       "path": "golden.json",
-      "sha256": "9688e63a8144e4445b359c6f19191e51fac27a65e2aa91259a30c5abc0cf9a91"
+      "sha256": "c4befc7f2a60f23f99c4344c68793b43852bdb2cd1ae0319794aba85ddaf0aa8"
     }
   ],
   "inputs": [
@@ -48,7 +47,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-project-cases.mjs",
-  "recorderSha256": "eeff980865a26b72019083fd22c9e5cf23bf71f90d1341b5f780a7909e95528c",
+  "recorderSha256": "e77994dd308afcb542f924b7d6a48845fc4d455b68eb6da09a2e0aa9385cc663",
   "set": "session-tool-project-cases",
-  "totalBytes": 6004
+  "totalBytes": 8209
 }
