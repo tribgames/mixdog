@@ -1,0 +1,18 @@
+{
+  "lanes_build_messages.jsonl": {
+    "command": "cargo test -p mixdog-tools --locked --no-run --message-format=json (cwd native/core)",
+    "keeps": "the compiler-artifact message of the lib test target mixdog_tools; paths repository-relative, executable replaced by <test binary>",
+    "used by": "k1-lanes.test.mjs (testBinariesOf)"
+  },
+  "lanes_list_fs_tests.json": {
+    "command": "the lib test binary of mixdog_tools, --list fs::tests (cwd native/core/crates/mixdog-tools)",
+    "keeps": "libtest's list output as printed",
+    "used by": "k1-lanes.test.mjs (testsOfList, installersIn)"
+  },
+  "node_tool_failure_row.json": {
+    "command": "node scripts/rust-core/record-node-tool-failure-row.mjs (Node's real tool-failure writer at b6f10295a)",
+    "keeps": "the row Node writes for a failed read call",
+    "used by": "smoke-mixdogd.mjs (NODE_ROW)"
+  },
+  "regenerate": "node scripts/rust-core/record-lanes-fixtures.mjs; k1-lanes.slow.test.mjs fails when the first two differ from a fresh run"
+}

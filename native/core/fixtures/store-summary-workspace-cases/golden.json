@@ -1,0 +1,366 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "workspaceSummary carries the whole workspace record and requires both paths",
+      "observed": {
+        "results": [
+          {
+            "input": {
+              "projectPath": "C:/repo",
+              "repoCommonDir": "C:/repo/.git",
+              "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+              "worktreeId": "fix-login",
+              "branch": "mixdog/fix-login",
+              "baseCommit": null,
+              "mergeTarget": "main",
+              "revision": 3,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            },
+            "result": {
+              "projectPath": "C:/repo",
+              "repoCommonDir": "C:/repo/.git",
+              "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+              "worktreeId": "fix-login",
+              "branch": "mixdog/fix-login",
+              "baseCommit": null,
+              "mergeTarget": "main",
+              "revision": 3,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            }
+          },
+          {
+            "input": {
+              "projectPath": " C:/repo ",
+              "cwd": "C:/repo"
+            },
+            "result": {
+              "projectPath": "C:/repo",
+              "repoCommonDir": null,
+              "cwd": "C:/repo",
+              "worktreeId": null,
+              "branch": null,
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 0,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            }
+          },
+          {
+            "input": {
+              "projectPath": "C:/repo",
+              "cwd": "C:/repo",
+              "revision": -1,
+              "transition": {
+                "state": "bogus"
+              }
+            },
+            "result": {
+              "projectPath": "C:/repo",
+              "repoCommonDir": null,
+              "cwd": "C:/repo",
+              "worktreeId": null,
+              "branch": null,
+              "baseCommit": null,
+              "mergeTarget": null,
+              "revision": 0,
+              "transition": {
+                "state": "idle",
+                "txId": null
+              }
+            }
+          },
+          {
+            "input": null,
+            "result": null
+          },
+          {
+            "input": "x",
+            "result": null
+          },
+          {
+            "input": {},
+            "result": null
+          },
+          {
+            "input": {
+              "projectPath": "C:/repo"
+            },
+            "result": null
+          },
+          {
+            "input": {
+              "cwd": "C:/repo"
+            },
+            "result": null
+          },
+          {
+            "input": {
+              "projectPath": "a\u0000",
+              "cwd": "b"
+            },
+            "result": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "summary rows expose the workspace while grouping stays on the project",
+      "observed": {
+        "session": {
+          "id": "sess_ws",
+          "createdAt": 1000,
+          "updatedAt": 2000,
+          "lastUsedAt": 2000,
+          "status": "idle",
+          "owner": "user",
+          "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "C:/repo"
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "prompt"
+            }
+          ],
+          "workspace": {
+            "projectPath": "C:/repo",
+            "repoCommonDir": "C:/repo/.git",
+            "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+            "worktreeId": "fix-login",
+            "branch": "mixdog/fix-login",
+            "baseCommit": null,
+            "mergeTarget": "main",
+            "revision": 3,
+            "transition": {
+              "state": "idle",
+              "txId": null
+            }
+          }
+        },
+        "summary": {
+          "id": "sess_ws",
+          "updatedAt": 2000,
+          "lastUsedAt": 2000,
+          "createdAt": 1000,
+          "lastHeartbeatAt": 0,
+          "closed": false,
+          "status": "idle",
+          "owner": "user",
+          "agent": null,
+          "sessionMode": "coding",
+          "sourceType": null,
+          "sourceName": null,
+          "scopeKey": null,
+          "parentSessionId": null,
+          "ownerSessionId": null,
+          "visibility": "ordinary",
+          "clientHostPid": null,
+          "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "C:/repo"
+          },
+          "workspace": {
+            "projectPath": "C:/repo",
+            "repoCommonDir": "C:/repo/.git",
+            "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+            "worktreeId": "fix-login",
+            "branch": "mixdog/fix-login",
+            "baseCommit": null,
+            "mergeTarget": "main",
+            "revision": 3,
+            "transition": {
+              "state": "idle",
+              "txId": null
+            }
+          },
+          "provider": null,
+          "model": null,
+          "presetName": null,
+          "effort": null,
+          "fast": false,
+          "modelParameters": null,
+          "agentTag": null,
+          "task_id": null,
+          "permission": null,
+          "permissionMode": null,
+          "toolPermission": null,
+          "schemaAllowedTools": null,
+          "taskType": null,
+          "messageCount": 1,
+          "compactCount": 0,
+          "realTurnCount": 1,
+          "title": "",
+          "preview": "prompt",
+          "lastMessagePreview": "prompt",
+          "lastMessageRoutine": null,
+          "generation": 0,
+          "storageMtimeMs": 0,
+          "storageSize": 0,
+          "detachedReason": null,
+          "importKey": null,
+          "inheritedFromSessionId": null
+        },
+        "normalizedIndex": {
+          "version": 2,
+          "updatedAt": 0,
+          "rows": [
+            {
+              "id": "sess_ws",
+              "updatedAt": 2000,
+              "lastUsedAt": 2000,
+              "createdAt": 1000,
+              "lastHeartbeatAt": 0,
+              "closed": false,
+              "status": "idle",
+              "owner": "user",
+              "agent": null,
+              "sessionMode": "coding",
+              "sourceType": null,
+              "sourceName": null,
+              "scopeKey": null,
+              "parentSessionId": null,
+              "ownerSessionId": null,
+              "visibility": "ordinary",
+              "clientHostPid": null,
+              "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+              "desktopSession": {
+                "classification": "project",
+                "projectPath": "C:/repo"
+              },
+              "workspace": {
+                "projectPath": "C:/repo",
+                "repoCommonDir": "C:/repo/.git",
+                "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+                "worktreeId": "fix-login",
+                "branch": "mixdog/fix-login",
+                "baseCommit": null,
+                "mergeTarget": "main",
+                "revision": 3,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                }
+              },
+              "provider": null,
+              "model": null,
+              "presetName": null,
+              "effort": null,
+              "fast": false,
+              "modelParameters": null,
+              "agentTag": null,
+              "task_id": null,
+              "permission": null,
+              "permissionMode": null,
+              "toolPermission": null,
+              "schemaAllowedTools": null,
+              "taskType": null,
+              "messageCount": 1,
+              "compactCount": 0,
+              "realTurnCount": 1,
+              "title": "",
+              "preview": "prompt",
+              "lastMessagePreview": "prompt",
+              "lastMessageRoutine": null,
+              "generation": 0,
+              "storageMtimeMs": 0,
+              "storageSize": 0,
+              "detachedReason": null,
+              "importKey": null,
+              "inheritedFromSessionId": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "a session without a workspace record has no workspace field",
+      "observed": {
+        "session": {
+          "id": "sess_ws",
+          "createdAt": 1000,
+          "updatedAt": 2000,
+          "lastUsedAt": 2000,
+          "status": "idle",
+          "owner": "user",
+          "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "C:/repo"
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "prompt"
+            }
+          ]
+        },
+        "summary": {
+          "id": "sess_ws",
+          "updatedAt": 2000,
+          "lastUsedAt": 2000,
+          "createdAt": 1000,
+          "lastHeartbeatAt": 0,
+          "closed": false,
+          "status": "idle",
+          "owner": "user",
+          "agent": null,
+          "sessionMode": "coding",
+          "sourceType": null,
+          "sourceName": null,
+          "scopeKey": null,
+          "parentSessionId": null,
+          "ownerSessionId": null,
+          "visibility": "ordinary",
+          "clientHostPid": null,
+          "cwd": "C:/data/worktrees-v1/0123456789abcdef/fix-login",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "C:/repo"
+          },
+          "provider": null,
+          "model": null,
+          "presetName": null,
+          "effort": null,
+          "fast": false,
+          "modelParameters": null,
+          "agentTag": null,
+          "task_id": null,
+          "permission": null,
+          "permissionMode": null,
+          "toolPermission": null,
+          "schemaAllowedTools": null,
+          "taskType": null,
+          "messageCount": 1,
+          "compactCount": 0,
+          "realTurnCount": 1,
+          "title": "",
+          "preview": "prompt",
+          "lastMessagePreview": "prompt",
+          "lastMessageRoutine": null,
+          "generation": 0,
+          "storageMtimeMs": 0,
+          "storageSize": 0,
+          "detachedReason": null,
+          "importKey": null,
+          "inheritedFromSessionId": null
+        }
+      }
+    }
+  ]
+}
