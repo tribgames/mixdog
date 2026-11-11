@@ -305,6 +305,10 @@ impl Run {
             {
                 self.messages = preflight.messages;
                 self.baseline = None;
+                // The continuation was built on the inline prefix: a kept anchor would skip the rewritten
+                // messages and leave the server holding the full attachment.
+                self.provider_state = None;
+                self.provider_state_changed = true;
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
             let changed = self.pre_send_compact_pass(compact_attempted).await?;

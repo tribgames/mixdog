@@ -2382,8 +2382,12 @@ async fn the_attachment_preflight_rewrites_the_transcript_with_compaction_off() 
     h.compactor = Some(Arc::new(Compactor100 { preflight: true, ..Default::default() }));
     let mut cfg = config();
     cfg.compact = None;
+    // A continuation anchored on the inline prefix: the rewrite must not be skipped by it.
+    cfg.options.provider_state = Some(mixdog_core_api::domain::provider::ProviderState::default());
     let output = finish(h.run(cfg, vec![], vec![AgentMessage::user("attached")])).await;
     let request = &h.provider.requests()[0];
+    assert_eq!(request.options.provider_state, None, "preflight clears the continuation");
+    assert_eq!(output.provider_state, None);
     assert!(request.messages.iter().any(|m| m.content == Content::Text("referenced".into())));
     assert!(!request.messages.iter().any(|m| m.content == Content::Text("attached".into())));
     assert_eq!(output.transcript[0].message.content, Content::Text("referenced".into()));
