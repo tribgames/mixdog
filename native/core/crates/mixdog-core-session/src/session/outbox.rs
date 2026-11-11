@@ -46,6 +46,18 @@ pub(crate) struct Durable {
     pub class: Class,
     pub stage: Stage,
     pub bytes: usize,
+    /// The unit this record is written in: every record of one request's plan, committed together or not at all.
+    pub unit: u64,
+    /// A failed write keeps the unit queued for the next one (Node's recorder keeps a failed batch's bytes).
+    pub retain: bool,
+    /// Whether the record still counts in the window (a retained one no longer does: it waits for the next write).
+    counted: bool,
+}
+
+/// One unit handed to the durability task: its records in accept order.
+pub(crate) struct HandedUnit {
+    pub retain: bool,
+    pub records: Vec<(u64, CommitRecord, usize)>,
 }
 
 /// What happens when an entry is released, or fails.
@@ -96,6 +108,8 @@ pub(crate) struct Outbox {
     limits: SessionLimits,
     normal: Usage,
     reserve: Usage,
+    /// The unit records pushed now join ([`Self::begin_unit`]), and whether it is retained on a failed write.
+    unit: Option<(u64, bool)>,
 }
 
 impl Outbox {
@@ -106,7 +120,22 @@ impl Outbox {
             limits,
             normal: Usage::default(),
             reserve: Usage::default(),
+            unit: None,
         }
+    }
+
+    /// The records pushed until [`Self::end_unit`] are one unit (one request's plan): handed on and written together.
+    pub fn begin_unit(&mut self, retain: bool) {
+        self.unit = Some((self.next_id, retain));
+    }
+
+    pub fn end_unit(&mut self) {
+        self.unit = None;
+    }
+
+    /// Whether a unit kept from a failed write waits for the next one.
+    pub fn has_retained(&self) -> bool {
+        self.entries.iter().any(|entry| entry.durable.as_ref().is_some_and(|durable| durable.retain && !durable.counted))
     }
 
     /// A record of `class` fits the window now.
@@ -165,11 +194,15 @@ impl Outbox {
                 class
             };
             self.usage(class).records += 1;
+            let (unit, retain) = self.unit.unwrap_or((id, false));
             Durable {
                 record,
                 class,
                 stage: Stage::Encoding,
                 bytes: 0,
+                unit,
+                retain,
+                counted: true,
             }
         });
         self.entries.push_back(Entry {
@@ -217,34 +250,68 @@ impl Outbox {
         self.usage(class).bytes += bytes;
     }
 
-    /// The next encoded records in accept order, at most `room` of them, stopping at the first still encoding. A plan of more
-    /// records than the durability lane holds (a whole inherited conversation) is handed on as acks free the lane.
-    pub fn handoff(&mut self, room: usize) -> Vec<(u64, CommitRecord, usize)> {
-        let mut out = Vec::new();
-        for entry in &mut self.entries {
-            let Some(durable) = entry.durable.as_mut() else {
+    /// The next whole units in accept order, every record of each encoded, at most `room` units (one message of the
+    /// durability lane each), stopping at the first unit still encoding. A unit is handed on whole, however many records it
+    /// holds (a whole inherited conversation), so the store writes it as one commit.
+    pub fn handoff(&mut self, room: usize) -> Vec<HandedUnit> {
+        // The units that can go: the entries up to `end` (exclusive) whose records are all encoded.
+        let mut end = 0;
+        let mut units = 0;
+        let mut current: Option<u64> = None;
+        let mut index = 0;
+        while index < self.entries.len() {
+            let Some(durable) = &self.entries[index].durable else {
+                index += 1;
                 continue;
             };
             match &durable.stage {
-                Stage::Encoding => break,
-                Stage::Encoded(_) if out.len() == room => break,
-                Stage::Encoded(_) => {
-                    let Stage::Encoded(encoded) =
-                        std::mem::replace(&mut durable.stage, Stage::Handed)
-                    else {
-                        unreachable!("matched Encoded");
-                    };
-                    out.push((
-                        entry.id,
-                        CommitRecord {
-                            record: durable.record.clone(),
-                            encoded,
-                        },
-                        durable.bytes,
-                    ));
+                Stage::Handed | Stage::Acked(_) => {
+                    index += 1;
+                    continue;
                 }
-                Stage::Handed | Stage::Acked(_) => {}
+                Stage::Encoding => break,
+                Stage::Encoded(_) => {}
             }
+            if current != Some(durable.unit) {
+                // The unit before this one is whole.
+                end = index;
+                if units == room {
+                    current = None;
+                    break;
+                }
+                units += 1;
+                current = Some(durable.unit);
+            }
+            index += 1;
+        }
+        // Reached the end with a unit whose records are all encoded (a unit never grows after its step).
+        if current.is_some() && index == self.entries.len() {
+            end = index;
+        }
+        let mut out: Vec<HandedUnit> = Vec::new();
+        let mut last_unit = None;
+        for entry in self.entries.iter_mut().take(end) {
+            let Some(durable) = entry.durable.as_mut() else {
+                continue;
+            };
+            if !matches!(durable.stage, Stage::Encoded(_)) {
+                continue;
+            }
+            let Stage::Encoded(encoded) = std::mem::replace(&mut durable.stage, Stage::Handed) else {
+                unreachable!("matched Encoded");
+            };
+            if last_unit != Some(durable.unit) {
+                out.push(HandedUnit { retain: durable.retain, records: Vec::new() });
+                last_unit = Some(durable.unit);
+            }
+            out.last_mut().expect("pushed").records.push((
+                entry.id,
+                CommitRecord {
+                    record: durable.record.clone(),
+                    encoded,
+                },
+                durable.bytes,
+            ));
         }
         out
     }
@@ -257,10 +324,44 @@ impl Outbox {
             return;
         };
         durable.stage = Stage::Acked(ordinal);
-        let (class, bytes) = (durable.class, durable.bytes);
-        let usage = self.usage(class);
-        usage.records -= 1;
-        usage.bytes -= bytes;
+        let (class, bytes, counted) = (durable.class, durable.bytes, std::mem::replace(&mut durable.counted, false));
+        if counted {
+            let usage = self.usage(class);
+            usage.records -= 1;
+            usage.bytes -= bytes;
+        }
+    }
+
+    /// A write failed and was rolled back: the entries of `retained` (handed units kept for the next write) stay, in order,
+    /// out of the window; every other unreleased entry is failed, as [`Self::fail_all`].
+    pub fn fail_all_but(&mut self, retained: &std::collections::HashSet<u64>) -> Vec<Entry> {
+        self.normal = Usage::default();
+        self.reserve = Usage::default();
+        let (kept, failed): (Vec<Entry>, Vec<Entry>) = self.entries.drain(..).partition(|entry| {
+            retained.contains(&entry.id) || entry.needs.is_some_and(|needs| retained.contains(&needs))
+        });
+        self.entries = kept.into();
+        for entry in &mut self.entries {
+            if let Some(durable) = entry.durable.as_mut() {
+                durable.counted = false;
+            }
+        }
+        failed
+    }
+
+    /// Removes the entries of the unit `id` belongs to, none of them handed off yet (one of its records could not be
+    /// encoded): a unit is written whole or not at all.
+    pub fn remove_unit(&mut self, id: u64) -> Vec<Entry> {
+        let Some(unit) = self.index(id).and_then(|index| self.entries[index].durable.as_ref()).map(|durable| durable.unit) else {
+            return self.remove(id).into_iter().collect();
+        };
+        let ids: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.durable.as_ref().is_some_and(|durable| durable.unit == unit))
+            .map(|entry| entry.id)
+            .collect();
+        ids.into_iter().filter_map(|id| self.remove(id)).collect()
     }
 
     /// The front entry if it can be released: view-only, or acked.
@@ -287,7 +388,9 @@ impl Outbox {
     pub fn remove(&mut self, id: u64) -> Option<Entry> {
         let index = self.index(id)?;
         let entry = self.entries.remove(index)?;
-        if let Some(durable) = &entry.durable {
+        if let Some(durable) = &entry.durable
+            && durable.counted
+        {
             let (class, bytes) = (durable.class, durable.bytes);
             let usage = self.usage(class);
             usage.records -= 1;

@@ -173,11 +173,12 @@ impl SessionDirectory {
             let earlier = meta.get("sessionInheritances").and_then(Value::as_array).cloned().unwrap_or_default();
             meta["sessionInheritances"] = Value::Array(earlier.into_iter().chain([boundary]).collect());
         }
-        for (method, params) in [
-            ("thread/inheritedRows/append", json!({ "messages": carried })),
-            ("thread/header/patch", json!({ "threadId": heir, "set": set, "unset": [] })),
-        ] {
-            handle.request(CoreRequest { method: Method(method), params, op: None, ctx: ctx.clone() }).await?;
+        // The rows and the header keys are one save (`saveSession(target, { immediate: true })`), which Node does not await:
+        // a write that fails keeps them queued for the next one, with one notice, and the inheritance still answers.
+        let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": carried, "set": set }), op: None, ctx: ctx.clone() };
+        match handle.request(append).await {
+            Ok(_) | Err(CoreError::BarrierFailed { .. }) => {}
+            Err(error) => return Err(error),
         }
         let held = handle.cell.header.load();
         Ok(Reply::Value(json!({

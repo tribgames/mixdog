@@ -647,8 +647,6 @@ pub enum AppendError {
     Refused(IoError),
     #[error("fenced: {reason:?}")]
     Fenced { reason: FenceReason, outcome: Outcome },
-    #[error("batch of {bytes} bytes exceeds the durability window")]
-    BatchTooLarge { bytes: u64 },
     #[error(transparent)]
     Fold(#[from] FoldError),
     #[error(transparent)]
@@ -674,7 +672,6 @@ impl AppendError {
         match self {
             AppendError::BarrierFailed(e) | AppendError::Indeterminate(e) | AppendError::Refused(e) => e.op.to_string(),
             AppendError::Fenced { reason, .. } => format!("fenced:{reason:?}"),
-            AppendError::BatchTooLarge { .. } => "batch_too_large".into(),
             AppendError::Fold(_) => "fold".into(),
             AppendError::Blob(_) => "blob".into(),
             AppendError::Encode(_) => "encode".into(),
@@ -915,24 +912,42 @@ impl LogWriter {
             checkpoint = None;
         }
         let total = batch_len + checkpoint.as_ref().map_or(0, |c| c.frame_len() as u64);
-        if total > DURABILITY_WINDOW_BYTES {
-            return Err(AppendError::BatchTooLarge { bytes: total });
-        }
-        // Blobs before the frames that reference them (SM §7.5).
-        let mut pins: Vec<BlobPin> = Vec::new();
-        for blob in checkpoint.iter().chain(&batch).flat_map(|e| &e.blobs) {
-            pins.push(deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?);
-        }
-
         let (file_no, base) = if rotate { (self.file_no + 1, 0) } else { (self.file_no, end) };
         let mut buf = Vec::with_capacity(total as usize);
-        let mut positions = Vec::with_capacity(batch.len() + 1);
-        let mut lens = Vec::with_capacity(batch.len() + 1);
+        let mut positions = Vec::with_capacity(batch.len() + 2);
+        let mut lens = Vec::with_capacity(batch.len() + 2);
         for (ordinal, e) in (self.fold.next_ordinal..).zip(checkpoint.iter().chain(&batch)) {
             let offset = base + buf.len() as u64;
             framing::encode_into(&mut buf, ordinal, &e.payload);
             positions.push(FramePos { ordinal, file_no, offset });
             lens.push(e.frame_len() as u64);
+        }
+        // A batch over the durability window (one request's whole unit, e.g. an inherited conversation: Node writes it as one
+        // record) is still one write and one barrier, so it lands whole or not at all; a checkpoint of the state after it ends
+        // the write, so the newest anchor stays within REVERSE_SCAN_MAX of the end (FORMAT.md §6.3).
+        let trailing = if total > DURABILITY_WINDOW_BYTES {
+            let mut after = self.fold.clone();
+            let skip = usize::from(checkpoint.is_some());
+            if checkpoint.is_some() {
+                after.apply(crate::fold::Effect::None, positions[0]);
+            }
+            for (effect, &pos) in effects.iter().cloned().zip(&positions[skip..]) {
+                after.apply(effect, pos);
+            }
+            let (state, blob) = body_slot(after.checkpoint_state())?;
+            let encoded = Encoded::new(Record::Checkpoint(CheckpointRecord { state }), blob.into_iter().collect())?;
+            let offset = base + buf.len() as u64;
+            framing::encode_into(&mut buf, after.next_ordinal, &encoded.payload);
+            positions.push(FramePos { ordinal: after.next_ordinal, file_no, offset });
+            lens.push(encoded.frame_len() as u64);
+            Some(encoded)
+        } else {
+            None
+        };
+        // Blobs before the frames that reference them (SM §7.5).
+        let mut pins: Vec<BlobPin> = Vec::new();
+        for blob in checkpoint.iter().chain(&batch).chain(trailing.iter()).flat_map(|e| &e.blobs) {
+            pins.push(deps.blobs.put_unlaned(&blob.bytes, |p, b| deps.io.publish(p, b))?);
         }
 
         if rotate {
@@ -969,8 +984,9 @@ impl LogWriter {
         let mut frames = Vec::with_capacity(positions.len());
         let mut records = batch.iter();
         let mut effects = effects.into_iter();
+        let last = positions.len() - 1;
         for (i, (&pos, &frame_len)) in positions.iter().zip(&lens).enumerate() {
-            let (effect, kind, op) = if i == 0 && checkpoint.is_some() {
+            let (effect, kind, op) = if (i == 0 && checkpoint.is_some()) || (i == last && trailing.is_some()) {
                 (crate::fold::Effect::None, crate::projection::FrameKind::Other, None)
             } else {
                 let record = &records.next().expect("one record per frame").record;
@@ -989,15 +1005,18 @@ impl LogWriter {
                 visible_rows: self.fold.visible_rows,
             });
         }
-        if checkpoint.is_some() {
+        if let Some(trailing) = &trailing {
+            self.since_anchor = trailing.frame_len() as u64;
+        } else if checkpoint.is_some() {
             self.since_anchor = buf.len() as u64;
         } else {
             self.since_anchor += buf.len() as u64;
         }
-        self.last_is_anchor = batch.is_empty() && checkpoint.is_some();
+        self.last_is_anchor = trailing.is_some() || (batch.is_empty() && checkpoint.is_some());
         let skip = usize::from(checkpoint.is_some());
+        let records_end = positions.len() - usize::from(trailing.is_some());
         Ok(BatchAck {
-            positions: positions[skip..].to_vec(),
+            positions: positions[skip..records_end].to_vec(),
             projection: Projection {
                 session: self.fold.session.clone(),
                 frames,
