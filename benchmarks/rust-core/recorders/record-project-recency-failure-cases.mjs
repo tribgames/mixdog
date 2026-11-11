@@ -4,7 +4,7 @@
 // Real SessionHost (session-host.ts) and DesktopProjectRegistry over the real shared/projects.mjs (a fresh instance per case, its
 // MIXDOG_PROJECTS_FILE pointing at the case's temp registry); the daemon client is scripted (create/submit/unsubscribe counters).
 // The parametrised Node tests (submission x {publication, corrupt registry}; explicit {add,enter,rename,remove,touch}) are recorded as
-// one case each with a list of runs, the case names being the Node test names with the ${…} template. Paths are <root>/…
+// one case each with a list of runs, the case names being the Node test names with the ${…} template. Every temp root is written <root> wherever it occurs (listed in the manifest's normalised.paths); the separators are those Node produced (backslashes on win32), also inside a registry file's JSON text, where they are doubled.
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-project-recency-failure-cases.mjs --tree <export of b6f10295a with node_modules>
@@ -24,7 +24,6 @@ const { makeTempDirSync } = await set.load('scripts/lib/scoped-temp.mjs');
 const PROJECTS_URL = pathToFileURL(join(tree, 'src/runtime/shared/projects.mjs')).href;
 let sequence = 0;
 const roots = [];
-const failure = (e) => ({ name: e?.name ?? null, code: e?.code ?? null, message: String(e?.message ?? e) });
 
 async function fixture() {
   const root = await fs.promises.realpath(makeTempDirSync('project-recency'));
@@ -62,17 +61,14 @@ async function fixture() {
     patch('renameSync', (from, to, ...args) => { if (to === file) { attempts++; throw err; } return rename(from, to, ...args); });
     return { failure: err, attempts: () => attempts };
   };
-  const escaped = JSON.stringify(root).slice(1, -1);
-  /** Every string in alue with the temp root (raw or JSON-escaped, as inside a registry file's text) written <root>. */
-  const rel = (value) => JSON.parse(JSON.stringify(value ?? null, (_, v) => (typeof v === 'string' ? v.replaceAll(escaped, '<root>').replaceAll(root, '<root>') : v)));
-  return { root, project, file, original, store, registry, host, calls, client, patch, failRegistryPublication, cleanup, rel };
+  return { root, project, file, original, store, registry, host, calls, client, patch, failRegistryPublication, cleanup };
 }
 const withFixture = async (fn) => { const f = await fixture(); try { return await fn(f); } finally { await f.cleanup(); } };
 
 await set.run('startProjectTask opens and publishes its shell despite a real recency publication failure', () => withFixture(async (f) => {
   const failed = f.failRegistryPublication();
   const snapshot = await f.host.startProjectTask(f.project);
-  return f.rel({ snapshotCwd: snapshot.cwd, snapshotCurrentProject: snapshot.currentProject, hostSnapshotCwd: f.host.getSnapshot().cwd, renameAttempts: failed.attempts(), registryFile: fs.readFileSync(f.file, 'utf8'), originalRegistry: f.original });
+  return ({ snapshot, hostSnapshot: f.host.getSnapshot(), renameAttempts: failed.attempts(), registryFile: fs.readFileSync(f.file, 'utf8'), originalRegistry: f.original });
 }));
 
 await set.run('an accepted submission commits its receipt and stays subscribed after ${cause} breaks recency', async () => {
@@ -87,7 +83,7 @@ await set.run('an accepted submission commits its receipt and stays subscribed a
       const key = createHash('sha256').update(options.id).digest('hex');
       const receipt = JSON.parse(fs.readFileSync(join(f.root, 'new-task-receipts', `${key}.json`), 'utf8'));
       const retry = await f.host.submitNewTask('accepted work', options, draft);
-      return f.rel({ cause, options, accepted: result.accepted, snapshotSessionIdIsResultSessionId: result.snapshot.sessionId === result.sessionId, receiptPhase: receipt.phase, receiptSessionIdIsResultSessionId: receipt.sessionId === result.sessionId, retryAccepted: retry.accepted, calls: f.calls });
+      return ({ cause, options, draft, result, receipt, retry, calls: f.calls });
     }));
   }
   return { runs };
@@ -97,7 +93,7 @@ await set.run('enter keeps registration and unhiding when only the recency write
   fs.writeFileSync(join(f.root, 'desktop-projects.json'), JSON.stringify({ version: 2, hidden: [f.project], aliases: {} }));
   const failed = f.failRegistryPublication();
   const entered = await f.registry.enter(f.project);
-  return f.rel({ startFiles: { 'desktop-projects.json': { version: 2, hidden: ['<root>/project'], aliases: {} } }, entered, renameAttempts: failed.attempts(), hiddenAfter: JSON.parse(fs.readFileSync(join(f.root, 'desktop-projects.json'), 'utf8')).hidden, knownPath: await f.registry.knownPath(f.project), project: f.project });
+  return ({ startFiles: { 'desktop-projects.json': { version: 2, hidden: [f.project], aliases: {} } }, entered, renameAttempts: failed.attempts(), desktopProjectsAfter: fs.readFileSync(join(f.root, 'desktop-projects.json'), 'utf8'), knownPath: await f.registry.knownPath(f.project), project: f.project });
 }));
 
 await set.run('explicit ${action} still rejects the original registry persistence error', async () => {
@@ -109,8 +105,8 @@ await set.run('explicit ${action} still rejects the original registry persistenc
       const failed = f.failRegistryPublication();
       const run = { add: () => f.host.addProject(newPath), enter: () => f.host.startProject(newPath), rename: () => f.host.renameProject(f.project, 'renamed'), remove: () => f.host.removeProject(f.project), touch: () => f.registry.touchSelected(f.project) }[action];
       let outcome;
-      try { await run(); outcome = { rejected: false }; } catch (e) { outcome = { rejected: true, isTheOriginalError: e === failed.failure, error: failure(e) }; }
-      return f.rel({ action, ...outcome, renameAttempts: failed.attempts(), registryFileUnchanged: fs.readFileSync(f.file, 'utf8') === f.original, hostSnapshot: f.host.getSnapshot() });
+      try { await run(); outcome = { rejected: false }; } catch (e) { outcome = { rejected: true, isTheOriginalError: e === failed.failure, error: e }; }
+      return ({ action, ...outcome, renameAttempts: failed.attempts(), registryFile: fs.readFileSync(f.file, 'utf8'), originalRegistry: f.original, hostSnapshot: f.host.getSnapshot() });
     }));
   }
   return { runs };
@@ -120,26 +116,28 @@ await set.run('registration and project-authority failures are not swallowed as 
   const err = Object.assign(new Error('registry unreadable'), { code: 'EIO' });
   const read = fs.readFileSync;
   f.patch('readFileSync', (file, ...args) => { if (file === f.file) throw err; return read(file, ...args); });
-  const attempt = async (fn) => { try { await fn(); return { rejected: false }; } catch (e) { return { rejected: true, isTheOriginalError: e === err }; } };
+  const attempt = async (fn) => { try { await fn(); return { rejected: false }; } catch (e) { return { rejected: true, isTheOriginalError: e === err, error: e }; } };
   const results = { startProject: await attempt(() => f.host.startProject(f.project)), startProjectTask: await attempt(() => f.host.startProjectTask(f.project)), submitNewTask: await attempt(() => f.host.submitNewTask('must not start', { id: 'bad-registry' }, { projectPath: f.project })) };
   const calls = { ...f.calls };
   fs.readFileSync = read; syncBuiltinESMExports();
-  return f.rel({ injected: failure(err), results, calls, registryFileUnchanged: fs.readFileSync(f.file, 'utf8') === f.original });
+  return ({ injected: err, results, calls, registryFile: fs.readFileSync(f.file, 'utf8'), originalRegistry: f.original });
 }));
 
 await set.run('a corrupt registry is recovered: its bytes are kept aside and project start still works', () => withFixture(async (f) => {
   fs.writeFileSync(f.file, '{broken');
   let first;
-  try { await f.host.startProjectTask(f.project); first = { rejected: false }; } catch (e) { first = { rejected: true, name: e?.name ?? null, code: e?.code ?? null, isSyntaxError: e instanceof SyntaxError }; }
+  try { await f.host.startProjectTask(f.project); first = { rejected: false }; } catch (e) { first = { rejected: true, error: e, isSyntaxError: e instanceof SyntaxError }; }
   await f.host.addProject(f.project);
   const snapshot = await f.host.startProjectTask(f.project);
   const asides = fs.readdirSync(f.root).filter((name) => name.startsWith('projects.json.corrupt-'));
-  return f.rel({ registryBytes: '{broken', firstStart: first, snapshotCwd: snapshot.cwd, projectIsCwd: snapshot.cwd === f.project, asideCount: asides.length, asideName: 'projects.json.corrupt-<stamp>', asideBytes: asides.length ? fs.readFileSync(join(f.root, asides[0]), 'utf8') : null });
+  return ({ registryBytes: '{broken', firstStart: first, snapshot, project: f.project, asides, asideBytes: asides.map((name) => fs.readFileSync(join(f.root, name), 'utf8')) });
 }));
 
 await set.finish({
   entry: { runs: 'apps/desktop SessionHost + DesktopProjectRegistry over shared/projects.mjs with a scripted daemon client; fs.renameSync / fs.readFileSync patched to fail on the registry file', notRun: 'no daemon, no Electron' },
-  replay: { entry: 'mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside', normalised: { dataDir: '<root>' } },
+  replay: { entry: 'mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside', normalised: { dataDir: '<root>, wherever it occurs; separators as Node produced them (backslashes on win32, doubled inside JSON text)' } },
   replaceInText: roots.map((r) => [r, '<root>']),
+  replaceRegex: [[/^[0-9a-f]{64}$/, '<sha256 of the per-run project path>']],
+  normaliseReason: 'per-run temp root written <root>; the receipt signature is a sha256 over the per-run project path, written <sha256 of the per-run project path> (only the strings that are exactly 64 hex digits)',
 });
 process.exit(0);
