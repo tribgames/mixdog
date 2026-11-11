@@ -1,0 +1,90 @@
+{
+  "records": [
+    {
+      "transport": "http",
+      "origin": "https://api.openai.com",
+      "method": "POST",
+      "path": "/v1/responses",
+      "headers": {
+        "host": "api.openai.com",
+        "connection": "keep-alive",
+        "authorization": "Bearer <redacted>",
+        "content-type": "application/json",
+        "accept": "text/event-stream",
+        "x-client-request-id": "<random:hex32>",
+        "accept-language": "*",
+        "sec-fetch-mode": "cors",
+        "user-agent": "node",
+        "accept-encoding": "gzip, deflate",
+        "content-length": "418"
+      },
+      "rawHeaderOrder": [
+        "host",
+        "connection",
+        "authorization",
+        "content-type",
+        "accept",
+        "x-client-request-id",
+        "accept-language",
+        "sec-fetch-mode",
+        "user-agent",
+        "accept-encoding",
+        "content-length"
+      ],
+      "bodyText": "{\"model\":\"gpt-5.2\",\"instructions\":\"You are a fixture assistant.\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Hello\"}]}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":true,\"reasoning\":{\"effort\":\"medium\",\"summary\":\"auto\"},\"store\":true,\"stream\":true,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"mixdog-openai-713878bea44a2d112b\",\"text\":{\"verbosity\":\"low\"},\"prompt_cache_retention\":\"24h\"}",
+      "served": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"gpt-5.2\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The answer is 42.\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The answer is 42.\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"gpt-5.2\",\"status\":\"completed\",\"usage\":{\"input_tokens\":20,\"output_tokens\":8,\"total_tokens\":28},\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The answer is 42.\"}]}]}}\n\n",
+      "status": 200,
+      "answerHeaders": {
+        "content-type": "text/event-stream"
+      },
+      "timed": [
+        {
+          "advanceMs": 700,
+          "body": "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_x\",\"model\":\"gpt-5.2\"}}\n\nevent: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"item_id\":\"m1\",\"delta\":\"The answer is 42.\"}\n\n"
+        },
+        {
+          "advanceMs": 1300,
+          "body": "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The answer is 42.\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_x\",\"model\":\"gpt-5.2\",\"status\":\"completed\",\"usage\":{\"input_tokens\":20,\"output_tokens\":8,\"total_tokens\":28},\"output\":[{\"type\":\"message\",\"id\":\"m1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"The answer is 42.\"}]}]}}\n\n"
+        }
+      ]
+    }
+  ],
+  "determinism": {
+    "rng": {
+      "algorithm": "mulberry32",
+      "seedDerivation": "fnv1a32(scenarioId)",
+      "scenarioId": "generation-timing/openai",
+      "seed": 1986201755,
+      "samples": []
+    },
+    "cryptoRandom": {
+      "algorithm": "mulberry32 bytes",
+      "seedDerivation": "one stream per product call site: fnv1a32(scenarioId) ^ fnv1a32(site) ^ 0x9e3779b9",
+      "note": "only calls with a product frame on the stack; temp-file/lock names from shared/file-lock.mjs and shared/atomic-file.mjs are omitted (background cache writers, a race with the scenario window)",
+      "samples": [
+        {
+          "kind": "randomBytes",
+          "bytes": 16,
+          "hex": "11c9f90490968b43dfaeba82d990a8dc",
+          "site": "src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs#_buildOpenAIHttpFallbackHeaders",
+          "n": 1
+        },
+        {
+          "kind": "randomUUID",
+          "bytes": 16,
+          "hex": "d8bc41df517a0429ceab50cb5f2c9462",
+          "site": "src/runtime/shared/llm/usage-accounting.mjs#accountProviderSend",
+          "n": 1
+        }
+      ]
+    },
+    "retrySleeps": [],
+    "otherProductTimerSites": [
+      "src/runtime/agent/orchestrator/providers/lib/first-output-window.mjs#Object.arm",
+      "src/runtime/agent/orchestrator/providers/openai-http-sse-watchdogs.mjs#Object.armFirstServerEvent",
+      "src/runtime/agent/orchestrator/providers/openai-http-sse-watchdogs.mjs#armSemanticIdle",
+      "src/runtime/agent/orchestrator/stall-policy.mjs#createTimeoutSignal"
+    ],
+    "notRecorded": "the local agent-trace flush timers (fire-and-forget; their presence in a scenario window is a race), delays of watchdog/deadline timers, timers created by Node internals (undici, ws, AbortSignal.timeout), and any wall-clock value"
+  }
+}
