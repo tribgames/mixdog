@@ -7,7 +7,7 @@
 // Not recorded: the stream-wait widening assertions (:466, MiMo first-byte/idle windows, dec:47/138) and the enrichment-supersession part
 // of the stale-publish test (:~345-395: it drives the private `_inner._fetchModelItems` and a getter hook counting reads of `name`).
 //   node benchmarks/rust-core/recorders/record-mimo-oauth-wire.mjs --tree <exact export of b6f10295a>
-import { rmSync, writeFileSync } from 'node:fs';
+import { rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { T0, startRecording } from './lib/provider-case-recorder.mjs';
 import { gateway, json } from './lib/scripted-gateway.mjs';
@@ -17,14 +17,16 @@ const rec = await startRecording({
   set: 'provider-mimo-oauth-wire',
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/mimo-oauth.mjs MimoOAuthProvider({ preconnect: false, ... }).send/.listModels/.isAvailable, mimo-oauth-tokens.mjs probeTokenPlanBaseUrl / ensureTokenPlanBaseUrl / loadTokens, mimo-oauth-profile.mjs chooseDefaultModel / SEED_MODELS, provider-catalog-cache.mjs providerCachedModelsSync, model-catalog.mjs getModelMetadataSync, runtime-core/effort.mjs effortOptionsFor, over a scripted loopback gateway (real fetch + the OpenAI SDK; credentials file MIMO_OAUTH_CREDENTIALS_PATH in the data directory). Not run: the widened stream waits and the private-hook supersession race (see the recorder header).',
-  replay: 'mixdog-ai providers::compat (chat/options.rs, listing.rs, creds.rs, login/mimo.rs:51-107, error.rs:298-304, adapter.rs) and mixdog-ai catalog store.rs:201-205: replay each case\'s scripted answers and compare `requests` (method, url, header pairs, body) in order, the results/errors (message, status, reauthRequired, mimoGatewayCode), the cached roster and the credentials file. `requests[*].headers` are the headers the gateway received over the real client: host, connection, accept-encoding, accept-language, sec-fetch-mode and a `user-agent: node` come from undici, the rest from the product.',
-  exclusions: ['tokens.mtimeMs is the token file\'s real modification time, written as a marker (it is not part of the behaviour)', 'stream-wait widening assertions (mimo-oauth-wire.test.mjs:466): MiMo first-byte/idle windows are removed in the core (dec:47, dec:138)', 'enrichment-supersession subcases of the stale-publish test (:~345-395): private _inner hooks'],
+  compare: 'mixdog-ai providers::compat (chat/options.rs, listing.rs, creds.rs, login/mimo.rs:51-107, error.rs:298-304, adapter.rs) and mixdog-ai catalog store.rs:201-205: replay each case\'s scripted answers and compare `requests` (method, url, header pairs, body) in order, the results/errors (message, status, reauthRequired, mimoGatewayCode), the cached roster and the credentials file. `requests[*].headers` are the headers the gateway received over the real client: host, connection, accept-encoding, accept-language, sec-fetch-mode and a `user-agent: node` come from undici, the rest from the product.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079).",
+  exclusions: ['result.persisted.mtimeMs of the token-plan probe case is the real modification time of a file the product rewrote, written as a marker (it is not part of the behaviour)', 'the n-th gateway of the recording listens on 127.0.0.1:47831+n (0-based, file order); the address appears literally in urls and stored credentials'],
 });
 const P = 'agent/orchestrator/providers/';
 process.env.MIMO_OAUTH_CREDENTIALS_PATH = join(rec.dataDir, 'mimo-oauth.json');
 const { MimoOAuthProvider } = await rec.P(`${P}mimo-oauth.mjs`);
 const { OpenAICompatProvider } = await rec.P(`${P}openai-compat.mjs`);
 const { effortOptionsFor } = await rec.P('agent/orchestrator/runtime-core/effort.mjs');
+const { consumeCompatChatCompletionStream } = await rec.P(`${P}openai-compat-stream.mjs`);
 const { loadTokens, ensureTokenPlanBaseUrl, probeTokenPlanBaseUrl, TOKEN_PLAN_BASE_URLS } = await rec.P(`${P}mimo-oauth-tokens.mjs`);
 const profile = await rec.P(`${P}mimo-oauth-profile.mjs`);
 const { providerCachedModelsSync } = await rec.P(`${P}provider-catalog-cache.mjs`);
@@ -39,7 +41,12 @@ const streamOk = (_req, _body, res) => {
   res.end(OK_STREAM);
 };
 const credentialsPath = process.env.MIMO_OAUTH_CREDENTIALS_PATH;
-const signIn = (baseUrl, apiKey = 'sk-wire') => writeFileSync(credentialsPath, JSON.stringify({ apiKey, uid: 'u', baseUrl }));
+// Each write gets its own fixed modification time (the product keys its token cache on mtime, so successive writes must differ).
+let signIns = 0;
+const signIn = (baseUrl, apiKey = 'sk-wire') => {
+  writeFileSync(credentialsPath, JSON.stringify({ apiKey, uid: 'u', baseUrl }));
+  utimesSync(credentialsPath, 1_700_000_000 + ++signIns, 1_700_000_000 + signIns);
+};
 const newProvider = (config = {}) => new MimoOAuthProvider({ preconnect: false, ...config });
 const chatRequests = (gw) => gw.requests.filter((r) => r.url.endsWith('/chat/completions'));
 const attempt = async (promise) => {
@@ -49,18 +56,19 @@ const attempt = async (promise) => {
     return { error };
   }
 };
-// One case against a gateway: the requests are written with the gateway's own address as <gw>.
+// One case against a gateway (127.0.0.1:47831 + the gateway's number).
 const withGateway = async (respond, fn) => {
   const gw = await gateway(respond);
   try {
     const out = await fn(gw);
-    return gw.scrub(rec.view({ ...out, requests: gw.requests }));
+    return { ...out, requests: gw.requests };
   } finally {
     gw.close();
   }
 };
 const hi = [{ role: 'user', content: 'hi' }];
 // The token file's modification time is the real file system's clock, not the virtual one: written as a marker.
+// The token file the product itself rewrites carries the real modification time of that write: a marker at result.persisted.mtimeMs.
 const stamped = (tokens) => ({ ...tokens, mtimeMs: '<token file mtime (real clock)>' });
 const HISTORY = [
   { role: 'user', content: 'go' },
@@ -68,8 +76,7 @@ const HISTORY = [
   { role: 'tool', toolCallId: 'call_1', content: 'file text' },
 ];
 const TOOLS = [{ name: 'read', description: 'read a file', inputSchema: { type: 'object', properties: {} } }];
-// The gateway address is not part of the recording: the credentials the product stored carry <gw>.
-const signedIn = (gw, key) => (signIn(gw.baseUrl, key), { credentials: { apiKey: key ?? 'sk-wire', uid: 'u', baseUrl: '<gw>/v1' } });
+const signedIn = (gw, key) => (signIn(gw.baseUrl, key), { credentials: { apiKey: key ?? 'sk-wire', uid: 'u', baseUrl: gw.baseUrl } });
 
 await rec.run('replays-stored-reasoning-never-invents', `${SRC}:77`, { history: HISTORY, tools: TOOLS }, () => withGateway(streamOk, async (gw) => {
   signIn(gw.baseUrl);
@@ -133,7 +140,7 @@ await rec.run('stale-or-other-credential-discovery-not-published', `${SRC}:239`,
   const held = [];
   const gw = await gateway((_req, _body, res) => held.push(res));
   const answer = (i, id) => json(held[i], 200, { data: [{ id, context_window: 7000 }] });
-  const cachedIds = () => providerCachedModelsSync('mimo-oauth').map((m) => m.id);
+  const cachedModels = () => providerCachedModelsSync('mimo-oauth');
   try {
     signIn(gw.baseUrl);
     const provider = newProvider();
@@ -145,14 +152,45 @@ await rec.run('stale-or-other-credential-discovery-not-published', `${SRC}:239`,
     const newerRows = await newer;
     answer(0, 'mimo-v2.6-pro');
     const olderRows = await older;
-    const afterOlder = { cachedIds: cachedIds(), liveIds: (provider._inner._enrichedModels || []).map((m) => m.id), rosterIds: provider._rosterItems.map((m) => m.id) };
+    const afterOlder = { cachedModels: cachedModels(), liveModels: provider._inner._enrichedModels || [], rosterItems: provider._rosterItems };
     const switched = provider.listModels();
     await gw.arrived(3);
     signIn(gw.baseUrl, 'sk-other');
     answer(2, 'mimo-v2.6-pro');
     const switchedRows = await switched;
-    const afterSwitch = { cachedIds: cachedIds(), liveIds: (provider._inner._enrichedModels || []).map((m) => m.id), rosterIds: provider._rosterItems.map((m) => m.id) };
-    return gw.scrub(rec.view({ order: 'request 2 answered first, then request 1; then the key switches while request 3 is in flight', newerRows, olderRows, afterOlder, switchedRows, afterSwitch, requests: gw.requests }));
+    const afterSwitch = { cachedModels: cachedModels(), liveModels: provider._inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    // Supersession during catalog enrichment (after the fetch settled): `name` is read once more right after enrichment finishes, and the
+    // test hooks that read (private _inner members) to supersede the request at exactly that point.
+    signIn(gw.baseUrl);
+    const base = provider.listModels();
+    await gw.arrived(4);
+    answer(3, 'mimo-v2.6-flash');
+    await base;
+    const inner = provider._inner;
+    const afterBase = { innerModels: inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    const innerName = inner.name;
+    let onEnriched = null;
+    let reads = 0;
+    Object.defineProperty(inner, 'name', { configurable: true, get() { if (onEnriched && ++reads === 2) onEnriched(); return innerName; } });
+    const duringEnrichment = async (action, heldIndex) => {
+      reads = 0;
+      onEnriched = action;
+      const pending = provider.listModels();
+      await gw.arrived(heldIndex + 1);
+      answer(heldIndex, 'mimo-v2.6-pro');
+      const got = await pending;
+      onEnriched = null;
+      return got;
+    };
+    let newerFetch;
+    const gotOlder = await duringEnrichment(() => { newerFetch = inner._fetchModelItems({}); }, 4);
+    await gw.arrived(6);
+    answer(5, 'mimo-v2.6-flash');
+    await newerFetch;
+    const afterNewerClaimed = { innerModels: inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    const gotSwitched = await duringEnrichment(() => signIn(gw.baseUrl, 'sk-other'), 6);
+    const afterKeySwitchedDuringEnrichment = { innerModels: inner._enrichedModels || [], rosterItems: provider._rosterItems };
+    return { order: 'request 2 answered first, then request 1; then the key switches while request 3 is in flight; then supersession during enrichment', newerRows, olderRows, afterOlder, switchedRows, afterSwitch, afterBase, gotOlder, afterNewerClaimed, gotSwitched, afterKeySwitchedDuringEnrichment, requests: gw.requests };
   } finally {
     gw.close();
   }
@@ -175,7 +213,7 @@ await rec.run('token-plan-probe-sgp-ams-cn-persists', `${SRC}:360`, {}, async ()
   await ensureTokenPlanBaseUrl({ apiKey: 'sk-1', uid: '', baseUrl: '' }, { fetchImpl });
   await ensureTokenPlanBaseUrl({ apiKey: 'tp-1', uid: '', baseUrl: 'https://x.test/v1' }, { fetchImpl });
   const nonAuth = await attempt(probeTokenPlanBaseUrl('tp-abc', { fetchImpl: async () => new Response('nope', { status: 500 }) }));
-  return { first, ensured: stamped(tokens), persisted: stamped(persisted), probesForNonTokenPlanOrKnownUrl: calls.length, nonAuth };
+  return { first, ensured: tokens, persisted: stamped(persisted), probesForNonTokenPlanOrKnownUrl: calls.length, nonAuth };
 });
 await rec.run('caller-cannot-move-mimo-to-responses', `${SRC}:408`, { opts: { compatWireApi: 'responses', responsesTransport: 'ws' } }, () => withGateway(streamOk, async (gw) => {
   signIn(gw.baseUrl);
@@ -283,8 +321,9 @@ await rec.run('stored-key-redacted-in-logs-and-400', `${SRC}:612`, { key: 'sk-ve
       let done = false;
       pending.then(() => (done = true), () => (done = true));
       await gw.responded(1);
-      for (let turn = 0; !done; turn += 1) {
-        if (turn > 5000) throw new Error('recorder: the 503 retry did not complete within 5000 event-loop turns');
+      const deadline = process.hrtime.bigint() + 30_000_000_000n;
+      while (!done) {
+        if (process.hrtime.bigint() > deadline) throw new Error('recorder: the 503 retry did not complete within 30 s');
         await new Promise((resolve) => realSetImmediate(resolve));
         const now = Date.now() - T0;
         const due = rec.clock.pending().map((t) => t.due).filter((d) => d > now && d - now <= 31_000)[0];
@@ -310,7 +349,7 @@ await rec.run('probe-finishing-after-newer-sign-in-does-not-overwrite', `${SRC}:
   signIn('https://new.example/v1', 'sk-new');
   release();
   await pending;
-  return { stored: stamped(loadTokens()) };
+  return { stored: loadTokens() };
 });
 await rec.run('deleted-token-file-signs-out', `${SRC}:662`, {}, () => withGateway(streamOk, async (gw) => {
   signIn(gw.baseUrl);
@@ -338,5 +377,21 @@ await rec.run('abort-during-regional-probe-is-cancellation', `${SRC}:684`, {}, a
   });
   const err = await provider.send(hi, 'm', [], { signal: ctl.signal }).catch((e) => e);
   return { error: err, isTheCallersReason: err === reason, urls };
+});
+await rec.run('widened-stream-waits-and-explicit-first-byte-allowance', `${SRC}:466`, { firstByteTimeoutMs: 30, label: 'x', providerName: 'x', stream: 'an async iterable whose next() never settles', advanceMs: [30], plainSend: { provider: 'deepseek', model: 'deepseek-chat' } }, async () => {
+  const stall = await rec.P('agent/orchestrator/stall-policy.mjs');
+  const policy = { shared: { PROVIDER_FIRST_BYTE_TIMEOUT_MS: stall.PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS: stall.PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS }, mimo: { MIMO_FIRST_BYTE_TIMEOUT_MS: profile.MIMO_FIRST_BYTE_TIMEOUT_MS, MIMO_SEMANTIC_IDLE_TIMEOUT_MS: profile.MIMO_SEMANTIC_IDLE_TIMEOUT_MS, MIMO_CHAT_PROFILE: profile.MIMO_CHAT_PROFILE } };
+  const silent = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}), return: async () => ({}) }) };
+  const pending = consumeCompatChatCompletionStream(silent, { label: 'x', providerName: 'x', firstByteTimeoutMs: 30 }).then((response) => ({ response }), (error) => ({ error }));
+  await rec.clock.advance(30);
+  const stalled = await pending;
+  const gw = await gateway(streamOk);
+  try {
+    const plain = new OpenAICompatProvider('deepseek', { baseURL: gw.baseUrl, apiKey: 'k', preconnect: false });
+    await plain.send([{ role: 'user', content: 'hi' }], 'deepseek-chat', [], {});
+    return { policy, stalled, plainSendRequests: gw.requests };
+  } finally {
+    gw.close();
+  }
 });
 await rec.finish({ clockStartMs: T0 });
