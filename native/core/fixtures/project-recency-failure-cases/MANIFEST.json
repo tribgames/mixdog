@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -107,7 +107,7 @@
   "recorderSha256": "f57d764394bc57520614f25683488ff2883b6da73d346aeae166d8fb53888d6d",
   "replay": {
     "compare": "mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside",
-    "entry": "Drive these public items on o1: mixdog-store/src/registry.rs:282 add; mixdog-store/src/registry.rs:309 touch_selected; mixdog-store/src/registry.rs:335 remove; mixdog-store/src/registry.rs:354 rename.",
+    "entry": "Drive these public items on o1: mixdog-store/src/registry.rs:282 add; mixdog-store/src/registry.rs:309 touch_selected; mixdog-store/src/registry.rs:335 remove; mixdog-store/src/registry.rs:354 rename; startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222).",
     "existsButNotPublicOnO1": [
       "a recency write failure that does not stop the work exists for set_cwd: mixdog-core-session/src/session/thread_settings.rs:754 logs the touch_selected failure and continues (private trait-impl method :714; trait ProjectFolders :100 / touch_selected :110 is public)"
     ],
@@ -117,7 +117,9 @@
     "normalised": {
       "dataDir": "<root>, wherever it occurs; separators as Node produced them (backslashes on win32, doubled inside JSON text)"
     },
-    "protocolMethods": [],
+    "protocolMethods": [
+      "startProjectTask (mixdog-app-protocol/src/inventory.rs:888, :1222)"
+    ],
     "rustTargets": [
       {
         "line": 282,
