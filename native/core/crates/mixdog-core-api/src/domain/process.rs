@@ -214,4 +214,10 @@ pub trait ProcessManager: Send + Sync {
         self.kill(handle)
     }
     fn list(&self) -> Vec<ProcessInfo>;
+    /// Hands a live process spawned ahead of its use (a parked shell standby, owned `Internal`) to `owner`, its run limit
+    /// counted from now. A manager that cannot hand processes over refuses with `UnknownHandle`, and the caller spawns.
+    fn claim(&self, handle: &ProcessHandle, owner: ProcessOwner, time_limit: Option<Duration>) -> Result<(), ProcessError> {
+        let _ = (handle, owner, time_limit);
+        Err(ProcessError::UnknownHandle)
+    }
 }

@@ -224,6 +224,7 @@ pub fn build_exec(
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.
         powershell: cfg!(windows),
+        warm_standby: true,
         wake: wakes.clone(),
         policy: Arc::new(NodeCommandPolicy),
         now_ms: Arc::new(now_ms),
@@ -241,6 +242,7 @@ mod tests {
     use mixdog_core_api::domain::mock::MockFileService;
     use mixdog_core_api::domain::mock::MockProgress;
     use mixdog_core_api::domain::tool::*;
+    use mixdog_protocol::ProcessHandle;
     use mixdog_protocol::ToolCallId;
     use mixdog_protocol::TurnId;
     use mixdog_tools::exec::ShellTool;
@@ -376,6 +378,7 @@ mod tests {
     struct Rig {
         dir: tempfile::TempDir,
         processes: LocalProcessManager,
+        runtime: Arc<ExecRuntime>,
         shell: ShellTool,
         task: TaskTool,
     }
@@ -394,12 +397,28 @@ mod tests {
             SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
             ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
         );
-        Rig { dir, processes, shell: ShellTool::new(exec.runtime.clone()), task: TaskTool::new(exec.runtime) }
+        Rig { dir, processes, runtime: exec.runtime.clone(), shell: ShellTool::new(exec.runtime.clone()), task: TaskTool::new(exec.runtime) }
     }
 
     impl Rig {
         async fn run(&self, call: &str, command: &str) -> String {
-            text(self.shell.call(&ctx(self.dir.path(), call, self.processes.clone()), serde_json::json!({"command": command})).await)
+            self.run_in(self.dir.path(), call, command).await
+        }
+
+        async fn run_in(&self, cwd: &Path, call: &str, command: &str) -> String {
+            text(self.shell.call(&ctx(cwd, call, self.processes.clone()), serde_json::json!({"command": command})).await)
+        }
+
+        /// The standby parked next, once it is.
+        async fn parked(&self) -> ProcessHandle {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                if let Some(handle) = self.runtime.parked_standby() {
+                    return handle;
+                }
+                assert!(Instant::now() < deadline, "no standby was parked");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
         }
 
         async fn task(&self, call: &str, args: serde_json::Value) -> String {
@@ -462,6 +481,83 @@ mod tests {
             }
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// PowerShell commands run in the warm standby as in Node (`fixtures/shell-warm-standby/golden.json`, recorded from
+    /// Node b6f10295a by `record-shell-warm-standby.mjs`): a command taken by the parked standby runs in its folder (one
+    /// whose name needs the Base64 hand-off) for PowerShell and .NET with its session's TEMP, and the next command, in the
+    /// next standby, does not see the global it set; a command from another folder (another environment) does not take
+    /// the standby and runs cold. Whether each command ran in the parked standby is told, as Node's recording tells it, by
+    /// the process id it prints last. Each standby runs one command, and shutdown ends the parked one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[allow(clippy::disallowed_methods, reason = "the test makes its folders on the test thread")]
+    async fn powershell_commands_run_in_the_warm_standby_as_nodes_do() {
+        use mixdog_core_api::domain::process::ProcessEvent;
+        use mixdog_core_api::domain::process::ProcessManager;
+        let want: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/shell-warm-standby/golden.json")).unwrap();
+        let rig = rig().await;
+        let (a, b) = (rig.dir.path().join("ws-a it\u{2019}s"), rig.dir.path().join("ws-b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let mut temp = String::new();
+        let mut used = Vec::new();
+        let mut wrong = Vec::new();
+        for (i, call) in want["calls"].as_array().unwrap().iter().enumerate() {
+            let parked = if call["parked"].as_bool().unwrap() { Some(rig.parked().await) } else { None };
+            let parked_pid = parked.as_ref().and_then(|h| rig.processes.list().into_iter().find(|p| &p.handle == h)).map(|p| p.pid);
+            let dir = if call["ws"] == "A" { &a } else { &b };
+            let ran = rig.run_in(dir, &format!("w{i}"), call["input"]["command"].as_str().unwrap()).await;
+            let (body, pid) = ran.trim_end().rsplit_once("pid|").unwrap_or_else(|| panic!("call {i}: no pid line in {ran:?}"));
+            let body = body.strip_suffix('\n').map(|b| b.strip_suffix('\r').unwrap_or(b)).unwrap();
+            let taken = parked_pid == Some(pid.parse().unwrap());
+            if i == 0 {
+                temp = body.lines().find_map(|line| line.strip_prefix("cold|")).unwrap().split('|').nth(1).unwrap().to_owned();
+            }
+            let view = body
+                .replace(&*a.to_string_lossy(), "<A>")
+                .replace(&*b.to_string_lossy(), "<B>")
+                .replace(&temp, "<TEMP>");
+            if view != call["text"].as_str().unwrap() || taken != call["taken"].as_bool().unwrap() {
+                wrong.push(format!("{i}: taken {taken} {view:?}"));
+            }
+            if taken {
+                used.extend(parked);
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+        assert!(used.len() >= 2 && used[0] != used[1], "each standby runs one command: {used:?}");
+        let parked = rig.parked().await;
+        let mut events = rig.processes.subscribe(&parked, Some(0)).unwrap();
+        rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+        let ended = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                if let Some(ProcessEvent::Exited { .. }) | None = events.next().await {
+                    return;
+                }
+            }
+        });
+        ended.await.expect("shutdown ended the parked standby");
+        assert_eq!(rig.runtime.parked_standby(), None, "nothing is parked after shutdown");
+    }
+
+    /// The time from a shell call to its result for a PowerShell command that prints at once, as Node's warm standby is
+    /// measured against it: a warm-up call, then 20 calls a few seconds apart (a model's pace, which lets a standby
+    /// refill), their median printed. A measurement, run on request: `-- --ignored pwsh_call_latency --nocapture`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "a measurement, not a check"]
+    async fn pwsh_call_latency() {
+        let rig = rig().await;
+        assert!(rig.run("warm", "Write-Output hi").await.contains("hi"));
+        let mut times = Vec::new();
+        for i in 0..20 {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            let start = std::time::Instant::now();
+            let ran = rig.run(&format!("m{i}"), "Write-Output hi").await;
+            times.push(start.elapsed().as_secs_f64() * 1000.0);
+            assert!(ran.contains("hi"), "{ran}");
+        }
+        times.sort_by(f64::total_cmp);
+        println!("pwsh call latency ms: median {:.0} (min {:.0}, max {:.0})", (times[9] + times[10]) / 2.0, times[0], times[19]);
     }
 
     /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.

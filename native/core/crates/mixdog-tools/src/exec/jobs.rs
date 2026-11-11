@@ -213,6 +213,9 @@ pub struct ExecConfig {
     pub windows: bool,
     /// The default shell is PowerShell (the wmic rewrite applies).
     pub powershell: bool,
+    /// PowerShell commands run in a warm standby when one is parked ([`super::standby`]); the process manager must hand
+    /// processes over (`ProcessManager::claim`).
+    pub warm_standby: bool,
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
@@ -1075,6 +1078,7 @@ pub struct ExecRuntime {
     /// The hoisted scripts and tee captures a command still uses, removed when it settles or, for
     /// a tree that never settled, at shutdown (`PENDING_ARTIFACT_PATHS`, `transport-artifacts.mjs`).
     artifacts: Mutex<Vec<PathBuf>>,
+    pub(crate) standby: Arc<super::standby::Standby>,
 }
 
 /// The owner's user cycle (`currentUserCycle`): how many genuine prompts the session has seen.
@@ -1101,12 +1105,19 @@ impl ExecRuntime {
             swept: std::sync::atomic::AtomicBool::new(false),
             sweep: Mutex::new(None),
             artifacts: Mutex::new(Vec::new()),
+            standby: Arc::default(),
         })
     }
 
-    /// Shutdown: removes the shell snapshots this runtime made, and the hoisted scripts and tee
-    /// captures of commands that never settled (Node's exit hooks), once the log sweep has ended.
+    /// The parked PowerShell standby's handle, for tests.
+    pub fn parked_standby(&self) -> Option<ProcessHandle> {
+        self.standby.parked()
+    }
+
+    /// Shutdown: ends the parked PowerShell standby, removes the shell snapshots this runtime made, and the hoisted
+    /// scripts and tee captures of commands that never settled (Node's exit hooks), once the log sweep has ended.
     pub async fn drain_snapshots(&self, cancel: &CancellationToken) {
+        self.standby.end();
         let sweep = lock(&self.sweep).take();
         if let Some(sweep) = sweep {
             let _ = sweep.await;
@@ -1180,11 +1191,13 @@ impl ExecRuntime {
         (self.config.now_ms)()
     }
 
-    /// Spawns the process, registers the task and starts the collector on a lane.
+    /// Spawns the process, or claims the parked `standby` taken for it, registers the task and starts the collector on a
+    /// lane. A standby that cannot be claimed is ended, unfed, and the process spawned.
     pub async fn start(
         self: &Arc<Self>,
         processes: &Arc<dyn ProcessManager>,
         request: SpawnRequest,
+        standby: Option<ProcessHandle>,
         task_id: String,
         command: String,
         owner: ThreadId,
@@ -1208,7 +1221,20 @@ impl ExecRuntime {
             });
             *lock(&self.sweep) = Some(sweep);
         }
-        processes.spawn(request).await?;
+        let claimed = standby.filter(|parked| {
+            let claimed = processes.claim(parked, request.owner.clone(), request.time_limit).is_ok();
+            if !claimed {
+                let _ = processes.kill(parked);
+            }
+            claimed
+        });
+        let handle = match claimed {
+            Some(parked) => parked,
+            None => {
+                processes.spawn(request).await?;
+                handle
+            }
+        };
         let source = processes.subscribe(&handle, Some(0))?;
         let (settled, _) = watch::channel(false);
         let started_ms = self.now_ms();

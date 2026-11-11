@@ -818,8 +818,18 @@ impl ShellTool {
             },
             time_limit: (time_limit > 0).then(|| Duration::from_millis(time_limit)),
         };
+        // A PowerShell script runs in the parked warm standby when it matches (`takeStandby`, `shell-run-spawn.mjs`),
+        // fed what the hand-off sets first; any miss spawns.
+        let fresh = request.handle.clone();
+        let standby = match (&fed_script, &request.command) {
+            (Some(_), CommandSpec::Shell { shell: Some(program), .. }) if runtime.config.warm_standby => {
+                runtime.standby.take(&ctx.processes, program, &request.env)
+            }
+            _ => None,
+        };
+        let hand_off = super::standby::hand_off_prelude(&request.env, &request.cwd.as_path().to_string_lossy());
         let started = runtime
-            .start(&ctx.processes, request, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone(), &ctx.cancel)
+            .start(&ctx.processes, request, standby, task_id, command.clone(), ctx.thread_id.clone(), time_limit, ctx.review.clone(), ctx.options.notify.clone(), &ctx.cancel)
             .await;
         let job = match started {
             Ok(job) => job,
@@ -830,7 +840,10 @@ impl ShellTool {
                 return Err(spawn_failure(error));
             }
         };
-        if let Some(script) = fed_script {
+        if let Some(mut script) = fed_script {
+            if job.handle != fresh {
+                script.insert_str(0, &hand_off);
+            }
             // One write, then end of input: the bootstrap reads to the end before it compiles. A
             // process that is already gone has nothing to read; its exit is reported as it is.
             let _ = ctx.processes.write_stdin(&job.handle, script.into_bytes()).await;
