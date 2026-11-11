@@ -78,7 +78,8 @@
               ]
             }
           }
-        ]
+        ],
+        "nextSend": "the next send on the same pool and cache key, forceFresh off, answered completed resp_2"
       },
       "result": {
         "result": {
@@ -165,6 +166,76 @@
             "handshakeRetries": 0,
             "acquireAttempts": 1,
             "acquireMode": "new"
+          }
+        },
+        "nextSend": {
+          "result": {
+            "content": "next",
+            "model": "gpt-fixture",
+            "reasoningItems": {
+              "$exact": "undefined"
+            },
+            "providerReplay": {
+              "version": 1,
+              "provider": "openai-responses",
+              "items": [
+                {
+                  "type": "message",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "next"
+                    }
+                  ]
+                }
+              ]
+            },
+            "toolCalls": {
+              "$exact": "undefined"
+            },
+            "citations": {
+              "$exact": "undefined"
+            },
+            "webSearchCalls": {
+              "$exact": "undefined"
+            },
+            "usage": {
+              "inputTokens": 1,
+              "outputTokens": 1,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 1,
+              "raw": {
+                "input_tokens": 1,
+                "output_tokens": 1
+              }
+            },
+            "stopReason": {
+              "$exact": "undefined"
+            },
+            "incompleteReason": {
+              "$exact": "undefined"
+            },
+            "serviceTier": {
+              "$exact": "undefined"
+            },
+            "transportTiming": {
+              "transport": "websocket",
+              "outcome": "ok",
+              "admissionQueueWaitMs": "<ms, real clock>",
+              "providerConcurrentRequests": 1,
+              "providerQueuedRequests": 0,
+              "poolOwnerWaitMs": "<ms, real clock>",
+              "socketAcquireMs": "<ms, real clock>",
+              "poolAcquireMs": "<ms, real clock>",
+              "requestBuildSerializationMs": "<ms, real clock>",
+              "preResponseCreatedMs": "<ms, real clock>",
+              "providerFirstEventMs": "<ms, real clock>",
+              "retryBackoffMs": "<ms, real clock>",
+              "handshakeRetries": 0,
+              "acquireAttempts": 1,
+              "acquireMode": "reused"
+            }
           }
         },
         "events": [
@@ -287,7 +358,7 @@
           {
             "event": "frame",
             "dir": "client->server",
-            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225600000}\",\"x-codex-ws-stream-request-start-ms\":\"1794225600000\"}}"
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"store\":true,\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225600000}\",\"x-codex-ws-stream-request-start-ms\":\"1794225600000\"}}"
           },
           {
             "event": "frame",
@@ -383,6 +454,49 @@
             "event": "send-settled"
           },
           {
+            "event": "next-send"
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"},{\"type\":\"message\",\"role\":\"user\",\"content\":\"next\"}],\"store\":true,\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225600000}\",\"x-codex-ws-stream-request-start-ms\":\"1794225600000\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_2\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_2\",\"model\":\"gpt-fixture\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"next\"}]}]}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "send-settled"
+          },
+          {
             "event": "recorder-cleanup-close"
           },
           {
@@ -417,7 +531,8 @@
                     "role": "user",
                     "content": "hi"
                   }
-                ]
+                ],
+                "store": true
               },
               "sendOpts": {},
               "onStreamDelta": {
@@ -434,7 +549,54 @@
               "cacheKey": "ws-stream-test",
               "iteration": 0,
               "useModel": "gpt-fixture",
-              "forceFresh": true,
+              "forceFresh": false,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ],
+                "store": true
+              },
+              "sendOpts": {},
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "ws-stream-test",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": false,
               "onStageChange": {
                 "callback": "onStageChange"
               }
@@ -3174,7 +3336,7 @@
       ]
     },
     {
-      "id": "close-before-terminal-keeps-partial-state",
+      "id": "close-dropped-without-close-frame-before-terminal",
       "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:187",
       "input": {
         "frames": [
@@ -3199,18 +3361,16 @@
             }
           }
         ],
-        "close": [
-          1006,
-          "gone"
-        ]
+        "close": "drop"
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "RangeError",
-          "message": "Invalid WebSocket frame: invalid status code 1006",
-          "code": "WS_ERR_INVALID_CLOSE_CODE",
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
           "props": {
+            "wsCloseCode": 1006,
+            "wsCloseReason": "",
             "partialContent": "half",
             "partialToolCalls": {
               "$exact": "undefined"
@@ -3391,11 +3551,8 @@
             "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_open\",\"call_id\":\"c\",\"name\":\"n\"}}"
           },
           {
-            "event": "close-frame-sent",
-            "by": "server",
-            "code": 1006,
-            "reason": "gone",
-            "bytesHex": "880603ee676f6e65"
+            "event": "terminate",
+            "by": "server"
           },
           {
             "event": "progress",
@@ -3430,6 +3587,301 @@
             "serverInitiated": true,
             "code": 1006,
             "reason": ""
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              },
+              "sendOpts": {},
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "ws-stream-test",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": true,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "close-frame-1011-gone-before-terminal",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:187",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          },
+          {
+            "type": "response.output_text.delta",
+            "delta": "half"
+          },
+          {
+            "type": "response.output_item.added",
+            "item": {
+              "type": "function_call",
+              "id": "fc_open",
+              "call_id": "c",
+              "name": "n"
+            }
+          }
+        ],
+        "close": [
+          1011,
+          "gone"
+        ]
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1011, reason=gone)",
+          "props": {
+            "wsCloseCode": 1011,
+            "wsCloseReason": "gone",
+            "partialContent": "half",
+            "partialToolCalls": {
+              "$exact": "undefined"
+            },
+            "partialProviderReplay": {
+              "$exact": "undefined"
+            },
+            "pendingToolUse": true,
+            "partialModel": "gpt-fixture",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": true,
+              "textObservedChars": 4,
+              "reasoningEmitted": false,
+              "toolCallsStarted": true,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": true,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": true,
+              "observedOutput": true,
+              "sideEffectDispatched": false,
+              "replayUnsafe": true,
+              "replaySafe": false,
+              "successEligible": false
+            },
+            "liveTextEmitted": true,
+            "emittedText": true,
+            "partialToolCall": true,
+            "unsafeToRetry": true,
+            "wsFailurePhase": "stream",
+            "partialToolCallStarted": true
+          }
+        },
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "kPQsycBipXJp48fzX+dx8g=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: DWIQmUi3Y8b3iZrfqBvM9klWO8s="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225606454}\",\"x-codex-ws-stream-request-start-ms\":\"1794225606454\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_text.delta\",\"delta\":\"half\"}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_open\",\"call_id\":\"c\",\"name\":\"n\"}}"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1011,
+            "reason": "gone"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "text",
+            "chunk": "half"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "progress",
+            "kind": "tool"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1011,
+            "reason": "gone"
+          },
+          {
+            "event": "send-settled"
           }
         ]
       },
@@ -3528,18 +3980,16 @@
             "delta": "{\"pa"
           }
         ],
-        "close": [
-          1006,
-          "gone"
-        ]
+        "close": "drop"
       },
       "result": {
         "error": {
           "$exact": "error",
-          "name": "RangeError",
-          "message": "Invalid WebSocket frame: invalid status code 1006",
-          "code": "WS_ERR_INVALID_CLOSE_CODE",
+          "name": "Error",
+          "message": "OpenAI OAuth WS closed before response.completed (code=1006)",
           "props": {
+            "wsCloseCode": 1006,
+            "wsCloseReason": "",
             "partialContent": "",
             "partialToolCalls": [
               {
@@ -3676,7 +4126,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "kPQsycBipXJp48fzX+dx8g=="
+                "QbskeZtdRCKcbI9hEk2V7w=="
               ],
               [
                 "Connection",
@@ -3702,7 +4152,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: DWIQmUi3Y8b3iZrfqBvM9klWO8s="
+              "Sec-WebSocket-Accept: wKapD7B4lMUOv1vKw7OqbbRpmeM="
             ]
           },
           {
@@ -3751,11 +4201,8 @@
             "text": "{\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_open\",\"delta\":\"{\\\"pa\"}"
           },
           {
-            "event": "close-frame-sent",
-            "by": "server",
-            "code": 1006,
-            "reason": "gone",
-            "bytesHex": "880603ee676f6e65"
+            "event": "terminate",
+            "by": "server"
           },
           {
             "event": "progress",
@@ -3873,7 +4320,8 @@
           "name": "Error",
           "message": "stop",
           "props": {}
-        }
+        },
+        "nextSend": "the next send on the same pool and cache key, forceFresh off, answered completed resp_2"
       },
       "result": {
         "error": {
@@ -3909,262 +4357,74 @@
             "wsFailurePhase": "stream"
           }
         },
-        "events": [
-          {
-            "event": "stage",
-            "stage": "requesting",
-            "detail": {
+        "nextSend": {
+          "result": {
+            "content": "next",
+            "model": "gpt-fixture",
+            "reasoningItems": {
               "$exact": "undefined"
-            }
-          },
-          {
-            "event": "dial",
-            "host": "chatgpt.com",
-            "port": 443,
-            "servername": "chatgpt.com"
-          },
-          {
-            "event": "upgrade-request",
-            "method": "GET",
-            "target": "/backend-api/codex/responses",
-            "httpVersion": "1.1",
-            "headers": [
-              [
-                "Authorization",
-                "Bearer fixture-access-token"
-              ],
-              [
-                "chatgpt-account-id",
-                "acct-fixture"
-              ],
-              [
-                "originator",
-                "codex_cli_rs"
-              ],
-              [
-                "OpenAI-Beta",
-                "responses_websockets=2026-02-06"
-              ],
-              [
-                "User-Agent",
-                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
-              ],
-              [
-                "version",
-                "0.166.0"
-              ],
-              [
-                "x-codex-beta-features",
-                "remote_compaction_v2"
-              ],
-              [
-                "session-id",
-                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
-              ],
-              [
-                "thread-id",
-                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
-              ],
-              [
-                "x-client-request-id",
-                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
-              ],
-              [
-                "x-codex-window-id",
-                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
-              ],
-              [
-                "x-codex-turn-metadata",
-                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
-              ],
-              [
-                "x-codex-routing-hint",
-                "model=gpt-fixture"
-              ],
-              [
-                "Sec-WebSocket-Version",
-                "13"
-              ],
-              [
-                "Sec-WebSocket-Key",
-                "QbskeZtdRCKcbI9hEk2V7w=="
-              ],
-              [
-                "Connection",
-                "Upgrade"
-              ],
-              [
-                "Upgrade",
-                "websocket"
-              ],
-              [
-                "Sec-WebSocket-Extensions",
-                "permessage-deflate; client_max_window_bits"
-              ],
-              [
-                "Host",
-                "chatgpt.com"
-              ]
-            ]
-          },
-          {
-            "event": "upgrade-response",
-            "lines": [
-              "HTTP/1.1 101 Switching Protocols",
-              "Upgrade: websocket",
-              "Connection: Upgrade",
-              "Sec-WebSocket-Accept: wKapD7B4lMUOv1vKw7OqbbRpmeM="
-            ]
-          },
-          {
-            "event": "open"
-          },
-          {
-            "event": "stage",
-            "stage": "streaming",
-            "detail": {
-              "$exact": "undefined"
-            }
-          },
-          {
-            "event": "frame",
-            "dir": "client->server",
-            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225606454}\",\"x-codex-ws-stream-request-start-ms\":\"1794225606454\"}}"
-          },
-          {
-            "event": "frame",
-            "dir": "server->client",
-            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
-          },
-          {
-            "event": "progress",
-            "kind": "transport"
-          },
-          {
-            "event": "send-settled"
-          },
-          {
-            "event": "recorder-cleanup-close"
-          },
-          {
-            "event": "close-sent",
-            "by": "server",
-            "code": 1000,
-            "reason": "recorder-end"
-          },
-          {
-            "event": "closed",
-            "serverInitiated": true,
-            "code": 4002,
-            "reason": "aborted"
-          }
-        ]
-      },
-      "calls": [
-        {
-          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
-          "args": [
-            {
-              "auth": {
-                "type": "openai-oauth",
-                "access_token": "fixture-access-token",
-                "account_id": "acct-fixture"
-              },
-              "body": {
-                "model": "gpt-fixture",
-                "input": [
-                  {
-                    "type": "message",
-                    "role": "user",
-                    "content": "hi"
-                  }
-                ]
-              },
-              "sendOpts": {},
-              "onStreamDelta": {
-                "callback": "onStreamDelta"
-              },
-              "onToolCall": {
-                "callback": "onToolCall"
-              },
-              "onTextDelta": {
-                "callback": "onTextDelta"
-              },
-              "externalSignal": {
-                "aborted": false,
-                "reason": {
-                  "$exact": "undefined"
-                }
-              },
-              "poolKey": "ws-stream-test",
-              "cacheKey": "ws-stream-test",
-              "iteration": 0,
-              "useModel": "gpt-fixture",
-              "forceFresh": true,
-              "onStageChange": {
-                "callback": "onStageChange"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "id": "external-abort-tags-watchdog-abort",
-      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:361",
-      "input": {
-        "frames": [
-          {
-            "type": "response.created",
-            "response": {
-              "id": "resp_1",
-              "model": "gpt-fixture"
-            }
-          }
-        ],
-        "abort": {
-          "$exact": "error",
-          "name": "AgentStallAbortError",
-          "message": "stalled",
-          "props": {
-            "name": "AgentStallAbortError"
-          }
-        }
-      },
-      "result": {
-        "error": {
-          "$exact": "error",
-          "name": "AgentStallAbortError",
-          "message": "stalled",
-          "props": {
-            "name": "AgentStallAbortError",
-            "streamOutcome": {
+            },
+            "providerReplay": {
               "version": 1,
               "provider": "openai-responses",
-              "transport": "ws",
-              "terminalObserved": false,
-              "continuation": true,
-              "declaredContinuation": false,
-              "textEmitted": false,
-              "textObservedChars": 0,
-              "reasoningEmitted": false,
-              "toolCallsStarted": false,
-              "toolCallsComplete": 0,
-              "toolCallsDispatched": 0,
-              "dispatchAmbiguous": false,
-              "pendingToolInput": false,
-              "userAbort": false,
-              "stallObserved": true,
-              "truncatedStream": false,
-              "visibleOutput": false,
-              "observedOutput": false,
-              "sideEffectDispatched": false,
-              "replayUnsafe": false,
-              "replaySafe": true,
-              "successEligible": false
+              "items": [
+                {
+                  "type": "message",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "next"
+                    }
+                  ]
+                }
+              ]
             },
-            "wsFailurePhase": "stream",
-            "midstreamClassifier": "agent_stall"
+            "toolCalls": {
+              "$exact": "undefined"
+            },
+            "citations": {
+              "$exact": "undefined"
+            },
+            "webSearchCalls": {
+              "$exact": "undefined"
+            },
+            "usage": {
+              "inputTokens": 1,
+              "outputTokens": 1,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 1,
+              "raw": {
+                "input_tokens": 1,
+                "output_tokens": 1
+              }
+            },
+            "stopReason": {
+              "$exact": "undefined"
+            },
+            "incompleteReason": {
+              "$exact": "undefined"
+            },
+            "serviceTier": {
+              "$exact": "undefined"
+            },
+            "transportTiming": {
+              "transport": "websocket",
+              "outcome": "ok",
+              "admissionQueueWaitMs": "<ms, real clock>",
+              "providerConcurrentRequests": 1,
+              "providerQueuedRequests": 0,
+              "poolOwnerWaitMs": "<ms, real clock>",
+              "socketAcquireMs": "<ms, real clock>",
+              "poolAcquireMs": "<ms, real clock>",
+              "requestBuildSerializationMs": "<ms, real clock>",
+              "preResponseCreatedMs": "<ms, real clock>",
+              "providerFirstEventMs": "<ms, real clock>",
+              "retryBackoffMs": "<ms, real clock>",
+              "handshakeRetries": 0,
+              "acquireAttempts": 1,
+              "acquireMode": "new"
+            }
           }
         },
         "events": [
@@ -4287,7 +4547,535 @@
           {
             "event": "frame",
             "dir": "client->server",
-            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225606454}\",\"x-codex-ws-stream-request-start-ms\":\"1794225606454\"}}"
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"store\":true,\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225606454}\",\"x-codex-ws-stream-request-start-ms\":\"1794225606454\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "send-settled"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4002,
+            "reason": "aborted"
+          },
+          {
+            "event": "next-send"
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "3xDYIRyeSYqMygYU4SHQqQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: uRH3Xq3PX2ikVl9xugIxzNdS+Rg="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"},{\"type\":\"message\",\"role\":\"user\",\"content\":\"next\"}],\"store\":true,\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225606454}\",\"x-codex-ws-stream-request-start-ms\":\"1794225606454\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_2\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_2\",\"model\":\"gpt-fixture\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"next\"}]}]}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "send-settled"
+          },
+          {
+            "event": "recorder-cleanup-close"
+          },
+          {
+            "event": "close-sent",
+            "by": "server",
+            "code": 1000,
+            "reason": "recorder-end"
+          },
+          {
+            "event": "closed",
+            "serverInitiated": true,
+            "code": 1000,
+            "reason": "recorder-end"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ],
+                "store": true
+              },
+              "sendOpts": {},
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "poolKey": "ws-stream-test",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": false,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ],
+                "store": true
+              },
+              "sendOpts": {},
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "ws-stream-test",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": false,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "external-abort-tags-watchdog-abort",
+      "source": "src/runtime/agent/orchestrator/providers/openai-ws-stream.test.mjs:361",
+      "input": {
+        "frames": [
+          {
+            "type": "response.created",
+            "response": {
+              "id": "resp_1",
+              "model": "gpt-fixture"
+            }
+          }
+        ],
+        "abort": {
+          "$exact": "error",
+          "name": "AgentStallAbortError",
+          "message": "stalled",
+          "props": {
+            "name": "AgentStallAbortError"
+          }
+        },
+        "nextSend": "the next send on the same pool and cache key, forceFresh off, answered completed resp_2"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "AgentStallAbortError",
+          "message": "stalled",
+          "props": {
+            "name": "AgentStallAbortError",
+            "streamOutcome": {
+              "version": 1,
+              "provider": "openai-responses",
+              "transport": "ws",
+              "terminalObserved": false,
+              "continuation": true,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": true,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            },
+            "wsFailurePhase": "stream",
+            "midstreamClassifier": "agent_stall"
+          }
+        },
+        "nextSend": {
+          "result": {
+            "content": "next",
+            "model": "gpt-fixture",
+            "reasoningItems": {
+              "$exact": "undefined"
+            },
+            "providerReplay": {
+              "version": 1,
+              "provider": "openai-responses",
+              "items": [
+                {
+                  "type": "message",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "next"
+                    }
+                  ]
+                }
+              ]
+            },
+            "toolCalls": {
+              "$exact": "undefined"
+            },
+            "citations": {
+              "$exact": "undefined"
+            },
+            "webSearchCalls": {
+              "$exact": "undefined"
+            },
+            "usage": {
+              "inputTokens": 1,
+              "outputTokens": 1,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0,
+              "promptTokens": 1,
+              "raw": {
+                "input_tokens": 1,
+                "output_tokens": 1
+              }
+            },
+            "stopReason": {
+              "$exact": "undefined"
+            },
+            "incompleteReason": {
+              "$exact": "undefined"
+            },
+            "serviceTier": {
+              "$exact": "undefined"
+            },
+            "transportTiming": {
+              "transport": "websocket",
+              "outcome": "ok",
+              "admissionQueueWaitMs": "<ms, real clock>",
+              "providerConcurrentRequests": 1,
+              "providerQueuedRequests": 0,
+              "poolOwnerWaitMs": "<ms, real clock>",
+              "socketAcquireMs": "<ms, real clock>",
+              "poolAcquireMs": "<ms, real clock>",
+              "requestBuildSerializationMs": "<ms, real clock>",
+              "preResponseCreatedMs": "<ms, real clock>",
+              "providerFirstEventMs": "<ms, real clock>",
+              "retryBackoffMs": "<ms, real clock>",
+              "handshakeRetries": 0,
+              "acquireAttempts": 1,
+              "acquireMode": "new"
+            }
+          }
+        },
+        "events": [
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "gsQ1rOZWVrDVxJA2bTVSpw=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: V/gLIWAvaJ9iZMh46uaAsKoi+C4="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"}],\"store\":true,\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225606454}\",\"x-codex-ws-stream-request-start-ms\":\"1794225606454\"}}"
           },
           {
             "event": "frame",
@@ -4316,6 +5104,157 @@
             "event": "send-settled"
           },
           {
+            "event": "closed",
+            "serverInitiated": false,
+            "code": 4002,
+            "reason": "aborted"
+          },
+          {
+            "event": "next-send"
+          },
+          {
+            "event": "stage",
+            "stage": "requesting",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "dial",
+            "host": "chatgpt.com",
+            "port": 443,
+            "servername": "chatgpt.com"
+          },
+          {
+            "event": "upgrade-request",
+            "method": "GET",
+            "target": "/backend-api/codex/responses",
+            "httpVersion": "1.1",
+            "headers": [
+              [
+                "Authorization",
+                "Bearer fixture-access-token"
+              ],
+              [
+                "chatgpt-account-id",
+                "acct-fixture"
+              ],
+              [
+                "originator",
+                "codex_cli_rs"
+              ],
+              [
+                "OpenAI-Beta",
+                "responses_websockets=2026-02-06"
+              ],
+              [
+                "User-Agent",
+                "codex_cli_rs/0.166.0 (Windows 10.0.26300; x86_64) unknown"
+              ],
+              [
+                "version",
+                "0.166.0"
+              ],
+              [
+                "x-codex-beta-features",
+                "remote_compaction_v2"
+              ],
+              [
+                "session-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "thread-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-client-request-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd"
+              ],
+              [
+                "x-codex-window-id",
+                "88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0"
+              ],
+              [
+                "x-codex-turn-metadata",
+                "{\"installation_id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"agent_name\":\"/root\",\"turn_id\":\"\",\"window_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"request_kind\":\"prewarm\",\"thread_source\":\"user\",\"sandbox\":\"none\",\"sandbox_mode\":\"danger-full-access\",\"auto_review_enabled\":false,\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false}"
+              ],
+              [
+                "x-codex-routing-hint",
+                "model=gpt-fixture"
+              ],
+              [
+                "Sec-WebSocket-Version",
+                "13"
+              ],
+              [
+                "Sec-WebSocket-Key",
+                "tFerTqoGuamAjVrQaaemmQ=="
+              ],
+              [
+                "Connection",
+                "Upgrade"
+              ],
+              [
+                "Upgrade",
+                "websocket"
+              ],
+              [
+                "Sec-WebSocket-Extensions",
+                "permessage-deflate; client_max_window_bits"
+              ],
+              [
+                "Host",
+                "chatgpt.com"
+              ]
+            ]
+          },
+          {
+            "event": "upgrade-response",
+            "lines": [
+              "HTTP/1.1 101 Switching Protocols",
+              "Upgrade: websocket",
+              "Connection: Upgrade",
+              "Sec-WebSocket-Accept: vqGGySTIR6PVAWmxTyOkepWDHN4="
+            ]
+          },
+          {
+            "event": "open"
+          },
+          {
+            "event": "stage",
+            "stage": "streaming",
+            "detail": {
+              "$exact": "undefined"
+            }
+          },
+          {
+            "event": "frame",
+            "dir": "client->server",
+            "text": "{\"type\":\"response.create\",\"model\":\"gpt-fixture\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"hi\"},{\"type\":\"message\",\"role\":\"user\",\"content\":\"next\"}],\"store\":true,\"client_metadata\":{\"x-codex-installation-id\":\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\",\"session_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"thread_id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\",\"turn_id\":\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\",\"x-codex-window-id\":\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\",\"x-codex-turn-metadata\":\"{\\\"installation_id\\\":\\\"81e705b8-ef3e-40cf-8f3b-54aefbfe6d9d\\\",\\\"session_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"thread_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd\\\",\\\"agent_name\\\":\\\"/root\\\",\\\"turn_id\\\":\\\"6b28e61c-d3ad-7d84-a3b4-2ea4e2e54bf9\\\",\\\"window_id\\\":\\\"88c99c4a-baad-729e-bea4-3d00ba0c1dcd:0\\\",\\\"request_kind\\\":\\\"turn\\\",\\\"thread_source\\\":\\\"user\\\",\\\"turn_trigger\\\":\\\"user\\\",\\\"sandbox\\\":\\\"none\\\",\\\"sandbox_mode\\\":\\\"danger-full-access\\\",\\\"auto_review_enabled\\\":false,\\\"node_repl_auto_review_required\\\":false,\\\"node_repl_disabled\\\":false,\\\"turn_started_at_unix_ms\\\":1794225606454}\",\"x-codex-ws-stream-request-start-ms\":\"1794225606454\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_2\",\"model\":\"gpt-fixture\"}}"
+          },
+          {
+            "event": "frame",
+            "dir": "server->client",
+            "text": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_2\",\"model\":\"gpt-fixture\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1},\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"next\"}]}]}}"
+          },
+          {
+            "event": "progress",
+            "kind": "transport"
+          },
+          {
+            "event": "progress",
+            "kind": "text"
+          },
+          {
+            "event": "send-settled"
+          },
+          {
             "event": "recorder-cleanup-close"
           },
           {
@@ -4327,8 +5266,8 @@
           {
             "event": "closed",
             "serverInitiated": true,
-            "code": 4002,
-            "reason": "aborted"
+            "code": 1000,
+            "reason": "recorder-end"
           }
         ]
       },
@@ -4350,7 +5289,8 @@
                     "role": "user",
                     "content": "hi"
                   }
-                ]
+                ],
+                "store": true
               },
               "sendOpts": {},
               "onStreamDelta": {
@@ -4372,7 +5312,54 @@
               "cacheKey": "ws-stream-test",
               "iteration": 0,
               "useModel": "gpt-fixture",
-              "forceFresh": true,
+              "forceFresh": false,
+              "onStageChange": {
+                "callback": "onStageChange"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs.sendViaWebSocket",
+          "args": [
+            {
+              "auth": {
+                "type": "openai-oauth",
+                "access_token": "fixture-access-token",
+                "account_id": "acct-fixture"
+              },
+              "body": {
+                "model": "gpt-fixture",
+                "input": [
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "hi"
+                  },
+                  {
+                    "type": "message",
+                    "role": "user",
+                    "content": "next"
+                  }
+                ],
+                "store": true
+              },
+              "sendOpts": {},
+              "onStreamDelta": {
+                "callback": "onStreamDelta"
+              },
+              "onToolCall": {
+                "callback": "onToolCall"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              },
+              "externalSignal": null,
+              "poolKey": "ws-stream-test",
+              "cacheKey": "ws-stream-test",
+              "iteration": 0,
+              "useModel": "gpt-fixture",
+              "forceFresh": false,
               "onStageChange": {
                 "callback": "onStageChange"
               }
@@ -4581,7 +5568,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "3xDYIRyeSYqMygYU4SHQqQ=="
+                "bNtg/d0FFe4Ojmw54AoOMA=="
               ],
               [
                 "Connection",
@@ -4607,7 +5594,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: uRH3Xq3PX2ikVl9xugIxzNdS+Rg="
+              "Sec-WebSocket-Accept: sHjc7mkGsJOGuBWOCVpEkLRwB6E="
             ]
           },
           {
@@ -4732,7 +5719,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "gsQ1rOZWVrDVxJA2bTVSpw=="
+                "XOJLbha7Xfc2bC8iZInKVw=="
               ],
               [
                 "Connection",
@@ -4758,7 +5745,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: V/gLIWAvaJ9iZMh46uaAsKoi+C4="
+              "Sec-WebSocket-Accept: LxMMMyEEgA3b19udpSGTjVqzwck="
             ]
           },
           {
@@ -4883,7 +5870,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "tFerTqoGuamAjVrQaaemmQ=="
+                "/hZPizAoljNO9roN98hqlw=="
               ],
               [
                 "Connection",
@@ -4909,7 +5896,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: vqGGySTIR6PVAWmxTyOkepWDHN4="
+              "Sec-WebSocket-Accept: HEXRrLAgHn59WvzKuteWHGsfgak="
             ]
           },
           {
@@ -5034,7 +6021,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "bNtg/d0FFe4Ojmw54AoOMA=="
+                "jslSwt1fR2yQDYDw8/VhLQ=="
               ],
               [
                 "Connection",
@@ -5060,7 +6047,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: sHjc7mkGsJOGuBWOCVpEkLRwB6E="
+              "Sec-WebSocket-Accept: n4n/PsMu4pvU45yjiZvR5BKop4k="
             ]
           },
           {
@@ -5185,7 +6172,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "XOJLbha7Xfc2bC8iZInKVw=="
+                "8bWPPnS0v3FNa3O9Y7t60A=="
               ],
               [
                 "Connection",
@@ -5211,7 +6198,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: LxMMMyEEgA3b19udpSGTjVqzwck="
+              "Sec-WebSocket-Accept: wVRGMF3RAV+V0tCfpaz80e2PonY="
             ]
           },
           {
@@ -5336,7 +6323,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "/hZPizAoljNO9roN98hqlw=="
+                "589nIOkwopvt+DtiaOWxGA=="
               ],
               [
                 "Connection",
@@ -5362,7 +6349,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: HEXRrLAgHn59WvzKuteWHGsfgak="
+              "Sec-WebSocket-Accept: Z7W3LptVPfCJxI+2UhdgZfXl4DI="
             ]
           },
           {
@@ -5453,6 +6440,9 @@
           "advanceMs": 60000,
           "fromMs": 6454,
           "fired": [
+            {
+              "dueMs": 6704
+            },
             {
               "dueMs": 6704
             },
@@ -5777,7 +6767,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "jslSwt1fR2yQDYDw8/VhLQ=="
+                "SxeFQDdlrM6RmciAsvz3Nw=="
               ],
               [
                 "Connection",
@@ -5803,7 +6793,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: n4n/PsMu4pvU45yjiZvR5BKop4k="
+              "Sec-WebSocket-Accept: UUJfT43DvSGeockb8vdqwdQAk7k="
             ]
           },
           {
@@ -6152,7 +7142,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "8bWPPnS0v3FNa3O9Y7t60A=="
+                "Qqs64bNAt4YBSC6TnVJLRg=="
               ],
               [
                 "Connection",
@@ -6178,7 +7168,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: wVRGMF3RAV+V0tCfpaz80e2PonY="
+              "Sec-WebSocket-Accept: bpUWl8l0VTcOaZYxWGsAG+tP+OI="
             ]
           },
           {
@@ -6634,7 +7624,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "589nIOkwopvt+DtiaOWxGA=="
+                "3utsdw1i8zNvBJd8IXGErg=="
               ],
               [
                 "Connection",
@@ -6660,7 +7650,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: Z7W3LptVPfCJxI+2UhdgZfXl4DI="
+              "Sec-WebSocket-Accept: fRaMUArK1LjVN4jFr56nSTh/jOE="
             ]
           },
           {
@@ -7199,7 +8189,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "SxeFQDdlrM6RmciAsvz3Nw=="
+                "QpOI52OL5My4q1c3lsdPAg=="
               ],
               [
                 "Connection",
@@ -7225,7 +8215,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: UUJfT43DvSGeockb8vdqwdQAk7k="
+              "Sec-WebSocket-Accept: fvHGwpUfPB04EqlpRo8UOD9CVLA="
             ]
           },
           {
@@ -7660,7 +8650,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "Qqs64bNAt4YBSC6TnVJLRg=="
+                "hdUnMBTyp93+JVZJ++Xwlg=="
               ],
               [
                 "Connection",
@@ -7686,7 +8676,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: bpUWl8l0VTcOaZYxWGsAG+tP+OI="
+              "Sec-WebSocket-Accept: yMzorBPqt8guVXSUz/Pd9lR+Tug="
             ]
           },
           {
@@ -7968,7 +8958,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "3utsdw1i8zNvBJd8IXGErg=="
+                "M6oeB/jrTcZUhjZekQYqlA=="
               ],
               [
                 "Connection",
@@ -7994,7 +8984,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: fRaMUArK1LjVN4jFr56nSTh/jOE="
+              "Sec-WebSocket-Accept: 6Z0FwBL6xbj+QZUq9hL4hyJ/Rdk="
             ]
           },
           {
@@ -8446,7 +9436,7 @@
               ],
               [
                 "Sec-WebSocket-Key",
-                "QpOI52OL5My4q1c3lsdPAg=="
+                "pJtEN3pZgZ2z31thpuClGg=="
               ],
               [
                 "Connection",
@@ -8472,7 +9462,7 @@
               "HTTP/1.1 101 Switching Protocols",
               "Upgrade: websocket",
               "Connection: Upgrade",
-              "Sec-WebSocket-Accept: fvHGwpUfPB04EqlpRo8UOD9CVLA="
+              "Sec-WebSocket-Accept: c1HeStUVitr2jZZOXsLaiWvklic="
             ]
           },
           {
