@@ -3410,7 +3410,7 @@
     },
     {
       "id": "stale-or-other-credential-discovery-not-published",
-      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:239",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:242",
       "input": {},
       "result": {
         "order": "request 2 answered first, then request 1; then the key switches while request 3 is in flight; then supersession during enrichment",
@@ -4366,7 +4366,7 @@
     },
     {
       "id": "caller-cannot-move-mimo-to-responses",
-      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:408",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:382",
       "input": {
         "opts": {
           "compatWireApi": "responses",
@@ -4501,7 +4501,7 @@
     },
     {
       "id": "session-affinity-and-user-agent-headers",
-      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:430",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:399",
       "input": {},
       "result": {
         "requests": [
@@ -6212,7 +6212,7 @@
     },
     {
       "id": "org-project-env-never-sent",
-      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:560",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:561",
       "input": {
         "env": {
           "OPENAI_ORG_ID": "org-x",
@@ -6452,7 +6452,7 @@
     },
     {
       "id": "stored-key-redacted-in-logs-and-400",
-      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:612",
+      "source": "src/runtime/agent/orchestrator/providers/mimo-oauth-wire.test.mjs:615",
       "input": {
         "key": "sk-very-secret-key-123"
       },

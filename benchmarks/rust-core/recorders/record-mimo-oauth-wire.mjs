@@ -136,7 +136,7 @@ await rec.run('discovery-drops-speech-keeps-names-seed-fallback', `${SRC}:195`, 
     return { rows, cached, metadata, fallbacks };
   });
 });
-await rec.run('stale-or-other-credential-discovery-not-published', `${SRC}:239`, {}, async () => {
+await rec.run('stale-or-other-credential-discovery-not-published', `${SRC}:242`, {}, async () => {
   const held = [];
   const gw = await gateway((_req, _body, res) => held.push(res));
   const answer = (i, id) => json(held[i], 200, { data: [{ id, context_window: 7000 }] });
@@ -215,12 +215,12 @@ await rec.run('token-plan-probe-sgp-ams-cn-persists', `${SRC}:360`, {}, async ()
   const nonAuth = await attempt(probeTokenPlanBaseUrl('tp-abc', { fetchImpl: async () => new Response('nope', { status: 500 }) }));
   return { first, ensured: tokens, persisted: stamped(persisted), probesForNonTokenPlanOrKnownUrl: calls.length, nonAuth };
 });
-await rec.run('caller-cannot-move-mimo-to-responses', `${SRC}:408`, { opts: { compatWireApi: 'responses', responsesTransport: 'ws' } }, () => withGateway(streamOk, async (gw) => {
+await rec.run('caller-cannot-move-mimo-to-responses', `${SRC}:382`, { opts: { compatWireApi: 'responses', responsesTransport: 'ws' } }, () => withGateway(streamOk, async (gw) => {
   signIn(gw.baseUrl);
   await newProvider().send(hi, 'mimo-v2.6-pro', [], { compatWireApi: 'responses', responsesTransport: 'ws' });
   return {};
 }));
-await rec.run('session-affinity-and-user-agent-headers', `${SRC}:430`, {}, () => withGateway(streamOk, async (gw) => {
+await rec.run('session-affinity-and-user-agent-headers', `${SRC}:399`, {}, () => withGateway(streamOk, async (gw) => {
   signIn(gw.baseUrl, 'sk-hdr');
   const provider = newProvider();
   await provider.send(hi, 'mimo-v2.6-pro', [], { sessionId: 'sess-1', parentSessionId: 'sess-0' });
@@ -277,7 +277,7 @@ await rec.run('seeds-ultraspeed-lineage-limits', `${SRC}:538`, {}, () => withGat
   signIn(gw.baseUrl);
   return { seedUltraspeed: profile.SEED_MODELS.find((m) => m.id === 'mimo-v2.6-pro-ultraspeed'), rows: await newProvider().listModels() };
 }));
-await rec.run('org-project-env-never-sent', `${SRC}:560`, { env: { OPENAI_ORG_ID: 'org-x', OPENAI_PROJECT_ID: 'proj-x' } }, () => withGateway(streamOk, async (gw) => {
+await rec.run('org-project-env-never-sent', `${SRC}:561`, { env: { OPENAI_ORG_ID: 'org-x', OPENAI_PROJECT_ID: 'proj-x' } }, () => withGateway(streamOk, async (gw) => {
   process.env.OPENAI_ORG_ID = 'org-x';
   process.env.OPENAI_PROJECT_ID = 'proj-x';
   try {
@@ -298,7 +298,7 @@ await rec.run('three-regional-401s-typed-reauth', `${SRC}:578`, {}, async () => 
   out.list = await attempt(provider.listModels());
   return out;
 });
-await rec.run('stored-key-redacted-in-logs-and-400', `${SRC}:612`, { key: 'sk-very-secret-key-123' }, async () => {
+await rec.run('stored-key-redacted-in-logs-and-400', `${SRC}:615`, { key: 'sk-very-secret-key-123' }, async () => {
   const KEY = 'sk-very-secret-key-123';
   let n = 0;
   return withGateway((req, _body, res) => {
