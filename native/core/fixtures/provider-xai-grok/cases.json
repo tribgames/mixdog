@@ -2714,122 +2714,490 @@
       "id": "xai-responses-fingerprint-payload",
       "source": "scripts/provider-toolcall/xai-grok.test.mjs:66",
       "input": {
-        "sessionId": "session-a"
+        "sessionId": "session-a",
+        "providerState": {
+          "xaiResponses": {
+            "store": false,
+            "seenMessageCount": 6
+          }
+        },
+        "env": {
+          "MIXDOG_XAI_CACHE_TRACE": "1",
+          "MIXDOG_AGENT_TRACE_PATH": "<data>/agent-trace.jsonl"
+        },
+        "response": {
+          "model": "grok-4.6-build",
+          "usage": {
+            "input_tokens": 7324,
+            "input_tokens_details": {
+              "cached_tokens": 128
+            }
+          }
+        }
       },
       "result": {
-        "provider": "xai",
-        "api": "responses",
-        "transport": "http",
-        "model": "grok-4.6",
-        "response_model": "grok-4.6-build",
-        "session_id_hash": "fa57a52dbf081902",
-        "provider_cache_key_hash": null,
-        "prompt_cache_key_option_hash": null,
-        "prompt_cache_key_hash": "37a8a2bdb766c748",
-        "xai_prompt_prefix_hash": "2abfdd076a21a3cd",
-        "xai_cache_mode": "session",
-        "xai_cache_seed_hash": "0693ed50848bc892",
-        "owner_session_hash": "fa57a52dbf081902",
-        "response_id_hash": null,
-        "previous_response_id_hash": null,
-        "previous_response_used": false,
-        "stateless_continuation_used": true,
-        "continuation_used": true,
-        "continuation_reset_reason": null,
-        "input_start_index": 0,
-        "input_count": 1,
-        "input_hash": "ab9a498d260e5fb0",
-        "request_sans_input_hash": "686e597275407b72",
-        "context_prefix_hash": "0075a441dc7379bc",
-        "has_instructions": false,
-        "instructions_chars": 0,
-        "instructions_hash": null,
-        "reasoning_effort": null,
-        "tool_count": 0,
-        "tool_schema_hash": "4f53cda18c2baa0c",
-        "tool_names_hash": "4f53cda18c2baa0c",
-        "xai_cache_lane_enabled": false,
-        "xai_cache_lane_hash": null,
-        "xai_cache_lane_shard": null,
-        "xai_cache_lane_shards": null,
-        "xai_cache_lane_auto": false,
-        "xai_cache_lane_seed_hash": null,
-        "xai_cache_lane_max_in_flight": null,
-        "xai_cache_lane_wait_ms": null,
-        "xai_cache_lane_queued": false,
-        "input_tokens": 7324,
-        "output_tokens": 0,
-        "cached_tokens": 128,
-        "cache_hit_rate": 0.017477,
-        "mid_turn_cold": true
-      },
-      "calls": [
-        {
-          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
-          "args": [
-            {
-              "sessionId": "session-a"
+        "sent": {
+          "result": {
+            "content": "ok",
+            "model": "grok-4.6-build",
+            "toolCalls": {
+              "$exact": "undefined"
             },
-            {
-              "messages": [
+            "stopReason": null,
+            "citations": {
+              "$exact": "undefined"
+            },
+            "webSearchCalls": {
+              "$exact": "undefined"
+            },
+            "providerReplay": {
+              "version": 1,
+              "provider": "xai-responses",
+              "items": [
                 {
-                  "role": "system",
-                  "content": "stable system"
+                  "type": "message",
+                  "role": "assistant",
+                  "content": [
+                    {
+                      "type": "output_text",
+                      "text": "ok"
+                    }
+                  ]
                 }
               ]
             },
-            [],
-            "grok-4.6"
+            "providerState": {
+              "xaiResponses": {
+                "previousResponseId": null,
+                "responseId": "resp-1",
+                "store": false,
+                "encryptedReasoningItems": [],
+                "encryptedReasoningHistory": [],
+                "seenMessageCount": 1,
+                "model": "grok-4.6",
+                "updatedAt": 1794225600000
+              }
+            },
+            "usage": {
+              "inputTokens": 7324,
+              "outputTokens": 0,
+              "cachedTokens": 128,
+              "cacheWriteTokens": 0,
+              "promptTokens": 7324,
+              "raw": {
+                "input_tokens": 7324,
+                "input_tokens_details": {
+                  "cached_tokens": 128
+                }
+              }
+            }
+          }
+        },
+        "trace": [
+          {
+            "iteration": null,
+            "kind": "cache_context",
+            "provider": "xai",
+            "api": "responses",
+            "transport": "http",
+            "model": "grok-4.6",
+            "response_model": "grok-4.6-build",
+            "session_id_hash": "fa57a52dbf081902",
+            "provider_cache_key_hash": null,
+            "prompt_cache_key_option_hash": null,
+            "prompt_cache_key_hash": "37a8a2bdb766c748",
+            "xai_prompt_prefix_hash": "c44d0c2e976793cb",
+            "xai_cache_mode": "session",
+            "xai_cache_seed_hash": "0693ed50848bc892",
+            "owner_session_hash": "fa57a52dbf081902",
+            "response_id_hash": "9a8fd09575cd0c25",
+            "previous_response_id_hash": null,
+            "previous_response_used": false,
+            "stateless_continuation_used": true,
+            "continuation_used": true,
+            "continuation_reset_reason": "seen_message_count_out_of_range",
+            "input_start_index": 0,
+            "input_count": 1,
+            "input_hash": "6d251201a2bc0499",
+            "request_sans_input_hash": "90f6dc82b3fc7a43",
+            "context_prefix_hash": "0075a441dc7379bc",
+            "has_instructions": false,
+            "instructions_chars": 0,
+            "instructions_hash": null,
+            "reasoning_effort": null,
+            "tool_count": 0,
+            "tool_schema_hash": "4f53cda18c2baa0c",
+            "tool_names_hash": "4f53cda18c2baa0c",
+            "xai_cache_lane_enabled": false,
+            "xai_cache_lane_hash": null,
+            "xai_cache_lane_shard": null,
+            "xai_cache_lane_shards": null,
+            "xai_cache_lane_auto": false,
+            "xai_cache_lane_seed_hash": null,
+            "xai_cache_lane_max_in_flight": 0,
+            "xai_cache_lane_wait_ms": null,
+            "xai_cache_lane_queued": false,
+            "input_tokens": 7324,
+            "output_tokens": 0,
+            "cached_tokens": 128,
+            "cache_hit_rate": 0.017477,
+            "mid_turn_cold": true,
+            "payload": {
+              "provider": "xai",
+              "api": "responses",
+              "transport": "http",
+              "model": "grok-4.6",
+              "response_model": "grok-4.6-build",
+              "session_id_hash": "fa57a52dbf081902",
+              "provider_cache_key_hash": null,
+              "prompt_cache_key_option_hash": null,
+              "prompt_cache_key_hash": "37a8a2bdb766c748",
+              "xai_prompt_prefix_hash": "c44d0c2e976793cb",
+              "xai_cache_mode": "session",
+              "xai_cache_seed_hash": "0693ed50848bc892",
+              "owner_session_hash": "fa57a52dbf081902",
+              "response_id_hash": "9a8fd09575cd0c25",
+              "previous_response_id_hash": null,
+              "previous_response_used": false,
+              "stateless_continuation_used": true,
+              "continuation_used": true,
+              "continuation_reset_reason": "seen_message_count_out_of_range",
+              "input_start_index": 0,
+              "input_count": 1,
+              "input_hash": "6d251201a2bc0499",
+              "request_sans_input_hash": "90f6dc82b3fc7a43",
+              "context_prefix_hash": "0075a441dc7379bc",
+              "has_instructions": false,
+              "instructions_chars": 0,
+              "instructions_hash": null,
+              "reasoning_effort": null,
+              "tool_count": 0,
+              "tool_schema_hash": "4f53cda18c2baa0c",
+              "tool_names_hash": "4f53cda18c2baa0c",
+              "xai_cache_lane_enabled": false,
+              "xai_cache_lane_hash": null,
+              "xai_cache_lane_shard": null,
+              "xai_cache_lane_shards": null,
+              "xai_cache_lane_auto": false,
+              "xai_cache_lane_seed_hash": null,
+              "xai_cache_lane_max_in_flight": 0,
+              "xai_cache_lane_wait_ms": null,
+              "xai_cache_lane_queued": false,
+              "input_tokens": 7324,
+              "output_tokens": 0,
+              "cached_tokens": 128,
+              "cache_hit_rate": 0.017477,
+              "mid_turn_cold": true
+            },
+            "ts": 1794225600000,
+            "session_id": "session-a"
+          },
+          {
+            "iteration": null,
+            "kind": "cache_anomaly",
+            "provider": "xai",
+            "api": "responses",
+            "transport": "http",
+            "model": "grok-4.6",
+            "response_model": "grok-4.6-build",
+            "session_id_hash": "fa57a52dbf081902",
+            "provider_cache_key_hash": null,
+            "prompt_cache_key_option_hash": null,
+            "prompt_cache_key_hash": "37a8a2bdb766c748",
+            "xai_prompt_prefix_hash": "c44d0c2e976793cb",
+            "xai_cache_mode": "session",
+            "xai_cache_seed_hash": "0693ed50848bc892",
+            "owner_session_hash": "fa57a52dbf081902",
+            "response_id_hash": "9a8fd09575cd0c25",
+            "previous_response_id_hash": null,
+            "previous_response_used": false,
+            "stateless_continuation_used": true,
+            "continuation_used": true,
+            "continuation_reset_reason": "seen_message_count_out_of_range",
+            "input_start_index": 0,
+            "input_count": 1,
+            "input_hash": "6d251201a2bc0499",
+            "request_sans_input_hash": "90f6dc82b3fc7a43",
+            "context_prefix_hash": "0075a441dc7379bc",
+            "has_instructions": false,
+            "instructions_chars": 0,
+            "instructions_hash": null,
+            "reasoning_effort": null,
+            "tool_count": 0,
+            "tool_schema_hash": "4f53cda18c2baa0c",
+            "tool_names_hash": "4f53cda18c2baa0c",
+            "xai_cache_lane_enabled": false,
+            "xai_cache_lane_hash": null,
+            "xai_cache_lane_shard": null,
+            "xai_cache_lane_shards": null,
+            "xai_cache_lane_auto": false,
+            "xai_cache_lane_seed_hash": null,
+            "xai_cache_lane_max_in_flight": 0,
+            "xai_cache_lane_wait_ms": null,
+            "xai_cache_lane_queued": false,
+            "input_tokens": 7324,
+            "output_tokens": 0,
+            "cached_tokens": 128,
+            "cache_hit_rate": 0.017477,
+            "mid_turn_cold": true,
+            "anomaly": "xai_mid_turn_cold_cache",
+            "reason": "continuation_prefix_cached_tokens_low",
+            "payload": {
+              "provider": "xai",
+              "api": "responses",
+              "transport": "http",
+              "model": "grok-4.6",
+              "response_model": "grok-4.6-build",
+              "session_id_hash": "fa57a52dbf081902",
+              "provider_cache_key_hash": null,
+              "prompt_cache_key_option_hash": null,
+              "prompt_cache_key_hash": "37a8a2bdb766c748",
+              "xai_prompt_prefix_hash": "c44d0c2e976793cb",
+              "xai_cache_mode": "session",
+              "xai_cache_seed_hash": "0693ed50848bc892",
+              "owner_session_hash": "fa57a52dbf081902",
+              "response_id_hash": "9a8fd09575cd0c25",
+              "previous_response_id_hash": null,
+              "previous_response_used": false,
+              "stateless_continuation_used": true,
+              "continuation_used": true,
+              "continuation_reset_reason": "seen_message_count_out_of_range",
+              "input_start_index": 0,
+              "input_count": 1,
+              "input_hash": "6d251201a2bc0499",
+              "request_sans_input_hash": "90f6dc82b3fc7a43",
+              "context_prefix_hash": "0075a441dc7379bc",
+              "has_instructions": false,
+              "instructions_chars": 0,
+              "instructions_hash": null,
+              "reasoning_effort": null,
+              "tool_count": 0,
+              "tool_schema_hash": "4f53cda18c2baa0c",
+              "tool_names_hash": "4f53cda18c2baa0c",
+              "xai_cache_lane_enabled": false,
+              "xai_cache_lane_hash": null,
+              "xai_cache_lane_shard": null,
+              "xai_cache_lane_shards": null,
+              "xai_cache_lane_auto": false,
+              "xai_cache_lane_seed_hash": null,
+              "xai_cache_lane_max_in_flight": 0,
+              "xai_cache_lane_wait_ms": null,
+              "xai_cache_lane_queued": false,
+              "input_tokens": 7324,
+              "output_tokens": 0,
+              "cached_tokens": 128,
+              "cache_hit_rate": 0.017477,
+              "mid_turn_cold": true,
+              "anomaly": "xai_mid_turn_cold_cache",
+              "reason": "continuation_prefix_cached_tokens_low"
+            },
+            "ts": 1794225600000,
+            "session_id": "session-a"
+          },
+          {
+            "iteration": null,
+            "kind": "usage_raw",
+            "input_tokens": 7324,
+            "output_tokens": 0,
+            "thinking_tokens": null,
+            "cached_tokens": 128,
+            "cache_write_tokens": 0,
+            "uncached_input_tokens": 7196,
+            "prompt_tokens": 7324,
+            "model": "grok-4.6-build",
+            "model_display": "grok-4.6-build",
+            "response_id": "resp-1",
+            "request_kind": null,
+            "service_tier": null,
+            "request_prev_response_id": null,
+            "chain_continuous": false,
+            "continuation_reset_reason": "seen_message_count_out_of_range",
+            "payload": {
+              "provider": "xai",
+              "requested_model": null,
+              "pricing_model": null,
+              "source_type": null,
+              "prompt_tokens": 7324,
+              "uncached_input_tokens": 7196,
+              "thinking_tokens": null,
+              "model_display": "grok-4.6-build",
+              "response_id": "resp-1",
+              "service_tier": null,
+              "raw_usage": {
+                "input_tokens": 7324,
+                "input_tokens_details": {
+                  "cached_tokens": 128
+                }
+              },
+              "request_prev_response_id": null,
+              "chain_continuous": false,
+              "continuation_reset_reason": "seen_message_count_out_of_range"
+            },
+            "ts": 1794225600000,
+            "session_id": "session-a"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
           ]
         },
         {
-          "entry": "scripts/provider-toolcall/_shared.mjs._xaiResponsesFingerprintPayloadForTest",
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#send",
           "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "grok-4.6",
+            [],
             {
-              "model": "grok-4.6",
-              "opts": {
-                "sessionId": "session-a",
-                "providerState": {
-                  "xaiResponses": {
-                    "store": false,
-                    "seenMessageCount": 6
-                  }
+              "sessionId": "session-a",
+              "providerState": {
+                "xaiResponses": {
+                  "store": false,
+                  "seenMessageCount": 6
                 }
-              },
-              "params": {
-                "input": [
-                  {
-                    "role": "user",
-                    "content": "next"
-                  }
-                ],
-                "prompt_cache_key": "0693ed50-848b-4892-aabb-0009741f1f63",
-                "store": false
-              },
-              "rawTools": [],
-              "response": {
-                "model": "grok-4.6-build",
-                "usage": {
-                  "input_tokens": 7324,
-                  "input_tokens_details": {
-                    "cached_tokens": 128
-                  }
-                }
-              },
-              "cacheRouting": {
-                "key": "0693ed50-848b-4892-aabb-0009741f1f63",
-                "mode": "session",
-                "seedHash": "0693ed50848bc892",
-                "prefixHash": "2abfdd076a21a3cd",
-                "ownerSessionHash": "fa57a52dbf081902"
-              },
-              "previousResponseId": null,
-              "inputStartIndex": 0,
-              "continuationResetReason": null,
-              "transport": "http",
-              "cacheLane": null
+              }
             }
           ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 0,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 0
+        },
+        {
+          "advanceMs": 1000,
+          "fromMs": 0,
+          "fired": [
+            {
+              "dueMs": 499
+            },
+            {
+              "dueMs": 1000
+            }
+          ],
+          "toMs": 1000
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://cli-chat-proxy.grok.com",
+          "path": "/v1/responses",
+          "headers": [
+            [
+              "host",
+              "cli-chat-proxy.grok.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer tok-fixture"
+            ],
+            [
+              "x-grok-client-version",
+              "1.0.70"
+            ],
+            [
+              "x-grok-client-identifier",
+              "grok-shell"
+            ],
+            [
+              "user-agent",
+              "xai-grok-build/1.0.70"
+            ],
+            [
+              "x-grok-session-id",
+              "session-a"
+            ],
+            [
+              "x-grok-req-id",
+              "2085de83-6fd3-4c45-8f27-23f3c2beda79"
+            ],
+            [
+              "x-grok-model-override",
+              "grok-4.6"
+            ],
+            [
+              "x-grok-user-id",
+              "user-fixture"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "220"
+            ]
+          ],
+          "body": "{\"model\":\"grok-4.6\",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"0693ed50-848b-4892-aabb-0009741f1f63\",\"stream\":true}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"grok-4.6-build\",\"status\":\"completed\",\"usage\":{\"input_tokens\":7324,\"input_tokens_details\":{\"cached_tokens\":128}},\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n"
+            ]
+          }
         }
       ]
     },
@@ -2893,7 +3261,7 @@
                   "encryptedReasoningHistory": [],
                   "seenMessageCount": 1,
                   "model": "grok-build-0.1",
-                  "updatedAt": 1794225600000
+                  "updatedAt": 1794225601000
                 }
               },
               "usage": {
@@ -2940,7 +3308,7 @@
                   "encryptedReasoningHistory": [],
                   "seenMessageCount": 1,
                   "model": "grok-build",
-                  "updatedAt": 1794225600000
+                  "updatedAt": 1794225601000
                 }
               },
               "usage": {
@@ -2987,7 +3355,7 @@
                   "encryptedReasoningHistory": [],
                   "seenMessageCount": 1,
                   "model": "grok-4.5",
-                  "updatedAt": 1794225600000
+                  "updatedAt": 1794225601000
                 }
               },
               "usage": {
@@ -3034,7 +3402,7 @@
                   "encryptedReasoningHistory": [],
                   "seenMessageCount": 1,
                   "model": "grok-4.5",
-                  "updatedAt": 1794225600000
+                  "updatedAt": 1794225601000
                 }
               },
               "usage": {
@@ -3199,7 +3567,7 @@
             ],
             [
               "x-grok-req-id",
-              "2085de83-6fd3-4c45-8f27-23f3c2beda79"
+              "c2c52b10-6403-4056-8e6f-0e6711e867f3"
             ],
             [
               "x-grok-model-override",
@@ -3302,7 +3670,7 @@
             ],
             [
               "x-grok-req-id",
-              "c2c52b10-6403-4056-8e6f-0e6711e867f3"
+              "5cef9295-91ba-4b76-88c1-94f3cdf674cc"
             ],
             [
               "x-grok-model-override",
@@ -3405,7 +3773,7 @@
             ],
             [
               "x-grok-req-id",
-              "5cef9295-91ba-4b76-88c1-94f3cdf674cc"
+              "fdb0311e-1df5-4529-86dd-90de958ab326"
             ],
             [
               "x-grok-model-override",
@@ -3508,7 +3876,7 @@
             ],
             [
               "x-grok-req-id",
-              "fdb0311e-1df5-4529-86dd-90de958ab326"
+              "c98ca38f-9415-44d8-8369-61aca0f773df"
             ],
             [
               "x-grok-model-override",
