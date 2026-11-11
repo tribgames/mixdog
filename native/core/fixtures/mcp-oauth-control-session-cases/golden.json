@@ -10,31 +10,106 @@
         "authUrl": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256",
         "callback": "http://127.0.0.1:9/oauth/callback?code=c&state=s",
         "signOut": {
-          "servers": [
-            {
-              "connected": false,
-              "error": null
+          "value": {
+            "servers": [
+              {
+                "connected": false,
+                "error": null
+              }
+            ],
+            "revoked": false
+          },
+          "snapshot": null,
+          "result": {
+            "value": {
+              "servers": [
+                {
+                  "connected": false,
+                  "error": null
+                }
+              ],
+              "revoked": false
+            },
+            "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000003",
+            "revision": 1800000000000002,
+            "full": {
+              "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000003",
+              "items": [],
+              "queued": [],
+              "busy": false
             }
-          ],
-          "revoked": false
+          }
         },
         "begun": {
-          "flowId": "<flow>",
-          "state": "pending",
-          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+          "value": {
+            "flowId": "<flow>",
+            "state": "pending",
+            "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+          },
+          "snapshot": null,
+          "result": {
+            "value": {
+              "flowId": "<flow>",
+              "state": "pending",
+              "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+            },
+            "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000003",
+            "revision": 1800000000000003,
+            "full": {
+              "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000003",
+              "items": [],
+              "queued": [],
+              "busy": false
+            }
+          }
         },
         "statusRead": {
           "value": {
-            "servers": []
+            "value": {
+              "servers": []
+            },
+            "snapshot": null,
+            "result": {
+              "value": {
+                "servers": []
+              },
+              "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000009",
+              "revision": 1800000000000005,
+              "full": {
+                "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000009",
+                "items": [],
+                "queued": [],
+                "busy": false
+              }
+            }
           }
         },
         "controlSessionReplaced": true,
         "runtimesAfterFailedRead": 2,
         "statusAfterReplace": {
-          "flowId": "<flow>",
-          "state": "pending",
-          "step": "browser",
-          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+          "value": {
+            "flowId": "<flow>",
+            "state": "pending",
+            "step": "browser",
+            "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+          },
+          "snapshot": null,
+          "result": {
+            "value": {
+              "flowId": "<flow>",
+              "state": "pending",
+              "step": "browser",
+              "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+            },
+            "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000009",
+            "revision": 1800000000000006,
+            "full": {
+              "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000009",
+              "items": [],
+              "queued": [],
+              "busy": false
+            }
+          }
         },
         "invalidPaste": {
           "threw": {
@@ -45,19 +120,72 @@
           }
         },
         "statusAfterInvalidPaste": {
-          "flowId": "<flow>",
-          "state": "pending",
-          "step": "browser",
-          "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+          "value": {
+            "flowId": "<flow>",
+            "state": "pending",
+            "step": "browser",
+            "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+          },
+          "snapshot": null,
+          "result": {
+            "value": {
+              "flowId": "<flow>",
+              "state": "pending",
+              "step": "browser",
+              "url": "http://127.0.0.1:9/authorize?state=s&code_challenge_method=S256"
+            },
+            "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000014",
+            "revision": 1800000000000008,
+            "full": {
+              "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000014",
+              "items": [],
+              "queued": [],
+              "busy": false
+            }
+          }
         },
         "runtimesAfterInvalidPaste": 3,
         "correctedPaste": {
-          "flowId": "<flow>",
-          "state": "complete"
+          "value": {
+            "flowId": "<flow>",
+            "state": "complete"
+          },
+          "snapshot": null,
+          "result": {
+            "value": {
+              "flowId": "<flow>",
+              "state": "complete"
+            },
+            "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000014",
+            "revision": 1800000000000009,
+            "full": {
+              "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000014",
+              "items": [],
+              "queued": [],
+              "busy": false
+            }
+          }
         },
         "finalStatus": {
-          "flowId": "<flow>",
-          "state": "complete"
+          "value": {
+            "flowId": "<flow>",
+            "state": "complete"
+          },
+          "snapshot": null,
+          "result": {
+            "value": {
+              "flowId": "<flow>",
+              "state": "complete"
+            },
+            "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000014",
+            "revision": 1800000000000010,
+            "full": {
+              "sessionId": "sess_daemon_1800000000000_00000000000040008000000000000014",
+              "items": [],
+              "queued": [],
+              "busy": false
+            }
+          }
         }
       }
     }
