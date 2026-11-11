@@ -5849,7 +5849,9 @@ impl SessionActor {
                                     let facts = attachments.facts(lane, &mut body);
                                     let iid = super::run::new_item_id();
                                     out.replacement.push((iid.clone(), body.clone()));
-                                    out.new.push((ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: role != "user", body, prompt: None }, facts));
+                                    // Shown as the row's own facts say: the restart line is the interrupted turn's end, which Node's read shows
+                                    // after a restart (`turndone` cancelled); a row of a kind that is never shown (`facts.visible`) stays hidden.
+                                    out.new.push((ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: true, body, prompt: None }, facts));
                                 }
                             }
                         }

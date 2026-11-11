@@ -311,6 +311,8 @@ async fn process(boot: Boot) -> Process {
     let (threads, provider) = opened(&boot).await;
     let rig = Rig::new();
     let mut deps = rig.deps_parts(Arc::new(threads));
+    // The production display of stored rows: what a client reads is compared with Node's read below.
+    deps.transcript = Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
     let session = Session { provider, workspace: boot.workspace.clone(), tools: boot.tools.clone(), reads: Arc::default(), hang_at: boot.hang_at, kill: boot.kill.clone() };
     deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(session)));
     let directory = SessionDirectory::new(Arc::new(deps));
@@ -468,6 +470,41 @@ fn read_conversation(read: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Each item of a `thread/read` answer as Node's read shows the same row (`node_view`): the kind, the text, the tool call with its input,
+/// call id and result, the turn's end with its status. Not shown, each declared in the manifest: the ids (generated: Node's are
+/// `hist_<session>_<ordinal>_<n>`, the core's are its own), the turn ids, and the row fields the client's own row fold derives (`expanded`,
+/// `count`, `completedCount`, the error counters, `elapsedMs`, `verb`).
+fn core_view(read: &Value) -> Vec<Value> {
+    read["items"]
+        .as_array()
+        .expect("the read's items")
+        .iter()
+        .map(|item| match item["type"].as_str().expect("an item type") {
+            "userMessage" => json!({ "kind": "user", "text": item["content"][0]["text"], "displayText": item["displayText"], "parts": item["content"].as_array().map(Vec::len) }),
+            "agentMessage" => json!({ "kind": "assistant", "text": item["text"] }),
+            "toolCall" => json!({ "kind": "tool", "name": item["name"], "args": item["input"], "callId": item["run"]["callId"], "result": item["output"], "runResult": item["run"]["result"], "isError": item["run"]["isError"].as_bool().unwrap_or(false) }),
+            "turnEnd" => json!({ "kind": "turndone", "status": item["status"] }),
+            other => json!({ "kind": other }),
+        })
+        .collect()
+}
+
+/// The rows of Node's recorded read, as [`core_view`] shows the core's items.
+fn node_view(case: &Value) -> Vec<Value> {
+    case["items"]
+        .as_array()
+        .expect("Node's read items")
+        .iter()
+        .map(|row| match row["kind"].as_str().expect("a row kind") {
+            "user" => json!({ "kind": "user", "text": row["text"], "displayText": row["text"], "parts": 1 }),
+            "assistant" => json!({ "kind": "assistant", "text": row["text"] }),
+            "tool" => json!({ "kind": "tool", "name": row["name"], "args": row["args"], "callId": row["callId"], "result": row["result"], "runResult": row["result"], "isError": row["isError"] }),
+            "turndone" => json!({ "kind": "turndone", "status": row["status"] }),
+            other => json!({ "kind": other }),
+        })
+        .collect()
+}
+
 /// The conversation Node's first request after the restart carries before the new task: each user message's text blocks,
 /// each assistant message's text and each of its tool calls' name and input, in order. Not tool results, thinking blocks or
 /// the turn reminders Node sends as system messages: that request is compared whole in the same case (`replay`). The new
@@ -505,6 +542,8 @@ struct Case {
     warm: Value,
     set: Value,
     tools: Value,
+    /// Node's cold read of the stored session once the scenario had ended.
+    read: Value,
 }
 
 fn case(name: &str) -> Case {
@@ -521,7 +560,7 @@ fn case(name: &str) -> Case {
         "promptBase": text(1), "promptStable": text(2), "bp3CoreContext": text(3), "promptEnv": text(4),
     });
     let warm = result["after"]["warmBody"].clone();
-    Case { phase: case["input"]["phases"][0].as_str().unwrap().to_owned(), tools: before[0]["tools"].clone(), before, after, warm, set }
+    Case { phase: case["input"]["phases"][0].as_str().unwrap().to_owned(), tools: before[0]["tools"].clone(), before, after, warm, set, read: result["read"].clone() }
 }
 
 async fn boot(dir: &std::path::Path, url: String, case: &Case, hang_at: Option<usize>, kill: tokio::sync::mpsc::UnboundedSender<&'static str>) -> Boot {
@@ -713,6 +752,11 @@ async fn replay(name: &str) {
     assert_eq!(read_conversation(&read), node_conversation(&case.after[0]), "{name}: the session a client reads after the restart");
     resumed.turn(&id, "third task", "op-3").await;
     resumed.settled(&id, 1).await;
+    // What a client reads when the scenario is over: Node's cold read of the stored session (`result.read`, the recording's
+    // `restart-read-probe.mjs`) on the same conversation.
+    let read = handle.request(request("thread/read", json!({ "threadId": id }), "op-read-end")).await.expect("thread/read");
+    let Reply::Value(read) = read else { panic!("thread/read answers a value") };
+    assert_eq!(core_view(&read), node_view(&case.read), "{name}: the session a client reads when the scenario is over");
     let sent = lock(&wire.bodies).clone();
     let sent = &sent[case.before.len() + warms..];
     assert_eq!(sent.len(), case.after.len(), "{name}: requests after the restart");
