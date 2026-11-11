@@ -1,0 +1,439 @@
+{
+  "cases": [
+    {
+      "case": "a streamed send is measured: first response, duration, tokens per second",
+      "observed": {
+        "model": "local-streamed",
+        "steps": [
+          {
+            "advance": 120
+          },
+          {
+            "snapshot": "atSend"
+          },
+          {
+            "progress": "transport"
+          },
+          {
+            "advance": 80
+          },
+          {
+            "progress": "text"
+          },
+          {
+            "advance": 400
+          },
+          {
+            "result": {
+              "inputTokens": 20,
+              "outputTokens": 11
+            }
+          }
+        ],
+        "outcome": {
+          "returned": {
+            "content": "ok",
+            "usage": {
+              "inputTokens": 20,
+              "outputTokens": 11
+            }
+          }
+        },
+        "snapshots": {
+          "atSend": {
+            "state": "running",
+            "queueWaitMs": 0
+          }
+        },
+        "inference": {
+          "state": "complete",
+          "at": "2027-01-15T08:00:00.000Z",
+          "queueWaitMs": 0,
+          "firstResponseMs": 200,
+          "durationMs": 600,
+          "outputTokens": 11,
+          "inputTokens": 20,
+          "tokensPerSecond": 25,
+          "error": null
+        }
+      }
+    },
+    {
+      "case": "a failed send is measured as failed and its error is rethrown",
+      "observed": {
+        "model": "local-failed",
+        "steps": [
+          {
+            "advance": 50
+          },
+          {
+            "progress": "text"
+          },
+          {
+            "advance": 25
+          },
+          {
+            "fail": "boom"
+          }
+        ],
+        "outcome": {
+          "threw": "boom"
+        },
+        "snapshots": {},
+        "inference": {
+          "state": "failed",
+          "at": "2027-01-15T08:00:00.000Z",
+          "queueWaitMs": 0,
+          "firstResponseMs": 50,
+          "durationMs": 75,
+          "outputTokens": null,
+          "inputTokens": null,
+          "tokensPerSecond": null,
+          "error": "boom"
+        }
+      }
+    },
+    {
+      "case": "a send that shows no output has no first response and no speed",
+      "observed": {
+        "model": "local-silent",
+        "steps": [
+          {
+            "advance": 10
+          },
+          {
+            "progress": "transport"
+          },
+          {
+            "advance": 5
+          },
+          {
+            "result": {
+              "inputTokens": 3,
+              "outputTokens": 1
+            }
+          }
+        ],
+        "outcome": {
+          "returned": {
+            "content": "ok",
+            "usage": {
+              "inputTokens": 3,
+              "outputTokens": 1
+            }
+          }
+        },
+        "snapshots": {},
+        "inference": {
+          "state": "complete",
+          "at": "2027-01-15T08:00:00.000Z",
+          "queueWaitMs": 0,
+          "firstResponseMs": null,
+          "durationMs": 15,
+          "outputTokens": 1,
+          "inputTokens": 3,
+          "tokensPerSecond": null,
+          "error": null
+        }
+      }
+    },
+    {
+      "case": "a second send waits for the first, and its queue wait is measured",
+      "observed": {
+        "model": "local-queued",
+        "scripts": [
+          [
+            {
+              "progress": "text"
+            },
+            {
+              "hold": "a"
+            },
+            {
+              "advance": 50
+            },
+            {
+              "result": {
+                "inputTokens": 2,
+                "outputTokens": 5
+              }
+            }
+          ],
+          [
+            {
+              "snapshot": "atSend"
+            },
+            {
+              "advance": 20
+            },
+            {
+              "progress": "text"
+            },
+            {
+              "advance": 30
+            },
+            {
+              "result": {
+                "inputTokens": 4,
+                "outputTokens": 9
+              }
+            }
+          ]
+        ],
+        "elapsedWhileHeld": 700,
+        "reachedWhileHeld": [
+          "A holds"
+        ],
+        "duringHold": {
+          "state": "running",
+          "queueWaitMs": 0
+        },
+        "outcomes": [
+          {
+            "returned": {
+              "content": "ok",
+              "usage": {
+                "inputTokens": 2,
+                "outputTokens": 5
+              }
+            }
+          },
+          {
+            "returned": {
+              "content": "ok",
+              "usage": {
+                "inputTokens": 4,
+                "outputTokens": 9
+              }
+            }
+          }
+        ],
+        "secondSaw": {
+          "atSend": {
+            "state": "running",
+            "queueWaitMs": 750
+          }
+        },
+        "inference": {
+          "state": "complete",
+          "at": "2027-01-15T08:00:00.000Z",
+          "queueWaitMs": 750,
+          "firstResponseMs": 20,
+          "durationMs": 50,
+          "outputTokens": 9,
+          "inputTokens": 4,
+          "tokensPerSecond": 266.7,
+          "error": null
+        }
+      }
+    },
+    {
+      "case": "the cached model info is the installed model's row at every moment",
+      "observed": {
+        "registered": [
+          {
+            "id": "hf-aaaaaaaaaaaaaaaaaaaaaaaa",
+            "filename": "hf-aaaaaaaaaaaaaaaaaaaaaaaa.gguf",
+            "remoteFilename": "model.gguf",
+            "repository": "test/model",
+            "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "name": "Registered a",
+            "source": "https://huggingface.co/test/model",
+            "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf",
+            "size": 1024,
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "contextWindow": 8192,
+            "estimatedVramBytes": 1073741824,
+            "minimumVramBytes": 1073741824
+          },
+          {
+            "id": "hf-dddddddddddddddddddddddd",
+            "filename": "hf-dddddddddddddddddddddddd.gguf",
+            "remoteFilename": "model.gguf",
+            "repository": "test/model",
+            "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "name": "Registered d",
+            "source": "https://huggingface.co/test/model",
+            "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf",
+            "size": 1024,
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "contextWindow": 32768,
+            "estimatedVramBytes": 1073741824,
+            "minimumVramBytes": 1073741824,
+            "maxContextWindow": 65536
+          },
+          {
+            "id": "hf-eeeeeeeeeeeeeeeeeeeeeeee",
+            "filename": "hf-eeeeeeeeeeeeeeeeeeeeeeee.gguf",
+            "remoteFilename": "model.gguf",
+            "repository": "test/model",
+            "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "name": "Registered e",
+            "source": "https://huggingface.co/test/model",
+            "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf",
+            "size": 1024,
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "contextWindow": 8192,
+            "estimatedVramBytes": 1073741824,
+            "minimumVramBytes": 1073741824
+          }
+        ],
+        "ids": [
+          "hf-aaaaaaaaaaaaaaaaaaaaaaaa",
+          "hf-dddddddddddddddddddddddd",
+          "hf-eeeeeeeeeeeeeeeeeeeeeeee",
+          "not-registered"
+        ],
+        "moments": [
+          {
+            "name": "nothing is registered",
+            "listed": [],
+            "cached": {
+              "hf-aaaaaaaaaaaaaaaaaaaaaaaa": null,
+              "hf-dddddddddddddddddddddddd": null,
+              "hf-eeeeeeeeeeeeeeeeeeeeeeee": null,
+              "not-registered": null
+            }
+          },
+          {
+            "name": "registered, none downloaded",
+            "listed": [],
+            "cached": {
+              "hf-aaaaaaaaaaaaaaaaaaaaaaaa": null,
+              "hf-dddddddddddddddddddddddd": null,
+              "hf-eeeeeeeeeeeeeeeeeeeeeeee": null,
+              "not-registered": null
+            }
+          },
+          {
+            "name": "two downloaded",
+            "listed": [
+              {
+                "id": "hf-aaaaaaaaaaaaaaaaaaaaaaaa",
+                "name": "Registered a",
+                "display": "Registered a",
+                "description": {
+                  "$exact": "undefined"
+                },
+                "contextWindow": 8192,
+                "maxContextWindow": 8192,
+                "runtimeContextWindow": 8192,
+                "supportsFunctionCalling": null,
+                "supportsReasoning": null,
+                "mode": "chat",
+                "family": "",
+                "supportsImages": false,
+                "supportsReasoningSettings": false,
+                "latest": true
+              },
+              {
+                "id": "hf-dddddddddddddddddddddddd",
+                "name": "Registered d",
+                "display": "Registered d",
+                "description": {
+                  "$exact": "undefined"
+                },
+                "contextWindow": 32768,
+                "maxContextWindow": 65536,
+                "runtimeContextWindow": 32768,
+                "supportsFunctionCalling": null,
+                "supportsReasoning": null,
+                "mode": "chat",
+                "family": "",
+                "supportsImages": false,
+                "supportsReasoningSettings": false,
+                "latest": true
+              }
+            ],
+            "cached": {
+              "hf-aaaaaaaaaaaaaaaaaaaaaaaa": {
+                "id": "hf-aaaaaaaaaaaaaaaaaaaaaaaa",
+                "name": "Registered a",
+                "display": "Registered a",
+                "description": {
+                  "$exact": "undefined"
+                },
+                "contextWindow": 8192,
+                "maxContextWindow": 8192,
+                "runtimeContextWindow": 8192,
+                "supportsFunctionCalling": null,
+                "supportsReasoning": null,
+                "mode": "chat",
+                "family": "",
+                "supportsImages": false,
+                "supportsReasoningSettings": false,
+                "latest": true
+              },
+              "hf-dddddddddddddddddddddddd": {
+                "id": "hf-dddddddddddddddddddddddd",
+                "name": "Registered d",
+                "display": "Registered d",
+                "description": {
+                  "$exact": "undefined"
+                },
+                "contextWindow": 32768,
+                "maxContextWindow": 65536,
+                "runtimeContextWindow": 32768,
+                "supportsFunctionCalling": null,
+                "supportsReasoning": null,
+                "mode": "chat",
+                "family": "",
+                "supportsImages": false,
+                "supportsReasoningSettings": false,
+                "latest": true
+              },
+              "hf-eeeeeeeeeeeeeeeeeeeeeeee": null,
+              "not-registered": null
+            }
+          },
+          {
+            "name": "one removed",
+            "listed": [
+              {
+                "id": "hf-dddddddddddddddddddddddd",
+                "name": "Registered d",
+                "display": "Registered d",
+                "description": {
+                  "$exact": "undefined"
+                },
+                "contextWindow": 32768,
+                "maxContextWindow": 65536,
+                "runtimeContextWindow": 32768,
+                "supportsFunctionCalling": null,
+                "supportsReasoning": null,
+                "mode": "chat",
+                "family": "",
+                "supportsImages": false,
+                "supportsReasoningSettings": false,
+                "latest": true
+              }
+            ],
+            "cached": {
+              "hf-aaaaaaaaaaaaaaaaaaaaaaaa": null,
+              "hf-dddddddddddddddddddddddd": {
+                "id": "hf-dddddddddddddddddddddddd",
+                "name": "Registered d",
+                "display": "Registered d",
+                "description": {
+                  "$exact": "undefined"
+                },
+                "contextWindow": 32768,
+                "maxContextWindow": 65536,
+                "runtimeContextWindow": 32768,
+                "supportsFunctionCalling": null,
+                "supportsReasoning": null,
+                "mode": "chat",
+                "family": "",
+                "supportsImages": false,
+                "supportsReasoningSettings": false,
+                "latest": true
+              },
+              "hf-eeeeeeeeeeeeeeeeeeeeeeee": null,
+              "not-registered": null
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -21,6 +21,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::domain::retry::RetryPolicy;
@@ -117,12 +118,29 @@ pub struct Endpoint {
     pub api_key: String,
 }
 
-/// The managed runtime as the registered provider needs it: the installed models, and the server started (or reused)
-/// for a model.
+/// One request's turn in the runtime's request queue with its inference measurement (`beginLocalInference`): the slot is held
+/// until this is dropped.
+pub trait Inference: Send + Sync {
+    /// A stream event of visible progress: the first one is the first response.
+    fn progress(&self, kind: &str);
+    /// The request ended: the usage it reported and the failure that ended it, if any.
+    fn finish(&self, input_tokens: Option<u64>, output_tokens: Option<u64>, error: Option<&str>);
+}
+
+/// The managed runtime as the registered provider needs it: the installed models, the server started (or reused)
+/// for a model, and the queue every request goes through.
 #[async_trait]
 pub trait LocalRuntime: InstalledModels {
     /// `ensureLocalProviderServer(model)`.
     async fn ensure_server(&self, model: &str) -> Result<Endpoint, ProviderError>;
+
+    /// `runLocalProviderRequest` and `beginLocalInference(model, queuedAt)`: waits for the request slot (one request at a
+    /// time, in the order they arrived; the wait is measured from this call), then starts the measurement.
+    async fn begin(&self, model: &str) -> Result<Box<dyn Inference>, ProviderError>;
+
+    /// `installedLocalProviderModels()` as of now, for `getCachedModelInfo` (read synchronously, from disk, in Node); `None`
+    /// until the runtime has read them once.
+    fn installed_now(&self) -> Option<Vec<Value>>;
 }
 
 /// `MixdogLocalProvider` as the registry holds it (`registry.mjs`'s `mixdog-local` row): registered with no endpoint,
@@ -185,9 +203,24 @@ impl ProviderAdapter for RegisteredAdapter {
         &self.keepalive
     }
 
+    /// `MixdogLocalProvider.send`: the request takes its turn in the runtime's queue (`runLocalProviderRequest`), starts its
+    /// measurement, brings the server up and sends; the slot is held until the answer's stream has ended.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let endpoint = self.runtime.ensure_server(&request.model).await?;
-        self.inner_for(endpoint).attempt(request).await
+        let inference = self.runtime.begin(&request.model).await?;
+        let endpoint = match self.runtime.ensure_server(&request.model).await {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                inference.finish(None, None, Some(&error.message));
+                return Err(error);
+            }
+        };
+        match self.inner_for(endpoint).attempt(request).await {
+            Ok(stream) => Ok(Box::new(Measured { inner: stream, inference: Some(inference), usage: None })),
+            Err(error) => {
+                inference.finish(None, None, Some(&error.message));
+                Err(error)
+            }
+        }
     }
 
     fn models(&self) -> Option<&dyn ModelListing> {
@@ -202,6 +235,67 @@ impl ProviderAdapter for RegisteredAdapter {
     /// `static inputExcludesCache = false`.
     fn input_excludes_cache(&self) -> Option<bool> {
         Some(false)
+    }
+}
+
+/// The answer's stream while it holds the request slot: visible progress, the usage and the end are the measurement's
+/// (`onStreamDelta` and `measurement.finish`), and the slot is let go when the stream ends or is dropped.
+struct Measured {
+    inner: Box<dyn ModelStream>,
+    inference: Option<Box<dyn Inference>>,
+    usage: Option<(u64, u64)>,
+}
+
+impl Measured {
+    fn finish(&mut self, error: Option<&str>) {
+        if let Some(inference) = self.inference.take() {
+            inference.finish(self.usage.map(|(input, _)| input), self.usage.map(|(_, output)| output), error);
+        }
+    }
+}
+
+#[async_trait]
+impl ModelStream for Measured {
+    async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+        let item = self.inner.next().await;
+        match &item {
+            Some(Ok(event)) => {
+                if event.progress_kind().is_some()
+                    && let Some(inference) = &self.inference
+                {
+                    inference.progress("progress");
+                }
+                match event {
+                    StreamEvent::Usage(usage) => self.usage = Some((usage.input_tokens, usage.output_tokens)),
+                    StreamEvent::Completed { .. } => self.finish(None),
+                    _ => {}
+                }
+            }
+            Some(Err(error)) => self.finish(Some(&error.message)),
+            None => self.finish(None),
+        }
+        item
+    }
+
+    fn delivery(&self) -> DeliveryState {
+        self.inner.delivery()
+    }
+
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        self.inner.on_wire_left(left);
+    }
+}
+
+impl Drop for Measured {
+    fn drop(&mut self) {
+        self.finish(Some("aborted"));
+    }
+}
+
+/// `getCachedModelInfo`: `installedLocalProviderModels().find(entry => entry.id === model) || null`.
+impl crate::catalog::CachedModelInfo for RegisteredAdapter {
+    fn cached_row(&self, model: &str) -> Option<Arc<Value>> {
+        self.runtime.installed_now()?.into_iter().find(|row| row.get("id").and_then(Value::as_str) == Some(model)).map(Arc::new)
     }
 }
 
