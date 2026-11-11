@@ -9,7 +9,7 @@ const rec = await startRecording({
   set: 'provider-custom-provider-route',
   net: false,
   entry: 'src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs makeResolveDefaultProvider(validate)(config) and makeResolveRoute(resolve)(config, { model }). The validator is the test\'s callback (providers[id].type === "custom"); the recorder records the arguments it received.',
-  compare: 'mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider` and `result.routeProvider`, and `validatorCalls` (provider id, whether the config passed is the same object as the input).',
+  compare: 'mixdog-ai service::admin_route (admin_route.rs:286): the validator receives the saved config; compare `result.defaultProvider`, the whole `result.route` and `validatorCalls` (provider id and the config the validator received, whole).',
   replay: "Rust entry (pub, on o1): mixdog_ai::service::admin_route::resolve_route (service/admin_route.rs:311).",
 });
 const { makeResolveDefaultProvider, makeResolveRoute } = await rec.P('agent/orchestrator/runtime-core/config-helpers.mjs');
@@ -18,9 +18,9 @@ const config = { default: 'main', presets: [{ id: 'main', provider: 'custom-test
 await rec.run('default-provider-validation-gets-saved-config', `${SRC}:5`, { config }, () => {
   const validatorCalls = [];
   const resolve = makeResolveDefaultProvider((id, current) => {
-    validatorCalls.push({ id, sameConfigObject: current === config });
+    validatorCalls.push({ id, config: current, sameConfigObject: current === config });
     return current.providers[id]?.type === 'custom';
   });
-  return { defaultProvider: resolve(config), routeProvider: makeResolveRoute(resolve)(config, { model: 'm2' }).provider, validatorCalls };
+  return { defaultProvider: resolve(config), route: makeResolveRoute(resolve)(config, { model: 'm2' }), validatorCalls };
 });
 await rec.finish();
