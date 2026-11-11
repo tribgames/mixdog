@@ -3,17 +3,18 @@
 // over scripted attempt functions: never replayed after output reached the caller / visible progress / unsafe flags / cancellation / opt-out,
 // replayed once before output, never a third time), the provider opt-out and per-request override, and the three end-to-end replays through
 // the real OpenAI SDK client (scripted fetch: HTTP 400, response.failed after the ack, visible output, cancellation).
-// NOT recorded (the 8 SDK header-merge tests and the 2 header-deletion ones, :277-:492): they test the OpenAI SDK's own header merger
-// (K1 gaps-providers row 37, GONE: the Rust core builds headers directly; no counterpart).
+// The SDK header-merge tests (:277-:492) are recorded as the request head the real OpenAI SDK sends over a socket to the loopback endpoint
+// (`requests[*]`: method, path, every header in arrival order, raw body); the Rust core builds headers directly, so a replay compares the head.
 //   node benchmarks/rust-core/recorders/record-openai-compat-responses-boundaries.mjs --tree <exact export of b6f10295a>
 import { startRecording } from './lib/provider-case-recorder.mjs';
 
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-compat-responses-boundaries',
-  net: false,
-  entry: 'effort-configuration.mjs withEffortConfigurationFallback / effortConfigurationMode / prepareTurnEffortConfiguration, openai-compat-responses.mjs sendCompatResponses on a provider object (as the test builds it) with a scripted `client.responses.create` or the real `openai` SDK client (from the tree) whose fetch is the scripted endpoint; shared/stream-progress.mjs isVisibleStreamProgress. Not run: the SDK header-merge cases (see the header).',
-  replay: 'mixdog-ai providers::openai effort_retry.rs:22 and adapter.rs:756-761 (K1: tested for the OpenAI route, not the compat/custom Responses route), custom/reasoning.rs:149: feed each row\'s `input` (callbacks fired, flags, abort, replies) and compare `result` (attempts, received callbacks in order, thrown error identity flags, capability mode before/after) and `requests` in order.',
+  net: true,
+  entry: 'effort-configuration.mjs withEffortConfigurationFallback / effortConfigurationMode / prepareTurnEffortConfiguration, openai-compat-responses.mjs sendCompatResponses on a provider object (as the test builds it) with a scripted `client.responses.create` or the real `openai` SDK client (from the tree) whose fetch is the scripted endpoint; shared/stream-progress.mjs isVisibleStreamProgress.',
+  compare: 'mixdog-ai providers::openai effort_retry.rs:22 and adapter.rs:756-761 (K1: tested for the OpenAI route, not the compat/custom Responses route), custom/reasoning.rs:149: feed each row\'s `input` (callbacks fired, flags, abort, replies) and compare `result` (attempts, received callbacks in order, thrown error identity flags, capability mode before/after) and `requests` in order.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). The effort-update retry is mixdog_ai::providers::openai effort_retry (no pub item located for the compat route): work for the Rust side.",
 });
 const tree = rec.tree;
 // The SDK of the tree under test (not the recorder checkout's copy).
@@ -200,5 +201,79 @@ await rec.run('rejection-after-cancellation-not-replayed', `${SRC}:450`, {}, asy
   const { messages, opts } = updatedTurn(provider);
   const out = await attempt(sendCompatResponses(provider, messages, MODEL, [], { ...opts, signal: controller.signal }));
   return { ...out, requests, modeAfter: effortConfigurationMode(provider.name, MODEL, MODE) };
+});
+// ---- SDK header merge, captured at the socket ----
+const ROW = { id: MODEL, reasoningLevels: ['low', 'medium', 'high'], customReasoning: { wireFormat: 'standard', wireValues: { high: 'H' } } };
+const completedEvent = { type: 'response.completed', response: { id: 'response-1', model: MODEL, status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }] } };
+const wireFixture = (suffix, { defaultHeaders, clientOptions = {} } = {}) => ({
+  name: `custom-boundary-${suffix}`,
+  config: { clientOptions },
+  defaultHeaders,
+  customConfig: MODE,
+  nativePdf: false,
+  getCachedModelInfo: () => ROW,
+  client: new OpenAI({ apiKey: 'test-only', baseURL: 'https://mixdog-test.invalid/v1', maxRetries: 0, defaultHeaders, ...clientOptions }),
+});
+const answerOk = (net) => { net.reply = () => ({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify(completedEvent)}\n\n` }); };
+const hi = [{ role: 'user', content: 'hi' }];
+const headerCase = (id, line, input, fn) => rec.run(id, `${SRC}:${line}`, input, async ({ net }) => { answerOk(net); return fn(); });
+
+for (const format of ['record', 'Headers', 'pairs']) {
+  const values = { 'Session-ID': 'caller-session', 'X-Client-Request-ID': 'caller-request', 'X-Test': 'kept' };
+  const make = () => (format === 'Headers' ? new Headers(values) : format === 'pairs' ? Object.entries(values) : values);
+  await headerCase(`sdk-merge-caller-session-headers-survive:${format}`, 277, { format, requestHeaders: make(), sessionId: 'generated' }, async () => {
+    const provider = wireFixture(`headers-${format}`);
+    const requestHeaders = make();
+    const before = [...new Headers(requestHeaders)];
+    const result = await sendCompatResponses(provider, hi, MODEL, [], { sessionId: 'generated', requestHeaders });
+    return { result, callerHeadersBefore: before, callerHeadersAfter: [...new Headers(requestHeaders)] };
+  });
+}
+for (const pairs of [false, true]) {
+  const values = { 'Session-ID': null, 'X-Client-Request-ID': null };
+  await headerCase(`sdk-merge-explicit-header-deletion:${pairs ? 'pairs' : 'record'}`, 297, { requestHeaders: pairs ? Object.entries(values) : values, sessionId: 'generated' }, async () => ({ result: await sendCompatResponses(wireFixture(`header-deletion-${pairs}`), hi, MODEL, [], { sessionId: 'generated', requestHeaders: pairs ? Object.entries(values) : values }) }));
+}
+await headerCase('sdk-default-session-headers-not-shadowed-by-generated', 310, { configured: { defaultHeaders: { 'Session-ID': 'configured-session' } }, overridden: { defaultHeaders: { 'Session-ID': 'unused' }, clientOptions: { defaultHeaders: new Headers({ 'X-Client-Request-ID': 'sdk-request' }) } }, sessionId: 'generated' }, async () => {
+  const first = await sendCompatResponses(wireFixture('default-headers', { defaultHeaders: { 'Session-ID': 'configured-session' } }), hi, MODEL, [], { sessionId: 'generated' });
+  const second = await sendCompatResponses(wireFixture('client-options-headers', { defaultHeaders: { 'Session-ID': 'unused' }, clientOptions: { defaultHeaders: new Headers({ 'X-Client-Request-ID': 'sdk-request' }) } }), hi, MODEL, [], { sessionId: 'generated' });
+  return { first, second };
+});
+await rec.run('sessionless-requests-retain-original-header-input', `${SRC}:332`, { requestHeaders: new Headers({ 'X-Test': 'kept' }) }, async () => {
+  const requests = [];
+  const provider = { name: 'custom-boundary-no-session', config: { clientOptions: {} }, customConfig: MODE, nativePdf: false, getCachedModelInfo: () => ROW, client: { responses: { async create(body, options) { requests.push({ body: structuredClone(body), headers: options?.headers }); return (async function* () { yield completedEvent; })(); } } } };
+  const requestHeaders = new Headers({ 'X-Test': 'kept' });
+  await sendCompatResponses(provider, hi, MODEL, [], { requestHeaders });
+  return { requests, headersIsTheCallersObject: requests[0].headers === requestHeaders, hasPromptCacheKey: Object.hasOwn(requests[0].body, 'prompt_cache_key') };
+});
+for (const scope of ['request-record', 'request-pairs', 'provider-defaults', 'sdk-defaults']) {
+  const values = () => ({ 'session-id': undefined, 'X-Client-Request-ID': undefined });
+  await headerCase(`sdk-merge-undefined-identity-headers-do-not-suppress-generated:${scope}`, 341, { scope, values: values() }, async () => {
+    const options = {};
+    if (scope === 'provider-defaults') options.defaultHeaders = values();
+    if (scope === 'sdk-defaults') options.clientOptions = { defaultHeaders: values() };
+    const sendOpts = { sessionId: 'generated' };
+    const callerValues = values();
+    if (scope === 'request-record') sendOpts.requestHeaders = callerValues;
+    if (scope === 'request-pairs') sendOpts.requestHeaders = Object.entries(callerValues);
+    const result = await sendCompatResponses(wireFixture(`undefined-${scope}`, options), hi, MODEL, [], sendOpts);
+    return { result, callerValuesAfter: callerValues };
+  });
+}
+await headerCase('sdk-merge-empty-and-undefined-only-header-arrays', 357, { defaultHeaders: { 'Session-ID': [], 'X-Client-Request-ID': [undefined] }, requestHeaders: { 'session-id': [undefined], 'x-client-request-id': [] }, sessionId: 'generated' }, async () => {
+  const requestHeaders = { 'session-id': [undefined], 'x-client-request-id': [] };
+  const result = await sendCompatResponses(wireFixture('empty-header-arrays', { defaultHeaders: { 'Session-ID': [], 'X-Client-Request-ID': [undefined] } }), hi, MODEL, [], { sessionId: 'generated', requestHeaders });
+  return { result, callerHeadersAfter: requestHeaders };
+});
+const AUTH_SESSION_HEADERS = () => ({ record: { 'Session-ID': 'caller-session', 'X-Client-Request-ID': null }, pairs: [['Session-ID', 'caller-session'], ['X-Client-Request-ID', null]], Headers: new Headers({ 'Session-ID': 'caller-session' }) });
+for (const format of ['record', 'pairs', 'Headers']) {
+  await headerCase(`sdk-merge-session-override-and-deletion-keep-auth-headers:${format}`, 474, { format, defaultHeaders: { 'api-key': 'gateway-key' }, requestHeaders: AUTH_SESSION_HEADERS()[format], sessionId: 'generated' }, async () => ({ result: await sendCompatResponses(wireFixture(`auth-${format}`, { defaultHeaders: { 'api-key': 'gateway-key' } }), hi, MODEL, [], { sessionId: 'generated', requestHeaders: AUTH_SESSION_HEADERS()[format] }) }));
+}
+await rec.run('session-header-merging-neither-synthesizes-nor-drops-authorization', `${SRC}:492`, { plain: { requestHeaders: { 'Session-ID': null }, client: 'a scripted client.responses.create' }, sdk: { requestHeaders: { Authorization: 'Bearer caller', 'Session-ID': null } }, sessionId: 'generated' }, async ({ net }) => {
+  answerOk(net);
+  const seen = [];
+  const plainProvider = { name: 'custom-boundary-auth-not-synthesized', config: { clientOptions: {} }, customConfig: MODE, nativePdf: false, getCachedModelInfo: () => ROW, client: { responses: { async create(body, options) { seen.push({ body: structuredClone(body), headers: options?.headers }); return (async function* () { yield completedEvent; })(); } } } };
+  await sendCompatResponses(plainProvider, hi, MODEL, [], { sessionId: 'generated', requestHeaders: { 'Session-ID': null } });
+  const sdkResult = await sendCompatResponses(wireFixture('auth-caller-override'), hi, MODEL, [], { sessionId: 'generated', requestHeaders: { Authorization: 'Bearer caller', 'Session-ID': null } });
+  return { plainHeadersPassedToCreate: seen[0].headers, sdkResult };
 });
 await rec.finish();
