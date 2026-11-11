@@ -495,11 +495,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -507,7 +507,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -597,11 +597,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -609,7 +609,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -699,11 +699,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -711,7 +711,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -801,11 +801,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -813,7 +813,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -903,11 +903,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -915,7 +915,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -2340,11 +2340,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -2352,7 +2352,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -2442,11 +2442,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -2454,7 +2454,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -2544,11 +2544,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -2556,7 +2556,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -2646,11 +2646,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -2658,7 +2658,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -2748,11 +2748,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -2760,7 +2760,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -4188,11 +4188,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -4200,7 +4200,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -4279,11 +4279,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -4291,7 +4291,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -4892,11 +4892,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -4904,7 +4904,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -4983,11 +4983,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -4995,7 +4995,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -5679,11 +5679,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -5691,7 +5691,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -5770,11 +5770,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -5782,7 +5782,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -5859,11 +5859,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -5871,7 +5871,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -6709,11 +6709,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -6721,7 +6721,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -6799,11 +6799,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -6811,7 +6811,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -6897,11 +6897,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -6909,7 +6909,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -6997,11 +6997,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -7009,7 +7009,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -7095,11 +7095,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -7107,7 +7107,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -7195,11 +7195,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -7207,7 +7207,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -7292,11 +7292,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -7304,7 +7304,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -7390,11 +7390,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -7402,7 +7402,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -7492,11 +7492,11 @@
                 ],
                 [
                   "x-stainless-os",
-                  "Windows"
+                  "<recording host x-stainless-os>"
                 ],
                 [
                   "x-stainless-arch",
-                  "x64"
+                  "<recording host x-stainless-arch>"
                 ],
                 [
                   "x-stainless-runtime",
@@ -7504,7 +7504,7 @@
                 ],
                 [
                   "x-stainless-runtime-version",
-                  "v22.20.0"
+                  "<recording host x-stainless-runtime-version>"
                 ],
                 [
                   "authorization",
@@ -7585,11 +7585,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -7597,7 +7597,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -7668,11 +7668,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -7680,7 +7680,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -9185,11 +9185,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -9197,7 +9197,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -9276,11 +9276,11 @@
               ],
               [
                 "x-stainless-os",
-                "Windows"
+                "<recording host x-stainless-os>"
               ],
               [
                 "x-stainless-arch",
-                "x64"
+                "<recording host x-stainless-arch>"
               ],
               [
                 "x-stainless-runtime",
@@ -9288,7 +9288,7 @@
               ],
               [
                 "x-stainless-runtime-version",
-                "v22.20.0"
+                "<recording host x-stainless-runtime-version>"
               ],
               [
                 "authorization",
@@ -9368,11 +9368,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -9380,7 +9380,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",

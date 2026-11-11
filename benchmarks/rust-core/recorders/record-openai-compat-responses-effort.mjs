@@ -28,6 +28,9 @@ function fixture(name, model, { protocol = 'openai-responses', levels, reject, c
   const row = rowFor(model, levels);
   const endpoint = rec.net;
   endpoint.reply = (request) => {
+    // The same declared rule as the top-level `requests` (lib/provider-case-recorder.mjs): the three SDK headers that carry the recording host are written as `<recording host <header name>>` in every
+    // copy of the request the manifest names, including the records a case result holds.
+    for (const pair of request.headers) if (/^x-stainless-(os|arch|runtime-version)$/i.test(pair[0])) pair[1] = `<recording host ${pair[0].toLowerCase()}>`;
     requests.push(request);
     const error = reject?.(requests.length);
     if (error) return { status: error.status, contentType: 'application/json', body: JSON.stringify({ error: { message: error.message.replace(/^\d{3} /, ''), type: 'invalid_request_error' } }) };
