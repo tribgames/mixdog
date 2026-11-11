@@ -498,7 +498,14 @@
         "log": [
           {
             "step": "undecided",
-            "created": null
+            "status": {
+              "created": null,
+              "name": "",
+              "avatar": null,
+              "homeChatted": false,
+              "route": null,
+              "exists": false
+            }
           },
           {
             "step": "desktop shows",
@@ -506,7 +513,14 @@
           },
           {
             "step": "after the desktop decided",
-            "created": true,
+            "status": {
+              "created": true,
+              "name": "",
+              "avatar": null,
+              "homeChatted": false,
+              "route": null,
+              "exists": false
+            },
             "heartbeat": "no-mixy"
           },
           {
