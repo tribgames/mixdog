@@ -3836,6 +3836,7 @@ dependencies = [
  "mixdog-rt",
  "mixdog-secrets",
  "mixdog-statefile",
+ "mixdog-testkit",
  "mixdog-workspace-hack",
  "rand 0.9.5",
  "rcgen",

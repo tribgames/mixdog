@@ -19,6 +19,8 @@ mod openai_profiles;
 mod openai_switch;
 mod openai_ws_pool;
 mod process_state;
+mod provider_cases;
+mod replay_openai_ws_delta;
 mod retry;
 mod tls_hello;
 mod transport;
