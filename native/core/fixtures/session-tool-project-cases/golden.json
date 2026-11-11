@@ -92,6 +92,19 @@
             }
           },
           {
+            "label": "the caller-owned switch",
+            "tool": "session",
+            "args": {
+              "path": "<dir>"
+            },
+            "context": {
+              "setCallerCwd": "<path>::caller"
+            },
+            "outcome": {
+              "ok": "{\n  \"cwd\": \"<dir>::caller\",\n  \"sessionId\": \"sess-1\"\n}"
+            }
+          },
+          {
             "label": "set-project without a path",
             "tool": "session",
             "args": {

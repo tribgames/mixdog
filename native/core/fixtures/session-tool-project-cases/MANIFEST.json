@@ -1,19 +1,18 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-session-tool-project-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compared": "per call: the whole outcome, the tool's text or its error message; the Project directory as <dir>",
+  "compared": "per call: the whole outcome, the tool's text or its error message; the Project directory as <dir>; the fork case: the session id the test's lifecycle double minted (new-1) stands for the id the core's directory minted, and `forks` is [source, compacted] of the copy the core really made and compacted",
   "excluded": {
     "injected runtimes receive the caller context each tool expects": "the executor's argument plumbing into the test's injected recorders (internal-tool-executor.mjs, workspace-tools.mjs:352-364): what a client sees is each tool's own answer in the caller's cwd and session, replayed in that tool's set (code_graph, goal, agent, setup, memory, Skill); the unknown-tool throw is unreachable for a model, the surface refuses an unknown tool first",
     "model-tool calls to disabled features are refused before any dispatch": "the executor's own gate (internal-tool-executor.mjs:76-80) never answers a model: its list is boot.featureDisallowedTools, the same function boot/tools.mjs:341 registers as the scope's live gate, which dispatch.mjs:125-128 checks first and answers with its own text; the browser gate (bridge-tools.mjs:15-23) reads MIXDOG_FEATURE_BROWSER, the same process env the surface was built from (builtin-features.mjs:177), which nothing outside the process changes",
     "session fork calls the lifecycle API and returns the new session id: fork without a lifecycle API": "the test's bare harness injects no getLifecycleApi (workspace-tools.mjs:145); every product runtime injects it (lifecycle-api.mjs:47)",
-    "session reports, lists, and switches the Project through the caller or the runtime: the caller-owned switch ({path} with setCallerCwd)": "Node's MCP caller may own the cwd switch (setCallerCwd); the core's session tool has one switch, the session port's",
     "session reports, lists, and switches the Project through the caller or the runtime: the retired cwd tool": "Node's internal executor's own refusal of a tool it does not route; the core has no internal executor, and a model never reaches either: the session surface refuses an unknown tool first"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11815,
+      "bytes": 12199,
       "path": "golden.json",
-      "sha256": "d5f72077f16b7e2ccb9e98438de360fd7819ad41da1ba53940d03c56ac29f7ee"
+      "sha256": "e01c617875231a654765b9bbba1d95ab17b8c44172eb39d88ba747d190a17f00"
     }
   ],
   "inputs": [
@@ -45,7 +44,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-project-cases.mjs",
-  "recorderSha256": "757b695b7ed1a139078ee728750567d606ad37af41af36b555d54ac09051e84a",
+  "recorderSha256": "70285748c66fa794fa098010d766a6f35ef7b780bce8266baa947ffc72619ffc",
   "set": "session-tool-project-cases",
-  "totalBytes": 11815
+  "totalBytes": 12199
 }
