@@ -20,6 +20,18 @@ registerHooks({
   },
 });
 
+// `MIXDOG_SEAM_PLATFORM`: the platform compressEmbeddingModelCache reads (its `platform = process.platform` default), so a
+// recording on this Windows host can hold the answer of another platform. Every other reader (onnxruntime's binding choice
+// included) still sees the real one.
+if (process.env.MIXDOG_SEAM_PLATFORM) {
+  const real = process.platform;
+  const seen = process.env.MIXDOG_SEAM_PLATFORM;
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    get: () => (new Error().stack.includes('embedding-model-cache-compression.mjs') ? seen : real),
+  });
+}
+
 export function execFile(command, args, options, callback) {
   const { timeout, windowsHide, maxBuffer } = options ?? {};
   parentPort.postMessage({ type: 'seam', command, args, options: { timeout, windowsHide, maxBuffer } });

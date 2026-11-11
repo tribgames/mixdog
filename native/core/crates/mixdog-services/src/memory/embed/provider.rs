@@ -42,9 +42,12 @@ fn cold_embed_wait() -> Duration {
 pub struct EmbeddingProvider {
     config: EmbedConfig,
     hub: String,
-    /// The load, shared by every caller; a failure stays. Shared with the task that runs it, so a
-    /// recall that stops waiting does not end it.
-    loaded: Loaded,
+    /// The load, shared by every caller; a failure stays until a dispose. Shared with the task that runs
+    /// it, so a recall that stops waiting does not end it; a dispose puts a fresh cell in its place.
+    loaded: std::sync::Mutex<Loaded>,
+    /// The worker's `modelCacheCompressionStarted`: one compression per provider, a reload after a
+    /// dispose included.
+    compress_started: Arc<std::sync::atomic::AtomicBool>,
     load: Load,
     cold_wait: Duration,
     /// Installs run one at a time; `cancel` ends both the wait and a stuck install.
@@ -64,7 +67,8 @@ impl EmbeddingProvider {
         Self {
             config,
             hub: install::HUB.to_owned(),
-            loaded: Loaded::default(),
+            loaded: std::sync::Mutex::default(),
+            compress_started: Arc::default(),
             load: Arc::new(|config| Box::pin(async move { Embedder::load(config).await.map_err(|e| e.message()) })),
             cold_wait: cold_embed_wait(),
             installing: Gate::new(),
@@ -83,7 +87,8 @@ impl EmbeddingProvider {
     pub fn info(&self) -> Value {
         let model = js_trim(&self.config.model_id);
         // `cachedDims || getKnownDimsForCurrentModel()`: the measured value once loaded.
-        let dims = match self.loaded.get() {
+        let current = self.current();
+        let dims = match current.get() {
             Some(Ok(embedder)) => Some(embedder.dims()),
             _ => config::known_dims(model),
         };
@@ -118,13 +123,25 @@ impl EmbeddingProvider {
     }
 
     pub fn is_ready(&self) -> bool {
-        matches!(self.loaded.get(), Some(Ok(_)))
+        matches!(self.current().get(), Some(Ok(_)))
+    }
+
+    /// The current load's cell.
+    fn current(&self) -> Loaded {
+        self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// The worker's `dispose`: the loaded model (or the remembered failure) is released, so the next
+    /// warmup loads again.
+    pub fn dispose(&self) {
+        *self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Loaded::default();
+        self.tick.bump();
     }
 
     /// Loads the model, once however many callers ask. `Ok(None)` when it is
     /// not installed; `Err` is the remembered load failure.
     pub async fn warmup(&self) -> Result<Option<Embedder>, String> {
-        if let Some(loaded) = self.loaded.get() {
+        if let Some(loaded) = self.current().get() {
             return loaded.clone().map(Some);
         }
         if !self.is_installed().await.map_err(|e| e.to_string())? {
@@ -135,13 +152,16 @@ impl EmbeddingProvider {
 
     /// The shared load, as an owned future a task can run to its end.
     fn load_future(&self) -> impl Future<Output = Result<Embedder, String>> + Send + 'static {
-        let (loaded, load, config, tick, compact) = (self.loaded.clone(), self.load.clone(), self.config.clone(), self.tick.clone(), self.compact.clone());
+        let (loaded, load, config, tick, compact) = (self.current(), self.load.clone(), self.config.clone(), self.tick.clone(), self.compact.clone());
+        let started = self.compress_started.clone();
         async move {
             loaded
                 .get_or_init(|| async move {
                     let outcome = load(config.clone()).await;
                     tick.bump();
-                    if let (Ok(_), Some(compact)) = (&outcome, compact) {
+                    if let (Ok(_), Some(compact)) = (&outcome, compact)
+                        && !started.swap(true, std::sync::atomic::Ordering::AcqRel)
+                    {
                         mixdog_rt::spawn("embedding-model-compress", mixdog_rt::TaskClass::Work, async move {
                             match compress::compress_model_cache(cfg!(windows), config.lane, &config.cache_dir, js_trim(&config.model_id), &compact).await {
                                 Ok(Some(dir)) => tracing::info!("[embed-worker] model cache LZX compressed: {}", dir.display()),
@@ -160,7 +180,7 @@ impl EmbeddingProvider {
     /// The model for a recall: loaded already, or the load started (or joined) in its own task and
     /// waited for at most the cold wait. `None` sends the recall to its text lanes.
     async fn recall_embedder(&self) -> Option<Embedder> {
-        if let Some(loaded) = self.loaded.get() {
+        if let Some(loaded) = self.current().get() {
             return loaded.clone().ok();
         }
         if !self.is_installed().await.ok()? {

@@ -33,7 +33,7 @@ impl MemoryError {
     /// The sentence a tool call reports for this failure.
     pub fn message(&self) -> String {
         match self {
-            Self::Rejected(text) => text.clone(),
+            Self::Rejected(text) | Self::Embedding(text) => text.clone(),
             other => other.to_string(),
         }
     }

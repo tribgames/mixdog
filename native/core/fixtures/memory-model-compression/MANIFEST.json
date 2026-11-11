@@ -1,13 +1,13 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-memory-model-compression.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": "src/runtime/memory/lib/embedding-worker.mjs in a worker thread (as embedding-provider.mjs starts it), its warmup/dispose requests",
-  "exclusions": "execFile is a seam (lib/compact-seam.mjs): nothing runs; only compact.exe calls are recorded (the load's CPU-affinity PowerShell calls are not this set's subject); the worker's log lines are not recorded. The replay compares each warmup's reply type and dims (an error by its type: the message is onnxruntime's own text), and every compression call's step, command and arguments; the options' 120 s limit is the Rust run's own deadline, not a spawn argument, and is not compared; the Rust provider has no dispose (its one load serves every later warmup), so the dispose step has no counterpart",
+  "exclusions": "execFile is a seam (lib/compact-seam.mjs): nothing runs; only compact.exe calls are recorded (the load's CPU-affinity PowerShell calls are not this set's subject); the worker's log lines (__mixdogMemoryLog: the loaded/compressed/skipped lines) are not recorded: they are diagnostics, not a reply. The linux and darwin cases are recorded on Windows with the platform compressEmbeddingModelCache reads set by the seam (MIXDOG_SEAM_PLATFORM); onnxruntime still loads its Windows binding. The replay compares every reply whole, the loaded flag of each step, and every compression call with its options (timeout as the spawn's time limit, windowsHide as a non-PTY spawn of the manager, which always hides; maxBuffer is not compared: it is the run's capture bound (compress.rs COMPACT_MAX_BUFFER), not a spawn argument the manager sees)",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 7057,
+      "bytes": 8263,
       "path": "golden.json",
-      "sha256": "cfe1d29b6e6f9032aee5c1a3c12f36f397f5e459969d24dc74cf6c3c57af09e1"
+      "sha256": "ac40724437e45602b3e1bfceb8e4ba74bebf4705bd4c2efa66b06ef2aeac4951"
     }
   ],
   "inputs": [
@@ -29,7 +29,7 @@
     }
   ],
   "nodeVersion": "v22.20.0",
-  "normalised": "the model directory in arguments is written <modelDir>",
+  "normalised": "the model directory in arguments and messages is written <modelDir>; a reply's wallMs (measured) is written <wallMs>; the request id is left out of each reply (the step names the request)",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -48,11 +48,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-model-compression.mjs",
-  "recorderSha256": "2f87bd35b4d3fea4a22e5164637919905917c8c4a3e8d3160dc16820d1b6a7c2",
+  "recorderSha256": "20eea22033ebfa68f528a855f1560d2f366fe8adc5667369c76adbf908cf9901",
   "replay": "native/core/crates/mixdog-services/src/memory/tests/model_compression.rs",
   "set": "memory-model-compression",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 7057,
+  "totalBytes": 8263,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
