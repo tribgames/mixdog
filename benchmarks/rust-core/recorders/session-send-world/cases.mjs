@@ -199,6 +199,25 @@ export function createModel(c) {
   };
 }
 
+/** `run` over every item, `jobs` at a time; the first failure is thrown once every started run has ended. */
+export async function eachAtOnce(items, jobs, run) {
+  const queue = [...items];
+  const failures = [];
+  const worker = async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      try {
+        await run(item);
+      } catch (error) {
+        failures.push(error);
+        queue.length = 0;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(jobs, items.length) }, worker));
+  if (failures.length) throw failures[0];
+}
+
 /** One deadline per wait, naming what it waits for. */
 export const within = (ms, promise, what) => {
   let timer;
@@ -226,9 +245,12 @@ export async function runSteps(c, app, model) {
   const count = (kind) => model.requests.filter((r) => r.kind === kind).length;
   const id = (alias) => model.aliases.get(alias) ?? `sess_missing_${alias.toLowerCase()}`;
   const rows = (alias) => rowsOf(app.snapshot(id(alias)));
+  // The window's submission ids (the renderer's `nextComposerSubmissionId`), scripted in submission order.
+  let submitted = 0;
+  const submissionId = (alias) => `desktop-submit-${alias}-${(submitted += 1)}`;
   await app.open(within);
   try {
-    await runEach(c, app, model, steps, count, id, rows);
+    await runEach(c, app, model, steps, count, id, rows, submissionId);
   } catch (error) {
     // What each client showed when a step failed: the failure's evidence.
     error.shown = Object.fromEntries([...model.aliases.keys()].map((alias) => [alias, { busy: app.busy(id(alias)), rows: rows(alias) }]));
@@ -244,7 +266,7 @@ export async function runSteps(c, app, model) {
   return { steps, requests: model.requests, shown, stored, aliases: Object.fromEntries(model.aliases) };
 }
 
-async function runEach(c, app, model, steps, count, id, rows) {
+async function runEach(c, app, model, steps, count, id, rows, submissionId) {
   for (const step of c.steps) {
     model.note(`step ${JSON.stringify(step)}`);
     // A window shows every session a case opened: their states reach the client from the moment each exists.
@@ -254,11 +276,11 @@ async function runEach(c, app, model, steps, count, id, rows) {
       await showAll();
     } else if (step.do === 'task') {
       const before = count('other');
-      model.aliases.set(step.as, await within(STEP_MS, app.newTask(step.prompt), `submitNewTask ${step.as}`));
+      model.aliases.set(step.as, await within(STEP_MS, app.newTask(step.prompt, submissionId(step.as)), `submitNewTask ${step.as}`));
       await showAll();
       await model.until(() => count('other') > before, `the first turn of ${step.as}`);
       await model.until(() => app.snapshot(id(step.as)) && !app.busy(id(step.as)), `${step.as} idle after its first turn`);
-    } else if (step.do === 'say') steps.push({ say: step.to, ...(await outcome(app.say(id(step.to), step.prompt, step.options), `submitToSession ${step.to}`)) });
+    } else if (step.do === 'say') steps.push({ say: step.to, ...(await outcome(app.say(id(step.to), step.prompt, { ...step.options, id: submissionId(step.to) }), `submitToSession ${step.to}`)) });
     else if (step.do === 'until') await model.until(() => count(step.request) >= (step.n ?? 1), `request ${step.request} #${step.n ?? 1}`);
     else if (step.do === 'held') await model.until(() => model.held(step.request), `${step.request} held`);
     else if (step.do === 'release') model.release(step.request);
@@ -286,12 +308,9 @@ async function runEach(c, app, model, steps, count, id, rows) {
 export function normalized(recorded) {
   let text = JSON.stringify(recorded).replace(PAD_RUN, (run) => (run === PAD ? '<pad>' : `<pad part ${run.length} chars>`));
   for (const [alias, id] of Object.entries(recorded.aliases)) text = text.replaceAll(id, `@${alias}`);
-  // A compaction's handoff names the compacted messages by a hash over them, minted ids and times included: the count and roles stay.
-  text = text.replace(/(messages=\d+ sha256=)[0-9a-f]{16}/g, '$1<hash>');
   const numbered = new Map();
-  text = text.replace(/\b(atask|msg|sess_desktop|call|it)_[0-9a-zA-Z-]+|\b(desktop-submit)-[^"\\\s]+|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, (found, minted, submitted) => {
+  text = text.replace(/\b(atask|msg|sess_desktop|call|it)_[0-9a-zA-Z-]+|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, (found, prefix) => {
     const key = found;
-    const prefix = minted ?? submitted;
     if (!numbered.has(key)) numbered.set(key, `<${prefix ?? 'uuid'}:${[...numbered.keys()].filter((k) => k.startsWith(prefix ?? '')).length + 1}>`);
     return numbered.get(key);
   });
