@@ -6,8 +6,8 @@
 // Node stores what it parsed (a Mixy name, a profile title, a branch, a webhook field).
 //
 // Per case: the files exactly as Node wrote them (`<case>/before/...`), the document Node's `JSON.parse` reads from each,
-// made well-formed by Node's own outgoing sanitizer (`sanitizeSurrogates`, src/runtime/shared/llm/well-formed.mjs: a lone
-// surrogate becomes U+FFFD, decisions.md "frame-lone-surrogate"), and for a read-modify-write store one more Node write
+// through the one mapping at the places the manifest lists (lib/lone-mapping.mjs: a lone surrogate becomes U+FFFD,
+// decisions.md "Lone UTF-16 surrogates in client strings"), and for a read-modify-write store one more Node write
 // (`<case>/after/...`) with its document, which the core must reproduce from Node's file without losing a field.
 //
 //   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs \
@@ -29,6 +29,7 @@ import {
   writeSetManifest,
 } from './lib/common.mjs';
 import { installDeterministicWorld } from './lib/deterministic-world.mjs';
+import { LONE_MAPPING, lonePlaces, mapAt } from './lib/lone-mapping.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const args = parseArgs();
@@ -37,7 +38,7 @@ const only = args.get('only') ?? null;
 const identity = exactProductIdentity(tree, COMMIT);
 const SET = join(FIXTURES_ROOT, 'lone-surrogate-files');
 const HERE = dirname(fileURLToPath(import.meta.url));
-const RECORDER_FILES = ['record-lone-surrogate-files.mjs', 'lib/common.mjs', 'lib/deterministic-world.mjs', 'lib/ts-register.mjs', 'lib/ts-resolve-hooks.mjs'];
+const RECORDER_FILES = ['record-lone-surrogate-files.mjs', 'lib/common.mjs', 'lib/deterministic-world.mjs', 'lib/lone-mapping.mjs', 'lib/ts-register.mjs', 'lib/ts-resolve-hooks.mjs'];
 
 // Scratch under the build folder: one fresh data dir per run; the recovery root is a fixed folder kept between runs, so the
 // identity (dev/ino) and the path Node writes into its manifest are the same on every run.
@@ -69,7 +70,6 @@ Math.random = () => {
   return seed / 4294967296;
 };
 
-const { sanitizeSurrogates } = await importFrom(tree, 'src/runtime/shared/llm/well-formed.mjs');
 const EMOJI = '\u{1F600}';
 // `n - 1` letters and an emoji: a cut at `n` UTF-16 units keeps the emoji's high half alone.
 const cutAt = (letter, n) => `${letter.repeat(n - 1)}${EMOJI}tail`;
@@ -77,22 +77,10 @@ const cutAt = (letter, n) => `${letter.repeat(n - 1)}${EMOJI}tail`;
 const stage = stageSet(SET, only ? [only] : null);
 const cases = only ? JSON.parse(readFileSync(join(SET, 'cases.json'), 'utf8')).filter((c) => c.name !== only) : [];
 
-/** `value` well-formed by Node's own sanitizer. Two keys of one object that become one fail the recording: a merged object is
- *  never recorded as Node's. */
-function wellFormedCase(value) {
-  const check = (item) => {
-    if (Array.isArray(item)) item.forEach(check);
-    else if (item && typeof item === 'object') {
-      const keys = Object.keys(item);
-      if (new Set(keys.map((key) => key.toWellFormed())).size !== keys.length) throw new Error(`two keys of one object read as one: ${JSON.stringify(keys)}`);
-      Object.values(item).forEach(check);
-    }
-  };
-  check(value);
-  return sanitizeSurrogates(value);
-}
-/** The document Node's `JSON.parse` reads from `file`, well-formed. */
-const documentOf = (file) => wellFormedCase(JSON.parse(readFileSync(file, 'utf8')));
+/** Where the one mapping (lib/lone-mapping.mjs) was applied in each recorded case: listed in the manifest. */
+const mapped = only ? JSON.parse(readFileSync(join(SET, 'MANIFEST.json'), 'utf8')).mapping.at : {};
+/** The document Node's `JSON.parse` reads from `file`, as Node holds it. */
+const documentOf = (file) => JSON.parse(readFileSync(file, 'utf8'));
 const lone = (file) => /\\ud[89ab][0-9a-f]{2}(?!\\ud[c-f])/i.test(readFileSync(file, 'utf8'));
 
 /** Copies Node's files of `phase` and returns their documents keyed by data-relative path. */
@@ -115,9 +103,11 @@ async function record(name, writer, run) {
     if (!holds) throw new Error(`${name}: ${rel} holds no lone surrogate escape; the input does not reach Node's cut`);
   }
   delete result.lone;
-  // The case file is read by serde_json too: everything in it is well-formed; the input keeps its lone surrogate as the
-  // JSON text Node's `JSON.stringify` makes of it.
-  cases.push(wellFormedCase({ name, writer, ...result, input: JSON.stringify(result.input) }));
+  // The case file is read by serde_json, which holds no lone unit: the one mapping is applied at every place of the case that holds
+  // one, each listed in the manifest. The input keeps its lone surrogate as the JSON text Node's `JSON.stringify` makes of it.
+  const recorded = { name, writer, ...result, input: JSON.stringify(result.input) };
+  mapped[name] = lonePlaces(recorded);
+  cases.push(mapAt(recorded, mapped[name]));
 }
 
 // ── remote-access settings: a PC name cut at 64 units, a device alias cut at 80 (remote-access-settings.ts:95-96, :109) ──
@@ -132,7 +122,7 @@ await record('remote-access-settings', 'apps/desktop/src/main/remote-access-sett
   const rel = 'remote-access-settings.json';
   const before = keep('remote-access-settings', 'before', dir, [rel]);
   const lonely = lone(join(dir, rel));
-  const nodeRead = sanitizeSurrogates({ settings: await store.read(), deviceAliases: await store.deviceAliases() });
+  const nodeRead = { settings: await store.read(), deviceAliases: await store.deviceAliases() };
   const op = { setDeviceAlias: ['client-b', 'Second phone'] };
   await store.setDeviceAlias(...op.setDeviceAlias);
   const after = keep('remote-access-settings', 'after', dir, [rel]);
@@ -160,7 +150,7 @@ await record('media-store', 'src/runtime/media/store.mjs:116,:219,:276', async (
   const rels = ['index.json', 'boards.json'];
   const before = keep('media-store', 'before', root, rels);
   const lonely = Object.fromEntries(rels.map((rel) => [rel, lone(join(root, rel))]));
-  const nodeRead = sanitizeSurrogates({ boards: media.listMediaBoards() });
+  const nodeRead = { boards: media.listMediaBoards() };
   const op = { setAssetBoard: [[asset.id], cut.id], renameBoard: [plain.id, 'Renamed board'] };
   media.setMediaAssetBoard(...op.setAssetBoard);
   media.renameMediaBoard(...op.renameBoard);
@@ -193,13 +183,13 @@ await record('worktree-registry', 'src/runtime/shared/worktrees/registry.mjs:80-
   const rel = join('worktrees-v1', 'registry.json');
   const before = keep('worktree-registry', 'before', DATA, [rel]);
   const lonely = lone(join(DATA, rel));
-  const nodeRead = sanitizeSurrogates(await registry.readRegistry());
+  const nodeRead = await registry.readRegistry();
   world.advance(1000);
   const second = record('topic-two', 'topic-two');
   const op = { insert: second };
   await registry.insertRecord(second);
   const after = keep('worktree-registry', 'after', DATA, [rel]);
-  return { input, file: rel.split('\\').join('/'), before, nodeRead, op: sanitizeSurrogates(op), after, lone: { [rel]: lonely } };
+  return { input, file: rel.split('\\').join('/'), before, nodeRead, op, after, lone: { [rel]: lonely } };
 });
 
 // ── project recovery: a failure message cut at 8000 units (project-recovery-store.ts:340) ──
@@ -221,7 +211,7 @@ await record('project-recovery', 'apps/desktop/src/main/project-recovery-store.t
   await recovery.writeRecoveryState(directory, { phase: 'failed', message: input.message, restored: [] });
   await recovery.releaseRecoveryDirectory(directory);
   const published = join(dirname(directory), id);
-  const nodeRead = sanitizeSurrogates((await recovery.readRecoveryRecord(published)).state);
+  const nodeRead = (await recovery.readRecoveryRecord(published)).state;
   const rels = ['manifest.json', 'state.json', '0.before', '0.after'];
   const before = {};
   for (const rel of rels) {
@@ -271,13 +261,13 @@ await record('project-recovery-lone-path', 'apps/desktop/src/main/project-recove
   const onDisk = (await import('node:fs')).readdirSync(join(RECOVERY_ROOT, 'src')).filter((name) => name.startsWith('b'));
   const inspected = await projectRecoveryIn(userData, RECOVERY_ROOT, { action: 'inspect', id });
   const restored = await projectRecoveryIn(userData, RECOVERY_ROOT, { action: 'restore', id, revision: inspected.detail.revision });
-  const view = (detail) => sanitizeSurrogates({ phase: detail.phase, files: detail.files.map(({ relPath, status }) => ({ relPath, status })) });
+  const view = (detail) => ({ phase: detail.phase, files: detail.files.map(({ relPath, status }) => ({ relPath, status })) });
   const after = {
     namesOnDisk: onDisk.map((name) => Buffer.from(name).toString('hex')),
     inspected: view(inspected.detail),
     restored: view(restored.detail),
     target: readFileSync(join(RECOVERY_ROOT, 'src', onDisk[0]), 'utf8'),
-    state: sanitizeSurrogates(JSON.parse(readFileSync(join(published, 'state.json'), 'utf8'))),
+    state: JSON.parse(readFileSync(join(published, 'state.json'), 'utf8')),
   };
   rmSync(join(RECOVERY_ROOT, 'src', onDisk[0]));
   return { input: { relPath: rel }, recordId: id, before, after, lone: { 'manifest.json': lone(join(published, 'manifest.json')) } };
@@ -338,7 +328,7 @@ await record('mixy-identity', 'src/session-runtime/workflow-agents-api/agent-edi
   const rel = join('agents', 'lead', 'agent.json');
   const before = keep('mixy-identity', 'before', DATA, [rel]);
   const { mixyDisplayName } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/mixy-name.mjs');
-  const nodeRead = sanitizeSurrogates({ mixyDisplayName: mixyDisplayName() });
+  const nodeRead = { mixyDisplayName: mixyDisplayName() };
   return { input, file: rel.split('\\').join('/'), before, nodeRead, lone: { [rel]: lone(join(DATA, rel)) } };
 });
 
@@ -367,7 +357,7 @@ await record('agent-definition', 'src/session-runtime/workflow-agents-api/agent-
   const agentMd = join(stage, 'agent-definition', 'before', 'agents', 'helper', 'AGENT.md');
   cpSync(join(DATA, 'agents', 'helper', 'AGENT.md'), agentMd);
   const { agentModeIdentityLine } = await importFrom(tree, 'src/runtime/agent/orchestrator/context/role-instructions.mjs');
-  const nodeRead = sanitizeSurrogates({ identityLine: agentModeIdentityLine('helper') });
+  const nodeRead = { identityLine: agentModeIdentityLine('helper') };
   return { input, file: rel.split('\\').join('/'), before, nodeRead, lone: { [rel]: lone(join(DATA, rel)) } };
 });
 
@@ -387,13 +377,13 @@ await record('editor-backup', 'apps/desktop/src/main/editor-backups.ts:97-117', 
   const before = keep('editor-backup', 'before', dir, [rel]);
   const lonely = lone(join(dir, rel));
   const read = await backups.readEditorBackup(userData, source);
-  const nodeRead = sanitizeSurrogates(read);
+  const nodeRead = read;
   // Node's own rewrite: the editor backs the draft it read up again, one character longer (writeEditorBackup).
   const op = { writeEditorBackup: { content: `${read.content}!`, expectedContent: read.expectedContent } };
   world.advance(1000);
   await backups.writeEditorBackup(userData, source, op.writeEditorBackup.content, op.writeEditorBackup.expectedContent);
   const after = keep('editor-backup', 'after', dir, [rel]);
-  return { input, file: rel, before, nodeRead, op: sanitizeSurrogates(op), after, lone: { [rel]: lonely } };
+  return { input, file: rel, before, nodeRead, op, after, lone: { [rel]: lonely } };
 });
 
 world.advance(0);
@@ -412,17 +402,11 @@ writeSetManifest(stage, {
     nodeVersion: process.version,
     recorderFiles,
     inputs: Object.fromEntries(cases.map((c) => [c.name, c.input])),
-    // What is changed in recorded values before a test compares with them. The files under `<case>/before|after/` are Node's bytes,
-    // unchanged.
-    normalisations: [
-      {
-        what: 'every string and object key of each case in cases.json (documents, nodeRead, op, after): a lone surrogate becomes U+FFFD; two keys of one object that become one fail the recording',
-        where: 'benchmarks/rust-core/recorders/record-lone-surrogate-files.mjs:82 wellFormedCase(), applied at :120 (record) and in documentOf()',
-        why: "cases.json is read by serde_json, which cannot hold a lone unit; U+FFFD is what the core reads Node's escape as",
-        allowedBy: 'decisions.md "frame-lone-surrogate" (a): the core reads an unpaired surrogate escape as U+FFFD; files the core writes hold EF BF BD where Node wrote the escape',
-        input: 'each case keeps its input as the JSON text Node wrote of it (`input`), escape included',
-      },
-    ],
+    // The only change made to recorded values before a test compares with them: at each listed place (a JSON pointer into the
+    // case in cases.json) Node holds a lone unit where the core holds U+FFFD; cases.json is read by serde_json, which holds none.
+    // The files under `<case>/before|after/` are Node's bytes, unchanged; each case keeps its input as the JSON text Node wrote
+    // of it (`input`), escape included.
+    mapping: { ...LONE_MAPPING, at: Object.fromEntries(order.filter((name) => mapped[name]).map((name) => [name, mapped[name]])) },
   },
 });
 commitStage(stage, SET);

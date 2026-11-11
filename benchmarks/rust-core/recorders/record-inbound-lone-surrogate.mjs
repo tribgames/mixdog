@@ -18,7 +18,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, sha256, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { frame } from './lib/raw-frame-bytes.mjs';
-import { PROJECT, loneRefusal, ROOT, STEPS, WORKSPACE, buildWorld } from './lib/inbound-lone-surrogate-cases.mjs';
+import { PROJECT, loneRefusal, ROOT, STEPS, buildWorld } from './lib/inbound-lone-surrogate-cases.mjs';
+import { LONE_MAPPING, lonePlaces } from './lib/lone-mapping.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const SET = join(FIXTURES_ROOT, 'inbound-lone-surrogate');
@@ -34,6 +35,7 @@ const RECORDER_FILES = [
   'lib/phone-files-script.mjs',
   'lib/core-stop.mjs',
   'lib/process-job.mjs',
+  'lib/lone-mapping.mjs',
 ];
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -44,7 +46,9 @@ const hex = (bytes) => Buffer.from(bytes).toString('hex');
 
 if (REPLAY) {
   const { replay } = await import('./lib/inbound-lone-surrogate-replay.mjs');
-  process.exit(await replay({ exe: REPLAY, golden: JSON.parse(readFileSync(join(SET, 'golden.json'), 'utf8')), only: ONLY }));
+  process.exit(
+    await replay({ exe: REPLAY, golden: JSON.parse(readFileSync(join(SET, 'golden.json'), 'utf8')), manifest: JSON.parse(readFileSync(join(SET, 'MANIFEST.json'), 'utf8')), only: ONLY }),
+  );
 }
 
 const tree = resolveTree(args);
@@ -287,24 +291,34 @@ writeSetManifest(stage, {
     // A step whose answer differs from Node's under a decision: the core's answer is compared whole with Node's own answer to the
     // stand-in step instead; any other answer fails the replay.
     // What the replay changes in Node's values, or compares otherwise, before comparing.
+    // The only change made to Node's values: at each listed place Node holds a lone unit where the core holds U+FFFD. `steps`: JSON
+    // pointers into each step's answer; `preferences`: into the parsed preferences file; `files`: into the parsed JSON of each
+    // listed project file (by its hex name), which the replay writes back as Node's JSON.stringify(value, null, 2) wrote it.
+    mapping: {
+      ...LONE_MAPPING,
+      steps: Object.fromEntries(steps.filter((step) => step.answer !== undefined && !step.refusedByRule).map((step) => [step.name, lonePlaces(step.answer)]).filter(([, places]) => places.length)),
+      preferences: lonePlaces(JSON.parse(preferences)),
+      files: Object.fromEntries(
+        files
+          .filter((file) => file.bytes !== undefined)
+          .flatMap((file) => {
+            let doc;
+            try {
+              doc = JSON.parse(Buffer.from(file.bytes, 'hex').toString('utf8'));
+            } catch {
+              return [];
+            }
+            const places = lonePlaces(doc);
+            return places.length ? [[file.name, places]] : [];
+          }),
+      ),
+    },
     normalisations: [
       {
-        what: "every string and object key of Node's answers (wellFormed): a lone surrogate becomes U+FFFD; two keys of one object that become one fail the replay",
-        where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs:38 wellFormed(), applied at :172 (answers) and :200 (preferences)',
-        why: 'the core reads an unpaired surrogate escape as U+FFFD, so what it echoes holds U+FFFD where Node echoed the lone unit',
-        allowedBy: 'decisions.md "frame-lone-surrogate" (a)',
-      },
-      {
-        what: 'golden.preferences (desktop-projects.json) is compared as {aliases, hidden} with the core\'s `projects` rows (state/core.sqlite), after wellFormed',
+        what: 'golden.preferences (desktop-projects.json) is compared as {aliases, hidden} with the core\'s `projects` rows (state/core.sqlite), after the mapping',
         where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs, after the project folder',
         why: 'the core keeps project preferences in that table (DS §4.1), not in a JSON file; `version` is the file format\'s, not state',
-        allowedBy: 'decisions.md "frame-lone-surrogate" (a); FORMAT.md `projects` table',
-      },
-      {
-        what: `the bytes of ${WORKSPACE} in golden.files: each six-byte \\udXXX escape JSON.stringify wrote (it escapes only lone surrogates; an escaped backslash before \`ud\` is left) becomes the UTF-8 of U+FFFD; nothing else changes`,
-        where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs jsonEscapesRead(), applied to the project folder comparison',
-        why: 'the core writes JSON files with EF BF BD where Node wrote the escape',
-        allowedBy: 'decisions.md "frame-lone-surrogate": "JSON files the core writes hold EF BF BD where Node wrote the six-byte escape"',
+        allowedBy: 'FORMAT.md `projects` table',
       },
       {
         what: 'json steps: Node gets the params as these exact JSON bytes; the phone adapter writes the core\'s frame from the string Node parsed',
