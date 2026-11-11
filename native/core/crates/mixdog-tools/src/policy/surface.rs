@@ -301,14 +301,12 @@ impl SessionSurface {
         }
     }
 
-    /// `prepareDeferredToolCallThrough` on a bridge session, which runs after the hooks and the
-    /// approval and before the tool: a connector tool outside the last MCP snapshot is unavailable, and
-    /// a deferred catalog tool that is not read-only selectable never runs without a tool mode or in a
-    /// read-only one. `annotations` are the called tool's own.
+    /// `prepareDeferredToolCallThrough`, which runs after the hooks and the approval and before the
+    /// tool: a connector tool outside the last MCP snapshot is unavailable, and a deferred catalog tool
+    /// that is not read-only selectable never runs without a tool mode or in a read-only one (on a
+    /// bridge session, a read-only deferred surface counts). The remedy a native session is told is
+    /// `load_tool`; a bridge session is told no call was sent. `annotations` are the called tool's own.
     pub fn deferred_call_refusal(&self, name: &str, annotations: &ToolAnnotations) -> Option<String> {
-        if !self.bridge {
-            return None;
-        }
         if name.starts_with("mcp__") && self.mcp_names.as_ref().is_some_and(|names| !names.iter().any(|known| known == name)) {
             return Some(format!("Error: MCP tool \"{name}\" is unavailable in the current session catalog; no call was sent."));
         }
@@ -319,9 +317,10 @@ impl SessionSurface {
             return None;
         }
         if !self.mode_resolved {
-            return Some(format!("Error: tool \"{name}\" is deferred and cannot be auto-loaded without a resolved tool mode; no call was sent."));
+            let remedy = if self.bridge { "no call was sent.".to_owned() } else { format!("load it with load_tool names:[\"{name}\"].") };
+            return Some(format!("Error: tool \"{name}\" is deferred and cannot be auto-loaded without a resolved tool mode; {remedy}"));
         }
-        (self.readonly || self.deferred_readonly).then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
+        (self.readonly || (self.bridge && self.deferred_readonly)).then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
     }
 
     /// A read-only session runs only what its surfaces offer: active tools,

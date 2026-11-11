@@ -26,6 +26,8 @@ mod process_services_tests;
 #[cfg(test)]
 #[cfg(test)]
 mod wire_parity_tests;
+#[cfg(test)]
+mod native_request_bytes_node_cases;
 pub mod tool_exposure;
 pub mod tool_surface;
 pub mod mcp_fold;
