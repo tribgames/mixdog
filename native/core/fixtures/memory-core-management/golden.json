@@ -636,9 +636,10 @@
             }
           },
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "project_paths requires an all-project list and non-empty paths",
-            "code": null
+            "props": {}
           },
           "indexReads": 0,
           "statements": []
@@ -654,9 +655,10 @@
             }
           },
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "project_paths requires an all-project list and non-empty paths",
-            "code": null
+            "props": {}
           },
           "indexReads": 0,
           "statements": []
@@ -672,9 +674,10 @@
             }
           },
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "project_paths requires an all-project list and non-empty paths",
-            "code": null
+            "props": {}
           },
           "indexReads": 0,
           "statements": []
@@ -692,9 +695,10 @@
             }
           },
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "project_paths requires an all-project list and non-empty paths",
-            "code": null
+            "props": {}
           },
           "indexReads": 0,
           "statements": []
@@ -708,9 +712,10 @@
             }
           },
           "error": {
+            "$exact": "error",
             "name": "Error",
             "message": "include_inactive must be a boolean",
-            "code": null
+            "props": {}
           },
           "indexReads": 0,
           "statements": []
