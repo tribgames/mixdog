@@ -51,23 +51,21 @@ fn step<'a>(case: &'a Value, starts: &str) -> &'a Value {
 /// The recorded cases of the three sets that no test below replays, each with why (the sets' manifests say the same). A case of a set
 /// that is neither replayed nor listed here fails [`every_recorded_case_is_replayed_or_declared`], so a re-recording that adds a case
 /// cannot pass unseen. The key is the case's `testLine`, or its name for the one line two cases share.
-const NOT_REPLAYED: [(&str, &str, &str); 16] = [
+const NOT_REPLAYED: [(&str, &str, &str); 14] = [
     ("session-transport-call-contract", "15", "the OAuth registry's status, complete and cancel answers are replayed from fixtures/login-status by mixdog-core-domains (ai_account/tests.rs); this case's flow starts with url null, which no core sign-in start produces"),
     ("session-transport-call-contract", "82", "no thread list rides a session answer: the core's thread/start, thread/read and thread/name/set answers are typed with no list field, and thread/list is the one route"),
     ("session-transport-call-contract", "call-idempotency-is-isolated-per-client-process", "the base commit's defect (one submission run twice); the case replayed is the one recorded with the fix"),
     ("session-transport-call-contract", "299", "Node's session.read actions getProfile/getOutputStyle/getTheme have no core method; a core failure is a JSON-RPC error by construction and an answer is serde JSON, which holds no non-serializable value"),
     ("session-transport-call-contract", "320", "a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed"),
     ("session-transport-call-contract", "369", "a thread's id is fixed when the core creates its actor and no method changes it, so an answer cannot carry another id than the one addressed"),
-    ("session-transport-call-contract", "465", "the Node TUI's remote-runtime proxy: client code, Rust-side client work"),
-    ("session-transport-state-lanes", "48", "Node's transcript patch has no core counterpart: the core's thread lane carries one event per item after its snapshot, never the transcript"),
-    ("session-transport-state-lanes", "192", "Node's SSE event stream: reconnect in place with the same registration, by Node's HTTP client"),
-    ("session-transport-state-lanes", "275", "Node's resync marker frame; a lagging core subscription is resynced by the app-server lane recovery (tests/storm.rs)"),
+    ("session-transport-call-contract", "465", "no Rust counterpart: the Node TUI's remote-runtime proxy has no Rust TUI (the only Rust front end, mixdog-cli, is the `exec` command)"),
+    ("session-transport-state-lanes", "192", "no Rust counterpart of re-attaching in place: the core's client reconnects through its ladder and sends `initialize` again on each new connection (mixdog-app-server-client engine.rs `reconnect`), so Node's recorded `registrations: 1` across the reconnect has no equivalent"),
     ("session-transport-state-lanes", "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence", "the base commit records the String(null) defect the patch fixes; the case replayed is the one recorded with the fix"),
     ("session-transport-state-lanes", "channel-transport-publishes-the-pinned-remote-session-independently-of-state-file-persistence--with-the-fix", "replayed by mixdog-services channels/tests_runtime.rs, where the channel transport is"),
     ("session-transport-state-lanes", "428", "replayed by mixdog-app-server-daemon late_lifecycle.rs, where the in-daemon transport is"),
-    ("session-transport-state-lanes", "446", "Node's SSE event stream: a silent stream ends only with its socket, by Node's HTTP client"),
-    ("session-transport-state-lanes", "493", "Node's SSE event stream: liveness timeout and reconnect budget of Node's HTTP client"),
-    ("session-transport-steering-recovery", "90", "the TUI's resume holds commandBusy while it restores queued steering: client code with no core counterpart (the restored queue itself is case 75)"),
+    ("session-transport-state-lanes", "446", "replayed by mixdog-app-server-client tests/it/silent_connection.rs, where the client connection is"),
+    ("session-transport-state-lanes", "493", "no Rust counterpart of either: the core's client has no stream-liveness timeout (silent_connection.rs shows it keeps a silent connection) and its reconnect ladder has no budget (engine.rs `reconnect` retries until the client is closed)"),
+    ("session-transport-steering-recovery", "90", "no Rust counterpart: the Node TUI holds its own `commandBusy` while its resume restores queued steering, and there is no Rust TUI (mixdog-cli is the `exec` command); the restored queue itself is case 75"),
 ];
 
 /// Every case of the three recordings is consumed by a test of this file (named in a `case(set, line)` or `named(set, name)` call)
@@ -127,7 +125,9 @@ fn until_stopped() -> Script {
 fn whole(name: &str, frames: &[Value], generated: &[&str], expected: Vec<Value>) {
     let got = normalized(frames, generated);
     log(name, &got);
-    assert_eq!(got, normalized(&expected, generated), "{name}: every frame the client received");
+    let want = normalized(&expected, generated);
+    log(&format!("{name}.expected"), &want);
+    assert_eq!(got, want, "{name}: every frame the client received");
 }
 
 // The frames the core's protocol gives (mixdog-app-protocol v2 thread types) for what Node's recording determines: the
@@ -723,4 +723,93 @@ async fn remote_state_churn_with_no_reader_leaves_only_the_latest() {
         }),
     ];
     whole("state-lanes-303", &client.frames, &[], expected);
+}
+
+/// state-lanes case 275: a client that was not attached while the session's state grew large receives that state once when it
+/// attaches, as Node's returning client received the latest `session-state` frame (of 160 KiB) and not the backlog. The core's
+/// feed gives the attaching client a snapshot of the thread as it stands, which holds the large prompt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_client_attaching_after_a_large_state_receives_it_once() {
+    let node = case("session-transport-state-lanes", 275);
+    assert_eq!(node["result"]["last"]["revision"], 3);
+    let large = node["result"]["last"]["full"]["items"][0]["text"].as_str().unwrap().to_owned();
+    assert_eq!(large.len(), 160 * 1024);
+    let world = World::started(echo()).await;
+    let mut watcher = world.client(1).await;
+    world.call(&mut watcher, 1, "thread/resume", resume()).await;
+    world.submit(&mut watcher, 2, "op-large", &large).await;
+    watcher.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    let mut late = world.client(2).await;
+    world.call(&mut late, 1, "thread/resume", resume()).await;
+    late.until("the snapshot", |frames| frames.iter().any(|frame| frame["method"] == "thread/snapshot")).await;
+    let (t, reply) = (uuid(1), format!("re: {large}"));
+    let items = vec![user_item(&uuid(2), &t, &large), agent_item(&format!("a-{t}"), &t, &reply)];
+    let expected = resumed(2, 1, &world.id, 6, state(false, &[&large]), items).to_vec();
+    whole("state-lanes-275", &late.frames, &[world.id.as_str()], expected);
+}
+
+/// state-lanes case 48: a tool call's result on a transcript of 2000 rows reaches an attached client as the one changed item and
+/// the idle runtime, never the transcript again (Node's patch: `busy: false` and the rows from 1999). The 1999 rows before it are
+/// stored rows the thread opened with.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
+    let node = case("session-transport-state-lanes", 48);
+    let patch = &node["result"]["patch"];
+    let append = &patch["itemsAppend"];
+    assert_eq!(patch["set"], json!({ "busy": false }));
+    assert_eq!(append["values"].as_array().unwrap().len(), 1, "Node sent one row");
+    let (earlier, result_text) = (append["from"].as_u64().unwrap(), append["values"][0]["text"].as_str().unwrap().to_owned());
+    let (ready, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
+    let (committed, held, text) = (ready.clone(), release.clone(), result_text.clone());
+    let session = SessionRig::new();
+    session.set_script(Arc::new(move |run| {
+        let (committed, held, text) = (committed.clone(), held.clone(), text.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "call-1", "name": "read", "arguments": {} }] });
+            run.port.commit_item(ItemCommit { iid: ItemId::from("call-row"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None }).await.expect("commit the call");
+            committed.notify_one();
+            held.notified().await;
+            let result = json!({ "toolCallId": "call-1", "text": text });
+            run.port.commit_item(ItemCommit { iid: ItemId::from("result-row"), role: Some("tool".into()), model: true, visible: true, body: result, prompt: None }).await.expect("commit the result");
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let id = ThreadId::from("sess_long");
+    let creator = SessionDirectory::new(session.deps());
+    creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().unwrap(), json!({})).await.expect("create");
+    let rows = (0..earlier)
+        .map(|n| serde_json::from_value::<Record>(json!({ "k": "item", "iid": format!("row-{n}"), "role": "assistant", "form": "message", "model": true, "visible": true, "refs": [], "body": { "inline": { "text": format!("row-{n}") } } })).unwrap())
+        .collect();
+    session.store.seed(&id, rows);
+    let world = World::reopened_on(Rig::new(), session, id).await;
+    let mut client = world.client(1).await;
+    world.submit(&mut client, 1, "op-long", "go").await;
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(20), ready.notified()).await.expect("the run to commit the tool call within 20 s");
+    world.call(&mut client, 2, "thread/resume", resume()).await;
+    release.notify_one();
+    client.until("the run's end", |frames| runs_ended(frames) == 1).await;
+    let t = uuid(1);
+    // The window the attach shows: the last ten rows, which are eight of the stored rows, the prompt and the call.
+    let mut snapshot_items: Vec<Value> = (earlier - 8..earlier).map(|n| json!({ "type": "agentMessage", "id": format!("row-{n}"), "text": format!("row-{n}"), "meta": {} })).collect();
+    let call = json!({ "type": "toolCall", "id": "call:call-1", "name": "read", "input": {}, "run": { "callId": "call-1", "live": true }, "meta": {} });
+    snapshot_items.extend([user_item(&uuid(2), &t, "go"), call]);
+    let tool_done = json!({ "type": "toolCall", "id": "call:call-1", "name": "read", "input": {}, "run": { "callId": "call-1", "result": result_text, "live": true }, "meta": {} });
+    let mut context = state(false, &[])["context"].clone();
+    context["stats"]["turns"] = json!(1);
+    let turn_end_item = json!({
+        "type": "turnEnd", "id": uuid(3), "status": "done", "elapsedMs": 0, "verb": "Mapped",
+        "meta": { "turnId": t, "at": 1000, "ext": { "outputTokens": 0, "thinkingElapsedMs": 0, "toolCount": 1, "completionVerb": "Mapped", "attemptId": uuid(4) } },
+    });
+    let mut expected = vec![started(1, &t)];
+    expected.extend(resumed(1, 2, &world.id, 4, state(false, &["go"]), snapshot_items));
+    expected[2]["params"]["hasOlder"] = json!(true); // 1991 stored rows lie before the window
+    expected.extend([
+        event(&world.id, 5, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": tool_done })),
+        event(&world.id, 6, "thread/context/updated", json!({ "threadId": world.id, "value": context })),
+        event(&world.id, 7, "item/completed", json!({ "threadId": world.id, "turnId": t, "item": turn_end_item })),
+        event(&world.id, 8, "turn/completed", json!({ "threadId": world.id, "turn": { "id": t, "status": "completed", "completedAt": 0 } })),
+        event(&world.id, 9, "thread/runtime/updated", json!({ "threadId": world.id, "value": runtime(false) })),
+    ]);
+    whole("state-lanes-48", &client.frames, &[world.id.as_str()], expected);
 }
