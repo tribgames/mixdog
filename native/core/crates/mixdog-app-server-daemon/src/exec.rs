@@ -472,7 +472,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn powershell_commands_read_as_nodes_through_its_startup_script() {
         let want: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/shell-pwsh-bootstrap/golden.json")).unwrap();
+            serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-pwsh-bootstrap/golden.json")).unwrap();
         assert_eq!(want["standbyArgs"][4], mixdog_tools::exec::POWERSHELL_BOOTSTRAP);
         let rig = rig().await;
         let mut wrong = Vec::new();
@@ -498,7 +498,7 @@ mod tests {
     async fn powershell_commands_run_in_the_warm_standby_as_nodes_do() {
         use mixdog_core_api::domain::process::ProcessEvent;
         use mixdog_core_api::domain::process::ProcessManager;
-        let want: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/shell-warm-standby/golden.json")).unwrap();
+        let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-warm-standby/golden.json")).unwrap();
         // Read by no other test; every standby is parked with this value, as in the recording.
         // SAFETY: no other thread of this test binary reads or writes MIXDOG_STANDBY_PROBE.
         unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", "parked") };
@@ -608,7 +608,7 @@ mod tests {
     #[allow(clippy::disallowed_methods, reason = "the test builds its stand-in shell on the test thread")]
     async fn a_shell_that_never_reads_its_input_is_held_and_limited_as_nodes() {
         use mixdog_core_api::domain::process::ProcessManager;
-        let want: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/shell-unread-stdin/golden.json")).unwrap();
+        let want: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/shell-unread-stdin/golden.json")).unwrap();
         let rig = rig().await;
         let standin = rig.dir.path().join("standin").join("pwsh.exe");
         std::fs::create_dir_all(standin.parent().unwrap()).unwrap();
