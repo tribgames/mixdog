@@ -89,7 +89,9 @@ impl DataRoot {
     #[allow(clippy::disallowed_methods, reason = "test setup")]
     fn new() -> Self {
         let _ = std::fs::remove_dir_all(DATA_ROOT);
-        std::fs::create_dir(DATA_ROOT).unwrap();
+        // A delete Windows still holds pending leaves the directory standing for a moment; each case's files are its
+        // own session's, so what remains of the previous case is never read.
+        std::fs::create_dir_all(DATA_ROOT).unwrap();
         Self(PathBuf::from(DATA_ROOT))
     }
 }
@@ -174,8 +176,12 @@ async fn replay(case: &Value) -> Value {
             let request = || CompactRequest { messages: &messages, budget_tokens: budget, trigger: CompactTrigger::Auto, require_reduction: true, reference_latest_attachments: false, latest_user_prefix: "" };
             let reduces = compactor.reduces(&request()).await;
             let output = compactor.compact(request()).await.expect("the pass");
-            // Every message of the run reached the session before its header is read.
-            run.port.save_header(mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() }).await.expect("barrier");
+            // Every message of the run is stored before its header is read: a change the header does not hold yet is
+            // acked once stored, after the records the lane accepted before it (an empty one is acked at once). The key
+            // is not among those compared.
+            let mut barrier = serde_json::Map::new();
+            barrier.insert("replayBarrier".into(), json!(true));
+            run.port.save_header(mixdog_store::schema::record::HeaderChange { set: barrier, unset: Vec::new() }).await.expect("barrier");
             let changed = !output.skipped && output.messages != messages;
             let _ = seen_tx.send(Seen { turn_reminder: run.goal_reminder.map(|r| r.content), reduces, changed, rows: output.messages.iter().map(row_of).collect() });
             let _ = read_rx.await;
