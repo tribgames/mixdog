@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // anthropic-api-key-fetch.test.mjs, the cases the gzip golden of branch tests-session-providers (native/core/fixtures/anthropic-request-gzip) excludes: :38 a
 // Headers-instance request, :48 the count_tokens / kill-switch requests, :74 the provider wiring of the official, custom-baseURL, gateway and custom-name
-// clients, :130 a compressor that throws, :156 compression awaited off the main thread, :102 (400/415 on a gzipped request: one plain resend, the latch
+// clients, :28 / :58 / :146 (also in the gzip golden, recorded again here with the head the product sends), :130 a compressor that throws, :156 compression awaited off the main thread, :102 (400/415 on a gzipped request: one plain resend, the latch
 // disables compression only after the resend succeeds) and :118 (the plain resend also fails: no latch). The product's own `createAnthropicApiKeyFetch` and the provider
 // clients' `client.fetch` send through the global fetch to the scripted loopback endpoint: every request is recorded as it arrived (origin the product
 // addressed, path, header pairs in arrival order, body bytes - the gzip bytes where the product compressed).
@@ -33,6 +33,20 @@ const fresh = async (net, fn) => {
   return fn();
 };
 
+await rec.run('official-origin-large-body-gzipped-asynchronously', `${SRC}:28`, { url: OFFICIAL, body: 'the 16 KiB JSON body' }, ({ net }) => fresh(net, async () => {
+  const fetchFn = createAnthropicApiKeyFetch({});
+  return { response: (await statuses([await fetchFn(OFFICIAL, post(big()))]))[0] };
+}));
+await rec.run('custom-base-urls-and-look-alike-origins-never-compressed', `${SRC}:58`, { urls: ['https://proxy.example.com/v1/messages', 'http://api.anthropic.com/v1/messages', 'https://api.anthropic.com.evil.test/v1/messages', 'https://api.anthropic.com:8443/v1/messages', 'http://localhost:8080/v1/messages'] }, ({ net }) => fresh(net, async () => {
+  const fetchFn = createAnthropicApiKeyFetch({});
+  const out = [];
+  for (const url of ['https://proxy.example.com/v1/messages', 'http://api.anthropic.com/v1/messages', 'https://api.anthropic.com.evil.test/v1/messages', 'https://api.anthropic.com:8443/v1/messages', 'http://localhost:8080/v1/messages']) out.push(await fetchFn(url, post(big())));
+  return { responses: await statuses(out) };
+}));
+await rec.run('request-with-content-encoding-is-not-double-encoded', `${SRC}:146`, { headers: { 'content-encoding': 'br', 'content-type': 'application/json' } }, ({ net }) => fresh(net, async () => {
+  const fetchFn = createAnthropicApiKeyFetch({});
+  return { response: (await statuses([await fetchFn(OFFICIAL, post(big(), { 'content-encoding': 'br', 'content-type': 'application/json' }))]))[0] };
+}));
 await rec.run('headers-instance-headers-supported-and-content-length-dropped', `${SRC}:38`, { url: `${OFFICIAL}?beta=true`, headers: new Headers({ 'content-length': '99', a: 'b' }) }, ({ net }) => fresh(net, async () => {
   const fetchFn = createAnthropicApiKeyFetch({});
   return { response: (await statuses([await fetchFn(`${OFFICIAL}?beta=true`, post(big(), new Headers({ 'content-length': '99', a: 'b' })))]))[0] };
