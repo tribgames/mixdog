@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
+      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -66,13 +66,13 @@
   "recorderSha256": "8470ae8e0310ad978e5b49e8b28938b38a367ce677c4b06cbb998a6361ed5c33",
   "replay": {
     "compare": "mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe",
-    "entry": "Drive these public items on o1: mixdog-ai/src/service/error_text.rs:174 present_error_text; mixdog-ai/src/service/error_text.rs:346 safe_error_details.",
+    "entry": "Drive these public items on o1: mixdog-ai/src/service/error_text.rs:174 present_error_text; mixdog-ai/src/service/error_text.rs:346 safe_error_details; mixdog-ai/src/retry/classify.rs:142 kind_of (classifies Facts (status, code, scope) into an ErrorKind; `pub mod retry`, `pub mod classify`; the nearest to providerErrorKind, whose input is an error object).",
     "existsButNotPublicOnO1": [
       "describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private",
       "anthropicQuotaError: mixdog-ai/src/providers/anthropic/errors.rs:103 `quota_error_text` is pub(super)"
     ],
     "missingOnO1": [
-      "providerErrorKind / DETERMINISTIC_KINDS: no function (doc references only)"
+      "providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds"
     ],
     "normalised": {
       "secretShapedInput": "sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)",
@@ -89,6 +89,12 @@
         "line": 346,
         "name": "safe_error_details",
         "path": "native/core/crates/mixdog-ai/src/service/error_text.rs"
+      },
+      {
+        "line": 142,
+        "methods": "classifies Facts (status, code, scope) into an ErrorKind; `pub mod retry`, `pub mod classify`; the nearest to providerErrorKind, whose input is an error object",
+        "name": "kind_of",
+        "path": "native/core/crates/mixdog-ai/src/retry/classify.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
