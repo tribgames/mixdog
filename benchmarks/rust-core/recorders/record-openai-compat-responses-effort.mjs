@@ -35,6 +35,7 @@ function fixture(name, model, { protocol = 'openai-responses', levels, reject, c
       })();
     } } },
   });
+  rec.describe(provider, { $instance: 'OpenAICompatProvider (prototype instance, fields as set)', name, config: provider.config, customConfig: { protocol }, nativePdf: false, cachedModelInfo: { model, row }, client: { responses: { create: { scripted: 'records (params, options); rejects with reject(requestNumber) when it returns an error, else answers with one response.completed (text ok)', reject: reject ? { callback: 'reject' } : null } } } });
   return { provider, requests };
 }
 const SESSION = { sessionId: 'sess-1', promptCacheKey: 'mixdog-custom-g', providerCacheKey: 'mixdog-custom-g' };
