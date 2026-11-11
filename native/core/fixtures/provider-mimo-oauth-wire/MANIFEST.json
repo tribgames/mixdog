@@ -55,7 +55,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "032afaa2f77a9049a9ca98147ac1a8d6900a352ffa73d7da8f2d618266a3972f"
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
     }
   ],
   "levels": [

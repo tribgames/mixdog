@@ -12,6 +12,7 @@
   "exclusions": [
     "the ONE scripted seam below the product in the concurrent-lookups-share-one-resolution case is node:dns `lookup`: it is replaced before the product loads, answers fixed addresses ([127.0.0.1 v4, ::1 v6]) and every call is recorded (hostname, options) in `result.resolverCalls`, in order; the operating system resolver is the outside world, like the socket; everything above it (cachedLookup, the pool, the ws client) is the product code",
     "the server answers upgrade request n with input.answers[n-1] (null = never answered, absent = accepted); the 1006/terminate conventions are those of lib/ws-world.mjs",
+    "concurrent-lookups-share-one-resolution result.events: the whole trace with every event; the only reordering is of the events of independent connections, whose interleaving races: grouped by connection (`connection`: the ordinal of its dial, the product dials synchronously in acquire order), within a connection in arrival order",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -19,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 71036,
+      "bytes": 90708,
       "path": "cases.json",
-      "sha256": "b77419f3416c12723fafcfd8419598bdc34c688e04e85c1f91376cc6a21bee6e"
+      "sha256": "8669789a6669b76916c3897cc2e6e05c7b24d9f82e7578bb076ff05d0325c74c"
     }
   ],
   "inputs": [
@@ -51,7 +52,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
-      "sha256": "032afaa2f77a9049a9ca98147ac1a8d6900a352ffa73d7da8f2d618266a3972f"
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
     }
   ],
   "levels": [
@@ -95,9 +96,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-connect.mjs",
-  "recorderSha256": "d68be1cf5cef0a70d981b4bc41d694910d7ba5440c1b675ea7190a00b41a8f17",
+  "recorderSha256": "8e67caa7e1faf23854a8a64bc1bd06788a2721c98b9a1b38e5c881d08cb137ea",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::openai WsPool::checkout (openai/pool.rs:178) and mixdog_ai::transport::ws::connect (transport/ws.rs:237). There is no hedge or acquire deadline and no shared DNS resolution in Rust (K1 G6, G15): work for the Rust side.",
   "set": "provider-openai-ws-connect",
-  "totalBytes": 71036,
+  "totalBytes": 90708,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }
