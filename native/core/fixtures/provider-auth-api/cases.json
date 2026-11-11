@@ -13,39 +13,12 @@
           "sk-1"
         ]
       },
-      "result": {
-        "result": "saved-key",
-        "calls": [
-          [
-            "saveKey",
-            "oauth",
-            "sk-1"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -115,43 +88,12 @@
           }
         ]
       },
-      "result": {
-        "result": "saved-key",
-        "calls": [
-          [
-            "saveKey",
-            "vertex-ai",
-            "{\"type\":\"service_account\"}",
-            {
-              "location": "us-east5",
-              "projectId": "override-project"
-            }
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -229,137 +171,12 @@
           ]
         ]
       },
-      "result": {
-        "login": "logged-in",
-        "afterLogin": [
-          [
-            "keychain"
-          ],
-          [
-            "loginOAuth",
-            "oauth"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ],
-        "saved": "saved-key",
-        "forgot": "forgot",
-        "calls": [
-          [
-            "keychain"
-          ],
-          [
-            "loginOAuth",
-            "oauth"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ],
-          [
-            "keychain"
-          ],
-          [
-            "saveKey",
-            "oauth",
-            "sk-2"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ],
-          [
-            "forget",
-            "oauth",
-            "a1"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -419,199 +236,12 @@
       "id": "custom-provider-save-remove-refresh-like-credentials",
       "source": "src/session-runtime/provider-auth-api.test.mjs:131",
       "input": {},
-      "result": {
-        "save": {
-          "id": "custom-1"
-        },
-        "afterSave": [
-          [
-            "keychain"
-          ],
-          [
-            "saveCustom",
-            {
-              "name": "x"
-            }
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ],
-        "removed": [
-          "custom-1"
-        ],
-        "afterRemove": [
-          [
-            "keychain"
-          ],
-          [
-            "removeCustom",
-            "custom-1"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ],
-        "updateModel": {
-          "id": "custom-1"
-        },
-        "afterUpdateModel": [
-          [
-            "updateCustomModel",
-            "custom-1",
-            "m",
-            {
-              "hidden": null
-            }
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ],
-        "afterBuiltinPrefs": [
-          [
-            "modelPreferences",
-            "openai",
-            [
-              {
-                "model": "m",
-                "favorite": true
-              }
-            ]
-          ],
-          [
-            "reload"
-          ]
-        ],
-        "afterCustomPrefs": [
-          [
-            "modelPreferences",
-            "custom-1",
-            [
-              {
-                "model": "m",
-                "hidden": true
-              }
-            ]
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ]
-        ],
-        "test": {
-          "ok": true
-        },
-        "env": {
-          "found": true
-        },
-        "discover": {
-          "models": []
-        },
-        "reloadedByReadOnlyOps": false,
-        "calls": [
-          [
-            "keychain"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ],
-          [
-            "testCustom",
-            {
-              "a": 1
-            }
-          ],
-          [
-            "keychain"
-          ],
-          [
-            "discoverCustom",
-            {
-              "b": 2
-            }
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -679,20 +309,12 @@
           "usage-1"
         ]
       },
-      "result": {
-        "result": "saved-usage",
-        "calls": [
-          [
-            "saveUsageKey",
-            "usage-1"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -760,120 +382,12 @@
           }
         ]
       },
-      "result": {
-        "url": "https://login",
-        "afterBegin": [
-          [
-            "keychain"
-          ],
-          [
-            "beginOAuth",
-            "oauth",
-            {
-              "openBrowser": false
-            }
-          ],
-          [
-            "reload"
-          ]
-        ],
-        "callback": true,
-        "afterCallback": [
-          [
-            "keychain"
-          ],
-          [
-            "reload"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ],
-        "code": true,
-        "afterCode": [
-          [
-            "completeCode",
-            "1234"
-          ],
-          [
-            "keychain"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ],
-        "calls": [
-          [
-            "completeCode",
-            "1234"
-          ],
-          [
-            "keychain"
-          ],
-          [
-            "apply"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "refreshCatalogs",
-            {
-              "force": true
-            }
-          ],
-          [
-            "warm"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -940,8 +454,9 @@
       },
       "error": {
         "$exact": "error",
-        "name": "Error",
-        "message": "recorder: the plain roster reached the keychain step did not happen within 5 s",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
         "props": {}
       },
       "calls": [
@@ -1011,70 +526,12 @@
           }
         ]
       },
-      "result": {
-        "switched": {
-          "selectedId": "a2"
-        },
-        "afterSwitch": [
-          [
-            "keychain"
-          ],
-          [
-            "updateAccounts",
-            "oauth",
-            {
-              "selectedId": "a2"
-            }
-          ],
-          [
-            "reload"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ],
-          [
-            "resetCooldowns"
-          ],
-          [
-            "usage",
-            {
-              "provider": "oauth",
-              "model": "",
-              "accountId": "a2"
-            },
-            {
-              "account": "a2"
-            },
-            {
-              "force": true
-            }
-          ]
-        ],
-        "afterRemoveTouchedCooldownsOrUsage": false,
-        "calls": [
-          [
-            "keychain"
-          ],
-          [
-            "updateAccounts",
-            "oauth",
-            {
-              "remove": "a3"
-            }
-          ],
-          [
-            "reload"
-          ],
-          [
-            "invalidate"
-          ],
-          [
-            "warm"
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -1134,52 +591,12 @@
       "id": "provider-setup-quick-snapshot-then-forced",
       "source": "src/session-runtime/provider-auth-api.test.mjs:219",
       "input": {},
-      "result": {
-        "quick": {
-          "providers": "quick",
-          "pendingSecrets": true
-        },
-        "firstCall": [
-          "setup",
-          {
-            "quick": true
-          }
-        ],
-        "lastCallAfterPrewarm": [
-          "setup",
-          {}
-        ],
-        "forced": {
-          "providers": "forced"
-        },
-        "afterForce": [
-          [
-            "keychain"
-          ],
-          [
-            "reload"
-          ],
-          [
-            "setup",
-            {
-              "force": true
-            }
-          ]
-        ],
-        "calls": [
-          [
-            "keychain"
-          ],
-          [
-            "reload"
-          ],
-          [
-            "setup",
-            {
-              "force": true
-            }
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
@@ -1242,51 +659,12 @@
       "id": "catalog-preset-dashboard-reset-credit-surfaces",
       "source": "src/session-runtime/provider-auth-api.test.mjs:247",
       "input": {},
-      "result": {
-        "list": [
-          "status",
-          {
-            "display": true
-          }
-        ],
-        "presets": [
-          "presets",
-          {
-            "display": true
-          }
-        ],
-        "dashboard": [
-          "dashboard",
-          {
-            "a": 1
-          }
-        ],
-        "models": [
-          "models",
-          {
-            "force": true,
-            "quick": false
-          }
-        ],
-        "reset": [
-          "reset",
-          {
-            "b": 2
-          }
-        ],
-        "missingReset": {
-          "error": {
-            "$exact": "error",
-            "name": "Error",
-            "message": "Codex reset is unavailable",
-            "props": {}
-          }
-        },
-        "calls": [
-          [
-            "keychain"
-          ]
-        ]
+      "error": {
+        "$exact": "error",
+        "name": "DataCloneError",
+        "message": "(...items) => { const n = realPush(...items); for (const w of [...waiters]) w(); return n; } could not be cloned.",
+        "code": 25,
+        "props": {}
       },
       "calls": [
         {
