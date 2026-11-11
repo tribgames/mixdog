@@ -510,12 +510,21 @@ impl SessionActor {
             Box::new(move |current: &_| header(current, &appended)) as super::super::run::DeferredHeader
         });
         compaction.replacement.extend(appended);
+        // `pruneCompactedOffloads(session)`: what the session now holds, no turn running (its live messages
+        // are none), and what waits in its queue keep their sidecars.
+        let transcript: Vec<Value> = compaction.replacement.iter().map(|(_, row)| row.clone()).collect();
+        let queued: Vec<Value> = self.projected.queue.iter().map(|queued| queued.entry.clone()).collect();
+        let transcripts = mixdog_js::json_stringify(&json!([transcript, Value::Null, queued]));
+        let (engine, thread) = (self.deps.compaction.clone(), self.id.clone());
         let (ack, durable) = oneshot::channel();
         // No turn: the divider is shown live with no turn id, as a card outside a turn is.
         self.on_producer(ProducerMsg::Compacted { turn: TurnId::from(""), compaction, header, ack });
         tokio::spawn(async move {
             let answer = match durable.await {
-                Ok(Ok(())) => Ok(CompactionCommit::Applied),
+                Ok(Ok(())) => {
+                    engine.prune_offloads(&thread, transcripts).await;
+                    Ok(CompactionCommit::Applied)
+                }
                 _ => Err(CoreError::Internal { incident_id: "compaction-commit".into() }),
             };
             let _ = tx.send(answer);

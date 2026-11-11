@@ -112,6 +112,28 @@ impl ToolResultArtifacts {
 /// Only a sidecar at least this old can be pruned (`OFFLOAD_PRUNE_MIN_AGE_MS`).
 const PRUNE_MIN_AGE_MS: u64 = 10 * 60 * 1000;
 
+/// Held while a sidecar is checked for reuse and while a prune deletes: a reused sidecar is
+/// touched first, so a prune either sees it young or deletes it before the reuse finds it absent
+/// and writes it again. A turn's tool result is never lost to a prune running beside it.
+static SIDECARS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn sidecars() -> std::sync::MutexGuard<'static, ()> {
+    SIDECARS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn age_ms(modified: std::time::SystemTime, now_ms: u64) -> Option<u64> {
+    let modified_ms = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64;
+    Some(now_ms.saturating_sub(modified_ms))
+}
+
+/// A reused sidecar is young again: its mtime is now.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "takes the durability lane's proof: it runs inside a lane job body")]
+fn touch(_lane: &InLane<DurabilityIo>, path: &Path) {
+    if let Ok(file) = std::fs::File::options().write(true).open(path) {
+        let _ = file.set_modified(std::time::SystemTime::now());
+    }
+}
+
 /// The `\b[a-f0-9]{64}\.txt\b` names in `text`, in order.
 fn sidecar_names(text: &str) -> Vec<String> {
     let bytes = text.as_bytes();
@@ -155,9 +177,8 @@ fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, transcripts: &str, now_ms
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let modified = entry.metadata().ok()?.modified().ok()?;
-            let modified_ms = modified.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64;
-            (name.ends_with(".txt") && now_ms.saturating_sub(modified_ms) >= PRUNE_MIN_AGE_MS).then(|| (name, entry.path()))
+            let age = age_ms(entry.metadata().ok()?.modified().ok()?, now_ms)?;
+            (name.ends_with(".txt") && age >= PRUNE_MIN_AGE_MS).then(|| (name, entry.path()))
         })
         .collect();
     if candidates.is_empty() {
@@ -198,8 +219,14 @@ fn prune_dir(_lane: &InLane<DurabilityIo>, dir: &Path, transcripts: &str, now_ms
         }
         i += 1;
     }
+    let _held = sidecars();
     for (_, path) in unreferenced {
-        let _ = std::fs::remove_file(path);
+        // Reused since it was listed: a turn holds it now.
+        let still_old = std::fs::metadata(&path).ok().and_then(|info| info.modified().ok()).and_then(|modified| age_ms(modified, now_ms)).is_some_and(|age| age >= PRUNE_MIN_AGE_MS);
+        // Best-effort, as Node's `unlink(...).catch(() => {})`: a sidecar that cannot be deleted stays.
+        if still_old {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -214,8 +241,12 @@ impl ArtifactStore for ToolResultArtifacts {
         let sha = artifact.sha256.clone();
         let job = self.io.durability.submit(&CancellationToken::new(), move |lane| {
             let len = text.len() as u64;
+            let _held = sidecars();
             match existing_state(lane, &path, &sha, len) {
-                State::Intact => true,
+                State::Intact => {
+                    touch(lane, &path);
+                    true
+                }
                 State::Foreign => false,
                 State::Damaged | State::Absent => {
                     publish_file_with(&path, text.as_bytes(), Access::OwnerOnly).is_ok()

@@ -241,6 +241,12 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     (working, committed.result)
 }
 
+/// `pruneOffloadSession(sessionId, ...)` over the thread's tool-result store under `data_dir`, aged at `clock`'s now.
+pub(crate) async fn prune_offloads(io: &ToolIo, data_dir: &std::path::Path, clock: &dyn Clock, thread: &ThreadId, transcripts: String) {
+    let now = u64::try_from(clock.now_ms()).unwrap_or(0);
+    ToolResultArtifacts::new(io.clone(), data_dir, thread.as_str()).prune(transcripts, now).await;
+}
+
 /// `compactSessionMessages` after a pass that did not fail: the reading of the last request is reset.
 fn manual_tail(working: &mut Header, now: f64) {
     for key in ["lastInputTokens", "lastOutputTokens", "lastCachedReadTokens", "lastCacheWriteTokens", "lastContextTokens"] {
@@ -423,6 +429,10 @@ impl ManualCompaction for HostManualCompaction {
 
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {
         self.parts.hooks.post(thread, trigger).await;
+    }
+
+    async fn prune_offloads(&self, thread: &ThreadId, transcripts: String) {
+        prune_offloads(&self.parts.io, &self.parts.data_dir, &*self.parts.clock, thread, transcripts).await;
     }
 
     /// `rearmLateDeferredTools(session)` and `rearmPromptSettingsNotice(session)` of the session ops,

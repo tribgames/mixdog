@@ -197,6 +197,10 @@ pub trait ManualCompaction: Send + Sync {
     async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError>;
     /// `session.postCompactHook({ trigger })`, best-effort.
     async fn post_compact(&self, thread: &ThreadId, trigger: &str);
+    /// `pruneCompactedOffloads`: after a committed compaction of an idle session, the session's tool-result
+    /// sidecars that `transcripts` (its transcript, live turn messages and queued messages, as `JSON.stringify`
+    /// writes them) no longer reach are deleted, best-effort.
+    async fn prune_offloads(&self, thread: &ThreadId, transcripts: String);
     /// `rearmLateDeferredTools` and `rearmPromptSettingsNotice`: the compaction dropped what the
     /// model was told, so the session tells it again.
     async fn rearm(&self, thread: &ThreadId);
