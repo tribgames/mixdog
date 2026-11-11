@@ -1,0 +1,754 @@
+{
+  "domain": "session-switch",
+  "recorder": "benchmarks/rust-core/recorders/record-session-switch.mjs",
+  "testFile": "src/session-runtime/lifecycle/session-switch.test.mjs",
+  "cases": [
+    {
+      "name": "deleted-session-hands-its-worktree-to-the-autocleanup-policy",
+      "testLine": 116,
+      "input": {
+        "runs": [
+          {
+            "current": {
+              "id": "other"
+            },
+            "rows": [
+              {
+                "id": "parent",
+                "owner": "cli",
+                "sourceType": "lead",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              }
+            ],
+            "cwd": "C:\\one",
+            "delete": "parent"
+          },
+          {
+            "current": {
+              "id": "parent",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "hi"
+                }
+              ],
+              "workspace": {
+                "projectPath": "C:\\project",
+                "repoCommonDir": "C:\\project\\.git",
+                "cwd": "C:\\worktrees\\fix",
+                "worktreeId": "fix",
+                "branch": "mixdog/fix",
+                "baseCommit": null,
+                "mergeTarget": "main",
+                "revision": 2,
+                "transition": {
+                  "state": "idle",
+                  "txId": null
+                }
+              }
+            },
+            "rows": [
+              {
+                "id": "parent",
+                "owner": "cli",
+                "sourceType": "lead",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "hi"
+                  }
+                ]
+              }
+            ],
+            "cwd": "C:\\worktrees\\fix",
+            "delete": "parent"
+          }
+        ],
+        "steps": "deleteSession, then one setImmediate turn, then read the cleanup arguments"
+      },
+      "result": [
+        {
+          "label": "other session is current",
+          "deleted": true,
+          "calls": [
+            [
+              "close",
+              "parent",
+              "desktop-session-delete",
+              {
+                "tombstone": false,
+                "isSessionLive": {
+                  "function": "isSessionLive",
+                  "result": false
+                }
+              }
+            ],
+            [
+              "cancelTasks",
+              {
+                "reason": "desktop-session-delete",
+                "notify": false,
+                "executionSessionId": "parent"
+              }
+            ],
+            [
+              "clearRoute",
+              "parent"
+            ],
+            [
+              "delete",
+              "parent"
+            ]
+          ],
+          "cleaned": [
+            [
+              "parent",
+              "other",
+              "C:\\one"
+            ]
+          ],
+          "forgotten": [
+            "parent"
+          ],
+          "state": {
+            "session": {
+              "id": "other"
+            },
+            "route": {
+              "provider": "p",
+              "model": "m",
+              "effort": "low"
+            },
+            "desktop": null,
+            "cwd": "C:\\one"
+          }
+        },
+        {
+          "label": "a bound current session is deleted",
+          "deleted": true,
+          "calls": [
+            [
+              "cancelTasks",
+              {
+                "reason": "desktop-session-delete",
+                "notify": false,
+                "executionSessionId": "parent"
+              }
+            ],
+            [
+              "clearRoute",
+              "parent"
+            ],
+            [
+              "close",
+              "parent",
+              "desktop-session-delete",
+              {
+                "tombstone": true
+              }
+            ],
+            [
+              "cwd",
+              "C:\\project"
+            ],
+            [
+              "invalidateContext"
+            ],
+            [
+              "invalidateTools"
+            ],
+            [
+              "create"
+            ]
+          ],
+          "cleaned": [
+            [
+              "parent",
+              "fresh",
+              "C:\\project"
+            ]
+          ],
+          "forgotten": [
+            "parent"
+          ],
+          "state": {
+            "session": {
+              "id": "fresh",
+              "messages": []
+            },
+            "route": {
+              "provider": "p",
+              "model": "m",
+              "effort": "low"
+            },
+            "desktop": null,
+            "cwd": "C:\\project"
+          }
+        }
+      ]
+    },
+    {
+      "name": "delete-refuses-malformed-or-unlisted-ids-without-touching-the-store",
+      "testLine": 152,
+      "input": {
+        "rows": [
+          {
+            "id": "parent",
+            "owner": "cli",
+            "sourceType": "lead",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        ],
+        "deletes": [
+          "bad id!",
+          "unknown"
+        ]
+      },
+      "result": {
+        "results": [
+          false,
+          false
+        ],
+        "calls": [],
+        "cleaned": [],
+        "forgotten": [],
+        "state": {
+          "session": null,
+          "route": {
+            "provider": "p",
+            "model": "m",
+            "effort": "low"
+          },
+          "desktop": null,
+          "cwd": "C:\\one"
+        },
+        "storeFiles": [
+          "parent.json"
+        ]
+      }
+    },
+    {
+      "name": "agent-session-is-listed-and-deleted-directly",
+      "testLine": 159,
+      "input": {
+        "current": {
+          "id": "other"
+        },
+        "rows": [
+          {
+            "id": "child",
+            "owner": "agent",
+            "sourceType": "agent",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "agent": "worker",
+            "visibility": "agent-only",
+            "parentSessionId": "parent"
+          }
+        ],
+        "ops": [
+          "listSessions",
+          "deleteSession('child')"
+        ]
+      },
+      "result": {
+        "listed": [
+          {
+            "id": "child",
+            "agent": "worker",
+            "sessionMode": "coding",
+            "owner": "agent",
+            "visibility": "agent-only",
+            "ownerSessionId": "parent",
+            "realTurnCount": 1,
+            "lastUsedAt": 0,
+            "cwd": "",
+            "messageCount": 1,
+            "title": "",
+            "preview": "hi",
+            "desktopSession": null,
+            "sourceType": "agent",
+            "sourceName": null,
+            "createdAt": 0,
+            "inheritedFromSessionId": null
+          }
+        ],
+        "deleted": true,
+        "calls": [
+          [
+            "close",
+            "child",
+            "desktop-session-delete",
+            {
+              "tombstone": false,
+              "isSessionLive": {
+                "function": "isSessionLive",
+                "result": false
+              }
+            }
+          ],
+          [
+            "cancelTasks",
+            {
+              "reason": "desktop-session-delete",
+              "notify": false,
+              "executionSessionId": "child"
+            }
+          ],
+          [
+            "clearRoute",
+            "child"
+          ],
+          [
+            "delete",
+            "child"
+          ]
+        ],
+        "cleaned": [
+          [
+            "child",
+            "other",
+            "C:\\one"
+          ]
+        ],
+        "forgotten": [
+          "child"
+        ],
+        "state": {
+          "session": {
+            "id": "other"
+          },
+          "route": {
+            "provider": "p",
+            "model": "m",
+            "effort": "low"
+          },
+          "desktop": null,
+          "cwd": "C:\\one"
+        }
+      }
+    },
+    {
+      "name": "deleting-a-non-current-session-leaves-linked-children-untouched",
+      "testLine": 182,
+      "input": {
+        "current": {
+          "id": "other"
+        },
+        "rows": [
+          {
+            "id": "parent",
+            "owner": "cli",
+            "sourceType": "lead",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        ],
+        "delete": "parent",
+        "ownedAgentSessionIds": [
+          "child-a",
+          "child-a",
+          "parent",
+          "bad id!",
+          " child-b "
+        ]
+      },
+      "result": {
+        "deleted": true,
+        "calls": [
+          [
+            "close",
+            "parent",
+            "desktop-session-delete",
+            {
+              "tombstone": false,
+              "isSessionLive": {
+                "function": "isSessionLive",
+                "result": false
+              }
+            }
+          ],
+          [
+            "cancelTasks",
+            {
+              "reason": "desktop-session-delete",
+              "notify": false,
+              "executionSessionId": "parent"
+            }
+          ],
+          [
+            "clearRoute",
+            "parent"
+          ],
+          [
+            "delete",
+            "parent"
+          ]
+        ],
+        "cleaned": [
+          [
+            "parent",
+            "other",
+            "C:\\one"
+          ]
+        ],
+        "forgotten": [
+          "parent"
+        ],
+        "state": {
+          "session": {
+            "id": "other"
+          },
+          "route": {
+            "provider": "p",
+            "model": "m",
+            "effort": "low"
+          },
+          "desktop": null,
+          "cwd": "C:\\one"
+        }
+      }
+    },
+    {
+      "name": "deleting-the-current-session-tombstones-only-it-and-recreates",
+      "testLine": 198,
+      "input": {
+        "current": {
+          "id": "parent",
+          "messages": [
+            {
+              "role": "user",
+              "content": "hi"
+            }
+          ]
+        },
+        "rows": [
+          {
+            "id": "parent",
+            "owner": "cli",
+            "sourceType": "lead",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ]
+          }
+        ],
+        "delete": "parent"
+      },
+      "result": {
+        "deleted": true,
+        "calls": [
+          [
+            "cancelTasks",
+            {
+              "reason": "desktop-session-delete",
+              "notify": false,
+              "executionSessionId": "parent"
+            }
+          ],
+          [
+            "clearRoute",
+            "parent"
+          ],
+          [
+            "close",
+            "parent",
+            "desktop-session-delete",
+            {
+              "tombstone": true
+            }
+          ],
+          [
+            "invalidateContext"
+          ],
+          [
+            "invalidateTools"
+          ],
+          [
+            "create"
+          ]
+        ],
+        "cleaned": [
+          [
+            "parent",
+            "fresh",
+            "C:\\one"
+          ]
+        ],
+        "forgotten": [
+          "parent"
+        ],
+        "state": {
+          "session": {
+            "id": "fresh",
+            "messages": []
+          },
+          "route": {
+            "provider": "p",
+            "model": "m",
+            "effort": "low"
+          },
+          "desktop": null,
+          "cwd": "C:\\one"
+        }
+      }
+    },
+    {
+      "name": "switch-context-closes-retargets-cwd-and-returns-to-the-lead-route",
+      "testLine": 213,
+      "input": {
+        "current": {
+          "id": "scratch",
+          "messages": []
+        },
+        "args": {
+          "cwd": "C:\\two",
+          "desktopSession": {
+            "classification": "project"
+          }
+        }
+      },
+      "result": {
+        "result": true,
+        "calls": [
+          [
+            "clearPrep"
+          ],
+          [
+            "closeSurface",
+            "scratch",
+            "desktop-context-switch",
+            {
+              "tombstone": true
+            }
+          ],
+          [
+            "ingest",
+            "scratch"
+          ],
+          [
+            "cancelTasks",
+            {
+              "reason": "desktop-context-switch",
+              "notify": false,
+              "executionSessionId": "scratch"
+            }
+          ],
+          [
+            "clearRoute",
+            "scratch"
+          ],
+          [
+            "cwd",
+            "C:\\two"
+          ],
+          [
+            "setRoute",
+            {
+              "provider": "lead-p",
+              "model": "lead-m"
+            }
+          ],
+          [
+            "refreshEffort"
+          ],
+          [
+            "invalidateContext"
+          ],
+          [
+            "invalidateTools"
+          ]
+        ],
+        "cleaned": [],
+        "forgotten": [],
+        "state": {
+          "session": null,
+          "route": {
+            "provider": "lead-p",
+            "model": "lead-m"
+          },
+          "desktop": {
+            "classification": "project"
+          },
+          "cwd": "C:\\two"
+        }
+      }
+    },
+    {
+      "name": "switch-context-for-a-resume-keeps-the-route-the-resumed-session-installs",
+      "testLine": 233,
+      "input": {
+        "current": {
+          "id": "talked",
+          "messages": [
+            {
+              "role": "user",
+              "content": "x"
+            }
+          ]
+        },
+        "args": {
+          "cwd": "C:\\two",
+          "desktopSession": "not-an-object",
+          "forResume": true
+        }
+      },
+      "result": {
+        "result": true,
+        "calls": [
+          [
+            "clearPrep"
+          ],
+          [
+            "closeSurface",
+            "talked",
+            "desktop-context-switch",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ingest",
+            "talked"
+          ],
+          [
+            "cancelTasks",
+            {
+              "reason": "desktop-context-switch",
+              "notify": false,
+              "executionSessionId": "talked"
+            }
+          ],
+          [
+            "clearRoute",
+            "talked"
+          ],
+          [
+            "cwd",
+            "C:\\two"
+          ],
+          [
+            "invalidateContext"
+          ],
+          [
+            "invalidateTools"
+          ]
+        ],
+        "cleaned": [],
+        "forgotten": [],
+        "state": {
+          "session": null,
+          "route": {
+            "provider": "p",
+            "model": "m",
+            "effort": "low"
+          },
+          "desktop": null,
+          "cwd": "C:\\two"
+        }
+      }
+    },
+    {
+      "name": "new-session-ingests-closes-then-returns-the-fresh-id",
+      "testLine": 244,
+      "input": {
+        "current": {
+          "id": "talked",
+          "messages": [
+            {
+              "role": "user",
+              "content": "x"
+            }
+          ]
+        }
+      },
+      "result": {
+        "result": "fresh",
+        "calls": [
+          [
+            "closeSurface",
+            "talked",
+            "cli-new",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "ingest",
+            "talked"
+          ],
+          [
+            "invalidateContext"
+          ],
+          [
+            "create"
+          ]
+        ],
+        "cleaned": [],
+        "forgotten": [],
+        "state": {
+          "session": {
+            "id": "fresh",
+            "messages": []
+          },
+          "route": {
+            "provider": "p",
+            "model": "m",
+            "effort": "low"
+          },
+          "desktop": null,
+          "cwd": "C:\\one"
+        }
+      }
+    },
+    {
+      "name": "prefetch-session-and-session-store-dir-delegate",
+      "testLine": 255,
+      "input": {
+        "prefetch": "warm"
+      },
+      "result": {
+        "result": true,
+        "calls": [
+          [
+            "prefetch",
+            "warm"
+          ]
+        ],
+        "cleaned": [],
+        "forgotten": [],
+        "state": {
+          "session": null,
+          "route": {
+            "provider": "p",
+            "model": "m",
+            "effort": "low"
+          },
+          "desktop": null,
+          "cwd": "C:\\one"
+        },
+        "sessionStoreDir": "<DATA>/sessions"
+      }
+    }
+  ]
+}

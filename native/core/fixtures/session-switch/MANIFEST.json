@@ -1,0 +1,54 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-switch.mjs --tree <tree>",
+  "entry": "Ran lifecycle/session-switch.mjs (createSessionSwitching) with scripted manager, route/cwd setters, status routes, agent tool, memory ingest and surface closer, and a scripted forgetSessionSearch (mock.module); deleted rows are real <id>.json files in a scratch MIXDOG_DATA_DIR sessions dir. Did not run the real manager, store or worktree cleanup (cleanupDeletedSessionWorktree is a scripted endpoint recording its arguments).",
+  "exclusions": [
+    "functions in recorded call arguments are recorded as {function, result}: the close option isSessionLive is called after the op and its result stored",
+    "scratch data dir path -> <DATA>",
+    "the store dir is emptied and rewritten with the case's rows before every case (as in the test)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 16691,
+      "path": "recording.json",
+      "sha256": "6cdce14d3f662699ef1b77abe335e2e6827a84008d34406000dd82c3ce788258"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
+      "sha256": "2ac3a43640d29c65815026b44557acd2c5c888f3e5a657a11deb8d7b0e424682"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
+      "commitFilesMissingFromTree": 199,
+      "exact": false,
+      "filesDifferingFromCommit": 238
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-switch.mjs",
+  "recorderSha256": "dd778026e38b9886713cb850574d61dc7dfd8f3fa92bcb585b696fbe24f4a8fb",
+  "replay": "mixdog-core-session S/delete.rs delete_session / S/worktree_maintenance.rs cleanup_deleted_session and the thread switch/new/prefetch ops: drive the same op with the same thread state and compare the return value, the ordered call list (close with tombstone flag, cancel tasks, clear route, delete, create, ...), the worktree cleanup arguments and the forgotten session ids, whole and in order.",
+  "set": "session-switch",
+  "testFile": "src/session-runtime/lifecycle/session-switch.test.mjs",
+  "totalBytes": 16691
+}
