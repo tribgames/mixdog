@@ -353,6 +353,32 @@ async fn an_mcp_tool_hook_runs_in_its_sessions_scope_only() {
     hub.close_all().await;
 }
 
+/// `fixtures/mcp-cwd-scope` `hook`: an `mcp_tool` hook of a session whose cwd is outside a plugin's scope still runs the
+/// plugin's tool (Node's `executeMcpTool` resolves it in the session's MCP scope only, no session catalog): the server is
+/// reached once and the hook reads the tool's answer. The stand-in server answers the recorded text.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_mcp_tool_hook_outside_the_plugins_scope_runs_as_nodes_does() {
+    use mixdog_mcp::hook_runner::run_mcp_tool_handler;
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
+    let recorded = &golden["hook"];
+    assert_eq!(recorded["ran"], json!([recorded["name"]]), "Node's hook reached the server once");
+    let answer = recorded["result"].as_str().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = McpHub::new(io(), dir.path().to_path_buf(), OutputPolicy::default());
+    let server = recorded["name"].as_str().unwrap().strip_prefix("mcp__").unwrap().split("__").next().unwrap();
+    let plugin = golden["registry"].as_array().unwrap().iter().find(|entry| entry["server"] == server).unwrap()["pluginId"].clone();
+    hub.apply_in("session-b", vec![config(server, json!({"_mixdogPlugin": {"id": plugin}, "env": {"MOCK_FIXTURES": json!([answer]).to_string()}}))]);
+    let live = hub.server_in("session-b", server).unwrap();
+    until(&live, |s| matches!(s, ServerState::Ready(_))).await;
+    let cancel = CancellationToken::new();
+    let hook = hook_handler(json!({"type": "mcp_tool", "server": server, "tool": "fixture_0"}));
+    let payload = json!({"session_id": "session-b", "cwd": recorded["cwd"]});
+    let ran = run_mcp_tool_handler(&hub, Some("session-b"), &hook, payload, "PreToolUse", &cancel).await;
+    // The answer is the server's own: the hook reached it.
+    assert_eq!((ran.exit_code, ran.stdout.as_str()), (0, answer));
+    hub.close_all().await;
+}
+
 /// `extension-scopes.test.mjs` "a live MCP registry is filtered per session cwd, cascading the plugin scope from owner
 /// metadata": a plugin's server is limited by the plugin's scope as well as its own.
 #[tokio::test(flavor = "multi_thread")]

@@ -677,6 +677,20 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     assert_eq!(unknown, json!({"content": [{"type": "text", "text": "unknown tool: reply"}], "isError": true}));
 }
 
+/// `fixtures/mcp-cwd-scope` `channelCall`: a `channel/call` naming a plugin's MCP tool reaches no MCP server; the channels
+/// dispatch answers it as Node's `handleToolCall` does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_channel_call_naming_an_mcp_tool_reaches_no_server() {
+    let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/mcp-cwd-scope/golden.json")).unwrap();
+    let recorded = &golden["channelCall"];
+    assert_eq!(recorded["ran"], json!([]), "Node's dispatch reached no server");
+    let e = env().await;
+    let svc = service(&e);
+    let reply = svc.call(request("channel/call", json!({"name": recorded["name"], "args": recorded["args"]}), Some("op-mcp"))).await.unwrap();
+    let Reply::Value(answer) = reply else { panic!("not a value") };
+    assert_eq!(answer, recorded["result"]);
+}
+
 /// Node's boot check (`scheduleAutomationAutostart`, `channel-start.test.mjs` / `prewarm.channels.test.mjs`):
 /// enabled automation starts the runtime on its own, nothing enabled starts nothing, and
 /// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing either.

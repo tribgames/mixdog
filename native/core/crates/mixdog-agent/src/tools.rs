@@ -576,6 +576,8 @@ pub(crate) struct CallEnv {
     pub(crate) clock: Arc<dyn crate::env::Clock>,
     /// The session's MCP catalog, refreshed around the call (`prepareToolCall`, `executeTool`).
     pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
+    /// The call's preparation refresh already ran when the call was started (a streamed call with nothing to wait for).
+    pub(crate) prepared: bool,
 }
 
 fn render_output(parts: Vec<ToolPart>) -> Content {
@@ -894,7 +896,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     // The preparation is under the run's cancellation like the tool task: a call nobody waits for any more (an
     // eager run the batch left to finish) must not hold the run's environment through a gate or a catalog that never
     // answers once the turn is cancelled.
-    if let Some(mcp) = &env.mcp
+    if !env.prepared
+        && let Some(mcp) = &env.mcp
         && hooked(&env.cancel, mcp.refresh()).await.is_none()
     {
         return cancelled();
@@ -1354,6 +1357,7 @@ mod tests {
             observer: Arc::new(crate::env::NullObserver),
             guards: Arc::new(crate::env::NoGuards),
             mcp: None,
+            prepared: false,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),
