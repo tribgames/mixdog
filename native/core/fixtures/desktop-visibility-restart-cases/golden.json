@@ -1,0 +1,705 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a restarted desktop can register version one on the retained service and receive live conversation rows",
+      "observed": {
+        "trace": [
+          {
+            "step": "restarted desktop registers version 1",
+            "registrations": [
+              [
+                "old_session"
+              ],
+              [],
+              [
+                "current_session"
+              ]
+            ],
+            "frames": [],
+            "sameServiceId": true,
+            "adaptersCreated": 1,
+            "accepted": true,
+            "firstInit": {
+              "desktopId": "old_desktop"
+            },
+            "replacementInit": {
+              "desktopId": "old_desktop"
+            }
+          },
+          {
+            "step": "three live rows",
+            "registrations": [
+              [
+                "old_session"
+              ],
+              [],
+              [
+                "current_session"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "sessionId": "current_session",
+                  "items": [
+                    {
+                      "id": "sent message",
+                      "kind": "user",
+                      "text": "sent message"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "__itemsPatch": {
+                    "base": 1,
+                    "revision": 2,
+                    "prefix": 0,
+                    "append": [
+                      {
+                        "id": "working progress",
+                        "kind": "user",
+                        "text": "working progress"
+                      }
+                    ]
+                  },
+                  "__statePatch": {
+                    "base": 1,
+                    "revision": 2,
+                    "changed": {},
+                    "removed": []
+                  }
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "__itemsPatch": {
+                    "base": 2,
+                    "revision": 3,
+                    "prefix": 0,
+                    "append": [
+                      {
+                        "id": "completed answer",
+                        "kind": "user",
+                        "text": "completed answer"
+                      }
+                    ]
+                  },
+                  "__statePatch": {
+                    "base": 2,
+                    "revision": 3,
+                    "changed": {},
+                    "removed": []
+                  }
+                },
+                "frameSource": "live"
+              }
+            ],
+            "decoded": [
+              {
+                "kind": "session-state",
+                "ok": true,
+                "firstItemText": "sent message"
+              },
+              {
+                "kind": "session-state",
+                "ok": true,
+                "firstItemText": "working progress"
+              },
+              {
+                "kind": "session-state",
+                "ok": true,
+                "firstItemText": "completed answer"
+              }
+            ],
+            "frameCount": 3
+          },
+          {
+            "step": "agent pool row",
+            "registrations": [
+              [
+                "old_session"
+              ],
+              [],
+              [
+                "current_session"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "sessionId": "current_session",
+                  "items": [
+                    {
+                      "id": "sent message",
+                      "kind": "user",
+                      "text": "sent message"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "__itemsPatch": {
+                    "base": 1,
+                    "revision": 2,
+                    "prefix": 0,
+                    "append": [
+                      {
+                        "id": "working progress",
+                        "kind": "user",
+                        "text": "working progress"
+                      }
+                    ]
+                  },
+                  "__statePatch": {
+                    "base": 1,
+                    "revision": 2,
+                    "changed": {},
+                    "removed": []
+                  }
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "__itemsPatch": {
+                    "base": 2,
+                    "revision": 3,
+                    "prefix": 0,
+                    "append": [
+                      {
+                        "id": "completed answer",
+                        "kind": "user",
+                        "text": "completed answer"
+                      }
+                    ]
+                  },
+                  "__statePatch": {
+                    "base": 2,
+                    "revision": 3,
+                    "changed": {},
+                    "removed": []
+                  }
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "agent-pool",
+                "agents": [
+                  {
+                    "id": "worker",
+                    "status": "running"
+                  }
+                ]
+              }
+            ],
+            "lastFrameKind": "agent-pool"
+          }
+        ]
+      }
+    },
+    {
+      "case": "late registrations from a previous desktop cannot replace the current conversation filter",
+      "observed": {
+        "trace": [
+          {
+            "step": "after the late registration",
+            "registrations": [
+              [
+                "old_session"
+              ],
+              [
+                "old_session",
+                "current_session"
+              ],
+              [
+                "current_session"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "sessionId": "current_session",
+                  "items": [
+                    {
+                      "id": "must stay live",
+                      "kind": "user",
+                      "text": "must stay live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "late": {
+              "rejected": {
+                "name": "Error",
+                "code": null,
+                "message": "desktop service client is not initialized"
+              }
+            },
+            "laneSessions": [
+              "current_session"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "out-of-order and equal registrations stay fenced within one desktop connection",
+      "observed": {
+        "trace": [
+          {
+            "step": "versions 2, 1, 2",
+            "registrations": [
+              [
+                "current_session"
+              ]
+            ],
+            "frames": []
+          },
+          {
+            "step": "rows published",
+            "registrations": [
+              [
+                "current_session"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "sessionId": "current_session",
+                  "items": [
+                    {
+                      "id": "must stay live",
+                      "kind": "user",
+                      "text": "must stay live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "laneSessions": [
+              "current_session"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "unversioned legacy registrations remain supported",
+      "observed": {
+        "trace": [
+          {
+            "step": "legacy",
+            "registrations": [
+              [
+                "old_session"
+              ],
+              [
+                "current_session"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "current_session",
+                "wire": {
+                  "sessionId": "current_session",
+                  "items": [
+                    {
+                      "id": "legacy live update",
+                      "kind": "user",
+                      "text": "legacy live update"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "lastFrameSessionId": "current_session"
+          }
+        ]
+      }
+    },
+    {
+      "case": "concurrent desktops keep independent counters and the survivor stays live after the newer one disconnects",
+      "observed": {
+        "trace": [
+          {
+            "step": "a version 100",
+            "registrations": [
+              [
+                "a_session"
+              ],
+              [
+                "a_session",
+                "b_session"
+              ],
+              [
+                "a_current",
+                "b_session"
+              ]
+            ],
+            "frames": [],
+            "lastRegistration": [
+              "a_current",
+              "b_session"
+            ]
+          },
+          {
+            "step": "both live",
+            "registrations": [
+              [
+                "a_session"
+              ],
+              [
+                "a_session",
+                "b_session"
+              ],
+              [
+                "a_current",
+                "b_session"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "a_current",
+                "wire": {
+                  "sessionId": "a_current",
+                  "items": [
+                    {
+                      "id": "a is live",
+                      "kind": "user",
+                      "text": "a is live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "session-state",
+                "sessionId": "b_session",
+                "wire": {
+                  "sessionId": "b_session",
+                  "items": [
+                    {
+                      "id": "b is live",
+                      "kind": "user",
+                      "text": "b is live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "laneSessions": [
+              "a_current",
+              "b_session"
+            ]
+          },
+          {
+            "step": "b released",
+            "registrations": [
+              [
+                "a_session"
+              ],
+              [
+                "a_session",
+                "b_session"
+              ],
+              [
+                "a_current",
+                "b_session"
+              ],
+              [
+                "a_current"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "a_current",
+                "wire": {
+                  "sessionId": "a_current",
+                  "items": [
+                    {
+                      "id": "a is live",
+                      "kind": "user",
+                      "text": "a is live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "session-state",
+                "sessionId": "b_session",
+                "wire": {
+                  "sessionId": "b_session",
+                  "items": [
+                    {
+                      "id": "b is live",
+                      "kind": "user",
+                      "text": "b is live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "lastRegistration": [
+              "a_current"
+            ]
+          },
+          {
+            "step": "a version 101",
+            "registrations": [
+              [
+                "a_session"
+              ],
+              [
+                "a_session",
+                "b_session"
+              ],
+              [
+                "a_current",
+                "b_session"
+              ],
+              [
+                "a_current"
+              ],
+              [
+                "a_next"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "a_current",
+                "wire": {
+                  "sessionId": "a_current",
+                  "items": [
+                    {
+                      "id": "a is live",
+                      "kind": "user",
+                      "text": "a is live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              },
+              {
+                "kind": "session-state",
+                "sessionId": "b_session",
+                "wire": {
+                  "sessionId": "b_session",
+                  "items": [
+                    {
+                      "id": "b is live",
+                      "kind": "user",
+                      "text": "b is live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "lastRegistration": [
+              "a_next"
+            ]
+          },
+          {
+            "step": "after",
+            "registrations": [
+              [
+                "a_session"
+              ],
+              [
+                "a_session",
+                "b_session"
+              ],
+              [
+                "a_current",
+                "b_session"
+              ],
+              [
+                "a_current"
+              ],
+              [
+                "a_next"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "a_next",
+                "wire": {
+                  "sessionId": "a_next",
+                  "items": [
+                    {
+                      "id": "a stays live",
+                      "kind": "user",
+                      "text": "a stays live"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "laneSessions": [
+              "a_next"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case": "unsubscribing one desktop retains shared conversations until their last observer leaves",
+      "observed": {
+        "trace": [
+          {
+            "step": "a unsubscribed",
+            "registrations": [
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ]
+            ],
+            "frames": [],
+            "lastRegistration": [
+              "shared_session"
+            ]
+          },
+          {
+            "step": "shared row",
+            "registrations": [
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ]
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "shared_session",
+                "wire": {
+                  "sessionId": "shared_session",
+                  "items": [
+                    {
+                      "id": "still observed",
+                      "kind": "user",
+                      "text": "still observed"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "lastFrameSessionId": "shared_session"
+          },
+          {
+            "step": "b unsubscribed",
+            "registrations": [
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ],
+              []
+            ],
+            "frames": [
+              {
+                "kind": "session-state",
+                "sessionId": "shared_session",
+                "wire": {
+                  "sessionId": "shared_session",
+                  "items": [
+                    {
+                      "id": "still observed",
+                      "kind": "user",
+                      "text": "still observed"
+                    }
+                  ],
+                  "__itemsRevision": 1
+                },
+                "frameSource": "live"
+              }
+            ],
+            "lastRegistration": []
+          },
+          {
+            "step": "after the last observer",
+            "registrations": [
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ],
+              [
+                "shared_session"
+              ],
+              []
+            ],
+            "frames": []
+          }
+        ]
+      }
+    }
+  ]
+}
