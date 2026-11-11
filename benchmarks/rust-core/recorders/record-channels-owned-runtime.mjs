@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Node's owned-runtime lifecycle (src/runtime/channels/lib/owned-runtime.test.mjs, 7 cases) recorded from the REAL
+// Node's owned-runtime lifecycle (src/runtime/channels/lib/owned-runtime.test.mjs, 7 cases, and a further shape: an
+// arming that throws after the acquisition was announced) recorded from the REAL
 // `createOwnedRuntime` (owned-runtime.mjs and its owned-runtime/ phases). Its collaborators outside the lifecycle are
 // the test's own module-boundary stand-ins (config load, webhook server, event pipeline, status snapshot writer,
 // provider init, runtime paths, scheduler): they only log the call, so the recording is the order and arguments of
@@ -27,12 +28,16 @@ const describe = (value) => {
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, describe(v)]));
 };
 const record = (name, ...args) => calls.push([name, ...args.map(describe)]);
-const fixtures = { loadedConfig: null, initProviders: async () => {} };
+const fixtures = { loadedConfig: null, initProviders: async () => {}, webhookStartThrows: null };
 let onWebhookStart = null;
 
 class FakeWebhookServer {
   constructor(...args) { this.cfg = args[0]; record('webhook.new', ...args); }
-  start(...args) { record('webhook.start', ...args); onWebhookStart?.(); }
+  start(...args) {
+    record('webhook.start', ...args);
+    if (fixtures.webhookStartThrows) throw new Error(fixtures.webhookStartThrows);
+    onWebhookStart?.();
+  }
   async stop(...args) { record('webhook.stop', ...args); }
   async reloadConfig(...args) { this.cfg = args[0]; record('webhook.reload', ...args); }
 }
@@ -179,6 +184,18 @@ try {
     fixtures.initProviders = async () => {};
     cases.push({ name: 'startAutomationRuntime is idempotent and a stop during its init aborts arming', steps: ['startAutomationRuntime', 'startAutomationRuntime', "stopOwnedRuntime('done')", 'startAutomationRuntime (initProviders held) with stopOwnedRuntime issued in the same tick, then released'], calls: [first, second, stopped, take()], state: snap(state), stderr: [...stderr] });
   }
+  {
+    // owned-start.mjs:52-58: the acquisition is announced as the bridge connects, before the arming; an arming that throws
+    // afterwards is caught by startOwnedRuntime (:76-84), which rolls the connection back and announces nothing more.
+    const { state, runtime } = harness();
+    fixtures.webhookStartThrows = 'webhook start failed';
+    try {
+      await w('startOwnedRuntime whose arming throws', runtime.startOwnedRuntime());
+    } finally {
+      fixtures.webhookStartThrows = null;
+    }
+    cases.push({ name: 'an activation announced as acquired whose arming fails afterwards rolls the connection back and announces nothing more', steps: ['startOwnedRuntime (webhook start throws)'], calls: [take()], state: snap(state), stderr: [...stderr] });
+  }
 } finally {
   process.stderr.write = realWrite;
 }
@@ -193,7 +210,7 @@ finish(ctx, {
       runs: 'createOwnedRuntime (owned-runtime.mjs) with its owned-runtime/ phases: startOwnedRuntime, stopOwnedRuntime, startAutomationRuntime, reloadRuntimeConfig, over the same dependency bag worker.mjs hands it (getters/setters, notify, scheduler, logOwnership)',
       notRun: 'the collaborators behind module boundaries (config file load, WebhookServer, EventPipeline, status snapshot writer, provider init, runtime-paths advert/lock files, scheduler): each only appends its name and arguments to the call log, as the Node test does; advert and ownership files are Node-only',
     },
-    replay: "Public Rust entries (mixdog-services channels/runtime.rs): ChannelLifecycle::start_bridge (:349), ChannelLifecycle::stop_owned_runtime (:354), ChannelRuntime::start_automation (:166), ChannelRuntime::reload_runtime (:316) and ChannelLifecycle::reload_config (:393); the private start_bridge_turn/reload_turn are reached through them. A replay drives them with a recording scheduler/webhook/pipeline and compares per case the ordered call list (names and every argument as recorded: notify method and params, scheduler.reload schedules and options, webhook.new/reload/start arguments, pipeline calls, snapshot/advert/locks calls), the end state and the stderr lines. Rust has no advert/lock files and no snapshot writer: those entries (advert, advert.clear, locks.release, snapshot.*, currentOwnerState, ownership logs) are Node-only calls, listed as work for the Rust side if parity is wanted",
+    replay: "Public Rust entries (mixdog-services channels/runtime.rs): ChannelLifecycle::start_bridge (:349), ChannelLifecycle::stop_owned_runtime (:354), ChannelRuntime::start_automation (:166), ChannelRuntime::reload_runtime (:316) and ChannelLifecycle::reload_config (:393); the private start_bridge_turn/reload_turn are reached through them. A replay drives them with a recording scheduler/webhook/pipeline and compares per case the ordered call list (names and every argument as recorded: notify method and params, scheduler.reload schedules and options, webhook.new/reload/start arguments, pipeline calls, snapshot/advert/locks calls), the end state and the stderr lines. Rust has no advert/lock files and no snapshot writer: those entries (advert, advert.clear, locks.release, snapshot.*, currentOwnerState, ownership logs) are Node-only calls, listed as work for the Rust side if parity is wanted. The acquisition (notify ↔ the core's remoteSession client event) is announced as the bridge connects, before the providers' init and the arming, on both sides (owned-start.mjs:52-56, channels/runtime.rs activate_bridge): an arming that fails afterwards (case 7) leaves it announced; only a call refused before the bridge connects announces nothing",
     exclusions: 'none: every logged call of every step is in the golden',
     normalised: { 'ownership line pid': 'the process id after "pid=" is replaced by <pid> (differs per run)', 'call arguments': 'a function argument is written {$callable: name}, a class instance {$instance: ClassName}; every other argument whole' },
   },

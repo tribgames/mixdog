@@ -86,6 +86,9 @@ impl AgentRuntime for Agent {
 struct Services {
     log: Log,
     running: AtomicBool,
+    /// Set by a case: the next sync fails with this text after it set the services up (the recorder's webhook start
+    /// throws after the pipeline and the server were made).
+    fails: Mutex<Option<String>>,
 }
 
 #[async_trait]
@@ -93,7 +96,10 @@ impl AutomationServices for Services {
     async fn sync(&self, reload: bool) -> Result<(), String> {
         self.log.lock().unwrap().push(json!(["services.sync", reload]));
         self.running.store(true, Ordering::SeqCst);
-        Ok(())
+        match self.fails.lock().unwrap().take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
     async fn stop(&self) {
         if self.running.swap(false, Ordering::SeqCst) {
@@ -117,7 +123,7 @@ fn rig() -> Rig {
     let scheduler = Scheduler::new(store.clone(), Arc::new(NoRuns), Arc::new(SystemClock), work.clone(), chrono_tz::Tz::UTC, Vec::new());
     scheduler.record_calls(log.clone());
     let agent = Arc::new(Agent { log: log.clone(), hold: Mutex::new(None), entered: tokio::sync::Notify::new() });
-    let services = Arc::new(Services { log: log.clone(), running: AtomicBool::new(false) });
+    let services = Arc::new(Services { log: log.clone(), running: AtomicBool::new(false), fails: Mutex::new(None) });
     let runtime = ChannelRuntime::new(scheduler, store, services.clone(), agent.clone());
     let calls = CallDispatch::new(Arc::new(BridgeCalls::new(ToolDispatch::new(runtime.clone(), work.clone(), Box::new(|| false)))), work);
     calls.hear_bridge(&runtime);
@@ -170,10 +176,11 @@ fn activate_request() -> CallRequest {
     CallRequest { name: ACTIVATE_TOOL.into(), args: json!({"active": true, "sessionId": SESSION}), call_id: None }
 }
 
-/// `notifyRemoteAcquired` is called from `activateBridge` once the bridge connected (owned-start.mjs:53-56): an
-/// activation that fails before the bridge connects is never announced as acquired, not even for a moment.
+/// `notifyRemoteAcquired` is called from `activateBridge` as the bridge connects (owned-start.mjs:52-56), before the
+/// providers' init and the arming: an activation call refused before the bridge connects announces nothing. What is
+/// announced stays announced when the arming fails afterwards (the recorded case 7).
 #[tokio::test]
-async fn an_activation_that_fails_before_the_bridge_connects_is_never_announced() {
+async fn an_activation_call_refused_before_the_bridge_connects_announces_nothing() {
     struct Failing;
     #[async_trait]
     impl super::call::ChannelCallHandler for Failing {
@@ -268,7 +275,7 @@ fn finish(case: &Exact, rig: &Rig, stderr: &Arc<Mutex<Vec<(mixdog_rt::node_log::
 
 fn recorded(index: usize, name: &str) -> Exact {
     let golden = golden(SET);
-    assert_case_count(&golden, 7);
+    assert_case_count(&golden, 8);
     case(&golden, index, name).clone()
 }
 
@@ -374,5 +381,22 @@ async fn start_automation_runtime_is_idempotent_and_a_stop_during_its_init_abort
     within("the held automation start", start).await.expect("the start task ends").expect("the start answers");
     within("the stop", stop).await.expect("the stop task ends").expect("the stop answers");
     step(&case, 3, rig.take());
+    finish(&case, &rig, &stderr);
+}
+
+/// The acquisition is announced as the bridge connects; the arming then fails (the recorder's webhook start throws, here the
+/// services' sync fails after setting them up). The start rolls the connection back, writes its stderr line and announces
+/// nothing more: clients keep the acquired binding, and the activation call answers as a success.
+#[tokio::test]
+async fn an_activation_announced_as_acquired_whose_arming_fails_afterwards_rolls_back_and_announces_nothing_more() {
+    let case = recorded(
+        7,
+        "an activation announced as acquired whose arming fails afterwards rolls the connection back and announces nothing more",
+    );
+    let (stderr, _guard) = mixdog_rt::node_log::capture();
+    let rig = rig();
+    *rig.services.fails.lock().unwrap() = Some("webhook start failed".into());
+    within("the start whose arming fails", rig.activate()).await;
+    step(&case, 0, rig.take());
     finish(&case, &rig, &stderr);
 }
