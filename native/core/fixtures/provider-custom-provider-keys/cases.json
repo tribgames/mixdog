@@ -725,11 +725,11 @@
             ],
             [
               "x-stainless-os",
-              "Windows"
+              "<recording host x-stainless-os>"
             ],
             [
               "x-stainless-arch",
-              "x64"
+              "<recording host x-stainless-arch>"
             ],
             [
               "x-stainless-runtime",
@@ -737,7 +737,7 @@
             ],
             [
               "x-stainless-runtime-version",
-              "v22.20.0"
+              "<recording host x-stainless-runtime-version>"
             ],
             [
               "authorization",
@@ -769,6 +769,263 @@
             "status": 429,
             "contentType": "application/json",
             "body": "{\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "history-reasoning-per-key",
+      "source": "src/runtime/agent/orchestrator/providers/custom-provider-keys.test.mjs:212",
+      "input": {
+        "id": "custom-keys-history",
+        "keys": [
+          "sk-first (config)",
+          "sk-second (keychain account)"
+        ],
+        "replay": true,
+        "assistantFields": [
+          "reasoning",
+          "reasoningContent",
+          "thinkingBlocks"
+        ]
+      },
+      "result": {
+        "result": {
+          "content": "ok",
+          "model": "m1",
+          "toolCalls": {
+            "$exact": "undefined"
+          },
+          "stopReason": "stop",
+          "usage": {
+            "$exact": "undefined"
+          },
+          "generationMs": 0,
+          "requestServiceTier": "",
+          "providerMetadata": {
+            "accountRouting": {
+              "provider": "custom-keys-history",
+              "accountId": "728ab20c-cf2a-43b5-8e20-73d05d421513",
+              "sessionAccountId": "728ab20c-cf2a-43b5-8e20-73d05d421513"
+            }
+          }
+        },
+        "keys": [
+          "sk-first",
+          "sk-second"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/shared/provider-accounts.mjs.newProviderAccountId",
+          "args": []
+        },
+        {
+          "entry": "src/runtime/shared/provider-accounts.mjs.setCustomProviderKeyIds",
+          "args": [
+            "custom-keys-history",
+            [
+              "728ab20c-cf2a-43b5-8e20-73d05d421513"
+            ]
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/registry.mjs.initProviders",
+          "args": [
+            {
+              "custom-keys-history": {
+                "type": "custom",
+                "name": "Keys",
+                "protocol": "openai-chat",
+                "baseURL": "https://keys.example.com/v1",
+                "enabled": true,
+                "apiKey": "sk-first",
+                "preconnect": false,
+                "schemaVersion": 2,
+                "modelOverrides": {
+                  "m1": {
+                    "manual": true,
+                    "reasoning": {
+                      "levels": [
+                        "low",
+                        "high"
+                      ],
+                      "replay": true
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/registry.mjs.getProvider",
+          "args": [
+            "custom-keys-history"
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "keys.example.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer sk-first"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "218"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"x\",\"reasoning_content\":\"r-content\"},{\"role\":\"user\",\"content\":\"Next.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"message\":\"You exceeded your current quota.\",\"type\":\"insufficient_quota\",\"code\":\"insufficient_quota\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://keys.example.com",
+          "path": "/v1/chat/completions",
+          "headers": [
+            [
+              "host",
+              "keys.example.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "application/json"
+            ],
+            [
+              "user-agent",
+              "OpenAI/JS 6.49.0"
+            ],
+            [
+              "x-stainless-retry-count",
+              "0"
+            ],
+            [
+              "x-stainless-lang",
+              "js"
+            ],
+            [
+              "x-stainless-package-version",
+              "6.49.0"
+            ],
+            [
+              "x-stainless-os",
+              "<recording host x-stainless-os>"
+            ],
+            [
+              "x-stainless-arch",
+              "<recording host x-stainless-arch>"
+            ],
+            [
+              "x-stainless-runtime",
+              "node"
+            ],
+            [
+              "x-stainless-runtime-version",
+              "<recording host x-stainless-runtime-version>"
+            ],
+            [
+              "authorization",
+              "Bearer sk-second"
+            ],
+            [
+              "content-type",
+              "application/json"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "218"
+            ]
+          ],
+          "body": "{\"model\":\"m1\",\"messages\":[{\"role\":\"user\",\"content\":\"Before.\"},{\"role\":\"assistant\",\"content\":\"x\",\"reasoning_content\":\"r-content\"},{\"role\":\"user\",\"content\":\"Next.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"id\":\"c1\",\"model\":\"m1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
           }
         }
       ]

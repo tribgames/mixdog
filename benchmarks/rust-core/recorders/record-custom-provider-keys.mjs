@@ -15,7 +15,7 @@ import { sseBody, startRecording } from './lib/provider-case-recorder.mjs';
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-custom-provider-keys',
-  entry: 'providers/registry.mjs initProviders / getProvider, shared/provider-accounts.mjs newProviderAccountId / readProviderAccountPool / setCustomProviderKeyIds over a custom openai-chat provider on https://keys.example.com/v1 (fetch redirected to the scripted endpoint; additional keys come from the stubbed keychain map). Not run: the multi-key cases (covered by provider-gateways) and the stub-engine pool wrapper.',
+  entry: 'providers/registry.mjs initProviders / getProvider, shared/provider-accounts.mjs newProviderAccountId / readProviderAccountPool / setCustomProviderKeyIds over a custom openai-chat provider on https://keys.example.com/v1 (fetch redirected to the scripted endpoint; additional keys come from the stubbed keychain map). Not run: the multi-key cases (covered by provider-gateways) and the stub-engine pool wrapper: its :212 case is recorded through the real provider as history-reasoning-per-key (Node strips `reasoning`, `thinkingBlocks` and `providerReplay` for a key that did not serve the message but NOT `reasoningContent`, which reaches BOTH keys as reasoning_content; the provider-gateways scenario custom-keys-reasoning shows the same, the Node test asserts only the `reasoning` field).',
   compare: 'mixdog-ai registry builder.rs:902-911 and providers.rs:226-242 (single-key custom send): compare the `sends` (result/error, requests with the Authorization key in order) and `rosterFileExistsAfter...` flags and `pool.accounts`. NOTE the Rust builder uses the primary key only (K1 gap G5): the after-add send is expected to differ until that gap is closed.',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Per-key engines are not wired on the send path (K1 G5): the Rust side adds them.",
 });
@@ -59,5 +59,24 @@ await rec.run('single-key-provider-sends-as-before-no-roster', `${SRC}:138`, { i
   await initProviders({ [id]: custom('sk-solo') });
   await send('key removed again', () => quota());
   return { sends, rosterFileExistsAfterFirstSend: rosterAfterAnswer, poolAccountsAfterQuota: poolAfterQuota };
+});
+// :212 "a key's history keeps its reasoning; another key gets it without": the Node test drives stub engines with a `reasoning` field. Here the SAME pool (two keys, the first
+// refused on quota, the second answering) is driven through the real provider and the history is sent over the wire: the assistant message carries every field the Node pool
+// strips for a key that did not serve it (account-pool.mjs boundAccountSend: providerReplay, reasoning, thinkingBlocks) AND `reasoningContent`, which the chat lowering replays
+// (the custom model has reasoning.replay on) but the pool does not strip. `requests` holds both requests as they arrived.
+await rec.run('history-reasoning-per-key', `${SRC}:212`, { id: 'custom-keys-history', keys: ['sk-first (config)', 'sk-second (keychain account)'], replay: true, assistantFields: ['reasoning', 'reasoningContent', 'thinkingBlocks'] }, async ({ net }) => {
+  const id = 'custom-keys-history';
+  const keyId = newProviderAccountId();
+  rec.secrets[`agent.${id}.apiKey.${keyId}`] = 'sk-second';
+  await setCustomProviderKeyIds(id, [keyId]);
+  await initProviders({ [id]: { type: 'custom', name: 'Keys', protocol: 'openai-chat', baseURL: 'https://keys.example.com/v1', enabled: true, apiKey: 'sk-first', preconnect: false, schemaVersion: 2, modelOverrides: { m1: { manual: true, reasoning: { levels: ['low', 'high'], replay: true } } } } });
+  net.reply = (r) => (keyOf(r) === 'sk-first' ? quota() : answer('ok'));
+  const history = [
+    { role: 'user', content: 'Before.' },
+    { role: 'assistant', content: 'x', reasoning: 'r-field', reasoningContent: 'r-content', thinkingBlocks: [{ type: 'thinking', thinking: 't', signature: 's' }] },
+    { role: 'user', content: 'Next.' },
+  ];
+  const out = await attempt(getProvider(id).send(history, 'm1', [], {}));
+  return { ...out, keys: net.records.map(keyOf) };
 });
 await rec.finish();
