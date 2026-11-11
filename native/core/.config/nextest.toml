@@ -112,8 +112,3 @@ threads-required = 'num-test-threads'
 [[profile.default.overrides]]
 filter = 'package(mixdog-app-server-daemon) & test(/^verdict::tag_gates::/)'
 test-group = 'tag-gates'
-# The warm-standby replay feeds PowerShell Node's recorded commands of 1 MiB, 1 MiB + 1, prelude-pushed and 5 MiB, each cold and
-# warm (16 MiB in all); in a debug build that took 164.5 s alone (2026-11-11), past the default 120 s.
-[[profile.default.overrides]]
-filter = 'package(mixdog-app-server-daemon) & test(=exec::tests::powershell_commands_run_in_the_warm_standby_as_nodes_do)'
-slow-timeout = { period = "60s", terminate-after = 5 }

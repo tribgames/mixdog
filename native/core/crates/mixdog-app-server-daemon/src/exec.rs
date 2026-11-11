@@ -494,8 +494,7 @@ mod tests {
     /// after a standby was parked reaches the next command, which does not take that standby. Whether each command ran
     /// in the parked standby is told, as Node's recording tells it, by the process id it prints last. Each standby runs
     /// one command, and shutdown ends the parked one.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[allow(clippy::disallowed_methods, reason = "the test makes its folders on the test thread")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn powershell_commands_run_in_the_warm_standby_as_nodes_do() {
         use mixdog_core_api::domain::process::ProcessEvent;
         use mixdog_core_api::domain::process::ProcessManager;
@@ -503,51 +502,37 @@ mod tests {
         // Read by no other test; every standby is parked with this value, as in the recording.
         // SAFETY: no other thread of this test binary reads or writes MIXDOG_STANDBY_PROBE.
         unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", "parked") };
-        // The recorder's `sizedCommand`.
-        let sized = |size: usize| {
-            let head = "$null = $PSScriptRoot; $s = '";
-            let tail = "'; Write-Output ('len|' + $s.Length); Write-Output \"pid|$PID\"";
-            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
-        };
+        let calls: Vec<(usize, serde_json::Value)> = want["calls"].as_array().unwrap().iter().cloned().enumerate().collect();
+        // The recording runs every call in one runtime. Each run of sized commands (cold from folder A, cold from folder B,
+        // then warm from B) starts there from a standby parked for B; here each run replays in a runtime of its own, beside
+        // the others, after the two calls that bring it to that standby (1 runs cold from A and parks one for A, 4 misses it
+        // from B and parks one for B). The last call changes this process's environment: it runs when all others are done.
+        let sized: Vec<usize> = calls.iter().filter(|(_, call)| call["input"]["size"].is_u64()).map(|(i, _)| *i).collect();
+        let (first, last) = (sized[0], calls.len() - 1);
+        assert_eq!(sized, (first..last).collect::<Vec<_>>(), "the sized commands run together, before the last call");
+        assert!(sized.chunks(3).all(|run| run.len() == 3 && ["A", "B", "B"].iter().zip(run).all(|(ws, i)| calls[*i].1["ws"] == *ws)));
+        assert!(calls[1].1["ws"] == "A" && calls[1].1["parked"] == false && calls[4].1["ws"] == "B" && calls[4].1["taken"] == false);
+        assert!(!calls[last].1["setAfterPark"].is_null());
+        let runs: Vec<_> = sized
+            .chunks(3)
+            .map(|run| {
+                let calls: Vec<(usize, serde_json::Value)> = [1, 4].iter().chain(run).map(|i| calls[*i].clone()).collect();
+                tokio::spawn(async move {
+                    let rig = rig().await;
+                    let replayed = replay_standby(&rig, &calls).await;
+                    rig.runtime.drain_snapshots(&CancellationToken::new()).await;
+                    replayed
+                })
+            })
+            .collect();
         let rig = rig().await;
-        let (a, b) = (rig.dir.path().join("ws-a it\u{2019}s"), rig.dir.path().join("ws-b"));
-        std::fs::create_dir_all(&a).unwrap();
-        std::fs::create_dir_all(&b).unwrap();
-        let mut temp = String::new();
-        let mut used = Vec::new();
-        let mut wrong = Vec::new();
-        for (i, call) in want["calls"].as_array().unwrap().iter().enumerate() {
-            let parked = if call["parked"].as_bool().unwrap() { Some(rig.parked().await) } else { None };
-            let parked_pid = parked.as_ref().and_then(|h| rig.processes.list().into_iter().find(|p| &p.handle == h)).map(|p| p.pid);
-            if let Some(value) = call["setAfterPark"]["MIXDOG_STANDBY_PROBE"].as_str() {
-                // SAFETY: as above.
-                unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", value) };
-            }
-            let dir = if call["ws"] == "A" { &a } else { &b };
-            let command = match call["input"]["size"].as_u64() {
-                Some(size) => sized(size as usize),
-                None => call["input"]["command"].as_str().unwrap().to_owned(),
-            };
-            let ran = rig.run_in(dir, &format!("w{i}"), &command).await;
-            let (body, pid) = ran.trim_end().rsplit_once("pid|").unwrap_or_else(|| panic!("call {i}: no pid line in {ran:?}"));
-            let body = body.strip_suffix('\n').map(|b| b.strip_suffix('\r').unwrap_or(b)).unwrap();
-            let taken = parked_pid == Some(pid.parse().unwrap());
-            if i == 0 {
-                temp = body.lines().find_map(|line| line.strip_prefix("cold|")).unwrap().split('|').nth(1).unwrap().to_owned();
-            }
-            let view = body
-                .replace(&*a.to_string_lossy(), "<A>")
-                .replace(&*b.to_string_lossy(), "<B>")
-                .replace(&temp, "<TEMP>");
-            if view != call["text"].as_str().unwrap() || taken != call["taken"].as_bool().unwrap() {
-                wrong.push(format!("{i}: taken {taken} {view:?}"));
-            }
-            if taken {
-                used.extend(parked);
-            }
-        }
-        assert!(wrong.is_empty(), "{wrong:#?}");
+        let (mut wrong, used) = replay_standby(&rig, &calls[..first]).await;
         assert!(used.len() >= 2 && used[0] != used[1], "each standby runs one command: {used:?}");
+        for run in runs {
+            wrong.extend(run.await.unwrap().0);
+        }
+        wrong.extend(replay_standby(&rig, &calls[last..]).await.0);
+        assert!(wrong.is_empty(), "{wrong:#?}");
         let parked = rig.parked().await;
         let mut events = rig.processes.subscribe(&parked, Some(0)).unwrap();
         rig.runtime.drain_snapshots(&CancellationToken::new()).await;
@@ -560,6 +545,57 @@ mod tests {
         });
         ended.await.expect("shutdown ended the parked standby");
         assert_eq!(rig.runtime.parked_standby(), None, "nothing is parked after shutdown");
+    }
+
+    /// Replays `calls` (index and recorded call) of the warm-standby recording on `rig`, in order: what differs from the
+    /// recording, and the standbys that ran a command. Whether a command ran in the parked standby is told, as Node's
+    /// recording tells it, by the process id it prints last.
+    #[allow(clippy::disallowed_methods, reason = "the replay makes its folders on the test thread")]
+    async fn replay_standby(rig: &Rig, calls: &[(usize, serde_json::Value)]) -> (Vec<String>, Vec<ProcessHandle>) {
+        use mixdog_core_api::domain::process::ProcessManager;
+        // The recorder's `sizedCommand`.
+        let sized = |size: usize| {
+            let head = "$null = $PSScriptRoot; $s = '";
+            let tail = "'; Write-Output ('len|' + $s.Length); Write-Output \"pid|$PID\"";
+            format!("{head}{}{tail}", "a".repeat(size - head.len() - tail.len()))
+        };
+        let (a, b) = (rig.dir.path().join("ws-a it\u{2019}s"), rig.dir.path().join("ws-b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let mut temp: Option<String> = None;
+        let (mut wrong, mut used) = (Vec::new(), Vec::new());
+        for (i, call) in calls {
+            let parked = if call["parked"].as_bool().unwrap() { Some(rig.parked().await) } else { None };
+            let parked_pid = parked.as_ref().and_then(|h| rig.processes.list().into_iter().find(|p| &p.handle == h)).map(|p| p.pid);
+            if let Some(value) = call["setAfterPark"]["MIXDOG_STANDBY_PROBE"].as_str() {
+                // SAFETY: as in the test.
+                unsafe { std::env::set_var("MIXDOG_STANDBY_PROBE", value) };
+            }
+            let dir = if call["ws"] == "A" { &a } else { &b };
+            let command = match call["input"]["size"].as_u64() {
+                Some(size) => sized(size as usize),
+                None => call["input"]["command"].as_str().unwrap().to_owned(),
+            };
+            let ran = rig.run_in(dir, &format!("w{i}"), &command).await;
+            let (body, pid) = ran.trim_end().rsplit_once("pid|").unwrap_or_else(|| panic!("call {i}: no pid line in {ran:?}"));
+            let body = body.strip_suffix('\n').map(|b| b.strip_suffix('\r').unwrap_or(b)).unwrap();
+            let taken = parked_pid == Some(pid.parse().unwrap());
+            // The session's TEMP, as the first call prints it.
+            if let Some(cold) = body.lines().find_map(|line| line.strip_prefix("cold|")) {
+                temp = Some(cold.split('|').nth(1).unwrap().to_owned());
+            }
+            let mut view = body.replace(&*a.to_string_lossy(), "<A>").replace(&*b.to_string_lossy(), "<B>");
+            if let Some(temp) = &temp {
+                view = view.replace(temp.as_str(), "<TEMP>");
+            }
+            if view != call["text"].as_str().unwrap() || taken != call["taken"].as_bool().unwrap() {
+                wrong.push(format!("{i}: taken {taken} {view:?}"));
+            }
+            if taken {
+                used.extend(parked);
+            }
+        }
+        (wrong, used)
     }
 
     /// A shell that never reads the script it is fed is held and limited as in Node (`fixtures/shell-unread-stdin/golden.json`,
