@@ -984,7 +984,10 @@ impl Shared {
 /// a place outside it (the id) keeps its own pointer.
 fn lone_refusal(what: &str, at: &str) -> ErrorData {
     let path = at.strip_prefix('#').map_or_else(|| format!("{what}{at}"), str::to_owned);
-    ErrorData::InvalidParams { path, expected: "text without unpaired surrogates (a lone \\ud800-\\udfff escape)".into() }
+    // The sentence names the field: it is what a client shows a person (remote-protocol-files.ts `failure`, protocol-client
+    // `ClientFailure`), and the person has to know which text to fix.
+    let expected = format!("text without unpaired surrogates (a lone \\ud800-\\udfff escape) in {path}");
+    ErrorData::InvalidParams { path, expected }
 }
 
 /// The failure of a `host/*` request whose answer held a lone surrogate outside its free-text fields.

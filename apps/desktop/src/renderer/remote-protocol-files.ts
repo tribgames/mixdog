@@ -44,7 +44,8 @@ export function failure(error: unknown): unknown {
   if (!data) return error;
   if (data.reason === 'capabilityUnavailable' && data.capability === 'desktopHost') return new TypeError(DESKTOP_UNAVAILABLE);
   // A refused argument names its sentence (Node's TypeError text); a stale save is Node's one sentence for it.
-  if (data.reason === 'invalidParams' && typeof data.expected === 'string' && data.expected) return new TypeError(data.expected);
+  // The core's error stays reachable as the cause (its code and data, whole).
+  if (data.reason === 'invalidParams' && typeof data.expected === 'string' && data.expected) return new TypeError(data.expected, { cause: error });
   if (data.reason === 'preconditionFailed') return new Error(FILE_CHANGED);
   if (data.reason !== 'domainError') return error;
   const text = data.message;

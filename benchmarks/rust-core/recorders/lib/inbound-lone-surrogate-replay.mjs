@@ -5,7 +5,9 @@
 //
 // Expected values are Node's, with one rule applied: under the decision of decisions.md "frame-lone-surrogate" (a), the core reads an
 // unpaired surrogate escape as U+FFFD, so a lone code unit Node echoed back is expected as U+FFFD (`String.prototype.toWellFormed`).
-// A step marked `refused` (lone surrogate where no shipped client sends one) has no Node counterpart: the core must refuse it.
+// A step marked `refused` (a lone surrogate where no shipped client sends one) is refused by the core by decision: its outcome is
+// compared whole with that refusal (loneRefusal: the sentence naming the field and the JSON-RPC error under it), and Node's recorded
+// answer is shown beside it as the declared difference.
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -13,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
 import { frame } from './raw-frame-bytes.mjs';
-import { LONE_REFUSAL, PROJECT, STEPS, WORKSPACE, buildWorld } from './inbound-lone-surrogate-cases.mjs';
+import { PROJECT, loneRefusal, STEPS, WORKSPACE, buildWorld } from './inbound-lone-surrogate-cases.mjs';
 import { startRelay } from './phone-relay-core.mjs';
 import { killTree, startCore } from './phone-files-replay.mjs';
 
@@ -115,26 +117,38 @@ export async function replay({ exe, golden, only }) {
     // A step marked `accepted` (cases file) is a difference decisions.md accepts: its answer must equal Node's answer to the declared
     // stand-in step; then it is shown whole as ACCEPTED, and any other answer is unexpected.
     const accepted = [];
+    // Steps the core refuses by decision where Node acted: shown with Node's answer and effect.
+    const refusedByDecision = [];
     let compared = 0;
     for (const step of STEPS) {
       if (only && step.name !== only && step.name !== 'register-project') continue;
       if (step.refused) {
-        // No Node counterpart (input no shipped client sends): the call must fail with the core's refusal of a lone surrogate
-        // outside free text, and the connection stay open; its lack of effect is in the folder and preferences compared below.
+        // Refused by decision (input no shipped client sends): the call must fail with the core's refusal of a lone surrogate
+        // outside free text, whole, and the connection stay open; its lack of effect is in the folder and preferences compared below
+        // (the recorder put back what Node changed).
+        const node = golden.steps.find((recorded) => recorded.name === step.name);
+        if (!node?.refusedByRule) throw new Error(`the recording has no refused step ${step.name}`);
         const closing = relay.whenClosed(phone.clientId).then((closed) => ({ closed }));
         const outcome = await within(
           Promise.race([
             phone.router.call(step.call, step.json !== undefined ? JSON.parse(step.json) : clone(step.params)).then(
               (value) => ({ ok: true, value: value === undefined ? null : clone(value) }),
-              (error) => ({ ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) }),
+              (error) => ({
+                ok: false,
+                error: error.message,
+                ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}),
+                ...(error.cause?.detail ? { rpc: clone(error.cause.detail) } : {}),
+              }),
             ),
             closing,
           ]),
           `the answer to ${step.name}`,
         );
         compared += 1;
-        // Whole: the phone's outcome is the core's refusal and nothing else (no code, no other text).
-        if (!isDeepStrictEqual(outcome, LONE_REFUSAL)) unexpected.push({ step: `${step.name} (refused by the rule, no Node counterpart)`, node: LONE_REFUSAL, core: outcome });
+        // Whole: the phone's outcome is the core's refusal and nothing else.
+        const expected = loneRefusal(step.field);
+        if (!isDeepStrictEqual(outcome, expected)) unexpected.push({ step: `${step.name} (refused by decision)`, node: expected, core: outcome });
+        else refusedByDecision.push({ step: step.name, node: node.answer ?? { closed: node.closed }, nodeEffect: node.refusedByRule.nodeEffect, core: outcome });
         if (outcome.closed !== undefined) phone = await openRouter();
         continue;
       }
@@ -211,7 +225,14 @@ export async function replay({ exe, golden, only }) {
       compared += 1;
       if (!isDeepStrictEqual(stored, { aliases, hidden })) unexpected.push({ step: 'preferences', node: { aliases, hidden }, core: stored });
     }
-    console.log(`inbound-lone-surrogate replay over ${exe}: ${compared} compared, ${accepted.length} accepted differences, ${unexpected.length} unexpected`);
+    console.log(
+      `inbound-lone-surrogate replay over ${exe}: ${compared} compared, ${accepted.length} accepted differences, ${refusedByDecision.length} refused by decision, ${unexpected.length} unexpected`,
+    );
+    for (const entry of refusedByDecision) {
+      console.log(`REFUSED BY DECISION ${entry.step}`);
+      console.log(`   node: ${JSON.stringify({ answer: entry.node, effect: entry.nodeEffect }).slice(0, 600)}`);
+      console.log(`   core: ${JSON.stringify(entry.core).slice(0, 600)}`);
+    }
     for (const entry of accepted) {
       console.log(`ACCEPTED ${entry.step} (${entry.why})`);
       console.log(`   node: ${JSON.stringify(entry.node).slice(0, 600)}`);
