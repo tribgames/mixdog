@@ -1,0 +1,191 @@
+{
+  "name": "not-found-hints",
+  "files": {
+    "app/main.ts": "export const x = 1;\n",
+    "app/README.md": "# app\n",
+    "app/run.log": "log\n",
+    "app/src/util.ts": "export const u = 1;\n",
+    "app/src/lib/helpers.ts": "export const h = 1;\n",
+    "app/docs/guide.md": "# guide\n",
+    "app/build/util.ts": "export const b = 1;\n",
+    "app/.hidden/util.ts": "export const h = 1;\n",
+    "app/node_modules/pkg/index.js": "module.exports = 1;\n",
+    "app/one/assets/a.txt": "a\n",
+    "app/two/assets/b.txt": "b\n",
+    "shared/a.ts": "export const a = 1;\n",
+    "emptydir/.keep": ""
+  },
+  "cwd": "app",
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "tool": "list",
+      "input": {
+        "path": "nope"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/nope' Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "nope.txt"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/nope.txt' Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "util.ts"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/util.ts' Not found at this path; the same filename exists at: \"src/util.ts\". List that path directly. (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "lib"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/lib' Not found at this path; the same directory name exists at: \"src/lib\". List that path directly. (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "assets"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/assets' Not found at this path; same-named directories exist at: \"one/assets\", \"two/assets\". List one of those paths directly. (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "README.md/x"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/README.md/x' Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "a, b"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/a, b' Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app) To pass several paths, send an array (path[]), not a comma- or space-joined string.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "src/nope/deeper"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/src/nope/deeper' Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "nope/*.ts"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/app/nope' Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "../nope"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/nope' Not found; the nearest existing directory \"<ROOT>\" holds: \"app\", \"emptydir\", \"shared\". (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "../emptydir/nope"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/emptydir/nope' Not found; \"<ROOT>/emptydir\" exists but is empty — nothing under it to list. (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "list",
+      "input": {
+        "path": "../nolib/*.ts"
+      },
+      "text": "[path absent] ENOENT: no such file or directory, stat '<ROOT>/nolib' Not found; the nearest existing directory \"<ROOT>\" holds: \"app\", \"emptydir\", \"shared\". (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "nope"
+      },
+      "text": "Error: path does not exist: <ROOT>/app/nope (ENOENT) Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "nope.txt"
+      },
+      "text": "Error: path does not exist: <ROOT>/app/nope.txt (ENOENT) Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "util.ts"
+      },
+      "text": "Error: path does not exist: <ROOT>/app/util.ts (ENOENT) Not found at this path; the same filename exists at: \"src/util.ts\". Search that path directly. (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "lib"
+      },
+      "text": "Error: path does not exist: <ROOT>/app/lib (ENOENT) Not found at this path; the same directory name exists at: \"src/lib\". Search that path directly. (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "../nope"
+      },
+      "text": "Error: path does not exist: <ROOT>/nope (ENOENT) Not found; the nearest existing directory \"<ROOT>\" holds: \"app\", \"emptydir\", \"shared\". (relative paths resolve from <ROOT>/app) Locate with find on the basename before retrying.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "x",
+        "path": "a, b"
+      },
+      "text": "Error: path does not exist: <ROOT>/app/a, b (ENOENT) Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app) To pass several paths, send an array (path[]), not a comma- or space-joined string.",
+      "isError": false
+    },
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": [
+          "x",
+          "y"
+        ],
+        "path": "nope"
+      },
+      "text": "Error: path does not exist: <ROOT>/app/nope (ENOENT) Not found; under \".\" try: \"build\", \"docs\", \"main.ts\". Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires). (relative paths resolve from <ROOT>/app)",
+      "isError": false
+    }
+  ]
+}
