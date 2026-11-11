@@ -425,12 +425,25 @@ pub(crate) mod tests {
         ledger: WarmLedger,
         saved: Arc<SideQuestionStore>,
     ) -> CompactionServices {
+        services_over(dir, agent, sensitive, ledger, saved, registry().await, Map::new()).await
+    }
+
+    /// [`services_with`] over the providers `registry` holds, with `snapshot` as the configuration
+    /// the summary reads.
+    pub(crate) async fn services_over(
+        dir: &std::path::Path,
+        agent: Value,
+        sensitive: Arc<SensitiveStore>,
+        ledger: WarmLedger,
+        saved: Arc<SideQuestionStore>,
+        registry: Arc<ProviderRegistry>,
+        snapshot: Map<String, Value>,
+    ) -> CompactionServices {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let path = dir.join("mixdog-config.json");
         crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-        let registry = registry().await;
         let clock: Arc<dyn Clock> = Arc::new(Fixed);
         let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
         let rotation = Arc::new(AccountRotation::new(AccountStore::new(dir.join("accounts"), io), Arc::new(NoProbe), Arc::new(SystemPace)));
@@ -439,7 +452,7 @@ pub(crate) mod tests {
         let summaries = SummaryServices::new(SummaryDeps {
             registry: registry.clone(),
             catalog,
-            config: Arc::new(Map::new),
+            config: Arc::new(move || snapshot.clone()),
             env: Arc::new(|_| None),
             clock: clock.clone(),
             data_dir: AbsPath::new(dir).unwrap(),

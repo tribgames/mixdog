@@ -247,42 +247,9 @@ pub fn tool_result_id(message: &AgentMessage) -> String {
 /// `text-utils-attachments.test.mjs`.
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
-    use mixdog_core_api::domain::provider::{ImageSource, TextAttachment};
+    use mixdog_core_api::domain::provider::ImageSource;
 
     use super::*;
-    use crate::compact::fresh::AttachmentSeam;
-
-    struct Store;
-    #[async_trait]
-    impl AttachmentSeam for Store {
-        async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
-            message.clone()
-        }
-        fn has_referencable_media(&self, _: &AgentMessage) -> bool {
-            false
-        }
-        fn attachment_tokens(&self, _: &AgentMessage) -> u64 {
-            0
-        }
-        async fn stored_text(&self, part: &ContentPart) -> Result<Option<StoredText>, String> {
-            let ContentPart::File { source: BinarySource::AttachmentRef(r), .. } = part else { return Ok(None) };
-            match r.as_str() {
-                "long" => Ok(Some(StoredText::Text("the long user request ".repeat(5000)))),
-                "missing" => Ok(Some(StoredText::Gone)),
-                _ => Err("EBUSY".into()),
-            }
-        }
-    }
-
-    fn text_ref(reference: &str) -> ContentPart {
-        ContentPart::File {
-            source: BinarySource::AttachmentRef(reference.into()),
-            mime_type: String::new(),
-            filename: None,
-            text: Some(TextAttachment { kind: None }),
-        }
-    }
 
     fn user(parts: Vec<ContentPart>) -> AgentMessage {
         let mut message = AgentMessage::user("");
@@ -292,18 +259,6 @@ mod tests {
 
     fn file(source: BinarySource, mime: &str, name: &str) -> ContentPart {
         ContentPart::File { source, mime_type: mime.into(), filename: Some(name.into()), text: None }
-    }
-
-    #[tokio::test]
-    async fn stored_text_attachments_resolve_bounded_and_a_gone_blob_is_unavailable() {
-        let message = user(vec![ContentPart::Text("see below".into(), None), text_ref("long"), text_ref("missing")]);
-        let resolved = with_referenced_text(&Store, vec![message]).await.unwrap();
-        let text = extract_text(&resolved[0]);
-        assert!(text.starts_with("see below\nthe long user request"), "{text}");
-        assert!(text.encode_utf16().count() < 30_000, "unbounded: {}", text.len());
-        assert!(text.ends_with("[attachment unavailable]"), "{text}");
-        let busy = with_referenced_text(&Store, vec![user(vec![text_ref("busy")])]).await;
-        assert!(matches!(busy, Err(crate::env::CompactError::Failed(ref m)) if m == "EBUSY"));
     }
 
     #[test]
