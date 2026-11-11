@@ -11,7 +11,8 @@ const rec = await startRecording({
   set: 'provider-openai-ws-handshake',
   net: false,
   entry: 'src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs attachHandshakeFailureHandlers({ socket, errLabel: "OpenAI WS", openStart, isSettled, settle }); the socket is an EventEmitter, the response chunks are emitted synchronously (no timer).',
-  replay: 'mixdog-ai providers/openai ws handshake failure (transport/ws.rs:40): feed `input` (status, headers, body chunks) and compare the settled `{ ok, val }` (val fields: status, httpStatus, headers, code, retryAfterMs, resetAt, httpBody, message; `messageLength` for the long case).',
+  compare: 'mixdog-ai providers/openai ws handshake failure (transport/ws.rs:40): feed `input` (status, headers, body chunks) and compare the settled `{ ok, val }` (val fields: status, httpStatus, headers, code, retryAfterMs, resetAt, httpBody, message; `messageLength` for the long case).',
+  replay: "Rust entry (pub, on o1): mixdog_ai::transport::ws::connect (transport/ws.rs:237) and ConnectError (transport/ws.rs:70); the adapter above it is OpenAiAdapter (openai/adapter.rs:308).",
 });
 const { attachHandshakeFailureHandlers } = await rec.load('src/runtime/agent/orchestrator/providers/openai-ws-handshake.mjs');
 const SRC = 'src/runtime/agent/orchestrator/providers/openai-ws-handshake.test.mjs';
