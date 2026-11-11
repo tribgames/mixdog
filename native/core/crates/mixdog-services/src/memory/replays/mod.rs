@@ -21,6 +21,7 @@ mod recall_fusion;
 mod recall_source;
 mod scope_filter;
 mod score;
+mod service_lifecycle;
 mod session_ingest_projection;
 mod session_ingest_runtime;
 mod tokenizer;
