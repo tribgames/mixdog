@@ -84,6 +84,9 @@ impl ProviderAdapter for VersionedAdapter {
     fn native_documents(&self) -> Option<bool> {
         self.inner.native_documents()
     }
+    fn input_excludes_cache(&self) -> Option<bool> {
+        self.inner.input_excludes_cache()
+    }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.versions.warm(self.dialect).await;

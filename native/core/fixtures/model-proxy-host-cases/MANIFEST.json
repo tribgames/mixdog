@@ -1,6 +1,6 @@
 {
-  "cases": 32,
-  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "cases": 33,
+  "command": "node --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-env.mjs --import file:///D:/mixdog-build/tmp/b6f-tree/apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "hops": "The PC host and the daemon channel are joined, as in the Node test, by a JSON hop standing for the desktop session connection (JSON over HTTP). Every message that crosses it is recorded as the text that crossed, in order, under each case's `wire` (host->daemon operation + args text, daemon->host reply text, daemon->host request-event text); the host and the channel receive what JSON.parse of that text gives, so nothing passes that JSON changed unrecorded.",
     "notRun": "no provider request: a live PC provider is an instance of the class Node's registry builds for its name (realInstance: what it advertises is the class's own) with a scripted `send`; the registry module, and the providers of the cases that script a whole provider, are scripted objects; setTimeout / setInterval (the heartbeat of the host) run on a virtual clock per case (armed, fired and pending timers are recorded under timers), with the injected `now` for the lease; deadlines use the real clock",
@@ -16,9 +16,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 429141,
+      "bytes": 550658,
       "path": "golden.json",
-      "sha256": "e60a51143445867f262905afd44a703d871d441d80d9fba8eec6dac0622e5c18"
+      "sha256": "efee017ea074d084318d31f845b5c2c455d0f92a28658434a4ef61c5e89de348"
     }
   ],
   "inputs": [
@@ -82,7 +82,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-model-proxy-host-cases.mjs",
-  "recorderSha256": "80311284cdb889202d2c43acb7dcbf16a3171f8505b4617c371cda2f77638f30",
+  "recorderSha256": "9abc9fe1bf3a4c6ee8c6be65561f1d65f3849a8039721f8aced1f938b97b0cad",
   "replay": {
     "compare": "each case's observed fields through the product's entry, compared whole through fieldMap; the envelope of the replaced protocol is declared under replaced",
     "entry": "mixdog-core/src/run_host/model_proxy_host_run_replay_tests.rs drives `modelProxy/run` / `modelProxy/cancel` on ModelProxyService (mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs, registered by compose_flip.rs) over ProxyRunner, with this PC's PcQuotaProbe, PcWireRouter and PcProviderConfig; mixdog-core/src/run_host/model_proxy_host_config_replay_tests.rs replays the providerConfig cases through PcProviderConfig over the product registry and DefaultProviderBuilder; mixdog-core/src/run_host/model_proxy_host_server_replay_tests.rs replays the server's read (Node loadModelProxyProviderConfig) through HostProxyProviders (mixdog-core/src/run_host/proxy_providers.rs).",
@@ -140,15 +140,17 @@
       "21/22 waitMs": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller",
       "23 long + short wait": "no per-read budget exists, so two unforced reads join one request (1, not Node's 2 more)",
       "24/28 mixdog-local": "the Rust registry never builds mixdog-local (mixdog-ai registry/builder.rs:1286: built per turn from the managed runtime's endpoint); its rows are removed from case 24's input and answer, and case 28's localTraits is left unreplayed",
-      "24 developer options": "Node's recorder registry reads no Developer options and builds mimo-oauth, cursor-oauth, antigravity-oauth; the core gates them off (mixdog-ai service/admin_models.rs:445 provider_available). The test asserts Node's entries enabled and the core's exact gated entry, then compares the rest whole"
+      "24 developer options": "recorded twice (golden cases 24 and 24b): the recorder gates the registry init and the credential probe on the stored Developer options through Node's own developerOptionEnabled / developerOptionForProvider (src/runtime/shared/developer-options.mjs), once with none stored (mimo-oauth, cursor-oauth, antigravity-oauth never admitted, authState absent) and once with the three on; both states are built from the core (the world's config carries the same developer section; the three sign-in files the real adapters need are the ones a login leaves) and compared whole",
+      "24 custom anthropic inputExcludesCache": "fixed in the core, compared whole: a custom provider on the anthropic protocol is an AnthropicProvider subclass in Node (custom-provider.mjs:162, registry.mjs:554 providerInputExcludesCache and model-proxy-host.ts:1202 read the instance's class); ProviderAdapter::input_excludes_cache (mixdog-core-api domain/provider.rs) is stated by HttpAdapter for that engine (registry/builder.rs build_custom_parts) and read first by the accounting (registry/accounted.rs) and the advertisement (model_proxy_pc.rs traits_of)",
+      "12 result.content / keyReads / anthropicKeyInLastInit": "replayed on the real registry (model_proxy_host_config_replay_tests.rs only_the_requested_providers_key_is_read_when_the_request_is_made): a send to openai through the adapter PcProviderConfig serves, with a vault that logs its reads and a transport that keeps the request headers; result.content is the key Node's scripted send returned (openai:<key>), compared with the bearer the adapter sent; keyReads with the vault's reads; anthropicKeyInLastInit with the absence of any anthropic read",
+      "14 transport scope": "typed field ProxyOptions.forkedTransportScope (mixdog-app-protocol v2/model_proxy.rs), set by request_out when the sender names a transport scope (model_proxy.rs options_out); the PC allocates <session>#proxy:<uuid> and releases it through ProviderAdapter::release_transport_scope when the run ends (ProxyRunner::run, ProxyCall::Send); the recording's uuids are a scripted counter, so a scope is compared with its uuid replaced by <uuid> and its form asserted; closed (the global close hook) and released (the provider's releaseTransportScope) are one release; replayed by a_forked_side_request_gets_its_own_transport_scope_released_when_it_ends",
+      "28 localTraits": "WAITING on the registration of mixdog-local in the Rust registry: DefaultProviderBuilder::build answers \"mixdog-local is built per turn from the managed runtime's endpoint\" (mixdog-ai registry/builder.rs:1286), so a registry-built provider with takesImages=false does not exist yet. The branch that adds MixdogLocalProvider's registration (the local-runtime provider in mixdog-services local_provider, composed by mixdog-app-server-daemon compose_domains/local.rs) owns it; this repository has no such branch to name. Until then only the openai half of case 28 and the mixdog-local row of cases 24/24b are not replayed",
+      "24b firstResponseBudget (mimo-oauth, antigravity-oauth)": "Node's classes state a budget (mimo-oauth.mjs:157 compatFirstResponseBudget, antigravity-oauth.mjs:110 antigravityFirstResponseBudget; recorded as transportMs 2715000 / semanticMs 5280000 and 427000 / 847000); no adapter of the core implements ProviderAdapter::first_response_budget (mixdog-core-api domain/provider.rs), so the core advertises none. The test asserts Node's figures and compares everything else of the answer whole; the gap also leaves the agent watchdog's first-response floor (factory.rs:1086) at its default for these two",
+      "14 cancelled.rejected": "Node's rejection of a cancelled side request is the abort reason of the server's own signal (\"user stop\"), not this PC's; the PC's part, the run ending as a cancellation with its scope released, is compared"
     },
-    "open": {
-      "12": "only the requested provider's credential is read on demand: not yet replayed through a send on the real registry",
-      "14": "a proxied side request's own transport scope: the typed ProxyOptions carries no scope flag (model_proxy.rs options_in sets transport_scope None), so the PC cannot fork and dispose one per side request",
-      "24 custom anthropic inputExcludesCache": "Node true (AnthropicProvider static), the core false: input_excludes_cache decides by provider name (mixdog-ai registry/accounted.rs:131), shared with accounting and the session books; asserted apart in the test"
-    }
+    "open": {}
   },
   "set": "model-proxy-host-cases",
-  "totalBytes": 429141,
+  "totalBytes": 550658,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

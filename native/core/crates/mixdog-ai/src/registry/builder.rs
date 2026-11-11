@@ -1156,7 +1156,8 @@ impl DefaultProviderBuilder {
             let listing = (*wire == protocol_wire).then(|| -> Arc<dyn ModelListing> { handle.clone() });
             let engine: Arc<dyn ProviderAdapter> = match wire {
                 Wire::Messages => {
-                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false));
+                    // Node's custom class on the anthropic protocol is an `AnthropicProvider` subclass.
+                    let engine = self.custom_messages_engine(name, &request, key("x-api-key", false)).with_input_excludes_cache(protocol == Protocol::Anthropic);
                     Arc::new(match listing {
                         Some(listing) => engine.with_listing(listing),
                         None => engine,

@@ -3150,7 +3150,13 @@ export type ProxyNotice = { message: string, warn: boolean, };
  * `RequestOptions` field for field. The connection scope and the model's output ceiling are the
  * PC's to derive, so they are not carried.
  */
-export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, promptCacheScope: string | null, xaiResponsesCacheScope: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null, };
+export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, promptCacheScope: string | null, xaiResponsesCacheScope: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null,
+/**
+ * The server forked this request from a session (a side question) and gave it a transport scope of its own
+ * (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and
+ * releases it when the request ends.
+ */
+forkedTransportScope: boolean, };
 
 /**
  * How the PC's broker ended a failed send.

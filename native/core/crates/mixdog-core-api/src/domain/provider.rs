@@ -1140,6 +1140,12 @@ pub trait ProviderAdapter: Send + Sync {
     fn native_documents(&self) -> Option<bool> {
         None
     }
+    /// `instance.constructor.inputExcludesCache` where the instance's class is not told by its registered name: a
+    /// custom provider on the anthropic protocol is an `AnthropicProvider` subclass (`custom-provider.mjs:162`) and
+    /// inherits `true`. `None` leaves the answer to the name (`accounted::input_excludes_cache`).
+    fn input_excludes_cache(&self) -> Option<bool> {
+        None
+    }
     /// `provider.firstResponseBudget(model, { modelParameters })`: the longest one send to `model`
     /// may wait for its response headers and its first output, which the progress watchdog's
     /// first-response deadlines are floored above. `None` keeps the watchdog's default window. An

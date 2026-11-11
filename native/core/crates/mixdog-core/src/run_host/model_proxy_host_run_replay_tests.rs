@@ -75,6 +75,8 @@ struct Scripted {
     /// Holds a permit once a hanging attempt was dropped (the PC provider saw the abort).
     aborted: Arc<Notify>,
     budget: fn(&str) -> Option<p::FirstResponseBudget>,
+    /// The transport scopes released, in order (`releaseTransportScope`).
+    released: Mutex<Vec<String>>,
 }
 
 fn provider(attempts: Vec<Attempt>) -> Arc<Scripted> {
@@ -85,6 +87,7 @@ fn provider(attempts: Vec<Attempt>) -> Arc<Scripted> {
         started: Notify::new(),
         aborted: Arc::new(Notify::new()),
         budget: |_| None,
+        released: Mutex::new(Vec::new()),
     })
 }
 
@@ -136,6 +139,9 @@ impl p::ProviderAdapter for Scripted {
     }
     fn first_response_budget(&self, model: &str, _: Option<&mixdog_protocol::JsonValue>) -> Option<p::FirstResponseBudget> {
         (self.budget)(model)
+    }
+    fn release_transport_scope(&self, scope: &str) {
+        self.released.lock().unwrap().push(scope.to_owned());
     }
     async fn attempt(&self, request: Arc<p::ModelRequest>) -> Result<Box<dyn p::ModelStream>, p::ProviderError> {
         self.seen.lock().unwrap().push((*request).clone());
@@ -827,4 +833,98 @@ fn a_call_over_the_frame_bound_is_refused_before_any_provider_runs() {
     big.messages = vec![p::Message::new(p::Role::User, p::Content::Text("x".repeat(limits.max_inbound_frame_bytes as usize)))];
     let frame = json!({ "jsonrpc": "2.0", "id": 1, "method": "modelProxy/run", "params": { "runId": "r", "call": send("openai", &big) } }).to_string();
     assert_eq!(decode_inbound_text(&frame, limits.max_inbound_frame_bytes as usize), InboundText::TooLarge);
+}
+
+/// `<session>#proxy:<uuid>` with the uuid replaced: the recording's uuids are a scripted counter, this PC's are random
+/// (the manifest's `normalised.transportScope`); its form is asserted.
+fn scope_shape(scope: &str) -> String {
+    let (session, id) = scope.split_once("#proxy:").unwrap_or_else(|| panic!("{scope} is no PC-forked scope"));
+    assert!(id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'), "{scope}");
+    format!("{session}#proxy:<uuid>")
+}
+
+/// Case 14: a request the server forked from a session names a transport scope of its own; this PC allocates
+/// `<session>#proxy:<uuid>` for it, sends with that scope and releases it however the request ends (success, failure,
+/// the server's cancel). A request that names none gets none. Node's `closed` (the global connection-close hook) and
+/// `released` (the provider's `releaseTransportScope`) are one release here: `ProviderAdapter::release_transport_scope`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_forked_side_request_gets_its_own_transport_scope_released_when_it_ends() {
+    let node = observed("a proxied side request gets its own transport scope on the PC, disposed when the request ends");
+    let main_scope = node["mainScope"].as_str().unwrap();
+    let mut refused = p::ProviderError::new(p::ErrorKind::InvalidRequest, p::DeliveryState::NotSent);
+    refused.message = "provider down".into();
+    let scripted = provider(vec![answering("ok"), Attempt::Stream(vec![Err(refused)]), Attempt::Hang, answering("ok")]);
+    let (service, _) = service_of(names(&[("openai", &scripted)]), Arc::new(Unused), Arc::new(Unused), None).await;
+    // `proxied.send([], 'gpt', undefined, { sessionId, transportScope: mainScope, signal })`.
+    let side = |session: &str, forked: bool, cancel: CancellationToken| {
+        let mut sent = hi();
+        sent.options.session_id = Some(session.into());
+        sent.options.transport_scope = forked.then(|| main_scope.to_owned());
+        run_call(session, &send("openai", &sent), None, ConnectionId(1), cancel)
+    };
+    let view = |scripted: &Scripted| {
+        let seen = scripted.seen.lock().unwrap();
+        let scopes: Vec<Value> = seen.iter().map(|r| r.options.transport_scope.as_deref().map_or_else(|| json!({ "$exact": "undefined" }), |s| json!(scope_shape(s)))).collect();
+        let released: Vec<String> = scripted.released.lock().unwrap().iter().map(|s| scope_shape(s)).collect();
+        json!({ "sentScopes": scopes, "sentHaveTransportScope": seen.iter().map(|r| r.options.transport_scope.is_some()).collect::<Vec<_>>(), "closed": released, "released": released })
+    };
+    fn shaped(value: &mut Value) {
+        match value {
+            Value::String(text) if text.contains("#proxy:") => *text = scope_shape(text),
+            Value::Array(items) => items.iter_mut().for_each(shaped),
+            Value::Object(map) => map.values_mut().for_each(shaped),
+            _ => {}
+        }
+    }
+    let recorded = |step: &Value| {
+        let mut step = step.clone();
+        shaped(&mut step);
+        step
+    };
+    let step_of = |step: &str, mut view: Value| {
+        view["step"] = json!(step);
+        view
+    };
+    let node_log = node["log"].as_array().unwrap();
+    let node_step = |at: usize| recorded(&node_log[at]);
+    let compared = |at: usize, got: Value, node_step: &Value| {
+        let mut want = node_step.clone();
+        want.as_object_mut().unwrap().retain(|key, _| got.get(key).is_some());
+        assert_eq!(got, want, "step {at}");
+    };
+
+    let answered = super::model_proxy_trust_replay_tests::answered(&service, side("ok", true, CancellationToken::new())).await;
+    assert_eq!(answered["result"], "sent");
+    compared(0, step_of("success", view(&scripted)), &node_step(0));
+
+    let answer = super::model_proxy_trust_replay_tests::answered(&service, side("fail", true, CancellationToken::new())).await;
+    same_failure(&answer, &node_log[1]["fail"]["rejected"], "fail");
+    compared(1, step_of("error", view(&scripted)), &node_step(1));
+
+    scripted.started.notified().await;
+    let cancel = CancellationToken::new();
+    let mut hanging = Box::pin(super::model_proxy_trust_replay_tests::answered(&service, side("hang", true, cancel.clone())));
+    mixdog_core_session::session::testing::awaiting(|| "the hanging side request to start".to_owned(), async {
+        tokio::select! {
+            biased;
+            () = scripted.started.notified() => {}
+            answer = &mut hanging => panic!("the side request ended before it started: {answer}"),
+        }
+    })
+    .await;
+    let while_running = view(&scripted);
+    cancel.cancel();
+    let cancelled = hanging.await;
+    // Node's `cancelled.rejected` ("user stop") is the abort reason the server's own signal carries; this PC's part is
+    // that the run ended as a cancellation.
+    assert_eq!(node_failure(&node_log[2]["cancelled"]["rejected"])["message"], "user stop");
+    assert_eq!(typed_failure(&cancelled, &json!({ "cancelled": true })), json!({ "cancelled": true }));
+    let mut cancel_step = step_of("cancel", view(&scripted));
+    cancel_step["whileRunning"] = while_running;
+    compared(2, cancel_step, &node_step(2));
+
+    let answered = super::model_proxy_trust_replay_tests::answered(&service, side("main", false, CancellationToken::new())).await;
+    assert_eq!(answered["result"], "sent");
+    compared(3, step_of("no scope named", view(&scripted)), &node_step(3));
+    assert_eq!(node_log.len(), 4);
 }

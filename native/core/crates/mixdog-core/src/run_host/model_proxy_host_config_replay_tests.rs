@@ -10,11 +10,17 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_ai::accounts::CredentialState;
+use mixdog_ai::registry::builder::BuilderEnv;
 use mixdog_ai::registry::builder::DefaultProviderBuilder;
 use mixdog_ai::registry::keys::ApiKeyStore;
 use mixdog_ai::registry::keys::Environment;
 use mixdog_ai::registry::keys::KeyConfig;
 use mixdog_ai::registry::keys::MemoryVault;
+use mixdog_ai::registry::keys::SecretVault;
+use mixdog_ai::registry::keys::VaultError;
+use mixdog_ai::transport::Exchange;
+use mixdog_ai::transport::HttpResponse;
+use mixdog_ai::transport::HttpSend;
 use mixdog_ai::registry::providers::ProviderBuilder;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::model_proxy::public_provider_config;
@@ -59,8 +65,33 @@ pub(super) struct Pc {
 }
 
 pub(super) async fn pc(available: Value, credentials: Arc<dyn CredentialProbe>) -> Pc {
-    let world = world(&[], json!({}), Vec::new()).await;
-    let builder: Arc<dyn ProviderBuilder> = Arc::new(DefaultProviderBuilder::new(builder_env(&world.services)));
+    pc_over(available, credentials, &[], json!({}), |_, _| {}).await
+}
+
+/// [`pc`] with the process environment `env`, the stored Developer options `developer` (`agent.developer`), and `tweak`
+/// over the builder's inputs and the plugin-data directory (where a sign-in leaves its credential file).
+pub(super) async fn pc_over(
+    available: Value,
+    credentials: Arc<dyn CredentialProbe>,
+    env: &[(&str, &str)],
+    developer: Value,
+    tweak: impl FnOnce(&mut BuilderEnv, &std::path::Path),
+) -> Pc {
+    let world = world(env, json!({}), Vec::new()).await;
+    if developer.as_object().is_some_and(|options| !options.is_empty()) {
+        world
+            .services
+            .config
+            .update_agent(move |doc| {
+                doc.insert("developer".into(), developer);
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+    let mut env = builder_env(&world.services);
+    tweak(&mut env, &world.services.plugin_data);
+    let builder: Arc<dyn ProviderBuilder> = Arc::new(DefaultProviderBuilder::new(env));
     let registry = Arc::new(ProviderRegistry::new(builder));
     let available = Arc::new(Mutex::new(available.as_object().unwrap().clone()));
     let read = available.clone();
@@ -139,32 +170,121 @@ fn without_local(value: &Value) -> Value {
     value
 }
 
-/// Case 24, this PC's advertisement of every built-in family and custom protocol, but `mixdog-local`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn every_family_is_advertised_as_its_adapter_declares() {
-    let node = observed("all built-in provider families and custom protocols use the same PC catalog and send path");
-    let pc = pc(without_local(&node["available"]), scripted("present")).await;
+/// The credential probe of a PC whose Developer options are `developer`: a dev-gated provider whose option is off always
+/// reads `absent` (`oauthCredentialProbeState`, through `provider_available`, the gate the registry admits by); every
+/// other credential is present (Node's recorder scripts the external store the same way).
+struct GatedAuth(Value);
+
+#[async_trait]
+impl CredentialProbe for GatedAuth {
+    async fn auth_state(&self, name: &str, _: &Map<String, Value>) -> Result<&'static str, String> {
+        Ok(if mixdog_ai::service::admin_models::provider_available(name, false, &self.0) { "present" } else { "absent" })
+    }
+}
+
+/// The sign-in the three dev-gated adapters need to be built, as a login leaves it (`antigravity-oauth.json` in the plugin data):
+/// Node builds the class without one, the core's antigravity adapter reads its project from the stored sign-in.
+fn sign_in(plugin_data: &std::path::Path) {
+    std::fs::create_dir_all(plugin_data).unwrap();
+    let signed_in = json!({ "access_token": "access", "refresh_token": "refresh", "expires_at": 4_102_444_800_000_u64, "project_id": "project", "tier_id": "free", "email": "me@example.test", "user_id": "u1" });
+    std::fs::write(plugin_data.join("antigravity-oauth.json"), signed_in.to_string()).unwrap();
+}
+
+/// Case 24 under the stored Developer options `developer` (the recording's `developer`): this PC's advertisement of every
+/// built-in family and custom protocol, but `mixdog-local`, compared whole with what Node advertised.
+async fn families_are_advertised_as_their_adapters_declare(case: &str) {
+    let node = observed(case);
+    let developer = node["developer"].clone();
+    let pc = pc_over(without_local(&node["available"]), Arc::new(GatedAuth(developer.clone())), &[], developer, |_, plugin_data| sign_in(plugin_data)).await;
     let mut want = node["advertised"].clone();
     want["providers"] = without_local(&want["providers"]);
-    let mut got = pc.answer().await;
-    // Differs, left: Node's custom provider on the anthropic protocol is an AnthropicProvider (`static
-    // inputExcludesCache = true`); the core decides by name only (mixdog-ai registry/accounted.rs:131
-    // `input_excludes_cache`, read by the accounting and the session books too), so it says false. Compared apart.
-    for id in ["custom-00000000-0000-4000-8000-000000000020", "custom-00000000-0000-4000-8000-000000000021"] {
-        assert_eq!(want["providers"][id]["modelProxy"]["inputExcludesCache"], true, "{id}: Node");
-        assert_eq!(got["providers"][id]["modelProxy"]["inputExcludesCache"], false, "{id}: the core, by name");
-        got["providers"][id]["modelProxy"]["inputExcludesCache"] = json!(true);
+    // Declared: Node's mimo-oauth and antigravity-oauth classes state a `firstResponseBudget` (`compatFirstResponseBudget`,
+    // `antigravityFirstResponseBudget`); no adapter of the core implements `ProviderAdapter::first_response_budget` yet (the
+    // agent watchdog's floor reads it too). Node's figures are asserted and taken off the compared answer.
+    for id in ["mimo-oauth", "antigravity-oauth"] {
+        if want["providers"][id]["enabled"] == true {
+            let budget = want["providers"][id]["modelProxy"].as_object_mut().unwrap().shift_remove("firstResponseBudget");
+            assert!(budget.is_some_and(|b| b["transportMs"].as_u64().unwrap() > 0 && b["semanticMs"].as_u64().unwrap() > 0), "{id}: Node states a budget");
+        }
     }
-    // Declared: Node's recorder registry reads no Developer options, so it builds the dev-gated classes; the core's
-    // registry gates them off (mixdog-ai service/admin_models.rs:445 `provider_available`), and turning the options on
-    // makes the build need a real sign-in. Node's entries are compared whole against what Node advertised; the core's
-    // are pinned to the gated answer.
-    for id in ["mimo-oauth", "cursor-oauth", "antigravity-oauth"] {
-        assert_eq!(want["providers"][id]["enabled"], true, "{id}: Node");
-        same(&got["providers"][id], &json!({ "enabled": false, "authState": "present", "modelProxy": {} }), id);
-        got["providers"][id] = want["providers"][id].clone();
+    same(&pc.answer().await, &want, "advertised");
+}
+
+/// Case 24, every Developer option off: the three dev-gated providers are never admitted, whatever the config says.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_family_is_advertised_as_its_adapter_declares() {
+    families_are_advertised_as_their_adapters_declare("all built-in provider families and custom protocols use the same PC catalog and send path").await;
+}
+
+/// Case 24, the three Developer options on: they are admitted and advertised as their adapters declare.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_developer_gated_families_are_advertised_when_their_options_are_on() {
+    families_are_advertised_as_their_adapters_declare("all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on").await;
+}
+
+/// The vault of a PC that keeps every account it is asked for.
+#[derive(Default)]
+struct ReadLog {
+    inner: MemoryVault,
+    reads: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl SecretVault for ReadLog {
+    async fn get(&self, account: &str) -> Result<Option<String>, VaultError> {
+        self.reads.lock().unwrap().push(account.to_owned());
+        self.inner.get(account).await
     }
-    same(&got, &want, "advertised");
+    async fn set(&self, account: &str, value: &str) -> Result<(), VaultError> {
+        self.inner.set(account, value).await
+    }
+    async fn delete(&self, account: &str) -> Result<(), VaultError> {
+        self.inner.delete(account).await
+    }
+}
+
+/// The wire of a send that goes nowhere: each request's headers are kept and the exchange fails.
+#[derive(Default)]
+struct Wire(Mutex<Vec<Vec<(String, String)>>>);
+
+#[async_trait]
+impl HttpSend for Wire {
+    async fn send(&self, request: p::WireRequest, _: Exchange) -> Result<HttpResponse, p::ProviderError> {
+        self.0.lock().unwrap().push(request.headers);
+        Err(p::ProviderError::new(p::ErrorKind::InvalidRequest, p::DeliveryState::NotSent))
+    }
+}
+
+/// Case 12: with two providers enabled and a stored key for each, a send to `openai` reads the key of `openai` and no
+/// other: the key is read when the request is made (`ApiKeyStore::resolve`, by the adapter's credential), never with the
+/// config. Node's `result.content` (`openai:pc-openai-key`) is the key its provider received: here the bearer the
+/// adapter put on the wire. `anthropicKeyInLastInit` (no key in the config the registry applied) is the absence of every
+/// anthropic vault read after the registry was applied and a send went out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_the_requested_providers_key_is_read_when_the_request_is_made() {
+    let node = observed("only the requested provider's credential is read, on demand");
+    let vault = Arc::new(ReadLog::default());
+    let keys = ApiKeyStore::new(vault.clone(), Arc::new(Vars::default()), false);
+    keys.save("openai", "pc-openai-key").await.unwrap();
+    keys.save("anthropic", "pc-anthropic-key").await.unwrap();
+    vault.reads.lock().unwrap().clear();
+    let wire = Arc::new(Wire::default());
+    let (to, store) = (wire.clone(), keys.clone());
+    let pc = pc_over(json!({ "openai": { "enabled": true }, "anthropic": { "enabled": true } }), scripted("present"), &[("MIXDOG_OAI_TRANSPORT", "http-sse")], json!({}), move |env, _| {
+        env.http = to;
+        env.keys = store;
+    })
+    .await;
+    let adapter = pc.config.adapter("openai").await.expect("the PC serves openai");
+    let sent = p::ModelRequest { model: "gpt-5".into(), messages: vec![p::Message::new(p::Role::User, p::Content::Text("hi".into()))], tools: Vec::new(), options: p::RequestOptions::default() };
+    assert!(adapter.attempt(Arc::new(sent)).await.is_err(), "the scripted wire refuses");
+    let sent_headers = wire.0.lock().unwrap();
+    let bearer = sent_headers.iter().flatten().find(|(name, _)| name.eq_ignore_ascii_case("authorization")).expect("the request is authorised").1.clone();
+    assert_eq!(json!(format!("openai:{}", bearer.strip_prefix("Bearer ").expect("a bearer"))), node["result"]["content"]);
+    // The keychain account of a provider's key is `agent.<provider>.apiKey`; Node's `readApiKey(name)` names the provider.
+    let read: Vec<String> = vault.reads.lock().unwrap().iter().map(|account| account.strip_prefix("agent.").and_then(|a| a.strip_suffix(".apiKey")).unwrap_or(account).to_owned()).collect();
+    assert_eq!(json!(read), node["keyReads"]);
+    assert_eq!(node["anthropicKeyInLastInit"], json!({ "$exact": "undefined" }));
 }
 
 /// Case 25.
