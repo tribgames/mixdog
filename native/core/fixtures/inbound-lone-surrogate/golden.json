@@ -522,6 +522,24 @@
       }
     },
     {
+      "name": "workspace-folder-name-lone",
+      "plaintext": "7b226964223a313032322c226d6574686f64223a2273617665576f726b7370616365222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a6563745c5c747269702e636f64652d776f726b7370616365222c5b7b2270617468223a22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226e616d65223a2254726970205c7564383364227d5d5d7d",
+      "answer": {
+        "ok": true,
+        "value": {
+          "kind": "workspace",
+          "name": "trip",
+          "workspaceFile": "D:\\mixdog-build\\tmp\\inbound-lone-surrogate-world\\project\\trip.code-workspace",
+          "folders": [
+            {
+              "path": "D:\\mixdog-build\\tmp\\inbound-lone-surrogate-world\\project",
+              "name": "Trip \ud83d"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "alias-invalid-byte",
       "plaintext": "7b226964223a33342c226d6574686f64223a2272656e616d6550726f6a656374222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226162ff6364225d7d",
       "answer": {
@@ -650,6 +668,10 @@
     {
       "name": "7265706c616365642e747874",
       "bytes": "61efbfbd620a"
+    },
+    {
+      "name": "747269702e636f64652d776f726b7370616365",
+      "bytes": "7b0a202022666f6c64657273223a205b0a202020207b0a2020202020202270617468223a2022443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c0a202020202020226e616d65223a202254726970205c7564383364220a202020207d0a20205d0a7d0a"
     }
   ],
   "preferences": "{\n  \"version\": 2,\n  \"aliases\": {\n    \"D:\\\\mixdog-build\\\\tmp\\\\inbound-lone-surrogate-world\\\\project\": \"Trip\"\n  },\n  \"hidden\": []\n}\n"

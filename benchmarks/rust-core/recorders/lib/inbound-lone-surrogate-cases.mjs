@@ -21,6 +21,12 @@ export const PROJECT = join(ROOT, 'project');
 export const NOTES = 'notes.txt';
 export const NOTES_BEFORE = 'old\n';
 const NOTES_MTIME_S = 1_700_000_000;
+/** The workspace file a step writes into the project folder. */
+export const WORKSPACE = 'trip.code-workspace';
+/** What the phone is told when the core refuses a frame holding a lone surrogate outside free text: the files adapter turns the
+ *  core's invalidParams into a TypeError of its `expected` sentence (remote-protocol-files.ts `failure`), the sentence
+ *  `lone_refusal` writes (mixdog-app-server server.rs). Compared whole for every `refused` step. */
+export const LONE_REFUSAL = { ok: false, error: 'text without unpaired surrogates (a lone \\ud800-\\udfff escape)' };
 /** A file whose text holds a real U+FFFD, for the searches. */
 const REPLACED = 'replaced.txt';
 
@@ -70,6 +76,9 @@ const ADDED = [
   { name: 'alias-escaped-pair-listed', call: 'listProjects', params: [] },
   // A key twice in one object: JSON.parse keeps the last value, and the search finds what that one asks for.
   { name: 'search-duplicated-key', call: 'searchWorkspaceText', json: `["${P.replaceAll('\\', '\\\\')}",{"query":"zzz","query":"hi"}]` },
+  // ── a free-text field the fifth review listed that a phone reaches: a workspace folder's display name, written into the
+  //    workspace file (compared with the project folder at the end) ──
+  { name: 'workspace-folder-name-lone', call: 'saveWorkspace', params: [join(P, WORKSPACE), [{ path: P, name: `Trip ${HIGH}` }]] },
 ].map((step, index) => ({ ...step, id: 1001 + index }));
 
 /** Every step, in order. `bytes` says what the case is about. */

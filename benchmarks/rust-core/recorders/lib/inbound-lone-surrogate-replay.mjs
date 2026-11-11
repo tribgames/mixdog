@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
 import { frame } from './raw-frame-bytes.mjs';
-import { PROJECT, STEPS, buildWorld } from './inbound-lone-surrogate-cases.mjs';
+import { LONE_REFUSAL, PROJECT, STEPS, WORKSPACE, buildWorld } from './inbound-lone-surrogate-cases.mjs';
 import { startRelay } from './phone-relay-core.mjs';
 import { killTree, startCore } from './phone-files-replay.mjs';
 
@@ -45,6 +45,15 @@ function wellFormed(value) {
     return Object.fromEntries(entries);
   }
   return value;
+}
+
+/** The bytes (hex) of a JSON file Node wrote with `JSON.stringify`, as the core writes them under decisions.md "frame-lone-surrogate"
+ *  (JSON files hold EF BF BD where Node wrote the six-byte escape): `JSON.stringify` escapes only lone surrogates, so every
+ *  `\udXXX` escape in its output is one, and becomes U+FFFD. Nothing else of the file changes. */
+function jsonEscapesRead(bytes) {
+  const text = Buffer.from(bytes, 'hex').toString('utf8');
+  // An escape, not an escaped backslash followed by `ud…`: an even run of backslashes before it.
+  return hex(Buffer.from(text.replace(/(?<=(?:^|[^\\])(?:\\\\)*)\\ud[89a-f][0-9a-f]{2}/g, '\ufffd'), 'utf8'));
 }
 
 /** The first frame `take` yields that `matches` (other frames are passed over), or the close; one deadline for the whole wait. */
@@ -117,15 +126,15 @@ export async function replay({ exe, golden, only }) {
           Promise.race([
             phone.router.call(step.call, step.json !== undefined ? JSON.parse(step.json) : clone(step.params)).then(
               (value) => ({ ok: true, value: value === undefined ? null : clone(value) }),
-              (error) => ({ ok: false, error: error.message }),
+              (error) => ({ ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) }),
             ),
             closing,
           ]),
           `the answer to ${step.name}`,
         );
         compared += 1;
-        const refused = outcome.ok === false && outcome.error.includes('text without unpaired surrogates');
-        if (!refused) unexpected.push({ step: `${step.name} (refused by the rule, no Node counterpart)`, node: 'the core refuses it: text without unpaired surrogates', core: outcome });
+        // Whole: the phone's outcome is the core's refusal and nothing else (no code, no other text).
+        if (!isDeepStrictEqual(outcome, LONE_REFUSAL)) unexpected.push({ step: `${step.name} (refused by the rule, no Node counterpart)`, node: LONE_REFUSAL, core: outcome });
         if (outcome.closed !== undefined) phone = await openRouter();
         continue;
       }
@@ -190,7 +199,8 @@ export async function replay({ exe, golden, only }) {
         .sort((a, b) => (a.name < b.name ? -1 : 1))
         .map((entry) => ({ name: hex(Buffer.from(entry.name)), ...(entry.isDirectory() ? { dir: true } : { bytes: hex(readFileSync(join(PROJECT, entry.name))) }) }));
       compared += 1;
-      if (!isDeepStrictEqual(files, golden.files)) unexpected.push({ step: 'project folder', node: golden.files, core: files });
+      const nodeFiles = golden.files.map((file) => (file.name === hex(Buffer.from(WORKSPACE)) ? { ...file, bytes: jsonEscapesRead(file.bytes) } : file));
+      if (!isDeepStrictEqual(files, nodeFiles)) unexpected.push({ step: 'project folder', node: nodeFiles, core: files });
       // Node's preferences file (desktop-projects.json `{version:2, aliases{path:name}, hidden[path]}`) is the core's `projects` rows
       // (DS §4.1): `aliases` every row's alias, `hidden` the hidden rows in `hidden_rank` order.
       const db = new DatabaseSync(join(core.dataDir, 'state', 'core.sqlite'), { readOnly: true });
