@@ -1,0 +1,56 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-memory-session-ingest-projection.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the ingest runtime that persists the projected rows (session-ingest-runtime)",
+    "runs": "projectSessionMessagesForIngest, sessionMessageContentForIngest, shouldExcludeIngestMessage, allTextContent, normalizeIngestRole, isUnquotedToolCompletionHead (session-ingest.mjs)"
+  },
+  "exclusions": "the last case holds probes the test file does not run",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 16007,
+      "path": "golden.json",
+      "sha256": "30c63a5347ecf732daf7476fab330e687f61b0541532bcbfce2f50aa12c89fa4"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
+      "sha256": "429a1394f89fa0be97340eb4a018dfcdb84ddd50e75d7d1c8391d5a26d48c49d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "undefined arguments": "written as {\"absent\":true}"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-memory-session-ingest-projection.mjs",
+  "recorderSha256": "0188dbf3695843f5e4bb35bb542ecde6c6740026b90ff83ef51ec76da60e3699",
+  "replay": "mixdog-services memory: svc/memory/ingest_shape.rs all_text_content + the projection and exclusion (and mixdog-agent compact/ingest.rs for the compact source list); compares projected rows, stripped content and exclusion flags exactly",
+  "set": "memory-session-ingest-projection",
+  "totalBytes": 16007
+}
