@@ -1,0 +1,124 @@
+{
+  "cases": 52,
+  "command": "node benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the scripted provider answers one fixed summary; no real model",
+    "runs": "compaction-archive-capture.mjs (scheduleCompactionArchive, droppedByCompaction, stampCompactionMessageIds, recover/flush/hide), compaction-archive.mjs (segment lines, pages, range), the real runSessionCompaction and runPreSendCompactPass with a scripted summary provider, deleteSession, reapOrphanSidecars, projectStoredTranscript, restoreTranscriptItems, compactionArchivedRows (TUI helper)"
+  },
+  "fileCount": 14,
+  "files": [
+    {
+      "bytes": 36667,
+      "path": "archives/cap.jsonl",
+      "sha256": "61a631353e0975e95591feb55fe9442fea3773a508d897cfcf7eacb8ed5de684"
+    },
+    {
+      "bytes": 148376,
+      "path": "archives/commit.jsonl",
+      "sha256": "f6a7c97271a30915c8da9224a217eff158f8302bf78cc50fe7f7fbe492fb58b3"
+    },
+    {
+      "bytes": 715,
+      "path": "archives/mixed.jsonl",
+      "sha256": "0dc1920b033a1547f05bf65964b4c29574f8c0e6caf2f5f76b0eac0dbbc850a9"
+    },
+    {
+      "bytes": 1356,
+      "path": "archives/paging.jsonl",
+      "sha256": "20c3ea55e0838ce38d5054a94b83e62e8e1a66df6b823542f18b157a378f4fa0"
+    },
+    {
+      "bytes": 180468,
+      "path": "archives/presend.jsonl",
+      "sha256": "b95f9fb66269baad674f78109c5e3f3edc7998c6a3a3fede20c2cf55403de2e2"
+    },
+    {
+      "bytes": 112047,
+      "path": "archives/provenance-rules.jsonl",
+      "sha256": "6af537aa887a0a029ad421f8900fd49d50f223e57e4b5862bda76d36f88c00ea"
+    },
+    {
+      "bytes": 139657,
+      "path": "archives/provenance-summary.jsonl",
+      "sha256": "8514f927936fdc14b9c75f6a2ea370811133b7952b2417c505c7deaf1d1f6b5b"
+    },
+    {
+      "bytes": 458,
+      "path": "archives/redact.jsonl",
+      "sha256": "a68f84fb2dd4b2b7043a5c7e6bd4532a2751c55c4fa945c494cc6186b7cacf85"
+    },
+    {
+      "bytes": 442,
+      "path": "archives/restart.jsonl",
+      "sha256": "40a1d98397228c38bddfa5e225a7c19f2fea4a921d78c15cb07ba4964f9adf9a"
+    },
+    {
+      "bytes": 118942,
+      "path": "archives/rules-restart.jsonl",
+      "sha256": "a8c002a154e1300d6d1b1eea6d24438759151676ffe51c3c9d70aa4014c83797"
+    },
+    {
+      "bytes": 1116,
+      "path": "archives/short-write.jsonl",
+      "sha256": "92fa427389c882e56a728dba883a62cab5561c7bc998f87c0684e82c2537c18f"
+    },
+    {
+      "bytes": 148820,
+      "path": "archives/unreadable-EACCES.jsonl",
+      "sha256": "a719065c7363246d031e5e140eab5f2095b1398bc0458f9b0cc33a3cd467a5c9"
+    },
+    {
+      "bytes": 148820,
+      "path": "archives/unreadable-EIO.jsonl",
+      "sha256": "2b3b3f02f5f3af227444e4f883542bf10df9c579f9e4ef7f1404aa93401b679c"
+    },
+    {
+      "bytes": 303766,
+      "path": "golden.json",
+      "sha256": "9293c2a10c85f9ca3e101fa2d8964478346d05d7f8a893fc48b3f1838f40b738"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-compaction-archive-cases.mjs",
+  "recorderSha256": "a677d84f5c144b286349761f1eaa38ac27d4fb4d9bc621f3b6790404d7deb3cb",
+  "replay": {
+    "entry": "mixdog-agent compact::execution_tail (serialize_archive, ensure_archive) + mixdog-store archive writer: replay each case with the recorded inputs (stored session messages and the per-case calls) and compare the archive lines (archives/<case>.jsonl where saved, golden otherwise), sidecar names and bytes, stderr lines, the archive state, return values",
+    "faults": "Node injected fsync failure, short writes, publish/park hooks, read errors through its test hooks; the recording holds what those produced. A replay must inject the same faults in the real writer",
+    "normalised": {
+      "clock": "Date.now fixed",
+      "corruptName": "the kept-aside sidecar name carries a time (.corrupt-<n>)",
+      "dataDir": "the temp data dir is <data>",
+      "generatedIds": "random message ids are compared by shape only",
+      "parkedWait": "a 60 ms wait became three event-loop turns"
+    }
+  },
+  "set": "compaction-archive-cases",
+  "totalBytes": 1341650
+}
