@@ -42,10 +42,10 @@ use super::worktree_tests::rig;
 use super::worktree_tests::run;
 use super::*;
 
-const GOLDENS: &str = include_str!("worktree_goldens/setup_goldens.json");
+const GOLDENS: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/session/worktree_goldens/setup_goldens.json");
 
 fn goldens() -> Value {
-    serde_json::from_str(GOLDENS).unwrap()
+    serde_json::from_str(&GOLDENS).unwrap()
 }
 
 fn text(value: &Value, key: &str) -> String {

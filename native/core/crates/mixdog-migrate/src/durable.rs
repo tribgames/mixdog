@@ -172,7 +172,7 @@ pub fn write_synced(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = File::create(path).map_err(|e| Blocked::io("create", path, e))?;
     write_halves(&mut file, path, bytes, Step::Write)?;
     step(Step::Sync, path, bytes);
-    file.sync_all().map_err(|e| Blocked::io("sync", path, e))
+    fsio::flush(&file).map_err(|e| Blocked::io("sync", path, e))
 }
 
 /// Removes a file that may already be gone; syncs its parent when it removed one.

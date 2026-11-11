@@ -135,7 +135,7 @@ mod tests {
     /// either side orders the same.
     #[test]
     fn a_completion_is_queued_as_nodes_persisted_entry() {
-        let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+        let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
         let cases: Vec<&Value> = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "completion").collect();
         assert!(cases.len() >= 2, "the recorded completions");
         for case in cases {

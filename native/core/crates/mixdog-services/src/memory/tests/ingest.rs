@@ -18,7 +18,7 @@ use crate::memory::pg::db::{Db, Schema};
 use crate::memory::schema::ensure_memory_schema;
 use crate::memory::tests::support::TestPg;
 
-const GOLDEN: &str = include_str!("../../../../../fixtures/tools/memory/ingest/golden.json");
+const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/tools/memory/ingest/golden.json");
 
 fn provider() -> Arc<EmbeddingProvider> {
     Arc::new(EmbeddingProvider::new(EmbedConfig {
@@ -66,7 +66,7 @@ async fn stored_ordinals(db: &Db) -> Value {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME), the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
 async fn ingest_session_matches_the_recorded_node_runs() {
-    let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+    let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
     let now = golden["now"].as_i64().expect("now");
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;

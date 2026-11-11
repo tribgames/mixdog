@@ -143,7 +143,7 @@ async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_r
         eventually_on!(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
     )
     .await;
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let case = all["cases"].as_array().unwrap().iter().find(|case| case["name"] == "another device cancels: the prompt travels through the state").unwrap();
     // The only restore Node's state held and published, whole. Two parts are the rig's, not the core's: the clock (Node's recorded
     // 1700000000450 is its fake clock; the id `restore-<clock>-<first submission id>` and `at` carry it, here the value the test set
@@ -583,7 +583,7 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
 /// are built from Node's rows and entries and compared to Rust's as they are, so a field Rust adds fails.
 #[tokio::test(start_paused = true)]
 async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "submit").collect::<Vec<_>>();
     assert_eq!(cases.len(), 11);
     for case in cases {
@@ -769,7 +769,7 @@ fn held_rows(items: &[Value], labels: &mut Labels) -> Vec<Value> {
 /// end), an id that is no row as `ItemNotFound` (Node's `null`), a running turn as `PreconditionFailed` (Node's `null` while busy).
 #[tokio::test(start_paused = true)]
 async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "rewind").collect::<Vec<_>>();
     assert_eq!(cases.len(), 4);
     for case in cases {
@@ -893,7 +893,7 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
 #[test]
 fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() {
     use super::seams::Transcript;
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases: Vec<&Value> = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "image-shape" || case["kind"] == "queue-shape").collect();
     assert!(cases.len() >= 34, "the recorded shapes");
     for case in cases {
@@ -918,7 +918,7 @@ fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() 
 /// call would show two (the reviewer's probe) or repeated snapshots here.
 #[test]
 fn the_recorded_publishing_is_coalesced_as_nodes_store_does() {
-    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let all: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases = all["cases"].as_array().unwrap();
     let probe = cases.iter().find(|case| case["kind"] == "flush").expect("the flush probe is recorded");
     assert_eq!(probe["flushes"], json!(2));

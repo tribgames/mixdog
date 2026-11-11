@@ -208,7 +208,7 @@ mod tests {
     /// (`fixtures/tool-availability`): the result, the definitions asked for, and the session after.
     #[test]
     fn the_staged_availability_equals_nodes() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/tool-availability/golden.json")).expect("golden");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-availability/golden.json")).expect("golden");
         let now = golden["now"].as_i64().expect("now");
         for case in golden["cases"].as_array().expect("cases") {
             let label = case["name"].as_str().expect("name");
@@ -253,7 +253,7 @@ mod tests {
     /// (`fixtures/connector-availability`): the result and the whole session after each step.
     #[test]
     fn the_staged_connectors_equal_nodes() {
-        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/connector-availability/golden.json")).expect("golden");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/connector-availability/golden.json")).expect("golden");
         let now = golden["now"].as_i64().expect("now");
         let list = |value: &Value| -> Vec<String> { value.as_array().expect("list").iter().map(|n| n.as_str().expect("name").to_owned()).collect() };
         for case in golden["cases"].as_array().expect("cases") {
