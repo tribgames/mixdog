@@ -275,6 +275,17 @@ pub(crate) enum RunShown {
     SearchUsage(Value),
     /// A stage the client shows as its status (`onStageChange(stage, detail)` relayed to `applyStageChange`).
     Stage { stage: String, detail: Option<Value> },
+    /// A mark of the model call the spinner follows (`streamHandlers`, `turn-live-call.mjs`).
+    Call(CallMark),
+}
+
+/// A step of one model call, as the spinner hears it (`turn.mjs` `streamHandlers` at b6f10295a).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallMark {
+    /// The `streaming` stage: the response began.
+    Streaming,
+    /// A tool call began in the stream (`onStreamItemStart` of a tool: `withdrawLiveCall`).
+    ToolCall,
 }
 
 /// What a compaction pass's summary model used (ccumulateCompactUsage).
@@ -575,6 +586,11 @@ impl RunPort {
     /// (`persistIterationMetrics`, fed by `onUsageDelta` only) and the live output count never hear it.
     pub async fn search_usage(&self, delta: Value) -> Result<(), RunError> {
         self.shown(RunShown::SearchUsage(delta)).await
+    }
+
+    /// A step of the model call the spinner follows.
+    pub async fn call_mark(&self, mark: CallMark) -> Result<(), RunError> {
+        self.shown(RunShown::Call(mark)).await
     }
 
     /// A stage the client shows as its status, never a transcript row: `thread/stage/updated`.

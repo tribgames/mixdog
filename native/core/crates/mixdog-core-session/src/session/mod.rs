@@ -30,6 +30,7 @@ pub mod close;
 mod completions;
 mod control;
 mod stop;
+mod live_call;
 mod spinner;
 #[cfg(test)]
 mod resumed_tools_tests;

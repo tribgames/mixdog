@@ -95,6 +95,11 @@ impl SessionStats {
         self.readout = Some(readout);
     }
 
+    /// The running input and output token totals (`stats.inputTokens`, `stats.outputTokens`).
+    pub(crate) fn tokens(&self) -> (u64, u64) {
+        (self.input, self.output)
+    }
+
     /// `state.stats` as the session publishes it, with the closed turns counted by the session (`stats.turns`).
     pub(crate) fn json(&self, turns: usize) -> Value {
         let mut stats = Map::new();

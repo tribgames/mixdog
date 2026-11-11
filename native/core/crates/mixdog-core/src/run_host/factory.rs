@@ -529,6 +529,8 @@ enum Shown {
     SearchUsage(Value),
     /// A stage the client shows as its status, with its detail.
     Stage(String, Option<Value>),
+    /// A step of the model call the spinner follows.
+    Call(mixdog_core_session::session::run::CallMark),
 }
 
 /// What the interrupted request had produced that the transcript does not hold yet
@@ -639,7 +641,10 @@ impl RunObserver for PortObserver {
                 lock(&self.observed).tools = false;
                 self.progress.stage("connecting");
             }
-            RunEvent::Stage(Stage::Streaming) => self.progress.stage("streaming"),
+            RunEvent::Stage(Stage::Streaming) => {
+                self.progress.stage("streaming");
+                let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::Streaming));
+            }
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
             RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
             RunEvent::TextDelta(text) => {
@@ -724,6 +729,7 @@ impl RunObserver for PortObserver {
                     observed.calls.extend(calls.iter().cloned());
                 }
                 self.end_reasoning();
+                let _ = self.out.send(Shown::Call(mixdog_core_session::session::run::CallMark::ToolCall));
                 self.progress.stage("tool_running");
                 for call in &calls {
                     self.progress.tool_call(Some(&call.name));
@@ -1127,6 +1133,7 @@ async fn drive(
                 Shown::Check(check) => shown_port.send_check(check).await,
                 Shown::SearchUsage(delta) => shown_port.search_usage(delta).await,
                 Shown::Stage(stage, detail) => shown_port.stage(stage, detail).await,
+                Shown::Call(mark) => shown_port.call_mark(mark).await,
                 Shown::Pass(pass) => shown_port.compact_pass(pass).await,
                 Shown::ToolStream => shown_port.tool_stream().await,
                 Shown::CompactUsage(report) => shown_port.compact_usage(report).await,

@@ -509,6 +509,10 @@ struct RunSlot {
     live: super::live_end::LiveCounts,
     /// `completionVerb` (`pickDoneVerb(stats.turns)` at `beginTurn`).
     verb: &'static str,
+    /// The spinner's `liveCall` (`turn-live-call.mjs`).
+    live_call: super::live_call::LiveCall,
+    /// The session's input and output tokens as the turn began (`turn.inputBaseline`, `turn.outputBaseline`).
+    tokens_at_start: (u64, u64),
 }
 
 /// What a failed turn's close reads of its run ([`SessionActor::close_failed`]).
@@ -2039,7 +2043,7 @@ impl SessionActor {
         }
         let t = &self.id;
         match section {
-            Section::Runtime(_) | Section::ProgressHint(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
+            Section::Runtime(_) | Section::ProgressHint(_) | Section::Spinner(_) | Section::Toasts(_) | Section::ActiveTools(_) | Section::SetupChanged(_) => self.runtime_note(),
             Section::Route(_) => note("thread/route/updated", t, self.acked.route()),
             Section::Context(_) => note("thread/context/updated", t, self.acked.context()),
             Section::Todo(v) => note("thread/todo/updated", t, v),
@@ -3313,15 +3317,23 @@ impl SessionActor {
                 if method == "item/agentMessage/delta" && !mixdog_js::js_trim(&text).is_empty() {
                     self.prompt_committed();
                 }
+                let mut figure = None;
                 if let Some(run) = self.run.as_mut() {
                     match method {
                         "item/agentMessage/delta" => run.live.text(&text, now),
                         "item/reasoning/textDelta" => run.live.reasoning(&text, now),
                         _ => {}
                     }
+                    // `onTextDelta` / `onReasoningDelta`: the text joins the call's live figure after it is appended.
+                    if matches!(method, "item/agentMessage/delta" | "item/reasoning/textDelta") {
+                        figure = run.live_call.text(&text, now);
+                    }
                 }
                 let note = Note { method, params };
                 self.accept_view(Change::Delta { item, text }, vec![note]);
+                if let Some(figure) = figure {
+                    self.patch_spinner([("liveCall", figure)]);
+                }
             }
             ProducerMsg::Shown { turn, shown } => {
                 if self.active(&turn) {
@@ -3684,6 +3696,20 @@ impl SessionActor {
         }
     }
 
+    /// The spinner the runtime section shows, if any.
+    fn spinner(&self) -> Option<&Value> {
+        self.projected.sections.runtime.as_ref().and_then(|runtime| runtime.spinner.as_ref())
+    }
+
+    /// `set({ spinner: { ...spinner, ...fields } })`: nothing while no spinner is shown.
+    fn patch_spinner<const N: usize>(&mut self, fields: [(&str, Value); N]) {
+        if self.spinner().is_none() {
+            return;
+        }
+        let fields = fields.into_iter().map(|(key, value)| (key.to_owned(), value)).collect();
+        self.accept_view(Change::Section(Section::Spinner(fields)), Vec::new());
+    }
+
     /// The stats section: the totals as they stand, with the turns the session closed (set({ stats })).
     fn publish_stats(&mut self) {
         let context = mixdog_app_protocol::v2::thread::ThreadContext { stats: Some(self.stats.json(self.turns_closed)), ..Default::default() };
@@ -3721,7 +3747,31 @@ impl SessionActor {
                 );
                 self.accept_view(Change::Barrier, vec![note]);
                 self.publish_stats();
+                // `applyTurnUsageDelta`: the call is over (`startNextLiveCall`), and the spinner counts the turn's tokens so far.
+                let Some(run) = self.run.as_mut() else { return };
+                let had = run.live_call.next();
+                let (input, output) = self.stats.tokens();
+                let (input, output) = (input.saturating_sub(run.tokens_at_start.0), output.saturating_sub(run.tokens_at_start.1));
+                if had {
+                    self.patch_spinner([("liveCall", Value::Null)]);
+                }
+                self.patch_spinner([("inputTokens", json!(input)), ("outputTokens", json!(output))]);
             }
+            RunShown::Call(mark) => match mark {
+                // `applyStageChange('streaming')`: responding (thinking when the spinner says so).
+                super::run::CallMark::Streaming => {
+                    let thinking = self.spinner().and_then(|spinner| spinner.get("thinking")).and_then(Value::as_bool) == Some(true);
+                    let mode = if thinking { "thinking" } else { "responding" };
+                    if self.spinner().and_then(|spinner| spinner.get("mode")).and_then(Value::as_str) != Some(mode) {
+                        self.patch_spinner([("mode", json!(mode))]);
+                    }
+                }
+                super::run::CallMark::ToolCall => {
+                    if self.run.as_mut().is_some_and(|run| run.live_call.withdraw()) {
+                        self.patch_spinner([("liveCall", Value::Null)]);
+                    }
+                }
+            },
             RunShown::Check(check) => {
                 if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
                     let change = super::usage_books::check_change(&self.projected.header, &check, &books, self.deps.clock.now_ms() as f64);
@@ -5242,6 +5292,8 @@ impl SessionActor {
             transcript: input_body.pointer("/meta/transcript").cloned().unwrap_or(Value::Null),
             live: Default::default(),
             verb: super::live_end::done_verb(self.turns_closed),
+            live_call: Default::default(),
+            tokens_at_start: self.stats.tokens(),
         });
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
