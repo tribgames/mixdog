@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-gemini-error-contract',
   net: false,
   entry: 'gemini-error-contract.mjs geminiErrorContract / geminiPolicyFinishCode, gemini.mjs geminiRestError(res, bodyText, "Gemini"), antigravity-transport.mjs antigravityError(res, bodyText, endpoint), gemini-response.mjs geminiIncompleteError, provider-error-kind.mjs providerErrorKind, antigravity-retry-policy.mjs isAntigravityCapacityError, over scripted bodies. Not run: a network call.',
-  replay: 'mixdog-ai providers::google error.rs (:115-216, :386, :441-487) and decode.rs:610 policy finish codes, mixdog-ai retry::classify: feed `input` (the error body / contract arguments / finish reason) and compare `result` whole; resetAt is the recorded virtual clock (clockStartMs) plus the advice.',
+  compare: 'mixdog-ai providers::google error.rs (:115-216, :386, :441-487) and decode.rs:610 policy finish codes, mixdog-ai retry::classify: feed `input` (the error body / contract arguments / finish reason) and compare `result` whole; resetAt is the recorded virtual clock (clockStartMs) plus the advice.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53), GoogleCodec (google/codec.rs:71) and build_request (google/request.rs:638), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Classification: mixdog_ai::retry::classify::kind_of (retry/classify.rs:142).",
 });
 const P = 'agent/orchestrator/providers/';
 const { geminiErrorContract, geminiPolicyFinishCode } = await rec.P(`${P}gemini-error-contract.mjs`);
