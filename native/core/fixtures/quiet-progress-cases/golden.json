@@ -1,4 +1,8 @@
 {
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
   "cases": [
     {
       "case": "the quiet cue is lenient: a turn reads quiet only after the cue window without counted progress",
