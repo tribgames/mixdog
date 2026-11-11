@@ -1,0 +1,59 @@
+{
+  "cases": 8,
+  "command": "node benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "raw cache stamps are machine values and are not recorded",
+    "runs": "store-agent-worker-rows.mjs (listStoredAgentWorkers, listStoredAgentWorkersAsync, listStoredAgentWorkerLinks, storedAgentWorkerHeaderStats, flushStoredAgentWorkerHeaderCache) in a fresh module instance per cold reader / restarted daemon, over stores in a temp data dir"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1002950,
+      "path": "golden.json",
+      "sha256": "a478893ca2bb8bb752a043f6212ef7b9101cd5811c41151ea8ad8a40c6c51269"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "db4c434c9e5db314d766b0efecf3bc81d4a267abdb4eaf23e524bfa5b829a0d2"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs",
+  "recorderSha256": "04f4d9542a574455861cde2b3ea80bb990a88f0ae4c563c8e5947ef790030a2f",
+  "replay": {
+    "entry": "mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count",
+    "normalised": {
+      "dataDir": "temp, not in the recording"
+    }
+  },
+  "set": "store-agent-worker-pool-cases",
+  "totalBytes": 1002950
+}
