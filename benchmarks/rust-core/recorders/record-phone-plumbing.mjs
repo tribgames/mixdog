@@ -20,7 +20,7 @@
 // mixdog-core-domains notify::screen::tests::the_phones_plumbing_calls_decide_what_nodes_relay_decided replays them on the core's
 // registry.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
@@ -238,10 +238,22 @@ async function replay(exe) {
         .map((row) => /^\[[^\]]+\] \[console\.(\w+)\] (.*)$/u.exec(row))
         .filter(Boolean)
         .map(([, method, line]) => ({ method, line }));
-    const logReaches = async (count) => {
-      // One deadline: the log is written by the core's drainer after the notification was taken.
-      for (const until = Date.now() + 10_000; consoleLines().length < count && Date.now() < until; ) await new Promise((resolve) => setTimeout(resolve, 50));
-    };
+    // Resolves once daemon.log holds `count` console lines. The core's drainer appends each batch through a handle it opens and closes
+    // for that batch (mixdog-statefile publish.rs `append_file`, daemon_log.rs `drain`), and the close is what a Windows directory watch
+    // reports, so the watch on the data folder is woken by the core's write itself. Registered before the first look: a write between
+    // the look and the wait still wakes it. One deadline, which fails the replay naming the step.
+    const logReaches = (count, label) =>
+      new Promise((resolve, reject) => {
+        const finish = (error) => {
+          clearTimeout(deadline);
+          watcher.close();
+          error ? reject(error) : resolve();
+        };
+        const look = () => consoleLines().length >= count && (finish(), true);
+        const watcher = watch(core.dataDir, () => void look());
+        const deadline = setTimeout(() => finish(new Error(`${label}: the core's daemon.log did not reach ${count} console line(s) within 10 s (it has ${consoleLines().length})`)), 10_000);
+        look();
+      });
     const viewingBecomes = (expected) =>
       new Promise((resolve) => {
         const settle = () => {
@@ -277,7 +289,7 @@ async function replay(exe) {
       const frames = received.splice(0).map((text) => JSON.parse(text)).filter((message) => !('id' in message) || message.id === undefined);
       await viewingBecomes(published(node.viewing));
       const nodeLog = golden.pcLog.filter((entry) => entry.step <= index).map(({ method, line }) => ({ method, line }));
-      await logReaches(nodeLog.length);
+      await logReaches(nodeLog.length, `#${index} ${node.call}`);
       const step = { call: node.call, params: node.params, frames, viewing: viewing(), pcLog: consoleLines() };
       const want = { call: node.call, params: node.params, frames: node.frames, viewing: published(node.viewing), pcLog: nodeLog };
       if (!isDeepStrictEqual(step, want)) differences.push({ label: `#${index} ${node.call} ${JSON.stringify(node.params).slice(0, 120)} (barrier ${barrier})`, node: want, core: step });
