@@ -18,7 +18,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -77,8 +77,8 @@
     "normalised": {
       "rowIds": "a row id is the core's item id where the recorder scripted c0..c299; the rows are compared whole without it",
       "rowText": "the recorder handed its scripted rows to the host untrimmed (`row <id> ` x50); a stored assistant message restores as its trimmed text in Node (transcript-restore/restore.mjs restoredAssistantTranscriptItems) and in the core alike, so the recorded text is compared trimmed",
-      "windowOldEnd": "a session that changed between reads: Node's host answered the newest 96 rows in full (session-service.mjs readSession, transcriptItemLimit); the core's client keeps the revealed 64 rows, the 32 held and the 2 appended (98 rows) and the replay compares the newest 96 with the recorded snapshot. The window's old end is the client's own limit, not a row any user is shown differently: both end at the newest row.",
-      "inFlightMovement": "the held rows are the desktop host's own copy (session-host-publication.ts heldTranscript, digest check in session-service.mjs readSession): the core has no counterpart, so the movement is the client dropping its oldest held row after the page read and reading the window in full; the host's digest decision is run by apps/desktop/src/main/session-host-transcript-page.test.mjs.",
+      "changedBetweenReads": "a session that changed between reads: Node's host answered the newest 96 rows in full (session-service.mjs readSession, transcriptItemLimit); the replay's client finds the appended rows after its newest held row and reads the window in full the same way, and all 96 rows it shows are compared with the recorded snapshot",
+      "inFlightMovement": "the held rows are the desktop host's own copy (session-host-publication.ts heldTranscript, digest check in session-service.mjs readSession): the core has no counterpart. The replay holds the page read before it reaches the store (CallCounted::hold on history_rows), clears the session and writes its rows again (every row a new id), releases the read and takes the core's own answer (cursorInvalidated) as the detection; the client then reads the window in full: the recorded snapshot's rows.",
       "pageShape": "Node's host reply wrapper (page/full, projectionStamp, byte size) is the desktop host's; the core answers the same rows and hasOlder on thread/items/list (older page by the opening page's nextCursor; full read without a cursor)"
     },
     "protocolMethods": [
