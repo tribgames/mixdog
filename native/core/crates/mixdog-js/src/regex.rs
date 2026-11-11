@@ -7,7 +7,296 @@ use std::ops::Range;
 
 use crate::regex_error::js_regex_error;
 
-pub struct JsRegex(regress::Regex);
+pub struct JsRegex(regress::Regex, Option<Needles>);
+
+/// Strings one of which every match of a pattern contains, read from the pattern: a long text that holds none of them has
+/// no match, which is answered without the engine. The engine starts a match attempt at every position of the text
+/// (about a third of a microsecond each for a pattern that begins with an assertion, an alternation or a class), so a
+/// shell command of 5 MiB took 24 s in the shell tool's checks; containment is a scan of the text.
+struct Needles {
+    strings: Vec<String>,
+    /// The `i` flag: the strings are ASCII and lowercase, and are looked for in the text with its ASCII letters lowercased
+    /// (without `u`, an ASCII letter matches only the two ASCII cases of itself).
+    fold: bool,
+}
+
+/// Texts shorter than this are searched by the engine alone: the check would cost more than it saves.
+const NEEDLES_FROM: usize = 64 * 1024;
+/// The most strings a set of alternatives or a cross product of them is kept to.
+const NEEDLES_MAX: usize = 64;
+
+/// What a part of a pattern says about the text it matches.
+enum Lit {
+    /// The match is one of these strings.
+    Exact(Vec<String>),
+    /// The match contains one of these strings, none empty.
+    Inner(Vec<String>),
+    /// Nothing that is followed here.
+    Any,
+}
+
+fn exact(text: &str) -> Lit {
+    Lit::Exact(vec![text.to_owned()])
+}
+
+/// The requirement a part keeps when it may be repeated or is joined to parts not known exactly.
+fn required(lit: Lit) -> Option<Vec<String>> {
+    match lit {
+        Lit::Exact(set) | Lit::Inner(set) if set.iter().all(|s| !s.is_empty()) => Some(set),
+        _ => None,
+    }
+}
+
+/// The longest-shortest of the sets: the one whose shortest string is longest, the smaller on a tie.
+fn best(candidates: Vec<Vec<String>>) -> Option<Vec<String>> {
+    let shortest = |set: &Vec<String>| set.iter().map(String::len).min().unwrap_or(0);
+    candidates
+        .into_iter()
+        .filter(|set| shortest(set) > 0)
+        .max_by(|a, b| shortest(a).cmp(&shortest(b)).then(b.len().cmp(&a.len())))
+}
+
+fn concat(parts: Vec<Lit>) -> Lit {
+    let mut run = vec![String::new()];
+    let mut candidates = Vec::new();
+    let mut whole = true;
+    for part in parts {
+        match part {
+            Lit::Exact(set) if run.len() * set.len() <= NEEDLES_MAX => {
+                run = run.iter().flat_map(|head| set.iter().map(move |tail| format!("{head}{tail}"))).collect();
+            }
+            Lit::Exact(set) => {
+                candidates.push(std::mem::replace(&mut run, set));
+                whole = false;
+            }
+            other => {
+                candidates.push(std::mem::replace(&mut run, vec![String::new()]));
+                candidates.extend(required(other));
+                whole = false;
+            }
+        }
+    }
+    if whole {
+        return Lit::Exact(run);
+    }
+    candidates.push(run);
+    best(candidates).map_or(Lit::Any, Lit::Inner)
+}
+
+fn union(branches: Vec<Lit>) -> Lit {
+    if branches.iter().all(|b| matches!(b, Lit::Exact(_))) {
+        let mut all: Vec<String> = branches.into_iter().flat_map(|b| if let Lit::Exact(set) = b { set } else { Vec::new() }).collect();
+        all.sort();
+        all.dedup();
+        return if all.len() <= NEEDLES_MAX { Lit::Exact(all) } else { required(Lit::Exact(all)).map_or(Lit::Any, Lit::Inner) };
+    }
+    let mut all = Vec::new();
+    for branch in branches {
+        let Some(set) = required(branch) else { return Lit::Any };
+        all.extend(set);
+    }
+    all.sort();
+    all.dedup();
+    if all.len() <= NEEDLES_MAX { Lit::Inner(all) } else { Lit::Any }
+}
+
+/// A reading of the pattern (without `u` or `v`, Annex B) that follows literals, groups, alternatives, quantifiers and
+/// small classes; whatever else it meets is `Any`, and syntax it does not expect ends the reading with `None`.
+struct Reader {
+    chars: Vec<char>,
+    at: usize,
+}
+
+impl Reader {
+    fn peek(&self) -> Option<char> {
+        self.chars.get(self.at).copied()
+    }
+
+    fn next(&mut self) -> Option<char> {
+        let c = self.peek()?;
+        self.at += 1;
+        Some(c)
+    }
+
+    fn eat(&mut self, text: &str) -> bool {
+        let wanted: Vec<char> = text.chars().collect();
+        if self.chars[self.at..].starts_with(&wanted) {
+            self.at += wanted.len();
+            return true;
+        }
+        false
+    }
+
+    fn alternation(&mut self) -> Option<Lit> {
+        let mut branches = vec![self.sequence()?];
+        while self.peek() == Some('|') {
+            self.at += 1;
+            branches.push(self.sequence()?);
+        }
+        Some(if branches.len() == 1 { branches.pop()? } else { union(branches) })
+    }
+
+    fn sequence(&mut self) -> Option<Lit> {
+        let mut parts = Vec::new();
+        while let Some(c) = self.peek() {
+            if c == '|' || c == ')' {
+                break;
+            }
+            let atom = self.atom()?;
+            parts.push(self.quantified(atom));
+        }
+        Some(concat(parts))
+    }
+
+    /// `{n}`, `{n,}` or `{n,m}` at the reader: its `n`, consumed; anything else (a literal brace) is left.
+    fn braces(&mut self) -> Option<usize> {
+        let start = self.at;
+        self.at += 1;
+        let digits = |reader: &mut Self| {
+            let from = reader.at;
+            while reader.peek().is_some_and(|c| c.is_ascii_digit()) {
+                reader.at += 1;
+            }
+            (reader.at > from).then(|| reader.chars[from..reader.at].iter().collect::<String>())
+        };
+        let parsed = (|| {
+            let min = digits(self)?;
+            if self.peek() == Some(',') {
+                self.at += 1;
+                let _ = digits(self);
+            }
+            (self.next()? == '}').then_some(min.parse::<usize>().unwrap_or(usize::MAX))
+        })();
+        if parsed.is_none() {
+            self.at = start;
+        }
+        parsed
+    }
+
+    fn quantified(&mut self, atom: Lit) -> Lit {
+        let min = match self.peek() {
+            Some('*' | '?') => {
+                self.at += 1;
+                0
+            }
+            Some('+') => {
+                self.at += 1;
+                1
+            }
+            Some('{') => match self.braces() {
+                Some(min) => min,
+                None => return atom,
+            },
+            _ => return atom,
+        };
+        if self.peek() == Some('?') {
+            self.at += 1;
+        }
+        if min == 0 { Lit::Any } else { required(atom).map_or(Lit::Any, Lit::Inner) }
+    }
+
+    fn atom(&mut self) -> Option<Lit> {
+        Some(match self.next()? {
+            '^' | '$' => exact(""),
+            '.' | '{' => Lit::Any,
+            '(' => {
+                let zero_width = if self.eat("?=") || self.eat("?!") || self.eat("?<=") || self.eat("?<!") {
+                    true
+                } else if self.eat("?<") {
+                    while self.next()? != '>' {}
+                    false
+                } else if self.eat("?:") {
+                    false
+                } else if self.peek() == Some('?') {
+                    return None;
+                } else {
+                    false
+                };
+                let inner = self.alternation()?;
+                if self.next()? != ')' {
+                    return None;
+                }
+                if zero_width { exact("") } else { inner }
+            }
+            '[' => self.class()?,
+            '\\' => match self.next()? {
+                'b' | 'B' => exact(""),
+                'n' => exact("\n"),
+                'r' => exact("\r"),
+                't' => exact("\t"),
+                'f' => exact("\u{c}"),
+                'v' => exact("\u{b}"),
+                // Classes, back references and code escapes are not followed.
+                c if c.is_ascii_alphanumeric() => Lit::Any,
+                c => exact(&c.to_string()),
+            },
+            '*' | '+' | '?' | ')' | '|' => return None,
+            c => exact(&c.to_string()),
+        })
+    }
+
+    /// A class of a few plain characters is their set; a negated one, a range or an escaped class is `Any`.
+    fn class(&mut self) -> Option<Lit> {
+        let mut known = !self.eat("^");
+        let mut chars = Vec::new();
+        loop {
+            match self.next()? {
+                ']' => break,
+                '\\' => match self.next()? {
+                    c if c.is_ascii_alphanumeric() => known = false,
+                    c => chars.push(c),
+                },
+                _ if self.peek() == Some('-') && self.chars.get(self.at + 1).is_some_and(|end| *end != ']') => {
+                    self.at += 1;
+                    if self.next()? == '\\' {
+                        self.next()?;
+                    }
+                    known = false;
+                }
+                c => chars.push(c),
+            }
+        }
+        chars.sort_unstable();
+        chars.dedup();
+        Some(if known && !chars.is_empty() && chars.len() <= 8 { Lit::Exact(chars.iter().map(char::to_string).collect()) } else { Lit::Any })
+    }
+}
+
+impl Needles {
+    fn of(pattern: &str, flags: &str) -> Option<Self> {
+        if flags.contains('u') || flags.contains('v') {
+            return None;
+        }
+        let mut reader = Reader { chars: pattern.chars().collect(), at: 0 };
+        let lit = reader.alternation()?;
+        if reader.at != reader.chars.len() {
+            return None;
+        }
+        let strings = required(lit)?;
+        // Without `u` the engine sees a character past the BMP as two code units, which a needle of it does not follow.
+        if strings.iter().any(|s| s.chars().any(|c| u32::from(c) > 0xFFFF)) {
+            return None;
+        }
+        let fold = flags.contains('i');
+        if fold && !strings.iter().all(|s| s.is_ascii()) {
+            return None;
+        }
+        Some(Self { strings: if fold { strings.iter().map(|s| s.to_ascii_lowercase()).collect() } else { strings }, fold })
+    }
+
+    /// Whether `text` holds none of the strings, so that the pattern has no match in it.
+    fn absent_from(&self, text: &str) -> bool {
+        if text.len() < NEEDLES_FROM {
+            return false;
+        }
+        if self.fold {
+            let lower = text.to_ascii_lowercase();
+            !self.strings.iter().any(|s| lower.contains(s.as_str()))
+        } else {
+            !self.strings.iter().any(|s| text.contains(s.as_str()))
+        }
+    }
+}
 
 /// Whether the character at `at` is the target of a preceding backslash.
 fn escaped_before(chars: &[char], at: usize) -> bool {
@@ -117,7 +406,7 @@ impl JsRegex {
         } else {
             identity_hex_escapes(pattern)
         };
-        regress::Regex::with_flags(&source, flags).map(Self).map_err(|error| {
+        regress::Regex::with_flags(&source, flags).map(|regex| Self(regex, Needles::of(pattern, flags))).map_err(|error| {
             format!("Invalid regular expression: /{pattern}/{flags}: unsupported by the regex engine ({error})")
         })
     }
@@ -127,24 +416,37 @@ impl JsRegex {
         Self::new(pattern, flags).expect("static pattern")
     }
 
+    /// Whether the pattern's [`Needles`] show that `text` has no match.
+    fn hopeless(&self, text: &str) -> bool {
+        self.1.as_ref().is_some_and(|needles| needles.absent_from(text))
+    }
+
+    fn first(&self, text: &str) -> Option<regress::Match> {
+        if self.hopeless(text) { None } else { self.0.find(text) }
+    }
+
+    fn all<'a>(&'a self, text: &'a str) -> impl Iterator<Item = regress::Match> + 'a {
+        (!self.hopeless(text)).then(|| self.0.find_iter(text)).into_iter().flatten()
+    }
+
     pub fn is_match(&self, text: &str) -> bool {
-        self.0.find(text).is_some()
+        self.first(text).is_some()
     }
 
     pub fn find(&self, text: &str) -> Option<Range<usize>> {
-        self.0.find(text).map(|m| m.range())
+        self.first(text).map(|m| m.range())
     }
 
     pub fn find_iter<'a>(&'a self, text: &'a str) -> impl Iterator<Item = Range<usize>> + 'a {
-        self.0.find_iter(text).map(|m| m.range())
+        self.all(text).map(|m| m.range())
     }
 
     pub fn captures<'t>(&self, text: &'t str) -> Option<Caps<'t>> {
-        self.0.find(text).map(|found| Caps { text, found })
+        self.first(text).map(|found| Caps { text, found })
     }
 
     pub fn captures_iter<'a>(&'a self, text: &'a str) -> impl Iterator<Item = Caps<'a>> + 'a {
-        self.0.find_iter(text).map(move |found| Caps { text, found })
+        self.all(text).map(move |found| Caps { text, found })
     }
 
     /// `String.prototype.replace` with a global pattern and a replacer function.
@@ -175,6 +477,57 @@ mod tests {
         assert!(!re.is_match("| shx"));
         let all = JsRegex::new_static("a", "").replace_all_with("banana", |_| "o".into());
         assert_eq!(all, "bonono");
+    }
+
+    fn needles(pattern: &str, flags: &str) -> Option<Vec<String>> {
+        Needles::of(pattern, flags).map(|n| n.strings)
+    }
+
+    #[test]
+    fn needles_are_the_strings_every_match_holds() {
+        let strings = |list: &[&str]| Some(list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>());
+        assert_eq!(needles(r"\bgit\b", "i"), strings(&["git"]));
+        assert_eq!(needles(r"(?:^|\s)(?:Powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+-c", "i"), strings(&["powershell", "pwsh"]));
+        assert_eq!(needles(r"\d?>&\d", "g"), strings(&[">&"]));
+        assert_eq!(needles(r#"(?:^|[\s'"])[-/]e(?:c|n[a-z]*)?\s+['"]?([A-Za-z0-9+/]{4,}={0,2})"#, "gi"), strings(&["-e", "/e"]));
+        assert_eq!(needles(r#"(^|[\s"'=,(])/([A-Za-z])/([^\s"'`|&;<>()]*)"#, "g"), strings(&["/"]));
+        assert_eq!(needles(r"(?<name>ab)+c{2}", ""), strings(&["ab"]));
+        assert_eq!(needles(r"x(?=yz)w", ""), strings(&["xw"]));
+        // Nothing every match holds, or syntax not followed: the engine alone.
+        for (pattern, flags) in [(r"a*", ""), (r"a|", ""), (r"\s+", "g"), (r"[^a]", ""), (r"a{0,3}", ""), (r"ab", "u"), (r"é", "i"), (r"(?", "")] {
+            assert_eq!(needles(pattern, flags), None, "/{pattern}/{flags}");
+        }
+    }
+
+    /// A long text the needles rule out has no match, and one that holds them is searched by the engine: either way the
+    /// answer is the engine's own.
+    #[test]
+    fn the_needles_answer_what_the_engine_answers() {
+        let filler = "a".repeat(NEEDLES_FROM);
+        let texts = [
+            filler.clone(),
+            format!("{filler} git x"),
+            format!("{filler} GIT x"),
+            format!("{filler} 2>&1"),
+            format!("{filler} digit"),
+            format!("{filler} pwsh -c x"),
+            format!("{filler} -E QUJDRA=="),
+        ];
+        for (pattern, flags) in [
+            (r"\bgit\b", "i"),
+            (r"\d?>&\d", "g"),
+            (r"(?:^|\s)(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+-c", "i"),
+            (r#"(?:^|[\s'"])[-/]e(?:c|n[a-z]*)?\s+['"]?([A-Za-z0-9+/]{4,}={0,2})"#, "gi"),
+        ] {
+            let ours = JsRegex::new_static(pattern, flags);
+            let engine = regress::Regex::with_flags(pattern, flags).unwrap();
+            assert!(ours.1.is_some(), "/{pattern}/{flags} has needles");
+            for text in &texts {
+                let want: Vec<_> = engine.find_iter(text).map(|m| m.range()).collect();
+                assert_eq!(ours.find_iter(text).collect::<Vec<_>>(), want, "/{pattern}/{flags} on …{}", &text[filler.len()..]);
+                assert_eq!(ours.find(text), want.first().cloned(), "/{pattern}/{flags} on …{}", &text[filler.len()..]);
+            }
+        }
     }
 
     #[test]
