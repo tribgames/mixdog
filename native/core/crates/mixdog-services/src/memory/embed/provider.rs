@@ -203,6 +203,34 @@ impl QueryEmbedder for EmbeddingProvider {
     }
 }
 
+#[cfg(test)]
+impl EmbeddingProvider {
+    /// A provider over `cache` whose model files are present and whose load is `load`: the embedding worker the
+    /// recordings script (`record-memory-cold-recall.mjs`).
+    pub(crate) fn installed_with_load(
+        cache: &std::path::Path,
+        load: impl Fn() -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync + 'static,
+    ) -> Self {
+        let config = EmbedConfig {
+            model_id: config::DEFAULT_MODEL_ID.to_owned(),
+            cache_dir: cache.to_path_buf(),
+            ort_library: std::path::PathBuf::new(),
+            dtype: None,
+            sessions: 1,
+            lane: mixdog_rt::testing::tokens().cpu_bulk,
+        };
+        let graph = install::required_files(&config).graph;
+        for (file, body) in [("tokenizer.json", "{}"), ("tokenizer_config.json", "{}"), (graph.as_str(), "graph")] {
+            let path = install::model_path(&config.cache_dir, config::DEFAULT_MODEL_ID, file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let mut provider = Self::new(config);
+        provider.load = Arc::new(move |_| load());
+        provider
+    }
+}
+
 fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, ready: bool) -> Value {
     json!({
         "model": model,
@@ -217,50 +245,6 @@ fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, ready: b
 #[cfg(test)]
 mod unbuilt_tests {
     use super::*;
-
-    /// A recall during a slow load answers without a vector after the cold wait, and the load it
-    /// started keeps running to its end (`embedRecallQuery`'s `timeout` state).
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_cold_recall_stops_waiting_and_the_load_goes_on() {
-        let cache = tempfile::tempdir().unwrap();
-        let config = EmbedConfig {
-            model_id: config::DEFAULT_MODEL_ID.to_owned(),
-            cache_dir: cache.path().to_path_buf(),
-            ort_library: std::path::PathBuf::new(),
-            dtype: None,
-            sessions: 1,
-            lane: mixdog_rt::testing::tokens().cpu_bulk,
-        };
-        let graph = install::required_files(&config).graph;
-        for (file, body) in [("tokenizer.json", "{}"), ("tokenizer_config.json", "{}"), (graph.as_str(), "graph")] {
-            let path = install::model_path(&config.cache_dir, config::DEFAULT_MODEL_ID, file);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, body).unwrap();
-        }
-        let release = Arc::new(tokio::sync::Notify::new());
-        let mut provider = EmbeddingProvider::new(config);
-        let held = release.clone();
-        provider.load = Arc::new(move |_| {
-            let held = held.clone();
-            Box::pin(async move {
-                held.notified().await;
-                Err("loaded late".to_owned())
-            })
-        });
-        provider.cold_wait = Duration::from_millis(50);
-        let answered = tokio::time::timeout(Duration::from_secs(10), provider.query_vector("cold")).await;
-        assert_eq!(answered, Ok(None), "the recall answered without waiting for the load");
-        assert!(provider.loaded.get().is_none(), "the load is still running");
-        release.notify_one();
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while provider.loaded.get().is_none() {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .expect("the load the recall started ran to its end");
-        assert_eq!(provider.loaded.get().cloned().map(|loaded| loaded.err()), Some(Some("loaded late".to_owned())));
-    }
 
     /// What Node's `getEmbeddingInfo()` answered for the default model before anything loaded (recorded by the capability
     /// harness: `getToolModuleSettings` `memory.info`).
