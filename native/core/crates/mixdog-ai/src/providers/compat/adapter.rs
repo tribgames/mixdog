@@ -375,6 +375,9 @@ impl ModelStream for CompatStream {
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
     }
+
+    /// A leaf: `next` awaits nothing after the wire's terminal event.
+    fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
 }
 
 #[cfg(test)]

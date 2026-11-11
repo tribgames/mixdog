@@ -1079,10 +1079,47 @@ pub struct FailedCall {
     pub result_text: String,
 }
 
-/// The host's failure log (`tool-failures.jsonl`). Called once per failed executed call, in call
-/// order, before the call's result is cached or committed. Never blocks and never fails the run.
+/// One executed call as the fields of Node's `traceAgentTool` call site (`session/tool-batch/finalize.mjs:226`, `traceCompleted`):
+/// `result` is the result the transcript holds after the batch's offload and image compaction (a text as a string, a structured
+/// result as its parts, images left out), `result_kind` `"error"` or `"normal"`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TracedCall {
+    pub iteration: u32,
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub tool_kind: &'static str,
+    pub tool_ms: i64,
+    pub tool_args: serde_json::Value,
+    pub model: String,
+    pub result_kind: &'static str,
+    pub result: serde_json::Value,
+    /// The text a failure row is cut from (`toolTraceText(result)`).
+    pub result_text: String,
+    pub timing: Option<crate::message::ToolTiming>,
+    /// Every run of the call as (started, completed) epoch ms, in run order (`executionIntervals`).
+    pub execution_intervals: Vec<(i64, i64)>,
+    /// What the tool reported about its result (Node's `resultTelemetry`: a listing's `integrity`).
+    pub result_telemetry: Option<serde_json::Value>,
+    /// What the tool reported about its local search (Node's `localSearchTelemetry`).
+    pub local_search: Option<serde_json::Value>,
+}
+
+/// The host's tool log: the agent trace's `batch` and `tool` rows (`agent-trace.jsonl`) and the failure log
+/// (`tool-failures.jsonl`). Called in call order, before a call's result is cached or committed. Never blocks and never fails
+/// the run.
 pub trait ToolFailureLog: Send + Sync {
     fn failed(&self, call: FailedCall);
+    /// `recordToolBatch(sessionId, executionCalls, iteration)` (`loop/tool-phase.mjs:46`): the batch's row; the batch's calls are
+    /// traced with its id. A host without the trace writes nothing.
+    fn batch(&self, _batch: &ToolBatch) {}
+    /// `traceAgentTool(...)` of one executed call: its `tool` row (and `tool_slow` row) and, for an error call, its failure row.
+    /// A host without the trace logs only the failure.
+    fn tool(&self, call: TracedCall) {
+        if call.result_kind == "error" {
+            let TracedCall { iteration, tool_name, tool_kind, tool_ms, tool_args, model, result_text, .. } = call;
+            self.failed(FailedCall { iteration, tool_name, tool_kind, tool_ms, tool_args, model, result_text });
+        }
+    }
     /// `recordAgentWatchdogAbort(ctx)`: the progress watchdog stopped the run's turn (`mixdog_trace::watchdog_abort_records`
     /// has the fields of `ctx`); the `stall_abort` rows join the same log.
     fn stall_abort(&self, ctx: serde_json::Map<String, serde_json::Value>);
