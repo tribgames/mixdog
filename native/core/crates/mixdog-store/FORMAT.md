@@ -820,3 +820,28 @@ fitting `MAX_FRAME_PAYLOAD`, the item state machine, and the DDL (object sets, p
 query plans, title search behaviour, both ledger upgrades producing exactly the
 new-ledger schema, a route rewrite writing three rows). The store's frame reader must
 pass the same `frames.json` table.
+
+## 13. Sensitive log rewrite (`src/log_rewrite.rs`)
+
+Added; nothing above changes. When a value is marked sensitive after records holding it were
+written, the session's log is replaced by one whose frames keep their ordinals and files, the
+replaced records' payloads and the checkpoints' positions changed. Its parts, under
+`<D>/sessions-rewrite/<id>/`:
+
+```
+intent      {"v":1,"frames":[[ordinal,"<record payload>"],…]}: published, the rewrite is decided
+building/   the rewritten log files while they are written
+new/        the rewritten log, whole
+old/        the session's former folder, until its superseded blobs are deleted
+```
+
+Steps: (1) replacements and their blobs; (2) `intent`; (3) `building/` from the session's log
+as it is then, renamed `new/`; (4) `sessions/<id>` renamed `old/`; (5) `new/` renamed
+`sessions/<id>`; (6) the index rows rebuilt from the new log (`secure_delete` on, the WAL
+truncated after), then every out-of-line slot blob of `old/` the new log does not name and
+`blob_refs` does not hold deleted; (7) `intent` removed; (8) the folder removed. The session
+folder is replaced as one directory, so a reader that knows nothing of this format sees the
+old log whole, the new log whole, or (a stop between 4 and 5) no folder. `SqliteStore::open`
+settles every rewrite before any session opens: no `intent` → the folder goes; `intent` and
+the session folder but no `old/` → steps 3 on; `old/` and no session folder → step 5 (or,
+with no `new/`, `old/` back and steps 3 on); both → steps 6 on.

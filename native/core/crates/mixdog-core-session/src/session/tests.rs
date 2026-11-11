@@ -4474,7 +4474,6 @@ async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_mo
     let cwd = handle.cell.header.load_full()["cwd"].as_str().map(str::to_owned).expect("cwd");
     let history = rig.prompts.file(&cwd).expect("a prompt history file");
     let holds = |path: &std::path::Path| std::fs::read(path).is_ok_and(|bytes| bytes.windows(CODE.len()).any(|w| w == CODE.as_bytes()));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let files = |dir: &std::path::Path| -> Vec<std::path::PathBuf> {
         let mut out = Vec::new();
         let mut stack = vec![dir.to_path_buf()];
@@ -4485,14 +4484,13 @@ async fn a_value_marked_after_it_was_written_leaves_every_stored_file_and_the_mo
         }
         out
     };
-    loop {
-        let held: Vec<_> = files(data.path()).into_iter().chain([history.clone()]).filter(|path| holds(path)).collect();
-        if idle(&handle) && history.is_file() && held.is_empty() {
-            break;
-        }
-        assert!(std::time::Instant::now() < deadline, "files still holding the value: {held:?}");
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    // The log was rewritten at the barrier after the mark, inside the turn; the index rows follow the projector; the
+    // prompt history is written on the durability lane and tells the rig each time.
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    threads.projected().await;
+    eventually_on!(&[&*rig.prompts_wrote], || (history.is_file() && !holds(&history)).then_some(())).await;
+    let held: Vec<_> = files(data.path()).into_iter().filter(|path| holds(path)).collect();
+    assert!(held.is_empty(), "files holding the value: {held:?}");
     let context = directory.model_context(&handle.id).read().await.expect("context");
     let texts = serde_json::to_string(&context.iter().map(|(_, row)| row.clone()).collect::<Vec<_>>()).expect("rows");
     assert!(texts.contains(&prompt), "the model context keeps the prompt whole: {texts}");
