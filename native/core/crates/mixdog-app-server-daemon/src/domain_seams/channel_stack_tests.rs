@@ -77,62 +77,113 @@ async fn the_receivers_secret_and_opt_in_come_from_the_section() {
     assert_eq!(settings.webhook().await.unwrap(), WebhookSettings { enabled: true, port: json!(5000), domain: None });
 }
 
-/// config-reload-watch.test.mjs: every edit another process makes to the file reloads the channels
-/// runtime (heard through the real file watch); an edit outside `channels`/`voice` does not, a
-/// `voice` edit does, and a stopped watch reloads nothing.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_external_channels_edit_reloads_the_runtime_and_other_sections_do_not() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mixdog-config.json");
-    std::fs::write(&path, r#"{"channels":{"revision":0}}"#).unwrap();
-    let config = open(dir.path(), None).await;
-    let _watcher = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
-    let reloads = Arc::new(AtomicUsize::new(0));
-    let counted = reloads.clone();
-    let cancel = CancellationToken::new();
+/// The reload calls the composition's watch makes (compose_flip.rs passes `ChannelRuntime::reload_runtime`), counted as
+/// Node's recorder counts its reload callback.
+/// Each call carries the `voice` section as it stood when the reload was made.
+struct Reloads {
+    calls: tokio::sync::mpsc::UnboundedReceiver<Value>,
+    seen: Vec<Value>,
+}
+
+impl Reloads {
+    /// Every reload already made, without waiting.
+    fn now(&mut self) -> usize {
+        while let Ok(voice) = self.calls.try_recv() {
+            self.seen.push(voice);
+        }
+        self.seen.len()
+    }
+
+    /// Waits for the `n`-th reload; the deadline only bounds a run that never hears it.
+    async fn reached(&mut self, n: usize, label: &str) -> usize {
+        while self.now() < n {
+            let voice = tokio::time::timeout(std::time::Duration::from_secs(30), self.calls.recv()).await.unwrap_or_else(|_| panic!("{label}: no reload {n}")).unwrap();
+            self.seen.push(voice);
+        }
+        self.seen.len()
+    }
+}
+
+fn watched(config: &Config, cancel: &CancellationToken) -> (tokio::task::JoinHandle<()>, Reloads) {
+    let (tx, calls) = tokio::sync::mpsc::unbounded_channel();
+    let read = config.clone();
     let watch = watch_channels_config(
         config.clone(),
         move || {
-            counted.fetch_add(1, Ordering::SeqCst);
+            let _ = tx.send(read.get("voice").unwrap_or(Value::Null));
             async { Ok(()) }
         },
         cancel.clone(),
     );
-    let reached = |want: usize| {
-        let reloads = reloads.clone();
+    (watch, Reloads { calls, seen: Vec::new() })
+}
+
+/// Node's config reload watch (config-reload-watch.mjs over the shared config change feed), recorded by
+/// `record-channels-config-reload-order.mjs` (`fixtures/channels-config-reload-order`, cases 55 and 75): the reload count
+/// after every step equals Node's. Another process's write is Node's recorded file, put in place by rename as Node's writer
+/// does and heard through the real file watch; the in-process writes go through `Config::update`. Node's absences are proven
+/// as Node's recorder proves them: the agent write's step is read before the voice write, whose reload is then the first,
+/// and the stopped watch is read right after the write.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_config_edit_reloads_the_channels_runtime_as_node_does() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/channels-config-reload-order/golden.json")).unwrap();
+    let cases = golden["cases"].as_array().unwrap();
+    let file_of = |step: &Value| -> String {
+        step["disk"]["dataDir"].as_array().unwrap().iter().find(|f| f["path"] == "mixdog-config.json").unwrap()["text"].as_str().unwrap().to_owned()
+    };
+    let set = |config: &Config, section: &'static str, key: &'static str, value: Value| {
+        let config = config.clone();
         async move {
-            tokio::time::timeout(Duration::from_secs(10), async {
-                while reloads.load(Ordering::SeqCst) < want {
-                    tokio::time::sleep(Duration::from_millis(25)).await;
-                }
-            })
-            .await
-            .is_ok()
+            config
+                .update(move |doc: &mut Map<String, Value>| {
+                    let entry = doc.entry(section).or_insert_with(|| json!({}));
+                    entry.as_object_mut().unwrap().insert(key.into(), value);
+                    Ok::<(), ConfigError>(())
+                })
+                .await
+                .unwrap();
         }
     };
-    for revision in 1..=3 {
-        std::fs::write(&path, format!(r#"{{"channels":{{"revision":{revision}}}}}"#)).unwrap();
-        assert!(reached(revision).await, "external write {revision} reloaded");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixdog-config.json");
+    let config = open(dir.path(), None).await;
+    let _file_watch = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
+
+    // Case 55.
+    let steps = cases[0]["steps"].as_array().unwrap();
+    let cancel = CancellationToken::new();
+    let (watch, mut reloads) = watched(&config, &cancel);
+    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now()}), json!({"step": steps[0]["step"], "reloads": steps[0]["reloads"]}));
+    for (write, step) in steps[1..4].iter().enumerate() {
+        let staged = dir.path().join(format!("mixdog-config.json.{write}.tmp"));
+        std::fs::write(&staged, file_of(step)).unwrap();
+        std::fs::rename(&staged, &path).unwrap();
+        let got = reloads.reached(write + 1, step["step"].as_str().unwrap()).await;
+        assert_eq!(json!({"step": step["step"], "reloads": got}), json!({"step": step["step"], "reloads": step["reloads"]}));
     }
-    std::fs::write(&path, r#"{"channels":{"revision":3},"agent":{"promptCacheWarming":false}}"#).unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while config.get("agent.promptCacheWarming").is_none() {
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await
-    .expect("the agent edit was heard");
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    assert_eq!(reloads.load(Ordering::SeqCst), 3, "an agent setting leaves the webhook server running");
-    std::fs::write(&path, r#"{"channels":{"revision":3},"agent":{"promptCacheWarming":false},"voice":{"language":"ko"}}"#).unwrap();
-    assert!(reached(4).await, "a voice change reloads");
     cancel.cancel();
     watch.await.unwrap();
-    std::fs::write(&path, r#"{"channels":{"revision":5}}"#).unwrap();
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    assert_eq!(reloads.load(Ordering::SeqCst), 4, "a stopped watch reloads nothing");
+    let before_stop = reloads.now();
+    set(&config, "channels", "revision", json!(4)).await;
+    let step = &steps[4];
+    assert_eq!(
+        json!({"step": step["step"], "reloadsBeforeStop": before_stop, "reloadsAfterTheWrite": reloads.now()}),
+        json!({"step": step["step"], "reloadsBeforeStop": step["reloadsBeforeStop"], "reloadsAfterTheWrite": step["reloadsAfterTheWrite"]}),
+    );
+
+    // Case 75, on the same file.
+    let steps = cases[1]["steps"].as_array().unwrap();
+    let cancel = CancellationToken::new();
+    let (watch, mut reloads) = watched(&config, &cancel);
+    set(&config, "agent", "promptCacheWarming", json!(false)).await;
+    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now()}), json!({"step": steps[0]["step"], "reloads": steps[0]["reloads"]}));
+    set(&config, "voice", "language", json!("ko")).await;
+    let got = reloads.reached(1, "the reload after the voice change").await;
+    assert_eq!(json!({"step": steps[1]["step"], "reloads": got}), json!({"step": steps[1]["step"], "reloads": steps[1]["reloads"]}));
+    // A reload the agent write had made would have run before the voice write and read no voice section.
+    assert_eq!(reloads.seen, vec![json!({"language": "ko"})], "the first reload is the voice write's");
+    cancel.cancel();
+    watch.await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
