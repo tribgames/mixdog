@@ -193,11 +193,19 @@ impl TurnRunner {
     }
 
     /// Runs the turn and settles everything around it; a failed turn is its message.
-    pub async fn run(&self, plan: TurnPlan, context: Option<NotifyContext>, job: Option<Arc<JobHandle>>) -> Result<WorkerResult, String> {
+    pub async fn run(&self, mut plan: TurnPlan, context: Option<NotifyContext>, job: Option<Arc<JobHandle>>) -> Result<WorkerResult, String> {
         let context = context.unwrap_or_default();
-        // The sessions the turn's report and handoffs reach (the review's owners): the worker's sensitive values follow.
-        for owner in [context.caller_session_id.as_deref(), plan.parent_session_id.as_deref(), context.owner_session_id.as_deref(), plan.session_owner_id.as_deref()].into_iter().flatten() {
+        // The sessions the turn's report and handoffs reach (the review's owners) and whose text its prompt carries:
+        // each one's sensitive values follow the text both ways, and the prompt leaves its owners with theirs as the marker.
+        let owners: Vec<String> = [context.caller_session_id.as_deref(), plan.parent_session_id.as_deref(), context.owner_session_id.as_deref(), plan.session_owner_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(str::to_owned)
+            .collect();
+        for owner in &owners {
             self.sessions.carry_marks(&plan.session_id, owner);
+            self.sessions.carry_marks(owner, &plan.session_id);
+            plan.prompt = self.sessions.redact_text(owner, &plan.prompt);
         }
         let claim = self.turns.claim(&plan.session_id, job.clone());
         let spawn = plan.kind == TurnKind::Spawn;

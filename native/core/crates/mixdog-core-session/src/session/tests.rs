@@ -2338,6 +2338,30 @@ async fn a_fork_has_a_codex_wire_identity_of_its_own() {
     assert!(other.get("codexWireSessionId").is_none_or(Value::is_null), "no Codex identity for another provider");
 }
 
+/// A fork holds its source's text: a value the source marks sensitive after the fork is the fork's to redact too.
+#[tokio::test(start_paused = true)]
+async fn a_value_the_source_marks_after_a_fork_is_the_forks_too() {
+    use mixdog_store::schema::record::Header;
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let mut header = Header::new();
+    header.insert("cwd".into(), json!("/repo"));
+    let source = ThreadId::from("src_marked".to_owned());
+    directory.create_with_id(source.clone(), header, json!({})).await.expect("source");
+    give_conversation(&directory.handle(&source).expect("loaded")).await;
+    let reply = directory
+        .handle(&source)
+        .expect("loaded")
+        .request(request("thread/fork", json!({ "threadId": "src_marked", "opId": "op-fork" }), "op-fork"))
+        .await
+        .expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = value["thread"]["id"].as_str().expect("heir id").to_owned();
+    let fill = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "482913" } } });
+    assert!(rig.sensitive.remember("src_marked", &[fill]));
+    assert_eq!(rig.sensitive.redact_text(&heir, "code 482913"), "code [redacted]");
+}
+
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
 #[tokio::test(start_paused = true)]

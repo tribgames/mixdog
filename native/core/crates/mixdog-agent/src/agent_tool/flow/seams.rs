@@ -134,6 +134,10 @@ pub trait TurnSessions: Send + Sync {
     /// What the worker `session_id` reports reaches `owner_session_id`: a value the worker marks sensitive, now or
     /// later, is the owner's to redact too (`carrySensitiveValues`). Nothing by default.
     fn carry_marks(&self, _session_id: &str, _owner_session_id: &str) {}
+    /// `text` with the values `session_id` marked sensitive as the marker (`redactSensitiveText`). Unchanged by default.
+    fn redact_text(&self, _session_id: &str, text: &str) -> String {
+        text.to_owned()
+    }
 }
 
 /// `emitSubagentEvent`.

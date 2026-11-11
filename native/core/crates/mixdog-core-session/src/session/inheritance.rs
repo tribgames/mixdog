@@ -109,6 +109,8 @@ impl SessionDirectory {
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
+        // The heir holds the source's text: the source's sensitive values, now and later, are the heir's to redact.
+        self.deps().sensitive.carry(source, heir);
         let mut carried = inheritable(self.rows_of(source.as_str()).await?);
         if !super::route_session::has_user_conversation(&carried) {
             return Err(refused("inheritFrom: the source session has no conversation to carry"));

@@ -381,6 +381,10 @@ impl TurnSessions for SessionTurns {
         self.directory.deps().sensitive.carry(&worker, &owner);
     }
 
+    fn redact_text(&self, session_id: &str, text: &str) -> String {
+        self.directory.deps().sensitive.redact_text(&ThreadId::from(clean_str(session_id).as_str()), text)
+    }
+
     /// `notDoneReport(session)` over the todo list of the loaded session's latest acked header
     /// (Node reads the session object in memory); a session that is not loaded has none.
     fn not_done_report(&self, session_id: &str) -> String {
