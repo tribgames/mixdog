@@ -13,11 +13,10 @@ const { workspaceSummary } = await set.load(`${S}store-summary-fields.mjs`);
 const WORKTREE = 'C:/data/worktrees-v1/0123456789abcdef/fix-login';
 const workspace = { projectPath: 'C:/repo', repoCommonDir: 'C:/repo/.git', cwd: WORKTREE, worktreeId: 'fix-login', branch: 'mixdog/fix-login', baseCommit: null, mergeTarget: 'main', revision: 3, transition: { state: 'idle', txId: null } };
 const session = (extra = {}) => ({ id: 'sess_ws', createdAt: 1_000, updatedAt: 2_000, lastUsedAt: 2_000, status: 'idle', owner: 'user', cwd: WORKTREE, desktopSession: { classification: 'project', projectPath: 'C:/repo' }, messages: [{ role: 'user', content: 'prompt' }], ...extra });
-const nul = (v) => (v === null ? { null: true } : v);
 
 await set.run('workspaceSummary carries the whole workspace record and requires both paths', () => {
   const inputs = [workspace, { projectPath: ' C:/repo ', cwd: 'C:/repo' }, { projectPath: 'C:/repo', cwd: 'C:/repo', revision: -1, transition: { state: 'bogus' } }, null, 'x', {}, { projectPath: 'C:/repo' }, { cwd: 'C:/repo' }, { projectPath: 'a\0', cwd: 'b' }];
-  return { results: inputs.map((input) => ({ input: nul(input), result: workspaceSummary(input) })) };
+  return { results: inputs.map((input) => ({ input, result: workspaceSummary(input) })) };
 });
 await set.run('summary rows expose the workspace while grouping stays on the project', () => {
   const input = session({ workspace });
