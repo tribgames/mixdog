@@ -1,16 +1,17 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-memory-chunk-quality-handoff.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "encoding": "exact() in lib/mc-record.mjs: {$undefined:true}, {$number:\"NaN\"|\"Infinity\"|\"-Infinity\"|\"-0\"}, {$bigint}, {$date:ISO}, {$bytes:{type,hex}} (Buffer, typed arrays, ArrayBuffer), {$set}, {$map}, {$error:{name,message,code,...own}}; an unknown type fails the recording",
   "entry": {
-    "notRun": "the other 23 cases of the test file (Cycle1 prompts, parsing, partitioning, budgets): covered by the cycles golden (mem/cycles/golden_tests.rs)",
+    "notRun": "nothing of the 26 cases: the 23 Cycle1 cases (prompts, parsing, validation, generator with a scripted callLlm, splitting, partitioning, quality assessment) are recorded here with the test's own inputs; the cycles golden (memory-jobs) holds other scripted shapes of the same functions and is not a substitute. The scripted classifier is the service boundary: it logs every (request, prompt) and answers per call",
     "runs": "compactHandoffRows (compact-handoff.mjs), renderEntryLines (recall-format.mjs), assessChunkQuality, makeChunkQuality (memory-chunk-quality.mjs)"
   },
-  "exclusions": "chunk_quality of the roots is the value makeChunkQuality produced here (a stored JSON); a replay builds the same roots from the golden",
+  "exclusions": "case 90 runs the parser inside a vm context with a 1 s time limit, as the test does (a synchronous parser cannot be bounded otherwise); chunk_quality of the roots is the value makeChunkQuality produced here (a stored JSON); a replay builds the same roots from the golden",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 27774,
+      "bytes": 500430,
       "path": "golden.json",
-      "sha256": "23025e24c05a19255cd0a1a408850f7030a104d00e6f360324d301397ea2e531"
+      "sha256": "6afdb674fec60948b13c0595a6fd3cca463d91daa072e79f639cbccf0ad0bc8a"
     }
   ],
   "inputs": [
@@ -20,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/mc-record.mjs",
-      "sha256": "00a1609043ba60222ded5f14b43220e585099e12345f6c9fa44d0a797f8eb212"
+      "sha256": "3e3ff3b4d3e86abdd0ede6ba9c4069011b5901b34ae187492cd7c84e3309ef7f"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -29,6 +30,7 @@
   ],
   "nodeVersion": "v22.20.0",
   "normalised": {
+    "stats.llmMs / totalMs / verificationMs": "measured with Date.now(), which is the virtual clock: always 0 in the recording (not a Node value to equal)",
     "verifiedAt": "Date.now() is fixed at the recorded clock.dateNowMs (virtual clock, never advanced), so verifiedAt equals it"
   },
   "product": {
@@ -49,10 +51,10 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-chunk-quality-handoff.mjs",
-  "recorderSha256": "f6a67903c2894c3196aa339bbe39ad5d0456622cc3ed31be9d777b68ce0732dc",
+  "recorderSha256": "bdf46f6633c06700cfa0a68a5cbaaea3f8f0a47fd199768ccab817e87180f550",
   "replay": "mixdog-services memory: mem/recall/compact.rs compact_handoff_rows + mem/recall/format.rs render_entry_lines + mem/cycles/quality.rs assess_chunk_quality/make_chunk_quality; compares the projected rows (all fields), rendered text, and the assessments (usable, reasons, provenance)",
   "set": "memory-chunk-quality-handoff",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 27774,
+  "totalBytes": 500430,
   "uuidsNormalised": "none"
 }
