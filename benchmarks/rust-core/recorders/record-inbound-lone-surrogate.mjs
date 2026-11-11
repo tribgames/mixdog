@@ -13,12 +13,12 @@
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs --tree D:\mixdog-build\tmp\b6f-tree [--only <step>]
 //   ... --replay <path to mixdogd.exe>     (the same steps against the core, compared whole)
-import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, sha256, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { frame } from './lib/raw-frame-bytes.mjs';
-import { LONE_REFUSAL, PROJECT, ROOT, STEPS, WORKSPACE, buildWorld } from './lib/inbound-lone-surrogate-cases.mjs';
+import { PROJECT, loneRefusal, ROOT, STEPS, WORKSPACE, buildWorld } from './lib/inbound-lone-surrogate-cases.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const SET = join(FIXTURES_ROOT, 'inbound-lone-surrogate');
@@ -180,21 +180,69 @@ function outcome(phone, id) {
   });
 }
 
+/** The project folder: every entry by its relative path (hex of the UTF-8 name Node's file system gives back; a lone unit in a name
+ *  is WTF-8 there, which `Buffer.from` writes as EF BF BD, so the entry is also kept by its own name) with its bytes and mtime. */
+function folderState(dir = PROJECT, rel = '', out = new Map()) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    const at = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      out.set(at, { dir: true });
+      folderState(path, at, out);
+    } else {
+      out.set(at, { bytes: readFileSync(path), mtime: statSync(path).mtime });
+    }
+  }
+  return out;
+}
+const preferencesText = () => {
+  const file = join(USER_DATA, 'desktop-projects.json');
+  return existsSync(file) ? readFileSync(file, 'utf8') : null;
+};
+/** Puts the project folder back as `before` holds it; answers what Node had changed (names as JSON strings, lone units escaped). */
+function putBack(before) {
+  const after = folderState();
+  const effect = { added: [], removed: [], changed: [] };
+  for (const [at, entry] of after) {
+    const old = before.get(at);
+    if (!old) effect.added.push(at);
+    else if (!old.dir && (!entry.bytes.equals(old.bytes) || entry.mtime.getTime() !== old.mtime.getTime())) effect.changed.push({ at, bytes: hex(entry.bytes) });
+  }
+  for (const at of before.keys()) if (!after.has(at)) effect.removed.push(at);
+  for (const at of effect.added.sort().reverse()) rmSync(join(PROJECT, at), { recursive: true, force: true });
+  for (const at of [...effect.removed.sort(), ...effect.changed.map((change) => change.at)]) {
+    const old = before.get(at);
+    if (old.dir) mkdirSync(join(PROJECT, at), { recursive: true });
+    else {
+      writeFileSync(join(PROJECT, at), old.bytes);
+      utimesSync(join(PROJECT, at), old.mtime, old.mtime);
+    }
+  }
+  return effect;
+}
+
 let phone = await openPhone();
 let frameId = 0;
 const steps = [];
 for (const step of STEPS) {
   if (ONLY && step.name !== ONLY && step.name !== 'register-project') continue;
   const id = step.raw === undefined ? (step.id ?? ++frameId) : null;
-  // Input no shipped client sends (lib/inbound-lone-surrogate-cases.mjs `refused`): not recorded; its frame id is still taken, so
-  // the later steps keep their bytes.
-  if (step.refused) continue;
+  // Input no shipped client sends (lib/inbound-lone-surrogate-cases.mjs `refused`): Node runs it as any step; what it changed in the
+  // project folder or the preferences is recorded (`nodeEffect`) and the folder put back, so every later step runs, on both sides,
+  // on the world the core leaves (it refuses the step). A preference Node changed cannot be put back under a running Node: it fails
+  // the recording.
+  const before = step.refused ? { folder: folderState(), preferences: preferencesText() } : null;
   const text = step.raw ?? (step.json !== undefined ? `{"id":${id},"method":${JSON.stringify(step.call)},"params":${step.json}}` : JSON.stringify({ id, method: step.call, params: step.params }));
   const token = frame(text);
   const sealed = await phone.channel.encryptJson(token);
   send({ type: 'frame', clientId: phone.clientId, data: sealed });
   const got = await outcome(phone, id);
-  steps.push({ name: step.name, plaintext: hex(new TextEncoder().encode(JSON.stringify(token))), ...got });
+  const recorded = { name: step.name, plaintext: hex(new TextEncoder().encode(JSON.stringify(token))), ...got };
+  if (before) {
+    if (preferencesText() !== before.preferences) throw new Error(`${step.name}: Node changed the preferences, which this recorder cannot put back`);
+    recorded.refusedByRule = { field: step.field, nodeEffect: putBack(before.folder) };
+  }
+  steps.push(recorded);
   if (got.closed !== undefined) phone = await openPhone();
 }
 
@@ -263,14 +311,21 @@ writeSetManifest(stage, {
         allowedBy: 'not a value change: both sides get the same string',
       },
     ],
-    // Steps Node never got: a lone surrogate where no shipped client sends one (decisions.md "frame-lone-surrogate": refused whole
-    // before any service runs, mixdog-app-protocol free_text.rs).
+    // Steps the core refuses by decision: a lone surrogate in a field of the class `refused` (mixdog-app-protocol
+    // tests/it/free_text_fields.json: an id, a path or a name compared with disk, a selector, a key), which no shipped client
+    // sends. Node ran them and its answer and effect are recorded (golden.json steps[].answer, steps[].refusedByRule.nodeEffect):
+    // the difference is shown, not hidden.
     refusedByRule: {
-      steps: STEPS.filter((step) => step.refused).map((step) => step.name),
+      decision: 'decisions.md "frame-lone-surrogate": substitution only in the free-text fields (mixdog-app-protocol free_text.rs FREE_TEXT); a lone surrogate anywhere else refuses the frame whole before any service runs',
+      steps: STEPS.filter((step) => step.refused).map((step) => ({
+        step: step.name,
+        field: step.field,
+        nodeAnswered: steps.find((recorded) => recorded.name === step.name).answer,
+        nodeEffect: steps.find((recorded) => recorded.name === step.name).refusedByRule.nodeEffect,
+        coreMustAnswer: loneRefusal(step.field),
+      })),
       check:
-        "the phone's outcome equals, whole, the core's invalidParams refusal of a lone surrogate outside free text as the files adapter reports it (lib/inbound-lone-surrogate-cases.mjs LONE_REFUSAL: the TypeError of server.rs lone_refusal's sentence, no code); the connection stays open; no effect: the project folder and preferences compared at the end with Node's, which never ran these steps",
-      refusal: LONE_REFUSAL,
-      why: 'input no shipped client can send only has to be refused with no side effect, with no recording (AGENT-RULES.md)',
+        "the phone's outcome equals, whole, coreMustAnswer: the TypeError of the core's sentence naming the field, and its cause, the core's JSON-RPC error (code, reason, message, data with the field's path); the connection stays open; no effect: Node's effect was put back after each of these steps, so the project folder and preferences compared at the end are the world the core must leave",
     },
     // Steps with no Node counterpart: compared with the core's own answer to a stand-in, whole.
     coreOnly: STEPS.filter((step) => step.coreStandIn).map((step) => ({

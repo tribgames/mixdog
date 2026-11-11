@@ -30,9 +30,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 27015,
+      "bytes": 41323,
       "path": "golden.json",
-      "sha256": "55801b0f8f84f862cf40848df412c05db28d05ba61f9ea2b6fa0028da2510675"
+      "sha256": "436a5f1a946983a13223dd1b7219ee71564819fdeeb9be990236b2e4f7145247"
     }
   ],
   "inputs": {
@@ -64,31 +64,51 @@
     "alias-upper-hex": "7b226964223a313031352c226d6574686f64223a2272656e616d6550726f6a656374222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c225c75443833442078225d7d",
     "alias-upper-hex-listed": "7b226964223a313031362c226d6574686f64223a226c69737450726f6a65637473222c22706172616d73223a5b5d7d",
     "batch-content-lone": "7b226964223a31372c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a226e6f7465732e747874222c22636f6e74656e74223a22795c7564653030222c226578706563746564436f6e74656e74223a226f6c645c6e227d5d5d7d",
+    "batch-expected-content-lone": "7b226964223a313030322c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a227265706c616365642e747874222c22636f6e74656e74223a226e65775c6e222c226578706563746564436f6e74656e74223a22615c7564653030625c6e227d5d5d7d",
+    "batch-expected-content-lone-invalid-file": "7b226964223a313032372c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a22696e76616c69642e747874222c22636f6e74656e74223a226e65775c6e222c226578706563746564436f6e74656e74223a22615c7564653030625c6e227d5d5d7d",
     "batch-real-replacement": "7b226964223a32302c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a226e6f7465732e747874222c22636f6e74656e74223a2262efbfbd5c6e222c226578706563746564436f6e74656e74223a226f6c645c6e227d5d5d7d",
+    "batch-real-replacement-lone-name": "7b226964223a31392c226d6574686f64223a226c73704170706c79576f726b737061636545646974222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c5b7b2272656c50617468223a226e6f7465732e747874222c22636f6e74656e74223a2262efbfbd5c6e222c226578706563746564436f6e74656e74223a226f6c645c6e227d2c7b2272656c50617468223a226e5c75646530302e747874222c22636f6e74656e74223a2263222c226578706563746564436f6e74656e74223a22227d5d5d7d",
+    "expected-content-lone": "7b226964223a313030312c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c227265706c616365642e747874222c226e65775c6e222c22615c7564383364625c6e225d7d",
+    "expected-content-lone-invalid-file": "7b226964223a313032332c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22696e76616c69642e747874222c226e65775c6e222c22615c7564383364625c6e225d7d",
+    "expected-content-lone-invalid-file-lone-content": "7b226964223a313032342c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22696e76616c69642e747874222c226e5c75646530305c6e222c22615c7564383364625c6e225d7d",
+    "expected-content-lone-lone-content": "7b226964223a313032352c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c227265706c616365642e747874222c226e5c75646530305c6e222c22615c7564383364625c6e225d7d",
+    "expected-content-replaced-reading-invalid-file": "7b226964223a313032362c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22696e76616c69642e747874222c226e65775c6e222c2261efbfbd625c6e225d7d",
     "file-content-lone": "7b226964223a31332c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226e6f7465732e747874222c22785c7564383364795c6e5c7564653030222c226f6c645c6e225d7d",
     "file-content-read": "7b226964223a31342c226d6574686f64223a227265616450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226e6f7465732e747874225d7d",
     "file-name-listed": "7b226964223a31362c226d6574686f64223a226c69737450726f6a656374446972222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22225d7d",
+    "file-name-lone": "7b226964223a31352c226d6574686f64223a2263726561746550726f6a656374456e747279222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22222c226e5c75646530302e747874222c66616c73655d7d",
     "file-search-lone": "7b226964223a313030372c226d6574686f64223a2273656172636850726f6a65637446696c6573222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c225c7564383364222c35302c66616c73652c66616c73655d7d",
     "file-search-real-replacement": "7b226964223a313030382c226d6574686f64223a2273656172636850726f6a65637446696c6573222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22efbfbd222c35302c66616c73652c66616c73655d7d",
     "key-lone": "7b226964223a33332c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a2278222c225c7564383364223a747275657d5d7d",
     "listed-at-the-end": "7b226964223a34312c226d6574686f64223a226c69737450726f6a65637473222c22706172616d73223a5b5d7d",
     "method-name-lone": "7b226964223a34302c226d6574686f64223a226c69737450726f6a656374735c7564383364222c22706172616d73223a5b5d7d",
+    "preview-lone-name": "7b226964223a32362c226d6574686f64223a227072657669657750726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22705c75643833642e706e67225d7d",
+    "preview-range-lone-name": "7b226964223a32372c226d6574686f64223a227072657669657750726f6a65637446696c6552616e6765222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22705c75646530302e706e67222c6e756c6c2c302c345d7d",
     "preview-range-real-replacement-name": "7b226964223a32382c226d6574686f64223a227072657669657750726f6a65637446696c6552616e6765222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c2270efbfbd2e706e67222c6e756c6c2c302c345d7d",
+    "read-lone-name": "7b226964223a32312c226d6574686f64223a227265616450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75643833642e747874225d7d",
+    "read-missing-lone-name": "7b226964223a32322c226d6574686f64223a227265616450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226d5c75643833642e747874225d7d",
     "read-real-replacement-name": "7b226964223a32332c226d6574686f64223a227265616450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226cefbfbd2e747874225d7d",
     "refused-empty": "",
     "refused-invalid-byte-outside-strings": "ff7b226964223a392c226d6574686f64223a226c69737450726f6a65637473222c22706172616d73223a5b5d7d",
     "refused-truncated-json": "7b226964223a372c226d6574686f64223a226c69737450726f6a65637473222c22706172616d73223a5b",
     "refused-truncated-json-lone": "7b226964223a382c226d6574686f64223a225c7564383030",
     "register-project": "7b226964223a312c226d6574686f64223a2261646450726f6a656374222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374225d7d",
+    "rename-case-only-lone": "7b226964223a313030392c226d6574686f64223a2272656e616d6550726f6a656374456e747279222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226cefbfbd2e747874222c224c5c75643833642e747874225d7d",
     "rename-case-only-lone-listed": "7b226964223a313031302c226d6574686f64223a226c69737450726f6a656374446972222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c22225d7d",
+    "replace-include-lone": "7b226964223a313030352c226d6574686f64223a227265706c616365576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869222c22696e636c756465223a226c5c75643833642e747874227d2c22796f225d7d",
     "replace-lone-query": "7b226964223a33312c226d6574686f64223a227265706c616365576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a22625c7564383364227d2c2278225d7d",
     "replace-lone-replacement": "7b226964223a31382c226d6574686f64223a227265706c616365576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226f6c64227d2c226e65775c7564383364225d7d",
+    "replace-rel-paths-lone": "7b226964223a313030362c226d6574686f64223a227265706c616365576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869227d2c22796f222c5b226c5c75643833642e747874225d5d7d",
     "search-duplicated-key": "7b226964223a313032312c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a227a7a7a222c227175657279223a226869227d5d7d",
+    "search-exclude-lone": "7b226964223a313030342c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869222c226578636c756465223a226c5c75643833642e747874227d5d7d",
+    "search-include-lone": "7b226964223a313030332c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a226869222c22696e636c756465223a226c5c75643833642e747874227d5d7d",
     "search-lone-query": "7b226964223a32392c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a225c7564383364227d5d7d",
     "search-real-replacement": "7b226964223a33302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a22efbfbd227d5d7d",
     "search-regex-lone-query": "7b226964223a33322c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a22615c7564653030222c227265676578223a747275657d5d7d",
     "search-regex-real-replacement-query": "7b226964223a313030302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a2261efbfbd222c227265676578223a747275657d5d7d",
-    "workspace-folder-name-lone": "7b226964223a313032322c226d6574686f64223a2273617665576f726b7370616365222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a6563745c5c747269702e636f64652d776f726b7370616365222c5b7b2270617468223a22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226e616d65223a2254726970205c7564383364227d5d5d7d"
+    "stat-lone-name": "7b226964223a32342c226d6574686f64223a227374617450726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75646530302e747874225d7d",
+    "workspace-folder-name-lone": "7b226964223a313032322c226d6574686f64223a2273617665576f726b7370616365222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a6563745c5c747269702e636f64652d776f726b7370616365222c5b7b2270617468223a22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226e616d65223a2254726970205c7564383364227d5d5d7d",
+    "write-lone-name": "7b226964223a32352c226d6574686f64223a22777269746550726f6a65637446696c65222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c226c5c75643833642e747874222c227a222c2268695c6e225d7d"
   },
   "nodeVersion": "v22.20.0",
   "normalisations": [
@@ -138,15 +158,15 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-inbound-lone-surrogate.mjs",
-      "sha256": "6b6483168bd594161ccf5be6cdab074ce57c2a7396a49baa8c8ba5fa0e7f29e0"
+      "sha256": "8c4ad89a5c84f104a4be2b50aececee894ea738a6cced47b5edb3c52947c0f0c"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-cases.mjs",
-      "sha256": "2ec5af2b70c8a1f3795082579e47073a097a4c48fcf49886c085bd271c7fac78"
+      "sha256": "c76fa09c1196c9437779a535652882db276fd1d429da4e591a093d0e22aa1baf"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs",
-      "sha256": "f67fc4caac7ed8d638ddf333e3ce1140e04b2610ac660b9a091bc24ce7681a4a"
+      "sha256": "79dd77b6032e839835ee42f7a24b16e0320d23b17dea88c92cc3593a3295a876"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/raw-frame-bytes.mjs",
@@ -170,30 +190,412 @@
     }
   ],
   "refusedByRule": {
-    "check": "the phone's outcome equals, whole, the core's invalidParams refusal of a lone surrogate outside free text as the files adapter reports it (lib/inbound-lone-surrogate-cases.mjs LONE_REFUSAL: the TypeError of server.rs lone_refusal's sentence, no code); the connection stays open; no effect: the project folder and preferences compared at the end with Node's, which never ran these steps",
-    "refusal": {
-      "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape)",
-      "ok": false
-    },
+    "check": "the phone's outcome equals, whole, coreMustAnswer: the TypeError of the core's sentence naming the field, and its cause, the core's JSON-RPC error (code, reason, message, data with the field's path); the connection stays open; no effect: Node's effect was put back after each of these steps, so the project folder and preferences compared at the end are the world the core must leave",
+    "decision": "decisions.md \"frame-lone-surrogate\": substitution only in the free-text fields (mixdog-app-protocol free_text.rs FREE_TEXT); a lone surrogate anywhere else refuses the frame whole before any service runs",
     "steps": [
-      "file-name-lone",
-      "batch-real-replacement-lone-name",
-      "read-lone-name",
-      "read-missing-lone-name",
-      "stat-lone-name",
-      "write-lone-name",
-      "preview-lone-name",
-      "preview-range-lone-name",
-      "expected-content-lone",
-      "batch-expected-content-lone",
-      "search-include-lone",
-      "search-exclude-lone",
-      "replace-include-lone",
-      "replace-rel-paths-lone",
-      "rename-case-only-lone"
-    ],
-    "why": "input no shipped client can send only has to be refused with no side effect, with no recording (AGENT-RULES.md)"
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/create.params/name",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/create.params/name",
+              "path": "projectFs/create.params/name",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/create.params/name",
+        "nodeAnswered": {
+          "ok": true,
+          "value": null
+        },
+        "nodeEffect": {
+          "added": [
+            "n�.txt"
+          ],
+          "changed": [],
+          "removed": []
+        },
+        "step": "file-name-lone"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/writeTextBatch.params/files/1/relPath",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/writeTextBatch.params/files/1/relPath",
+              "path": "projectFs/writeTextBatch.params/files/1/relPath",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/writeTextBatch.params/files/1/relPath",
+        "nodeAnswered": {
+          "error": "ENOENT: no such file or directory, open 'D:\\mixdog-build\\tmp\\inbound-lone-surrogate-world\\project\\n�.txt'",
+          "errorCode": "ENOENT",
+          "ok": false
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "batch-real-replacement-lone-name"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/readText.params/rel",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/readText.params/rel",
+              "path": "projectFs/readText.params/rel",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/readText.params/rel",
+        "nodeAnswered": {
+          "error": "The file changed while it was opened.",
+          "ok": false
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "read-lone-name"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/readText.params/rel",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/readText.params/rel",
+              "path": "projectFs/readText.params/rel",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/readText.params/rel",
+        "nodeAnswered": {
+          "error": "ENOENT: no such file or directory, open 'D:\\mixdog-build\\tmp\\inbound-lone-surrogate-world\\project\\m�.txt'",
+          "errorCode": "ENOENT",
+          "ok": false
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "read-missing-lone-name"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/stat.params/rel",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/stat.params/rel",
+              "path": "projectFs/stat.params/rel",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/stat.params/rel",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "directory": false,
+            "mtimeMs": 1700000000000,
+            "size": 3
+          }
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "stat-lone-name"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/writeText.params/rel",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/writeText.params/rel",
+              "path": "projectFs/writeText.params/rel",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/writeText.params/rel",
+        "nodeAnswered": {
+          "error": "The file changed while it was opened.",
+          "ok": false
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "write-lone-name"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/previewFile.params/rel",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/previewFile.params/rel",
+              "path": "projectFs/previewFile.params/rel",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/previewFile.params/rel",
+        "nodeAnswered": {
+          "error": "The file changed while it was opened.",
+          "ok": false
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "preview-lone-name"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/previewRange.params/rel",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/previewRange.params/rel",
+              "path": "projectFs/previewRange.params/rel",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/previewRange.params/rel",
+        "nodeAnswered": {
+          "error": "The file changed while it was opened.",
+          "ok": false
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "preview-range-lone-name"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/searchText.params/options/include",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/searchText.params/options/include",
+              "path": "projectFs/searchText.params/options/include",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/searchText.params/options/include",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "files": [],
+            "limitHit": false,
+            "matchCount": 0
+          }
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "search-include-lone"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/searchText.params/options/exclude",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/searchText.params/options/exclude",
+              "path": "projectFs/searchText.params/options/exclude",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/searchText.params/options/exclude",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "files": [
+              {
+                "matches": [
+                  {
+                    "column": 1,
+                    "endColumn": 3,
+                    "line": 1,
+                    "matchText": "hi",
+                    "preview": "hi"
+                  }
+                ],
+                "relPath": "l�.txt"
+              }
+            ],
+            "limitHit": false,
+            "matchCount": 1
+          }
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "search-exclude-lone"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/replaceText.params/options/include",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/replaceText.params/options/include",
+              "path": "projectFs/replaceText.params/options/include",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/replaceText.params/options/include",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "filesChanged": 0,
+            "paths": [],
+            "replacements": 0
+          }
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "replace-include-lone"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/replaceText.params/relPaths/0",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/replaceText.params/relPaths/0",
+              "path": "projectFs/replaceText.params/relPaths/0",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/replaceText.params/relPaths/0",
+        "nodeAnswered": {
+          "ok": true,
+          "value": {
+            "filesChanged": 0,
+            "paths": [],
+            "replacements": 0
+          }
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "replace-rel-paths-lone"
+      },
+      {
+        "coreMustAnswer": {
+          "error": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/rename.params/newName",
+          "ok": false,
+          "rpc": {
+            "code": -32602,
+            "data": {
+              "expected": "text without unpaired surrogates (a lone \\ud800-\\udfff escape) in projectFs/rename.params/newName",
+              "path": "projectFs/rename.params/newName",
+              "reason": "invalidParams"
+            },
+            "kind": "rpc",
+            "message": "invalidParams",
+            "reason": "invalidParams"
+          }
+        },
+        "field": "projectFs/rename.params/newName",
+        "nodeAnswered": {
+          "error": "An entry with that name already exists in the target folder.",
+          "ok": false
+        },
+        "nodeEffect": {
+          "added": [],
+          "changed": [],
+          "removed": []
+        },
+        "step": "rename-case-only-lone"
+      }
+    ]
   },
   "set": "inbound-lone-surrogate",
-  "totalBytes": 27015
+  "totalBytes": 41323
 }
