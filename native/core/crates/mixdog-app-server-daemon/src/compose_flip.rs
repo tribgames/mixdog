@@ -2198,6 +2198,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_services::bots::delivery::env::SleepRetry),
         mixdog_services::bots::delivery::env::DeliveryConfig::node(),
     );
+    home_delivery.redact_with(sensitive.clone());
     held_home.bind_delivery(home_delivery.clone()).map_err(|_| ComposeError::AlreadyBound("held home delivery"))?;
     b.thread_gates.bind(directory.thread_ops()).map_err(|_| ComposeError::AlreadyBound("thread op gates"))?; // `thread_ops()` is called exactly once, here
     agent_evidence
