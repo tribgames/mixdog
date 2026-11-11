@@ -16,7 +16,8 @@ const rec = await startRecording({
   net: false,
   exclusions: ['catalog status disk.availableBytes: the host\'s real free disk space, written <host free disk bytes>'],
   entry: 'src/runtime/local-provider/catalog.mjs LOCAL_PROVIDER_MANIFEST / localProviderCatalogStatus({ dataDir, platform, arch, hardware }), asset-installer.mjs downloadVerifiedLocalAsset(asset, destination, { fetchFn, onProgress, checkDiskSpace, signal }), agent/orchestrator/session/manager/context-meta.mjs resolveSessionContextMeta. Not run: a real download.',
-  replay: 'mixdog-services local_provider catalog.rs:290, hardware.rs, assets.rs:73-112,828,877: compare the manifest/status rows whole, and for each download row the requests (`ranges`), `progress` stages, the thrown error text and the files left (`files`).',
+  compare: 'mixdog-services local_provider catalog.rs:290, hardware.rs, assets.rs:73-112,828,877: compare the manifest/status rows whole, and for each download row the requests (`ranges`), `progress` stages, the thrown error text and the files left (`files`).',
+  replay: "Rust entry (pub, on o1): mixdog_services::local_provider local_context_settings (context.rs:48), save_local_context (context.rs:75), Catalog::status (catalog.rs:224), RequestQueue::run (request_queue.rs:124), download_verified_asset (assets.rs:324); the local provider adapter is mixdog_ai::providers::local::adapter() (local/mod.rs:109).",
 });
 const SRC = 'src/runtime/local-provider/managed-runtime.test.mjs';
 const { LOCAL_PROVIDER_MANIFEST, localProviderCatalogStatus: realStatus } = await rec.P('local-provider/catalog.mjs');
@@ -33,7 +34,7 @@ const caseDir = (name) => {
   mkdirSync(dir, { recursive: true });
   return dir;
 };
-const filesOf = (dir) => readdirSync(dir).sort().map((name) => ({ name, bytesHex: readFileSync(join(dir, name)).toString('hex') }));
+const filesOf = (dir) => Object.fromEntries(readdirSync(dir).map((name) => [name, { $bytesHex: readFileSync(join(dir, name)).toString('hex') }]));
 const attempt = async (promise) => {
   try {
     return { result: await promise };
