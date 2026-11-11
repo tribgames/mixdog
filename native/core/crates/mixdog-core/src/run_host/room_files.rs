@@ -158,14 +158,21 @@ fn js_entries(object: &Map<String, Value>) -> Vec<(&String, &Value)> {
     indexed
 }
 
-/// The attachment store as the prompt intake writes and measures it (`saveBuffer`, `attachmentBlobSize`).
+/// The attachment store as the prompt intake writes and measures it (`saveBuffer`, `attachmentBlobSize`). A save is
+/// staged: the intake's checks all run over the staged files, and only an intake that passes every one stores them
+/// ([`Store::commit`]), so a refused message leaves nothing in the store.
 struct Store<'a, L> {
     blobs: &'a BlobStore,
     lane: &'a InLane<L>,
+    staged: std::cell::RefCell<Vec<(String, Vec<u8>)>>,
 }
 
-impl<L: WriteLane + IoLane> Store<'_, L> {
-    /// `saveBuffer(buffer)`: `{ attachmentRef, sizeBytes }`, the reused blob's time refreshed.
+impl<'a, L: WriteLane + IoLane> Store<'a, L> {
+    fn new(blobs: &'a BlobStore, lane: &'a InLane<L>) -> Self {
+        Self { blobs, lane, staged: std::cell::RefCell::new(Vec::new()) }
+    }
+
+    /// `saveBuffer(buffer)`'s checks and reference `{ attachmentRef, sizeBytes }`; the bytes are stored by `commit`.
     fn save(&self, bytes: &[u8]) -> Result<Map<String, Value>, String> {
         if bytes.is_empty() {
             return Err("prompt attachment is empty".into());
@@ -173,14 +180,21 @@ impl<L: WriteLane + IoLane> Store<'_, L> {
         if bytes.len() > MAX_BLOB_BYTES {
             return Err("prompt attachment exceeds the 64 MiB input limit".into());
         }
-        let pin = self.blobs.put_fresh(self.lane, bytes).map_err(|error| error.to_string())?;
+        let reference = mixdog_store::blobs::digest_of(bytes).as_str().trim_start_matches("sha256:").to_owned();
+        let mut staged = self.staged.borrow_mut();
+        if !staged.iter().any(|(staged, _)| *staged == reference) {
+            staged.push((reference.clone(), bytes.to_vec()));
+        }
         let mut stored = Map::new();
-        stored.insert("attachmentRef".into(), json!(pin.digest().as_str().trim_start_matches("sha256:")));
+        stored.insert("attachmentRef".into(), json!(reference));
         stored.insert("sizeBytes".into(), json!(bytes.len()));
         Ok(stored)
     }
 
     fn stored_len(&self, reference: &str) -> Result<Option<u64>, String> {
+        if let Some((_, bytes)) = self.staged.borrow().iter().find(|(staged, _)| staged == reference) {
+            return Ok(Some(bytes.len() as u64));
+        }
         let digest = Digest::try_from(format!("sha256:{reference}")).map_err(|error| error.to_string())?;
         self.blobs.len(self.lane, &digest).map_err(|error| error.to_string())
     }
@@ -521,39 +535,65 @@ impl SessionFiles {
         let upload = rest.shift_remove("upload").unwrap_or(Value::Null);
         // `String(row.text ?? '')`.
         let text = rest.get("text").filter(|text| !text.is_null()).map(mixdog_js::value_to_string).unwrap_or_default();
+        // Node stores each file as it meets it (`saveBuffer` inside `materializePromptSubmission`, then the text limit,
+        // then the PDF check, `store.mjs:619-623`, `agent-room-delivery.mjs:32`); here every check runs over the staged
+        // files first and only a message that passes them all is stored, so a refusal leaves nothing behind.
         let data_dir = self.data_dir.clone();
-        let mut intake = self
+        let (mut intake, staged) = self
             .lane
-            .submit(&CancellationToken::new(), move |lane| take_upload(&Store { blobs: &BlobStore::new(&data_dir), lane }, &text, &upload))
+            .submit(&CancellationToken::new(), move |lane| {
+                let blobs = BlobStore::new(&data_dir);
+                let store = Store::new(&blobs, lane);
+                let intake = take_upload(&store, &text, &upload)?;
+                Ok::<_, String>((intake, store.staged.into_inner()))
+            })
             .map_err(|error| format!("{error:?}"))?
             .await
             .map_err(|error| format!("{error:?}"))??;
-        // `preparePromptSubmissionForProvider(.., { nativePdf: false })`: each stored PDF checked, its page counts kept on the part.
+        // `preparePromptSubmissionForProvider(.., { nativePdf: false })`: each PDF checked, its page counts kept on the part.
         let thread = ThreadId::from(format!("sess_room_{room_id}"));
         for part in intake.prompt.iter_mut() {
             let mime = first_text(&[part.get("mimeType"), part.get("mediaType")], "", usize::MAX).to_lowercase();
             let Some(reference) = reference_of(part).map(str::to_owned).filter(|_| part.get("type").and_then(Value::as_str) == Some("file") && mime == "application/pdf") else {
                 continue;
             };
-            let data_dir = self.data_dir.clone();
-            let claimed = part.get("sizeBytes").cloned();
-            let (bytes, size) = self
-                .lane
-                .submit(&CancellationToken::new(), move |lane| {
-                    let store = Store { blobs: &BlobStore::new(&data_dir), lane };
-                    let size = store.size(&reference, claimed.as_ref())?.as_f64().unwrap_or(0.0) as u64;
-                    let digest = Digest::try_from(format!("sha256:{reference}")).map_err(|error| error.to_string())?;
-                    let bytes = if size > MAX_PDF_BYTES { Vec::new() } else { store.blobs.read(lane, &digest).map_err(|error| error.to_string())? };
-                    Ok::<_, String>((bytes, size))
-                })
-                .map_err(|error| format!("{error:?}"))?
-                .await
-                .map_err(|error| format!("{error:?}"))??;
+            let (bytes, size) = match staged.iter().find(|(staged, _)| *staged == reference) {
+                Some((_, bytes)) => {
+                    let size = bytes.len() as u64;
+                    (if size > MAX_PDF_BYTES { Vec::new() } else { bytes.clone() }, size)
+                }
+                None => {
+                    let data_dir = self.data_dir.clone();
+                    let claimed = part.get("sizeBytes").cloned();
+                    self.lane
+                        .submit(&CancellationToken::new(), move |lane| {
+                            let blobs = BlobStore::new(&data_dir);
+                            let store = Store::new(&blobs, lane);
+                            let size = store.size(&reference, claimed.as_ref())?.as_f64().unwrap_or(0.0) as u64;
+                            let digest = Digest::try_from(format!("sha256:{reference}")).map_err(|error| error.to_string())?;
+                            let bytes = if size > MAX_PDF_BYTES { Vec::new() } else { blobs.read(lane, &digest).map_err(|error| error.to_string())? };
+                            Ok::<_, String>((bytes, size))
+                        })
+                        .map_err(|error| format!("{error:?}"))?
+                        .await
+                        .map_err(|error| format!("{error:?}"))??
+                }
+            };
             let facts = pdf_intake_facts(self.docs.as_ref(), &thread, &base64::engine::general_purpose::STANDARD.encode(&bytes), size, false).await?;
             part["pageCount"] = json!(facts.page_count.unwrap_or(0));
             part["textPages"] = json!(facts.text_pages.unwrap_or(0));
             part["textChars"] = json!(facts.text_chars.unwrap_or(0));
         }
+        // Every check passed: the files are stored, each reused blob's time refreshed (`saveBuffer`).
+        let data_dir = self.data_dir.clone();
+        self.lane
+            .submit(&CancellationToken::new(), move |lane| {
+                let blobs = BlobStore::new(&data_dir);
+                staged.iter().try_for_each(|(_, bytes)| blobs.put_fresh(lane, bytes).map(drop).map_err(|error| error.to_string()))
+            })
+            .map_err(|error| format!("{error:?}"))?
+            .await
+            .map_err(|error| format!("{error:?}"))??;
         let parts: Vec<Value> = intake
             .prompt
             .into_iter()
@@ -605,7 +645,7 @@ pub(crate) mod tests {
     const REF_TEXT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const REF_FILE: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
-    const GOLDEN: &str = include_str!("room_files/golden.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/room_files/golden.json");
     const PNG: &str = "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da636460f85f0f0002870180eb47ba920000000049454e44ae426082";
 
     fn bytes(hex: &str) -> Vec<u8> {
@@ -636,7 +676,7 @@ pub(crate) mod tests {
     /// folders and only what exists (golden recorded from `createAgentRoomDelivery`).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_members_turn_files_become_the_rows_parts_and_attachments_as_node_stores_them() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let (dir, root, other) = tree().await;
         let swap = |text: &str| text.replace("<root>", &root.to_string_lossy().replace('\\', "/")).replace("<other>", &other.to_string_lossy().replace('\\', "/"));
         let folders = Folders { cwd: root.to_string_lossy().into_owned(), candidates: vec![root.to_string_lossy().into_owned()] };
@@ -690,6 +730,84 @@ pub(crate) mod tests {
         let lane = mixdog_rt::testing::tokens().durability_io;
         let files = SessionFiles::new(directory, lane, std::env::temp_dir(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {}));
         (rig, files)
+    }
+
+    /// The PDF parser refuses every PDF with pdf.js's own message (`inspectPdfBuffer` through `unpdf`).
+    struct BadPdf;
+    #[async_trait]
+    impl DocumentText for BadPdf {
+        async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, mixdog_core_api::domain::ext::ExtError> {
+            unreachable!("no office text is read")
+        }
+        async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, mixdog_core_api::domain::ext::ExtError> {
+            unreachable!("no PDF text is read")
+        }
+        async fn pdf_counts(&self, _: &ThreadId, _: &str) -> Result<mixdog_core_api::domain::ext::PdfIntake, mixdog_core_api::domain::ext::ExtError> {
+            Ok(mixdog_core_api::domain::ext::PdfIntake::Rejected("Invalid PDF structure.".into()))
+        }
+    }
+
+    fn b64(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    /// A user row whose upload carries an image the store has not seen, then `more`.
+    fn upload_row(text: String, more: Vec<Value>, pasted_texts: Option<Value>) -> Value {
+        let mut parts = vec![json!({ "type": "image", "data": b64(&bytes(PNG)), "mimeType": "image/png" })];
+        parts.extend(more);
+        let mut upload = json!({ "parts": parts });
+        if let Some(texts) = pasted_texts {
+            upload["pastedTexts"] = texts;
+        }
+        json!({ "id": "u1", "kind": "user", "text": text, "upload": upload })
+    }
+
+    /// Each refusal of a user's upload is Node's text (`store.mjs:137,140,623`, the PDF parser's) and leaves the attachment
+    /// store as it was: nothing of the message is stored, the image staged before the refused file included.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refused_upload_stores_nothing_and_says_why_as_node_does() {
+        let over_text = "x".repeat(MAX_PROMPT_TEXT_BYTES as usize + 1);
+        let refusals = [
+            ("text over 1 MiB", upload_row(over_text, vec![], None), "prompt text exceeds the 1 MiB input limit"),
+            (
+                "a file over 64 MiB",
+                upload_row("t".into(), vec![json!({ "type": "file", "data": b64(&vec![7u8; MAX_BLOB_BYTES + 1]), "filename": "big.bin" })], None),
+                "prompt attachment exceeds the 64 MiB input limit",
+            ),
+            (
+                "an empty file",
+                upload_row("[File #1]".into(), vec![], Some(json!({ "1": { "text": "", "source": "file", "filename": "empty.txt" } }))),
+                "prompt attachment is empty",
+            ),
+            (
+                "a PDF the parser refuses",
+                upload_row("t".into(), vec![json!({ "type": "file", "data": b64(b"%PDF-1.7 not a document"), "filename": "bad.pdf" })], None),
+                "Invalid PDF structure.",
+            ),
+        ];
+        for (what, row, message) in refusals {
+            let dir = tempfile::tempdir().unwrap();
+            let rig = Rig::new();
+            let lane = mixdog_rt::testing::tokens().durability_io;
+            let files = SessionFiles::new(Arc::new(SessionDirectory::new(rig.deps())), lane, dir.path().to_path_buf(), Vec::new(), Arc::new(BadPdf), Arc::new(|_: &str| {}));
+            assert_eq!(files.take_in("room01", row).await, Err(message.to_owned()), "{what}");
+            assert_eq!(mixdog_testkit::tree(dir.path()), Vec::<(String, Vec<u8>)>::new(), "{what}: the store holds nothing of the refused message");
+        }
+    }
+
+    /// A 65th file is no refusal: Node lists the first 64 attachments of a message (`store.mjs:638,664`) and keeps every
+    /// file it stored on the row's parts.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_message_lists_its_first_64_attachments_and_keeps_every_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        let files = SessionFiles::new(Arc::new(SessionDirectory::new(rig.deps())), lane, dir.path().to_path_buf(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {}));
+        let more: Vec<Value> = (0..64u32).map(|n| json!({ "type": "file", "data": b64(&n.to_be_bytes()), "filename": format!("f{n}.bin") })).collect();
+        let row = files.take_in("room01", upload_row("t".into(), more, None)).await.unwrap();
+        assert_eq!(row["parts"].as_array().unwrap().len(), 65);
+        assert_eq!(row["attachments"].as_array().unwrap().len(), MAX_MESSAGE_ATTACHMENTS);
+        assert_eq!(mixdog_testkit::tree(dir.path()).len(), 65, "every file of the accepted message is stored");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
