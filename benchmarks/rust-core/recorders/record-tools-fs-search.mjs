@@ -290,6 +290,21 @@ const SCENARIOS = [
       { tool: 'glob', input: { pattern: '<ROOT>\\j*\\x.ts' } },
     ],
   },
+  // gaps-tools item 11: past GLOB_ACCUM_CAP (50 000) matches an unbounded glob keeps the first 50 000 and says the list is
+  // incomplete (search-glob-tool.mjs); a bounded one still counts every match. `bulk` writes <dir>/<00000..count-1><ext>, empty.
+  {
+    name: 'glob-past-cap',
+    files: { 'zz/last-one.txt': '' },
+    bulk: { dir: 'f', count: 50000, ext: '.txt' },
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
+    calls: [
+      { tool: 'glob', input: { pattern: '**/*.txt', limit: 0 } },
+      { tool: 'glob', input: { pattern: '**/*.txt' } },
+      { tool: 'glob', input: { pattern: 'f/*.txt', limit: 0 } },
+      { tool: 'glob', input: { pattern: '**/*.txt', limit: 0, offset: 49990 } },
+      { tool: 'glob', input: { pattern: '**/*.txt', limit: 20, offset: 49990 } },
+    ],
+  },
   // gaps-tools item 12: a glob-shaped `list` path is answered as a name search (list-tool.mjs -> executeFindFilesTool).
   {
     name: 'list-glob-path',
@@ -353,6 +368,15 @@ if (process.argv[2] === '--child') {
     const at = new Date(scenario.mtimes?.[rel] ?? FIXED);
     utimesSync(join(ws, rel), at, at);
   }
+  if (scenario.bulk) {
+    const { dir, count, ext } = scenario.bulk;
+    mkdirSync(join(ws, dir), { recursive: true });
+    for (let i = 0; i < count; i++) {
+      const file = join(ws, dir, `${String(i).padStart(5, '0')}${ext}`);
+      writeFileSync(file, '');
+      utimesSync(file, new Date(FIXED), new Date(FIXED));
+    }
+  }
   // Directories are dated last: writing their files moved their mtimes.
   for (const [rel, iso] of Object.entries(scenario.mtimes ?? {})) {
     if (!(rel in (scenario.files ?? {}))) utimesSync(join(ws, rel), new Date(iso), new Date(iso));
@@ -393,6 +417,7 @@ if (process.argv[2] === '--child') {
 
 const { FIXTURES_ROOT, REPO_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
+const { recorderProvenance } = await import('./lib/provenance.mjs');
 const args = parseArgs();
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, NODE_COMMIT);
@@ -455,9 +480,7 @@ try {
       command: `node ${RECORDER} --tree <exact export of ${NODE_COMMIT}> --graph-bin <mixdog-graph built from ${NODE_COMMIT}:native/mixdog-graph> --scratch <scratch parent>`,
       identity,
       extra: {
-        node: process.version,
-        recorderSha256: sha256(readFileSync(SELF)),
-        inputs: ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/job-run.mjs'].map((path) => ({ path, sha256: sha256(readFileSync(join(REPO_ROOT, path))) })),
+        ...recorderProvenance(import.meta.url),
         graphBinary: { builtFrom: `${NODE_COMMIT}:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)`, sha256: sha256(readFileSync(graphBin)) },
         scenarios: recorded.map((s) => s.name),
         normalised: [

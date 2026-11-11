@@ -222,6 +222,15 @@ async fn replay_fs_search(scenario: &str) {
     for rel in files.keys() {
         set_mtime(&ws.join(rel), at(mtimes.get(rel).and_then(|v| v.as_str()).unwrap_or("2026-01-02T03:04:05Z")));
     }
+    if let Some(bulk) = fixture.get("bulk") {
+        let dir = ws.join(bulk["dir"].as_str().unwrap());
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..bulk["count"].as_u64().unwrap() {
+            let file = dir.join(format!("{i:05}{}", bulk["ext"].as_str().unwrap()));
+            std::fs::write(&file, "").unwrap();
+            set_mtime(&file, at("2026-01-02T03:04:05Z"));
+        }
+    }
     for (rel, iso) in mtimes.iter().filter(|(rel, _)| !files.contains_key(*rel)) {
         set_mtime(&ws.join(rel), at(iso.as_str().unwrap()));
     }
@@ -304,6 +313,13 @@ async fn list_answers_a_glob_shaped_path_as_node_does() {
 #[tokio::test]
 async fn glob_answers_absolute_patterns_as_node_does() {
     replay_fs_search("glob-absolute").await;
+}
+
+/// gaps-tools item 11 through the public call: past 50 000 matches an unbounded glob keeps 50 000 and says the list is
+/// incomplete; a bounded one still counts every match.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn glob_past_fifty_thousand_matches_answers_as_node_does() {
+    replay_fs_search("glob-past-cap").await;
 }
 
 /// A UNC or device-namespace pattern or path is refused before any walk; a backslashed drive pattern
