@@ -20,6 +20,8 @@ pub mod quota_history;
 #[cfg(test)]
 mod fixture_fs;
 #[cfg(test)]
+mod mixy_presence_replay_tests;
+#[cfg(test)]
 mod process_tests;
 #[cfg(test)]
 mod process_services_tests;
