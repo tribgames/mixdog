@@ -468,7 +468,7 @@ async fn h4_methods_are_written_or_refused_as_nodes_fetch_does() {
     use sha2::{Digest, Sha256};
     const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-methods.json"));
     const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-method-capture.mjs"));
-    let node: serde_json::Value = serde_json::from_str(RECORDING).unwrap();
+    let node: serde_json::Value = serde_json::from_str(&RECORDING).unwrap();
     assert_eq!(node["manifest"]["exact"], true);
     assert_eq!((&node["manifest"]["electron"], &node["manifest"]["node"], &node["manifest"]["undici"]), (&"43.8.4".into(), &"v24.22.1".into(), &"7.30.1".into()), "recorded under the desktop's runtime");
     let sha: String = Sha256::digest(CAPTURE).iter().map(|b| format!("{b:02x}")).collect();
@@ -511,9 +511,9 @@ async fn h4_methods_are_written_or_refused_as_nodes_fetch_does() {
 #[tokio::test]
 async fn every_recorded_compressed_body_is_read_as_undici_reads_it() {
     use sha2::{Digest, Sha256};
-    const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-decode.json"));
+    const RECORDING: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/node-decode.json");
     const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-decode-capture.mjs"));
-    let node: serde_json::Value = serde_json::from_str(RECORDING).unwrap();
+    let node: serde_json::Value = serde_json::from_str(&RECORDING).unwrap();
     assert_eq!(node["manifest"]["exact"], true);
     assert!(node["manifest"]["only"].is_null(), "the committed recording is a whole one");
     assert_eq!((&node["manifest"]["electron"], &node["manifest"]["node"], &node["manifest"]["undici"]), (&"43.8.4".into(), &"v24.22.1".into(), &"7.30.1".into()), "recorded under the desktop's runtime");

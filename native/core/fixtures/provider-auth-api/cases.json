@@ -1,0 +1,1476 @@
+{
+  "set": "provider-auth-api",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "save-api-key-reload-cooldowns-catalogs-then-caches",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:110",
+      "input": {
+        "op": "saveProviderApiKey",
+        "args": [
+          "oauth",
+          "sk-1"
+        ]
+      },
+      "result": {
+        "result": "saved-key",
+        "calls": [
+          [
+            "saveKey",
+            "oauth",
+            "sk-1"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vertex-credentials-forward-location-and-project",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:117",
+      "input": {
+        "op": "saveProviderApiKey",
+        "args": [
+          "vertex-ai",
+          "{\"type\":\"service_account\"}",
+          {
+            "location": "us-east5",
+            "projectId": "override-project"
+          }
+        ]
+      },
+      "result": {
+        "result": "saved-key",
+        "calls": [
+          [
+            "saveKey",
+            "vertex-ai",
+            "{\"type\":\"service_account\"}",
+            {
+              "location": "us-east5",
+              "projectId": "override-project"
+            }
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "authenticate-saves-secret-or-runs-oauth-login",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:124",
+      "input": {
+        "ops": [
+          [
+            "authenticateProvider",
+            "oauth",
+            "  "
+          ],
+          [
+            "authenticateProvider",
+            "oauth",
+            "sk-2"
+          ],
+          [
+            "forgetProviderAuth",
+            "oauth",
+            "a1"
+          ]
+        ]
+      },
+      "result": {
+        "login": "logged-in",
+        "afterLogin": [
+          [
+            "keychain"
+          ],
+          [
+            "loginOAuth",
+            "oauth"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ],
+        "saved": "saved-key",
+        "forgot": "forgot",
+        "calls": [
+          [
+            "keychain"
+          ],
+          [
+            "loginOAuth",
+            "oauth"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ],
+          [
+            "keychain"
+          ],
+          [
+            "saveKey",
+            "oauth",
+            "sk-2"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ],
+          [
+            "forget",
+            "oauth",
+            "a1"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "custom-provider-save-remove-refresh-like-credentials",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:131",
+      "input": {},
+      "result": {
+        "save": {
+          "id": "custom-1"
+        },
+        "afterSave": [
+          [
+            "keychain"
+          ],
+          [
+            "saveCustom",
+            {
+              "name": "x"
+            }
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ],
+        "removed": [
+          "custom-1"
+        ],
+        "afterRemove": [
+          [
+            "keychain"
+          ],
+          [
+            "removeCustom",
+            "custom-1"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ],
+        "updateModel": {
+          "id": "custom-1"
+        },
+        "afterUpdateModel": [
+          [
+            "updateCustomModel",
+            "custom-1",
+            "m",
+            {
+              "hidden": null
+            }
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ],
+        "afterBuiltinPrefs": [
+          [
+            "modelPreferences",
+            "openai",
+            [
+              {
+                "model": "m",
+                "favorite": true
+              }
+            ]
+          ],
+          [
+            "reload"
+          ]
+        ],
+        "afterCustomPrefs": [
+          [
+            "modelPreferences",
+            "custom-1",
+            [
+              {
+                "model": "m",
+                "hidden": true
+              }
+            ]
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ]
+        ],
+        "test": {
+          "ok": true
+        },
+        "env": {
+          "found": true
+        },
+        "discover": {
+          "models": []
+        },
+        "reloadedByReadOnlyOps": false,
+        "calls": [
+          [
+            "keychain"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ],
+          [
+            "testCustom",
+            {
+              "a": 1
+            }
+          ],
+          [
+            "keychain"
+          ],
+          [
+            "discoverCustom",
+            {
+              "b": 2
+            }
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              },
+              "onCustomProviderRemoved": {
+                "callback": "onCustomProviderRemoved"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "usage-only-credentials-skip-admission-cooldowns",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:164",
+      "input": {
+        "op": "saveOpenAIUsageSessionKey",
+        "args": [
+          "usage-1"
+        ]
+      },
+      "result": {
+        "result": "saved-usage",
+        "calls": [
+          [
+            "saveUsageKey",
+            "usage-1"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "begin-oauth-login-wraps-callback-and-code-completion",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:180",
+      "input": {
+        "op": "beginOAuthProviderLogin",
+        "args": [
+          "oauth",
+          {
+            "openBrowser": false
+          }
+        ]
+      },
+      "result": {
+        "url": "https://login",
+        "afterBegin": [
+          [
+            "keychain"
+          ],
+          [
+            "beginOAuth",
+            "oauth",
+            {
+              "openBrowser": false
+            }
+          ],
+          [
+            "reload"
+          ]
+        ],
+        "callback": true,
+        "afterCallback": [
+          [
+            "keychain"
+          ],
+          [
+            "reload"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ],
+        "code": true,
+        "afterCode": [
+          [
+            "completeCode",
+            "1234"
+          ],
+          [
+            "keychain"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ],
+        "calls": [
+          [
+            "completeCode",
+            "1234"
+          ],
+          [
+            "keychain"
+          ],
+          [
+            "apply"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "refreshCatalogs",
+            {
+              "force": true
+            }
+          ],
+          [
+            "warm"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "account-roster-paints-immediately-one-usage-sweep",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:197",
+      "input": {
+        "providers": [
+          "oauth",
+          "plain"
+        ]
+      },
+      "result": {
+        "accountCount": 5,
+        "immediately": [
+          [
+            "keychain"
+          ]
+        ],
+        "usageCalls": [
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a1"
+            },
+            {
+              "account": "a1"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a2"
+            },
+            {
+              "account": "a2"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a3"
+            },
+            {
+              "account": "a3"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a4"
+            },
+            {
+              "account": "a4"
+            },
+            {
+              "force": false
+            }
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "accountId": "a5"
+            },
+            {
+              "account": "a5"
+            },
+            {
+              "force": false
+            }
+          ]
+        ],
+        "plainCalls": [],
+        "calls": []
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 1
+        }
+      ]
+    },
+    {
+      "id": "switching-selected-account-releases-cooldowns-prefetches-usage",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:215",
+      "input": {
+        "ops": [
+          {
+            "selectedId": "a2"
+          },
+          {
+            "remove": "a3"
+          }
+        ]
+      },
+      "result": {
+        "switched": {
+          "selectedId": "a2"
+        },
+        "afterSwitch": [
+          [
+            "keychain"
+          ],
+          [
+            "updateAccounts",
+            "oauth",
+            {
+              "selectedId": "a2"
+            }
+          ],
+          [
+            "reload"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ],
+          [
+            "resetCooldowns"
+          ],
+          [
+            "usage",
+            {
+              "provider": "oauth",
+              "model": "",
+              "accountId": "a2"
+            },
+            {
+              "account": "a2"
+            },
+            {
+              "force": true
+            }
+          ]
+        ],
+        "afterRemoveTouchedCooldownsOrUsage": false,
+        "calls": [
+          [
+            "keychain"
+          ],
+          [
+            "updateAccounts",
+            "oauth",
+            {
+              "remove": "a3"
+            }
+          ],
+          [
+            "reload"
+          ],
+          [
+            "invalidate"
+          ],
+          [
+            "warm"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "provider-setup-quick-snapshot-then-forced",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:219",
+      "input": {},
+      "result": {
+        "quick": {
+          "providers": "quick",
+          "pendingSecrets": true
+        },
+        "firstCall": [
+          "setup",
+          {
+            "quick": true
+          }
+        ],
+        "lastCallAfterPrewarm": [
+          "setup",
+          {}
+        ],
+        "forced": {
+          "providers": "forced"
+        },
+        "afterForce": [
+          [
+            "keychain"
+          ],
+          [
+            "reload"
+          ],
+          [
+            "setup",
+            {
+              "force": true
+            }
+          ]
+        ],
+        "calls": [
+          [
+            "keychain"
+          ],
+          [
+            "reload"
+          ],
+          [
+            "setup",
+            {
+              "force": true
+            }
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              },
+              "isKeychainPrewarmReady": {
+                "callback": "isKeychainPrewarmReady"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog-preset-dashboard-reset-credit-surfaces",
+      "source": "src/session-runtime/provider-auth-api.test.mjs:247",
+      "input": {},
+      "result": {
+        "list": [
+          "status",
+          {
+            "display": true
+          }
+        ],
+        "presets": [
+          "presets",
+          {
+            "display": true
+          }
+        ],
+        "dashboard": [
+          "dashboard",
+          {
+            "a": 1
+          }
+        ],
+        "models": [
+          "models",
+          {
+            "force": true,
+            "quick": false
+          }
+        ],
+        "reset": [
+          "reset",
+          {
+            "b": 2
+          }
+        ],
+        "missingReset": {
+          "error": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "Codex reset is unavailable",
+            "props": {}
+          }
+        },
+        "calls": [
+          [
+            "keychain"
+          ]
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "callback": "consumeCodexRateLimitResetCredit"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/session-runtime/provider-auth-api.mjs.createProviderAuthApi",
+          "args": [
+            {
+              "cfgMod": {
+                "listPresets": {
+                  "callback": "listPresets"
+                }
+              },
+              "getConfig": {
+                "callback": "getConfig"
+              },
+              "saveConfigAndAdopt": {
+                "callback": "saveConfigAndAdopt"
+              },
+              "displayConfig": {
+                "callback": "displayConfig"
+              },
+              "reloadFullConfig": {
+                "callback": "reloadFullConfig"
+              },
+              "applyConfigChange": {
+                "callback": "applyConfigChange"
+              },
+              "awaitKeychainPrewarm": {
+                "callback": "awaitKeychainPrewarm"
+              },
+              "invalidateProviderCaches": {
+                "callback": "invalidateProviderCaches"
+              },
+              "warmProviderModelCache": {
+                "callback": "warmProviderModelCache"
+              },
+              "refreshProviderCatalogs": {
+                "callback": "refreshProviderCatalogs"
+              },
+              "cachedProviderSetup": {
+                "callback": "cachedProviderSetup"
+              },
+              "getUsageDashboard": {
+                "callback": "getUsageDashboard"
+              },
+              "consumeCodexRateLimitResetCredit": {
+                "$exact": "undefined"
+              },
+              "collectProviderModels": {
+                "callback": "collectProviderModels"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

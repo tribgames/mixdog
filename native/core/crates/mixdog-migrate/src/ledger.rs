@@ -154,8 +154,11 @@ fn tables_summary(conn: &Connection, path: &Path) -> Result<String> {
 
 fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path).map_err(|e| Blocked::sqlite("open", path, e))?;
-    conn.execute_batch("PRAGMA busy_timeout = 0; PRAGMA synchronous = FULL;")
-        .map_err(|e| Blocked::sqlite("pragma", path, e))?;
+    conn.execute_batch(&format!(
+        "PRAGMA busy_timeout = 0; PRAGMA synchronous = {};",
+        mixdog_store::fsio::sqlite_synchronous()
+    ))
+    .map_err(|e| Blocked::sqlite("pragma", path, e))?;
     Ok(conn)
 }
 

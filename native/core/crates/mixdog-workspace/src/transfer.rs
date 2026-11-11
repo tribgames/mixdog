@@ -2099,7 +2099,7 @@ mod tests {
 
     /// What the recording of Node's service holds at the `n`th step with `op` of the scenario `name`.
     fn recorded(name: &str, op: &str, n: usize) -> serde_json::Value {
-        let recording: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/file-downloads/file-downloads.json")).unwrap();
+        let recording: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/file-downloads/file-downloads.json")).unwrap();
         let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"));
         scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == op).nth(n).unwrap_or_else(|| panic!("{name} {op} {n}")).clone()
     }

@@ -1,0 +1,116 @@
+{
+  "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
+  "command": "node benchmarks/rust-core/recorders/record-model-catalog-projection.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compare": "mixdog-ai catalog::lookup projection (projection.rs:98, :158): feed `input.source` (the published payload) and compare the projected `result` whole, key presence included; the sanitizer verdict (`survivors`) is the same with the full and the projected catalog.",
+  "describedValues": {
+    "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
+    "{\"$response\": {status, statusText, headers, bodyChunks}}": "a fetch Response handed to the product: status, headers (in order) and the body chunks as delivered (bytes)",
+    "{\"$stream\": [chunk...]}": "an async stream the recorder handed the product, as the chunks it yields in order",
+    "{\"callback\": name}": "a function the recorder handed the product; its scripted behaviour is the case body"
+  },
+  "entry": "model-catalog-projection.mjs projectModelsDevCatalog(catalog) / projectLitellmCatalog(catalog) and model-list-sanitize.mjs sanitizeModelList(models, { provider, _testCatalog }). Not run: a catalog fetch.",
+  "exclusions": [
+    "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
+    "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
+    "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 46597,
+      "path": "cases.json",
+      "sha256": "4bb8a971eb2853e76b81e27e3cf0e1e597bcf669b371dfff4bb78d9330a32964"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/ws-world.mjs",
+      "sha256": "a50bfa85b1d073c039d369c703425f3f98f766cb498586e2ca385540aa2c77bf"
+    }
+  ],
+  "levels": [
+    {
+      "id": "keeps-every-field-a-lookup-reads",
+      "level": "pure",
+      "rust": "RUST WORK: project_models_dev (catalog/lookup/projection.rs:158) and project_litellm (:98) exist and match, but `mod lookup` is private (catalog/mod.rs:12) and only seed_display_name / seed_roster are re-exported (mod.rs:33-34): add `pub use lookup::{project_models_dev, project_litellm};` to catalog/mod.rs. Looked for a public path: catalog::ModelsDev / ModelsDevSource (mod.rs:35, :38) load and cache the catalog but do not expose the projection as a function"
+    },
+    {
+      "id": "drops-unread-payload",
+      "level": "pure",
+      "rust": "RUST WORK: project_models_dev (catalog/lookup/projection.rs:158) and project_litellm (:98) exist and match, but `mod lookup` is private (catalog/mod.rs:12) and only seed_display_name / seed_roster are re-exported (mod.rs:33-34): add `pub use lookup::{project_models_dev, project_litellm};` to catalog/mod.rs. Looked for a public path: catalog::ModelsDev / ModelsDevSource (mod.rs:35, :38) load and cache the catalog but do not expose the projection as a function"
+    },
+    {
+      "id": "explicit-tool-call-false-survives",
+      "level": "pure",
+      "rust": "RUST WORK: project_models_dev (catalog/lookup/projection.rs:158) and project_litellm (:98) exist and match, but `mod lookup` is private (catalog/mod.rs:12) and only seed_display_name / seed_roster are re-exported (mod.rs:33-34): add `pub use lookup::{project_models_dev, project_litellm};` to catalog/mod.rs. Looked for a public path: catalog::ModelsDev / ModelsDevSource (mod.rs:35, :38) load and cache the catalog but do not expose the projection as a function"
+    },
+    {
+      "id": "cost-less-row-stays-cost-less",
+      "level": "pure",
+      "rust": "RUST WORK: project_models_dev (catalog/lookup/projection.rs:158) and project_litellm (:98) exist and match, but `mod lookup` is private (catalog/mod.rs:12) and only seed_display_name / seed_roster are re-exported (mod.rs:33-34): add `pub use lookup::{project_models_dev, project_litellm};` to catalog/mod.rs. Looked for a public path: catalog::ModelsDev / ModelsDevSource (mod.rs:35, :38) load and cache the catalog but do not expose the projection as a function"
+    },
+    {
+      "id": "sanitizer-same-verdict-on-projection",
+      "level": "pure",
+      "rust": "mixdog-ai/src/catalog/sanitize.rs sanitize_model_list (pub, re-exported at catalog/mod.rs:70) with SanitizeContext (mod.rs:69)"
+    },
+    {
+      "id": "litellm-keeps-every-field-a-lookup-reads",
+      "level": "pure",
+      "rust": "RUST WORK: project_models_dev (catalog/lookup/projection.rs:158) and project_litellm (:98) exist and match, but `mod lookup` is private (catalog/mod.rs:12) and only seed_display_name / seed_roster are re-exported (mod.rs:33-34): add `pub use lookup::{project_models_dev, project_litellm};` to catalog/mod.rs. Looked for a public path: catalog::ModelsDev / ModelsDevSource (mod.rs:35, :38) load and cache the catalog but do not expose the projection as a function"
+    },
+    {
+      "id": "tolerates-published-shapes",
+      "level": "pure",
+      "rust": "RUST WORK: project_models_dev (catalog/lookup/projection.rs:158) and project_litellm (:98) exist and match, but `mod lookup` is private (catalog/mod.rs:12) and only seed_display_name / seed_roster are re-exported (mod.rs:33-34): add `pub use lookup::{project_models_dev, project_litellm};` to catalog/mod.rs. Looked for a public path: catalog::ModelsDev / ModelsDevSource (mod.rs:35, :38) load and cache the catalog but do not expose the projection as a function"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-model-catalog-projection.mjs",
+  "recorderSha256": "96f461d500fdbd277e8d9c455e91649f306b947cc49884c19babb35cd8e5beb5",
+  "replay": "PURE. Projection cases: Rust work - mixdog-ai/src/catalog/lookup/projection.rs:158 project_models_dev and :98 project_litellm have the recorded input and output but are not public (`mod lookup`, catalog/mod.rs:12; make them reachable with `pub use lookup::{project_models_dev, project_litellm}` in catalog/mod.rs). Sanitizer case: mixdog-ai/src/catalog/sanitize.rs sanitize_model_list (pub, catalog/mod.rs:70).",
+  "set": "provider-model-catalog-projection",
+  "totalBytes": 46597,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
+}

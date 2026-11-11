@@ -25,7 +25,7 @@ fn every_lookup_equals_node() {
     let models_dev = project_models_dev(&json(MODELS_DEV));
     let rosters = rosters();
     let lookup = Lookup { litellm: &litellm, models_dev: &models_dev, rosters: &rosters };
-    let golden = json(GOLDEN);
+    let golden = json(&GOLDEN);
     let mut failures = Vec::new();
     let mut known = 0;
     for row in golden["rows"].as_array().unwrap() {
@@ -47,7 +47,7 @@ fn every_enrichment_equals_node() {
     let models_dev = project_models_dev(&json(MODELS_DEV));
     let rosters = rosters();
     let lookup = Lookup { litellm: &litellm, models_dev: &models_dev, rosters: &rosters };
-    let golden = json(GOLDEN);
+    let golden = json(&GOLDEN);
     let mut failures = Vec::new();
     for case in golden["enriched"].as_array().unwrap() {
         let got = enrich_model(&lookup, &case["input"]);
