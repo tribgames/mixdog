@@ -37,7 +37,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "c88f16977f047bb646aab83c85afa24dfd7b67ca876c9cde4230fc1e8499aad8"
+      "sha256": "04312547de05393463b3c9f410fe660e2ccaa2f5394e25567e9e4a16560a30b3"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -108,8 +108,11 @@
   "replay": {
     "compare": "mixdog-store registry.rs (+ app-server host): a failing recency write must not fail enter/start/submit, explicit registry changes still reject the original error, a corrupt registry is kept aside",
     "entry": "Drive these public items on o1: mixdog-store/src/registry.rs:282 add; mixdog-store/src/registry.rs:309 touch_selected; mixdog-store/src/registry.rs:335 remove; mixdog-store/src/registry.rs:354 rename.",
+    "existsButNotPublicOnO1": [
+      "a recency write failure that does not stop the work exists for set_cwd: mixdog-core-session/src/session/thread_settings.rs:754 logs the touch_selected failure and continues (private trait-impl method :714; trait ProjectFolders :100 / touch_selected :110 is public)"
+    ],
     "missingOnO1": [
-      "the SessionHost behaviour (startProjectTask / submitNewTask that continue when only the recency write fails): no Rust counterpart found"
+      "startProjectTask / submitNewTask continuing when only the recency write fails: new_task.rs:531, :573 hold no recency code"
     ],
     "normalised": {
       "dataDir": "<root>, wherever it occurs; separators as Node produced them (backslashes on win32, doubled inside JSON text)"
