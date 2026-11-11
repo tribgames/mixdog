@@ -1,0 +1,390 @@
+{
+  "domain": "memory-embedding-model-files",
+  "source": "src/runtime/memory/lib/embedding-model-files.test.mjs",
+  "cases": [
+    {
+      "name": "an intact cached graph with empty or NUL external weights fetches only the weights",
+      "session": {
+        "setup": [
+          {
+            "path": "org/model/onnx/model.onnx",
+            "bytesHex": "6772617068"
+          }
+        ],
+        "steps": [
+          {
+            "call": "graph",
+            "model": "org/model",
+            "file": "onnx/model.onnx",
+            "write": {
+              "path": "org/model/onnx/model.onnx_data",
+              "bytesHex": ""
+            },
+            "result": "org/model/onnx/model.onnx",
+            "requests": [
+              {
+                "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
+                "init": {
+                  "$exact": "undefined"
+                }
+              }
+            ],
+            "cacheAfter": [
+              {
+                "path": "org/model/onnx/model.onnx",
+                "bytesHex": "6772617068"
+              },
+              {
+                "path": "org/model/onnx/model.onnx_data",
+                "bytesHex": "77656967687473"
+              }
+            ]
+          },
+          {
+            "call": "graph",
+            "model": "org/model",
+            "file": "onnx/model.onnx",
+            "write": {
+              "path": "org/model/onnx/model.onnx_data",
+              "bytesHex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "result": "org/model/onnx/model.onnx",
+            "requests": [
+              {
+                "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
+                "init": {
+                  "$exact": "undefined"
+                }
+              }
+            ],
+            "cacheAfter": [
+              {
+                "path": "org/model/onnx/model.onnx",
+                "bytesHex": "6772617068"
+              },
+              {
+                "path": "org/model/onnx/model.onnx_data",
+                "bytesHex": "77656967687473"
+              }
+            ]
+          },
+          {
+            "call": "graph",
+            "model": "org/model",
+            "file": "onnx/model.onnx",
+            "result": "org/model/onnx/model.onnx",
+            "requests": [],
+            "cacheAfter": [
+              {
+                "path": "org/model/onnx/model.onnx",
+                "bytesHex": "6772617068"
+              },
+              {
+                "path": "org/model/onnx/model.onnx_data",
+                "bytesHex": "77656967687473"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty, NUL-filled or unparsable cached model files are fetched again",
+      "session": {
+        "setup": [],
+        "steps": [
+          {
+            "call": "file",
+            "model": "org/model",
+            "file": "tokenizer_config.json",
+            "write": {
+              "path": "org/model/tokenizer_config.json",
+              "bytesHex": ""
+            },
+            "result": "org/model/tokenizer_config.json",
+            "requests": [
+              {
+                "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
+                "init": {
+                  "$exact": "undefined"
+                }
+              }
+            ],
+            "cacheAfter": [
+              {
+                "path": "org/model/tokenizer_config.json",
+                "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+              }
+            ]
+          },
+          {
+            "call": "file",
+            "model": "org/model",
+            "file": "tokenizer_config.json",
+            "write": {
+              "path": "org/model/tokenizer_config.json",
+              "bytesHex": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "result": "org/model/tokenizer_config.json",
+            "requests": [
+              {
+                "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
+                "init": {
+                  "$exact": "undefined"
+                }
+              }
+            ],
+            "cacheAfter": [
+              {
+                "path": "org/model/tokenizer_config.json",
+                "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+              }
+            ]
+          },
+          {
+            "call": "file",
+            "model": "org/model",
+            "file": "tokenizer_config.json",
+            "write": {
+              "path": "org/model/tokenizer_config.json",
+              "bytesHex": "7b226d6f64656c5f6d6178"
+            },
+            "result": "org/model/tokenizer_config.json",
+            "requests": [
+              {
+                "url": "https://huggingface.co/org/model/resolve/main/tokenizer_config.json",
+                "init": {
+                  "$exact": "undefined"
+                }
+              }
+            ],
+            "cacheAfter": [
+              {
+                "path": "org/model/tokenizer_config.json",
+                "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+              }
+            ]
+          },
+          {
+            "call": "file",
+            "model": "org/model",
+            "file": "tokenizer_config.json",
+            "result": "org/model/tokenizer_config.json",
+            "requests": [],
+            "cacheAfter": [
+              {
+                "path": "org/model/tokenizer_config.json",
+                "bytesHex": "7b226d6f64656c5f6d61785f6c656e677468223a3235367d"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "further shapes (beyond the test file): cold graph, 404 weights, 404 graph, 503, exact-text file, healthy cache",
+      "sessions": [
+        {
+          "setup": [],
+          "steps": [
+            {
+              "call": "graph",
+              "model": "org/model",
+              "file": "onnx/model.onnx",
+              "result": "org/model/onnx/model.onnx",
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                },
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": [
+                {
+                  "path": "org/model/onnx/model.onnx",
+                  "bytesHex": "6772617068"
+                },
+                {
+                  "path": "org/model/onnx/model.onnx_data",
+                  "bytesHex": "77656967687473"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "setup": [],
+          "steps": [
+            {
+              "call": "graph",
+              "model": "org/model",
+              "file": "onnx/model.onnx",
+              "result": "org/model/onnx/model.onnx",
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                },
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": [
+                {
+                  "path": "org/model/onnx/model.onnx",
+                  "bytesHex": "6772617068"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "setup": [],
+          "steps": [
+            {
+              "call": "graph",
+              "model": "org/model",
+              "file": "onnx/model.onnx",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "embedding model download failed: org/model/onnx/model.onnx HTTP 404",
+                "props": {}
+              },
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx_data",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                },
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/onnx/model.onnx",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": []
+            }
+          ]
+        },
+        {
+          "setup": [],
+          "steps": [
+            {
+              "call": "file",
+              "model": "org/model",
+              "file": "config.json",
+              "error": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "embedding model download failed: org/model/config.json HTTP 503",
+                "props": {}
+              },
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/config.json",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": []
+            }
+          ]
+        },
+        {
+          "setup": [
+            {
+              "path": "org/model/config.json",
+              "bytesHex": "6e6f74206a736f6e"
+            },
+            {
+              "path": "org/model/vocab.txt",
+              "bytesHex": "65786163742074657874"
+            }
+          ],
+          "steps": [
+            {
+              "call": "file",
+              "model": "org/model",
+              "file": "config.json",
+              "result": "org/model/config.json",
+              "requests": [
+                {
+                  "url": "https://huggingface.co/org/model/resolve/main/config.json",
+                  "init": {
+                    "$exact": "undefined"
+                  }
+                }
+              ],
+              "cacheAfter": [
+                {
+                  "path": "org/model/config.json",
+                  "bytesHex": "7b7d"
+                },
+                {
+                  "path": "org/model/vocab.txt",
+                  "bytesHex": "65786163742074657874"
+                }
+              ]
+            },
+            {
+              "call": "file",
+              "model": "org/model",
+              "file": "vocab.txt",
+              "result": "org/model/vocab.txt",
+              "requests": [],
+              "cacheAfter": [
+                {
+                  "path": "org/model/config.json",
+                  "bytesHex": "7b7d"
+                },
+                {
+                  "path": "org/model/vocab.txt",
+                  "bytesHex": "65786163742074657874"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "setup": [
+            {
+              "path": "org/model/onnx/model.onnx",
+              "bytesHex": "6772617068"
+            }
+          ],
+          "steps": [
+            {
+              "call": "graph",
+              "model": "org/model",
+              "file": "onnx/model.onnx",
+              "result": "org/model/onnx/model.onnx",
+              "requests": [],
+              "cacheAfter": [
+                {
+                  "path": "org/model/onnx/model.onnx",
+                  "bytesHex": "6772617068"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

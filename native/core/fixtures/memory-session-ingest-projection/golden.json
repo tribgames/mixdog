@@ -1,0 +1,628 @@
+{
+  "domain": "memory-session-ingest-projection",
+  "source": "src/runtime/memory/lib/session-ingest-projection.test.mjs",
+  "cases": [
+    {
+      "name": "session ingest projection preserves every text block in a user message",
+      "projections": [
+        {
+          "name": "every text block of a user message is kept, images dropped",
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "<system-reminder>runtime context</system-reminder>"
+                },
+                {
+                  "type": "text",
+                  "text": "actual user instruction"
+                },
+                {
+                  "type": "image",
+                  "source": "ignored-binary"
+                },
+                {
+                  "type": "text",
+                  "text": "pasted continuation"
+                }
+              ]
+            }
+          ],
+          "result": [
+            {
+              "role": "user",
+              "content": "<system-reminder>runtime context</system-reminder>\nactual user instruction\npasted continuation"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "session ingest projection excludes Compact active-turn continuation rows",
+      "projections": [
+        {
+          "name": "compact active-turn continuation rows are excluded",
+          "messages": [
+            {
+              "role": "user",
+              "content": "actual user instruction"
+            },
+            {
+              "role": "user",
+              "content": "<system-reminder>\n<active-turn-continuation>\ncontinue without repeating completed tool calls\n</active-turn-continuation>\n</system-reminder>",
+              "meta": {
+                "source": "compact-active-turn-continuation",
+                "synthetic": true
+              }
+            }
+          ],
+          "result": [
+            {
+              "role": "user",
+              "content": "actual user instruction"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "user-turn prefix envelopes strip only manager.mjs start-anchored sections",
+      "rows": [
+        {
+          "name": "start-anchored prefix envelope is stripped to the task",
+          "message": {
+            "role": "user",
+            "content": "# Session\nCwd: C:\\\\Project\\\\mixdog\nModel: test\nWorkflow: solo\n\n# Project Instructions\nrepo-local rules\n# Additional context\nprefetch notes\n# Prefetch\nfile list\n# Task\nreal user prompt"
+          },
+          "content": {
+            "result": "real user prompt"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "a prompt that merely mentions the markers later is kept",
+          "message": {
+            "role": "user",
+            "content": "# Session\nmeeting notes\n# Task is later"
+          },
+          "content": {
+            "result": "# Session\nmeeting notes\n# Task is later"
+          },
+          "exclude": {
+            "result": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "ingest exclusion drops synthetic rows and keeps conversation",
+      "rows": [
+        {
+          "name": "Reference files",
+          "message": {
+            "role": "user",
+            "content": "Reference files:\nfoo.ts"
+          },
+          "content": {
+            "result": "Reference files:\nfoo.ts"
+          },
+          "exclude": {
+            "result": true
+          }
+        },
+        {
+          "name": "attachment placeholder",
+          "message": {
+            "role": "user",
+            "content": "(attachment)"
+          },
+          "content": {
+            "result": "(attachment)"
+          },
+          "exclude": {
+            "result": true
+          }
+        },
+        {
+          "name": "skill body with meta skill",
+          "message": {
+            "role": "user",
+            "content": "<skill>body</skill>",
+            "meta": "skill"
+          },
+          "content": {
+            "result": "<skill>body</skill>"
+          },
+          "exclude": {
+            "result": true
+          }
+        },
+        {
+          "name": "runtime marker",
+          "message": {
+            "role": "user",
+            "content": "[mixdog-runtime] continue"
+          },
+          "content": {
+            "result": "[mixdog-runtime] continue"
+          },
+          "exclude": {
+            "result": true
+          }
+        },
+        {
+          "name": "assistant dot",
+          "message": {
+            "role": "assistant",
+            "content": ".",
+            "toolCalls": {
+              "$exact": "undefined"
+            }
+          },
+          "content": {
+            "result": "."
+          },
+          "exclude": {
+            "result": true
+          }
+        },
+        {
+          "name": "assistant dot with tool calls",
+          "message": {
+            "role": "assistant",
+            "content": ".",
+            "toolCalls": [
+              {
+                "id": "c"
+              }
+            ]
+          },
+          "content": {
+            "result": "."
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "exact user",
+          "message": {
+            "role": "user",
+            "content": "please continue the task"
+          },
+          "content": {
+            "result": "please continue the task"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "exact assistant",
+          "message": {
+            "role": "assistant",
+            "content": "working on it"
+          },
+          "content": {
+            "result": "working on it"
+          },
+          "exclude": {
+            "result": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "further shapes (beyond the test file)",
+      "projections": [
+        {
+          "name": "mixed conversation: system, tool, assistant with tool calls, empty and string-content rows",
+          "messages": [
+            {
+              "role": "system",
+              "content": "system prompt"
+            },
+            {
+              "role": "user",
+              "content": "first question"
+            },
+            {
+              "role": "assistant",
+              "content": "answer prose",
+              "toolCalls": [
+                {
+                  "id": "c1",
+                  "name": "read",
+                  "arguments": {}
+                }
+              ]
+            },
+            {
+              "role": "tool",
+              "content": "tool output",
+              "toolCallId": "c1"
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "part one"
+                },
+                {
+                  "type": "tool_use",
+                  "id": "c2"
+                },
+                {
+                  "type": "text",
+                  "text": "part two"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": ""
+            },
+            {
+              "role": "user",
+              "content": "   "
+            },
+            {
+              "role": "assistant",
+              "content": "."
+            },
+            {
+              "role": "user",
+              "content": "Reference files:\nfoo.ts"
+            },
+            {
+              "role": "user",
+              "content": "(attachment)"
+            },
+            {
+              "role": "user",
+              "content": "[mixdog-runtime] continue"
+            },
+            {
+              "role": "user",
+              "content": "last question",
+              "meta": {
+                "ts": 1700000000000
+              }
+            }
+          ],
+          "result": [
+            {
+              "role": "user",
+              "content": "first question"
+            },
+            {
+              "role": "assistant",
+              "content": "answer prose",
+              "toolCalls": [
+                {
+                  "id": "c1"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "part one\npart two"
+            },
+            {
+              "role": "user",
+              "content": "last question"
+            }
+          ]
+        },
+        {
+          "name": "no messages / not an array",
+          "messages": [],
+          "result": []
+        },
+        {
+          "name": "not an array: null",
+          "messages": null,
+          "result": []
+        }
+      ],
+      "rows": [
+        {
+          "name": "envelope without a task section",
+          "message": {
+            "role": "user",
+            "content": "# Session\nCwd: x\n# Project Instructions\nrules"
+          },
+          "content": {
+            "result": "# Session\nCwd: x\n# Project Instructions\nrules"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "envelope sections in another order",
+          "message": {
+            "role": "user",
+            "content": "# Task\nfirst\n# Session\nlater"
+          },
+          "content": {
+            "result": "first\n# Session\nlater"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "assistant rows are not envelope-stripped",
+          "message": {
+            "role": "assistant",
+            "content": "# Session\nCwd: C:\\\\Project\\\\mixdog\nModel: test\nWorkflow: solo\n\n# Project Instructions\nrepo-local rules\n# Additional context\nprefetch notes\n# Prefetch\nfile list\n# Task\nreal user prompt"
+          },
+          "content": {
+            "result": "# Session\nCwd: C:\\\\Project\\\\mixdog\nModel: test\nWorkflow: solo\n\n# Project Instructions\nrepo-local rules\n# Additional context\nprefetch notes\n# Prefetch\nfile list\n# Task\nreal user prompt"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "array content joins its text blocks",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          },
+          "content": {
+            "result": "a\nb"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "compact summary meta synthetic",
+          "message": {
+            "role": "user",
+            "content": "summary",
+            "meta": {
+              "source": "compact-summary",
+              "synthetic": true
+            }
+          },
+          "content": {
+            "result": "summary"
+          },
+          "exclude": {
+            "result": true
+          }
+        },
+        {
+          "name": "active-turn continuation",
+          "message": {
+            "role": "user",
+            "content": "<system-reminder>\n<active-turn-continuation>\ncontinue without repeating completed tool calls\n</active-turn-continuation>\n</system-reminder>",
+            "meta": {
+              "source": "compact-active-turn-continuation",
+              "synthetic": true
+            }
+          },
+          "content": {
+            "result": "<system-reminder>\n<active-turn-continuation>\ncontinue without repeating completed tool calls\n</active-turn-continuation>\n</system-reminder>"
+          },
+          "exclude": {
+            "result": true
+          }
+        },
+        {
+          "name": "synthetic flag only",
+          "message": {
+            "role": "user",
+            "content": "hello",
+            "meta": {
+              "synthetic": true
+            }
+          },
+          "content": {
+            "result": "hello"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "tool role",
+          "message": {
+            "role": "tool",
+            "content": "out"
+          },
+          "content": {
+            "result": "out"
+          },
+          "exclude": {
+            "result": false
+          }
+        },
+        {
+          "name": "no content",
+          "message": {
+            "role": "user"
+          },
+          "content": {
+            "result": ""
+          },
+          "exclude": {
+            "result": false
+          }
+        }
+      ],
+      "helpers": [
+        {
+          "fn": "normalizeIngestRole",
+          "role": "user",
+          "result": "user"
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": "assistant",
+          "result": "assistant"
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": "system",
+          "result": null
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": "tool",
+          "result": null
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": "USER",
+          "result": "user"
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": " user ",
+          "result": "user"
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": null,
+          "result": null
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": {
+            "$exact": "undefined"
+          },
+          "result": null
+        },
+        {
+          "fn": "normalizeIngestRole",
+          "role": "developer",
+          "result": null
+        },
+        {
+          "fn": "allTextContent",
+          "content": "exact",
+          "result": "exact"
+        },
+        {
+          "fn": "allTextContent",
+          "content": "",
+          "result": ""
+        },
+        {
+          "fn": "allTextContent",
+          "content": null,
+          "result": ""
+        },
+        {
+          "fn": "allTextContent",
+          "content": {
+            "$exact": "undefined"
+          },
+          "result": ""
+        },
+        {
+          "fn": "allTextContent",
+          "content": [
+            {
+              "type": "text",
+              "text": "x"
+            },
+            {
+              "type": "image"
+            },
+            {
+              "type": "text",
+              "text": "y"
+            }
+          ],
+          "result": "x\ny"
+        },
+        {
+          "fn": "allTextContent",
+          "content": [
+            {
+              "type": "text"
+            }
+          ],
+          "result": ""
+        },
+        {
+          "fn": "allTextContent",
+          "content": [
+            {
+              "text": "no type"
+            }
+          ],
+          "result": ""
+        },
+        {
+          "fn": "allTextContent",
+          "content": [
+            "str",
+            {
+              "type": "text",
+              "text": "z"
+            }
+          ],
+          "result": "str\nz"
+        },
+        {
+          "fn": "allTextContent",
+          "content": {
+            "type": "text",
+            "text": "obj"
+          },
+          "result": ""
+        },
+        {
+          "fn": "allTextContent",
+          "content": 5,
+          "result": ""
+        },
+        {
+          "fn": "isUnquotedToolCompletionHead",
+          "text": "",
+          "result": false
+        },
+        {
+          "fn": "isUnquotedToolCompletionHead",
+          "text": "Task completed",
+          "result": false
+        },
+        {
+          "fn": "isUnquotedToolCompletionHead",
+          "text": "Tool use completed",
+          "result": false
+        },
+        {
+          "fn": "isUnquotedToolCompletionHead",
+          "text": "normal text",
+          "result": false
+        },
+        {
+          "fn": "isUnquotedToolCompletionHead",
+          "text": null,
+          "result": false
+        }
+      ]
+    }
+  ]
+}

@@ -186,8 +186,8 @@ fn escalate(class: RetryClass, error: &ProviderError) -> Option<RetryClass> {
 
 /// The provider's retry policy for one request: `retry_529: false` (Node `opts.retry529 === false`,
 /// `retry-executor.mjs`) stops an overload retrying, ahead of the overload fallback.
-fn request_policy(provider: &dyn ProviderAdapter, retry_529: bool) -> std::borrow::Cow<'_, RetryPolicy> {
-    let policy = provider.retry_policy();
+fn request_policy<'a>(provider: &'a dyn ProviderAdapter, model: &str, retry_529: bool) -> std::borrow::Cow<'a, RetryPolicy> {
+    let policy = provider.retry_policy_for(model);
     if retry_529 {
         return std::borrow::Cow::Borrowed(policy);
     }
@@ -618,7 +618,7 @@ impl Run {
         let mut class = first_class(midstream);
         let mut spent: Vec<RetryState> = Vec::new();
         let provider = Arc::clone(&self.provider);
-        let policy = request_policy(provider.as_ref(), self.config.retry_529);
+        let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
         let committed = loop {
             let decision = self.env.decider.verdict(
                 &decide_on,
