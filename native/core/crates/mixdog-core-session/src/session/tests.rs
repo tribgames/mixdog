@@ -5161,3 +5161,47 @@ async fn a_turn_whose_lane_job_is_refused_hears_the_lane_not_closed() {
         other => panic!("the refused start names the lane: {other:?}"),
     }
 }
+
+/// Each lane job a turn submits, refused in its turn (a lane that cannot run it): the start is answered with its result or
+/// an error that names the cause, never "The session is closed.", and the thread takes the next turn.
+#[tokio::test]
+async fn a_refused_lane_job_anywhere_in_a_turn_never_closes_the_session() {
+    let closed = |answer: &Result<Reply, CoreError>| format!("{answer:?}").contains("The session is closed.");
+    for n in 0.. {
+        let rig = Rig::new();
+        // The run hears a refused input or commit as an error and ends interrupted: the refusal is the thread's to answer.
+        rig.set_script(Arc::new(|run| {
+            Box::pin(async move {
+                if run.port.input_durable().await.is_err() {
+                    return RunOutcome::Interrupted;
+                }
+                let commit = ItemCommit {
+                    iid: ItemId::from(format!("a-{}", run.turn)),
+                    role: Some("assistant".into()),
+                    model: true,
+                    visible: true,
+                    body: json!({ "text": "re" }),
+                    prompt: None,
+                };
+                match run.port.commit_item(commit).await {
+                    Ok(_) => RunOutcome::Completed(Default::default()),
+                    Err(_) => RunOutcome::Interrupted,
+                }
+            })
+        }));
+        let directory = SessionDirectory::new(rig.deps());
+        let handle = start_thread(&directory).await;
+        let (answer, reached) = {
+            let _refused = mixdog_rt::testing::refuse_nth_job_on_this_thread(n);
+            let answer = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "hello" } }), "op-1")).await;
+            eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+            (answer, mixdog_rt::testing::attempts_on_this_thread() > n)
+        };
+        assert!(!closed(&answer), "job {n} refused: {answer:?}");
+        let next = handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await;
+        assert!(next.is_ok(), "job {n} refused, then the next turn: {next:?}");
+        if !reached {
+            break;
+        }
+    }
+}

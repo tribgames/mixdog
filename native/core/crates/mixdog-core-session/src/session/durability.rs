@@ -118,6 +118,13 @@ fn lost() -> BarrierError {
     }
 }
 
+/// A job the io-durability lane never ran: nothing of it was applied.
+fn unrun() -> BarrierError {
+    BarrierError::Failed {
+        io_kind: "laneFull".into(),
+    }
+}
+
 impl DurabilityTask {
     pub fn new(
         thread: ThreadId,
@@ -235,10 +242,9 @@ impl DurabilityTask {
                 generation,
                 ids,
             } => {
-                let result = result.unwrap_or_else(|_| {
-                    *lock(&self.log) = Log::Lost;
-                    Err(lost())
-                });
+                // A job that never ran wrote nothing and left the writer in its slot: the batch fails as not applied,
+                // naming the lane, and the writer takes the next batch (a lost writer failed every later turn).
+                let result = result.unwrap_or_else(|_| Err(unrun()));
                 match result {
                     Ok(ordinals) => FromDurability::Acked {
                         generation,
@@ -251,16 +257,11 @@ impl DurabilityTask {
                     }
                 }
             }
-            Done::Retry(result) => {
-                let result = result.unwrap_or_else(|_| {
-                    *lock(&self.log) = Log::Lost;
-                    Err(lost())
-                });
-                FromDurability::Retried(result)
-            }
+            Done::Retry(result) => FromDurability::Retried(result.unwrap_or_else(|_| Err(unrun()))),
+            // An unrun rewrite left the log as it was; the mark's journal entry stays and the next start redoes it.
             Done::Redact(result) => {
                 if result.is_err() {
-                    *lock(&self.log) = Log::Lost;
+                    tracing::warn!(thread = %self.thread, "the log's sensitive rewrite never ran: the io-durability lane could not take it");
                 }
                 FromDurability::Redacted
             }
