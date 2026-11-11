@@ -575,6 +575,9 @@ const statusClock = { dir: join(WORK, 'status-clock'), sent: 0 };
  *  runtime not open yet, the second makes the host hold what the daemon does. */
 const STATUS_SETTLE = { steps: [{ markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }, { markAll: true, ms: 1000 }], read: 'getWorktreeSettings' };
 
+/** The snapshot fields Node fills on its status pass (manifest `settledStatus`). */
+const SETTLED_FIELDS = ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope', 'cwd'];
+
 async function settleStatus(pid) {
   statusClock.sent += 1;
   const n = statusClock.sent;
@@ -657,7 +660,22 @@ async function recordGroup(group) {
         throw new Error(`${group}: the host lost its daemon connection (${frame.error}) on ${JSON.stringify(request)}; record again`);
       }
       noteRevision(frame, ctx);
-      cases.push({ group, request: clone([request])[0] ?? null, frame: kept(frame, ctx), repository: kept(repository(), ctx) });
+      // The status fields the call itself moved (a transition's cwd, its window) Node republishes on its next pass: the answer keeps
+      // them as they settle after it (manifest `settledStatus`), the value the answer carried under `unsettled`.
+      let unsettled;
+      if (frame.ok && frame.value?.snapshot && typeof frame.value.snapshot === 'object') {
+        await settleStatus(daemonPid);
+        const params = [{ capability: STATUS_SETTLE.read, args: [], ...(sent.sessionId ? { sessionId: sent.sessionId } : {}) }];
+        const after = await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: 'invokeCapability', params }));
+        if (!after.ok) throw new Error(`${group}: the settled read failed: ${after.error}`);
+        for (const field of SETTLED_FIELDS) {
+          if (isDeepStrictEqual(frame.value.snapshot[field], after.value.snapshot[field])) continue;
+          unsettled ??= {};
+          unsettled[field] = frame.value.snapshot[field] ?? null;
+          frame.value.snapshot[field] = after.value.snapshot[field];
+        }
+      }
+      cases.push({ group, request: clone([request])[0] ?? null, frame: kept(frame, ctx), ...(unsettled ? { unsettled: kept({ ok: true, value: unsettled }, ctx).value } : {}), repository: kept(repository(), ctx) });
       // repository() blocks this process on git; one turn of the loop (its overdue timers, then pending socket closes) lets the
       // client's pool drop idle sockets the daemon's keep-alive ended, or the next call goes out on one and reads ECONNRESET.
       await new Promise((resolve) => setImmediate(resolve));
@@ -736,7 +754,8 @@ writeSetManifest(stage, {
         "a call's snapshot leaves out setupChanged: Node hands the settings_changed notice to the session asynchronously (notification-router.mjs:33-36), so which answer first carries it, and its seq, differ between two recordings of this recorder; each group ends with one `settled` entry, the control (and project) session's setupChanged once it holds still, compared whole",
     },
     settledStatus: {
-      fields: ['contextWindow', 'rawContextWindow', 'effectiveContextWindowPercent', 'displayContextWindow', 'autoCompactTokenLimit', 'compactBoundaryTokens', 'agentScope'],
+      fields: SETTLED_FIELDS,
+      afterCall: "a field among these the call itself moved (a workspace transition's cwd) Node republishes on the pass after the call: the case's answer holds it as the pass leaves it (the recorder settles and reads once more), the value Node's answer carried is kept under the case's `unsettled`",
       node: "Node fills these on its session status pass (local-session-runtime.mjs createRuntimePulse: syncContextStats, then routeState, context-state.mjs:45-155; agentStatusState, agent-tool-routing.mjs:51-66), which its daemon's status scheduler runs when a mark arrives (session-status-scheduler.mjs); before the first pass they are null/0, after the first the route's window with the display fields 0, from the second on the settled values; agentScope is null until the keychain prewarm is done (agent-tool.mjs statusFor). A projection Node drops after 90 s idle is rebuilt with them empty until the next pass (retention.mjs:127-143). Which of these a call answered depended on whether a pass had landed",
       recording: "holds the settled state: before every case the daemon's scheduler runs on a virtual clock the recorder moves (beforeEachCase in golden.json: status-clock-preload.mjs, the keychain prewarm awaited, then three marks of every session each followed by 1 s), no real wait; the idle projection drop and eviction are set beyond a run (MIXDOG_SESSION_PROJECTION_IDLE_MS, MIXDOG_SESSION_IDLE_EVICT_MS)",
       core: 'has the settled values from the start (only faster with the same content, rule U-SV1); a change of these values later in a session (a model switch) is content, recorded as its own case',
@@ -826,7 +845,7 @@ async function replay(exe) {
       for (const [index, expected] of wanted.entries()) {
         if (expected.switchRoute) {
           // The desktop window's model switch of the session (route/set), as the recording's input.
-          await window.call('route/set', { threadId: ctx.session, route: expected.switchRoute });
+          await window.call('route/set', { threadId: ctx.session, route: { ...expected.switchRoute, applyToCurrentSession: true, keepMainModel: false } });
           continue;
         }
         // The recording's reads before each case; the core needs no clock moved (its status is settled from the start).
