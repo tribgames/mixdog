@@ -13,9 +13,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11325,
+      "bytes": 12501,
       "path": "golden.json",
-      "sha256": "4badc5225c38ec013fa16486b7a1a3895984ca1394996988c353f9bafef4f9ae"
+      "sha256": "4a8e633fa99e08fee3eec2f730bcd3e66ad22e1350e79c88d20b32775d6b2711"
     }
   ],
   "inputs": [
@@ -51,10 +51,10 @@
   "nodeVersion": "v22.20.0",
   "normalised": {
     "paths": [
-      "$.cases[0].observed.results[0].wire[0].body.callId",
-      "$.cases[0].observed.results[1].wire[0].body.callId",
-      "$.cases[0].observed.results[2].wire[0].body.callId",
-      "$.cases[0].observed.results[3].wire[0].body.callId"
+      "$.cases[0].observed.results[0].wire[0].request.body.callId",
+      "$.cases[0].observed.results[1].wire[0].request.body.callId",
+      "$.cases[0].observed.results[2].wire[0].request.body.callId",
+      "$.cases[0].observed.results[3].wire[0].request.body.callId"
     ],
     "reason": "the desktop id inside callId is desktop_<process id>_<scripted uuid>: the process id of the recording run is written <pid>"
   },
@@ -76,7 +76,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-schedule-error-wire-cases.mjs",
-  "recorderSha256": "d185b63bfc6cdd39dbac1f6d02a6491fd3f09f479a7bf8184652fefaa15841db",
+  "recorderSha256": "ff47ae4720d5b9dc346121d09dd33589da476ef96ff5a4159300a91d361e4149",
   "replay": {
     "compare": "mixdog-services scheduler rename errors + the desktop wire: each refusal keeps its code and name param through the envelope and renders the Korean text",
     "entry": "Drive these public items on o1: mixdog-services/src/scheduler/model.rs:129 SCHEDULE_NAME_TAKEN; mixdog-services/src/scheduler/model.rs:130 SCHEDULE_RENAME_RUNNING; mixdog-services/src/scheduler/model.rs:131 SCHEDULE_RENAME_RELOAD_FAILED; mixdog-services/src/scheduler/model.rs:132 SCHEDULE_RENAME_UNCERTAIN.",
@@ -110,6 +110,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "schedule-error-wire-cases",
-  "totalBytes": 11325,
+  "totalBytes": 12501,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

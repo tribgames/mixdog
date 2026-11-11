@@ -31,7 +31,7 @@ let wireLog = [];
 const options = { userDataPath: 'C:/tmp/mixdog', packaged: true, resourcesPath: 'C:/tmp/resources', appPath: 'C:/tmp/resources/app.asar' };
 function daemonCall(failure) {
   const route = createCallRoute({ handleCall: async () => { throw failure; }, clients: new Map([['client', { leadPid: null, cwd: null, revision: 1, lastSeen: 0 }]]), lanes: { dispatch: (_owner, run) => run() }, callCache: { get: () => null, track() {} }, nowMs: () => 0, onCallStarted() {}, onCallSettled() {} });
-  return createAttachmentCalls({ request: ({ body }) => new Promise((resolve) => { const head = []; const res = { writeHead(...args) { head.push(args); }, end: (text) => { wireLog.push({ direction: 'client->daemon /call', body }, { direction: 'daemon->client', writeHead: head, text }); resolve(JSON.parse(text)); } }; void route(body, res); }), port: 1, serverToken: 'server', clientToken: 'client', stopStream() {}, log() {} }).call;
+  return createAttachmentCalls({ request: (request) => new Promise((resolve) => { const { body } = request; const head = []; const res = { writeHead(...args) { head.push(args); }, end: (text) => { wireLog.push({ direction: 'client->daemon /call', request }, { direction: 'daemon->client', writeHead: head, text }); resolve(JSON.parse(text)); } }; void route(body, res); }), port: 1, serverToken: 'server', clientToken: 'client', stopStream() {}, log() {} }).call;
 }
 // contextBridge hands the page an Error with only message and stack (checked against Electron 41 in the Node test).
 const acrossContextBridge = (error) => { const page = new Error(error.message); page.stack = error.stack; return page; };

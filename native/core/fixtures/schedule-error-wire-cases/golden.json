@@ -13,23 +13,31 @@
             "wire": [
               {
                 "direction": "client->daemon /call",
-                "body": {
-                  "token": "client",
-                  "name": "desktop.invoke",
-                  "args": {
-                    "desktopId": "desktop_schedule",
-                    "method": "invokeCapability",
-                    "args": [
-                      "saveSchedule",
-                      [
-                        {
-                          "name": "other",
-                          "newName": "once-renamed"
-                        }
+                "request": {
+                  "port": 1,
+                  "token": "server",
+                  "method": "POST",
+                  "path": "/call",
+                  "body": {
+                    "token": "client",
+                    "name": "desktop.invoke",
+                    "args": {
+                      "desktopId": "desktop_schedule",
+                      "method": "invokeCapability",
+                      "args": [
+                        "saveSchedule",
+                        [
+                          {
+                            "name": "other",
+                            "newName": "once-renamed"
+                          }
+                        ]
                       ]
-                    ]
+                    },
+                    "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000001:1"
                   },
-                  "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000001:1"
+                  "timeoutMs": 300000,
+                  "urgent": false
                 }
               },
               {
@@ -79,23 +87,31 @@
             "wire": [
               {
                 "direction": "client->daemon /call",
-                "body": {
-                  "token": "client",
-                  "name": "desktop.invoke",
-                  "args": {
-                    "desktopId": "desktop_schedule",
-                    "method": "invokeCapability",
-                    "args": [
-                      "saveSchedule",
-                      [
-                        {
-                          "name": "other",
-                          "newName": "once-renamed"
-                        }
+                "request": {
+                  "port": 1,
+                  "token": "server",
+                  "method": "POST",
+                  "path": "/call",
+                  "body": {
+                    "token": "client",
+                    "name": "desktop.invoke",
+                    "args": {
+                      "desktopId": "desktop_schedule",
+                      "method": "invokeCapability",
+                      "args": [
+                        "saveSchedule",
+                        [
+                          {
+                            "name": "other",
+                            "newName": "once-renamed"
+                          }
+                        ]
                       ]
-                    ]
+                    },
+                    "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000002:1"
                   },
-                  "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000002:1"
+                  "timeoutMs": 300000,
+                  "urgent": false
                 }
               },
               {
@@ -145,23 +161,31 @@
             "wire": [
               {
                 "direction": "client->daemon /call",
-                "body": {
-                  "token": "client",
-                  "name": "desktop.invoke",
-                  "args": {
-                    "desktopId": "desktop_schedule",
-                    "method": "invokeCapability",
-                    "args": [
-                      "saveSchedule",
-                      [
-                        {
-                          "name": "other",
-                          "newName": "once-renamed"
-                        }
+                "request": {
+                  "port": 1,
+                  "token": "server",
+                  "method": "POST",
+                  "path": "/call",
+                  "body": {
+                    "token": "client",
+                    "name": "desktop.invoke",
+                    "args": {
+                      "desktopId": "desktop_schedule",
+                      "method": "invokeCapability",
+                      "args": [
+                        "saveSchedule",
+                        [
+                          {
+                            "name": "other",
+                            "newName": "once-renamed"
+                          }
+                        ]
                       ]
-                    ]
+                    },
+                    "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000003:1"
                   },
-                  "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000003:1"
+                  "timeoutMs": 300000,
+                  "urgent": false
                 }
               },
               {
@@ -211,23 +235,31 @@
             "wire": [
               {
                 "direction": "client->daemon /call",
-                "body": {
-                  "token": "client",
-                  "name": "desktop.invoke",
-                  "args": {
-                    "desktopId": "desktop_schedule",
-                    "method": "invokeCapability",
-                    "args": [
-                      "saveSchedule",
-                      [
-                        {
-                          "name": "other",
-                          "newName": "once-renamed"
-                        }
+                "request": {
+                  "port": 1,
+                  "token": "server",
+                  "method": "POST",
+                  "path": "/call",
+                  "body": {
+                    "token": "client",
+                    "name": "desktop.invoke",
+                    "args": {
+                      "desktopId": "desktop_schedule",
+                      "method": "invokeCapability",
+                      "args": [
+                        "saveSchedule",
+                        [
+                          {
+                            "name": "other",
+                            "newName": "once-renamed"
+                          }
+                        ]
                       ]
-                    ]
+                    },
+                    "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000004:1"
                   },
-                  "callId": "desktop-invoke:desktop_<pid>_00000000000040008000000000000004:1"
+                  "timeoutMs": 300000,
+                  "urgent": false
                 }
               },
               {
