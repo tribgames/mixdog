@@ -1,0 +1,60 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-mixdog-local-wire.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "entry": "mixdog-local-wire.mjs toLocalProviderMessages(history); mixdog-local.mjs MixdogLocalProvider({}, { ensureServer }).send(messages, \"test-local\", tools, { signal, onToolCall }) where ensureServer returns { baseURL: http://127.0.0.1:8080/v1, apiKey: \"test-key\" } (the OpenAI SDK sends real HTTP to the scripted endpoint, which answers 400 if a system message is not first). Not run: a real llama server.",
+  "exclusions": [
+    "the temp data directory and the tree path are written <data> / <tree> in every string (they differ per run)",
+    "JSON drops keys whose value is undefined; an Error is recorded as name, message and every own property, never its stack"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8424,
+      "path": "cases.json",
+      "sha256": "f5b6b03754d1565253657e30314cbfbba99c07fa62c73a9660a6dcf15e052291"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
+      "sha256": "dff582cb50d1b1ba6928de1feedeb8485bc67ee5c04665f94fa5c55e44452bf7"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
+      "sha256": "e4184e1e14154a9d0e10aec72b13220a2891643e794ce8026cb9d9799fe67a95"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-mixdog-local-wire.mjs",
+  "recorderSha256": "59bedfe1722ac2ba1fa144acea832591f3cd78c6150c8d55cf823229e807459e",
+  "replay": "mixdog-ai providers::local (local/mod.rs:109-132) and mixdog-services local_provider provider.rs:231-233: compare the merged messages, the two requests (body incl. the single merged system message and tool_call_id), the results, the dispatched calls and the signal states; a pre-cancelled send never calls ensureServer.",
+  "replayExclusions": {
+    "request headers host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and a `user-agent: node` (the fetch client writes them on a plain-http loopback; a product that sets its own user-agent or accept is compared)": "written by undici, not by the product; the replay compares the headers the Rust request sets itself and the origin/path as recorded"
+  },
+  "set": "provider-mixdog-local-wire",
+  "totalBytes": 8424
+}

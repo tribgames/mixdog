@@ -1,0 +1,250 @@
+{
+  "set": "provider-mixdog-local-wire",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "cases": [
+    {
+      "id": "instructions-merge",
+      "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:8",
+      "input": {
+        "history": [
+          {
+            "role": "system",
+            "content": "base",
+            "cacheTier": "tier1"
+          },
+          {
+            "role": "system",
+            "content": [
+              {
+                "type": "text",
+                "text": "profile"
+              }
+            ],
+            "cacheTier": "tier2"
+          },
+          {
+            "role": "user",
+            "content": "hello"
+          },
+          {
+            "role": "developer",
+            "content": "runtime instructions"
+          },
+          {
+            "role": "assistant",
+            "content": "reply"
+          }
+        ]
+      },
+      "result": {
+        "merged": [
+          {
+            "role": "system",
+            "content": "base\n\nprofile\n\nruntime instructions"
+          },
+          {
+            "role": "user",
+            "content": "hello"
+          },
+          {
+            "role": "assistant",
+            "content": "reply"
+          }
+        ],
+        "historyUnchanged": true,
+        "imageError": {
+          "name": "TypeError",
+          "message": "Local Provider system instructions must contain text only."
+        }
+      }
+    },
+    {
+      "id": "streamed-tool-call-single-system",
+      "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:30",
+      "input": {
+        "messages": [
+          {
+            "role": "system",
+            "content": "base"
+          },
+          {
+            "role": "system",
+            "content": "profile"
+          },
+          {
+            "role": "system",
+            "content": "workflow"
+          },
+          {
+            "role": "system",
+            "content": "environment"
+          },
+          {
+            "role": "user",
+            "content": "Look up the answer."
+          }
+        ],
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          }
+        ]
+      },
+      "result": {
+        "first": {
+          "content": "",
+          "model": "test-local",
+          "toolCalls": [
+            {
+              "id": "call_local",
+              "name": "lookup",
+              "arguments": {
+                "key": "answer"
+              }
+            }
+          ],
+          "stopReason": "tool_calls",
+          "usage": {
+            "inputTokens": 20,
+            "outputTokens": 8,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 20,
+            "raw": {
+              "prompt_tokens": 20,
+              "completion_tokens": 8
+            }
+          },
+          "generationMs": 0
+        },
+        "dispatched": [
+          {
+            "id": "call_local",
+            "name": "lookup",
+            "arguments": {
+              "key": "answer"
+            }
+          }
+        ],
+        "second": {
+          "content": "The result is 42.",
+          "model": "test-local",
+          "stopReason": "stop",
+          "usage": {
+            "inputTokens": 20,
+            "outputTokens": 8,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0,
+            "promptTokens": 20,
+            "raw": {
+              "prompt_tokens": 20,
+              "completion_tokens": 8
+            }
+          },
+          "generationMs": 0
+        },
+        "signalsBeforeAbort": [
+          {
+            "isAbortSignal": true,
+            "aborted": false
+          },
+          {
+            "isAbortSignal": true,
+            "aborted": false
+          }
+        ],
+        "signalsAfterAbort": [
+          true,
+          true
+        ],
+        "systemMessagesLeftInHistory": 4
+      },
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "http://127.0.0.1:8080",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "127.0.0.1:8080",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer test-key",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "387"
+          },
+          "body": "{\"model\":\"test-local\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"id\":\"local-response\",\"model\":\"test-local\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "http://127.0.0.1:8080",
+          "path": "/v1/chat/completions",
+          "headers": {
+            "host": "127.0.0.1:8080",
+            "connection": "keep-alive",
+            "accept": "application/json",
+            "user-agent": "OpenAI/JS 6.49.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-lang": "js",
+            "x-stainless-package-version": "6.49.0",
+            "x-stainless-os": "Windows",
+            "x-stainless-arch": "x64",
+            "x-stainless-runtime": "node",
+            "x-stainless-runtime-version": "v22.20.0",
+            "authorization": "Bearer test-key",
+            "content-type": "application/json",
+            "accept-language": "*",
+            "sec-fetch-mode": "cors",
+            "accept-encoding": "gzip, deflate",
+            "content-length": "599"
+          },
+          "body": "{\"model\":\"test-local\",\"messages\":[{\"role\":\"system\",\"content\":\"base\\n\\nprofile\\n\\nworkflow\\n\\nenvironment\"},{\"role\":\"user\",\"content\":\"Look up the answer.\"},{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_local\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"key\\\":\\\"answer\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"call_local\",\"content\":\"42\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"description\":\"Read a value\",\"parameters\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}}}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "body": "data: {\"id\":\"local-response\",\"model\":\"test-local\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"The result is 42.\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cancelled-send-starts-no-server",
+      "source": "src/runtime/agent/orchestrator/providers/mixdog-local-wire.test.mjs:120",
+      "input": {},
+      "result": {
+        "error": {
+          "name": "Error",
+          "message": "cancelled"
+        },
+        "serverStarts": 0
+      }
+    }
+  ]
+}
