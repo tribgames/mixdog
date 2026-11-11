@@ -14,7 +14,7 @@ use mixdog_core_base::feed::CoreScopedFeeds;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
 use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
-use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
+use mixdog_services::memory::embed::config::EmbedEnv;
 use mixdog_services::memory::embed::engine::EmbedConfig;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
 use mixdog_services::tidy::process::Processes;
@@ -235,13 +235,14 @@ const EMBED_SESSIONS: usize = 2;
 
 pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime, processes: &Processes) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
+    let embed_env = EmbedEnv::from_process();
     let embeddings = match &ort_library {
         OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
         EmbedConfig {
-            model_id: DEFAULT_MODEL_ID.into(),
+            model_id: embed_env.model_id(),
             cache_dir: data_dir.join("models"),
             ort_library: library.clone(),
-            dtype: None,
+            dtype: embed_env.dtype.clone(),
             sessions: EMBED_SESSIONS,
             lane: tokens.cpu_bulk,
         },

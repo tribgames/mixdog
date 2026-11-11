@@ -117,7 +117,7 @@ fn call_signature(name: &str, args: &Value) -> String {
 /// Hears `(remote acquired, pinned session id)`.
 pub type BindingObserver = Arc<dyn Fn(bool, Option<&str>) + Send + Sync>;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct Binding {
     remote_acquired: bool,
     pinned_session_id: Option<String>,
@@ -292,6 +292,19 @@ impl CallDispatch {
         }
     }
 
+    /// Moves the binding; an unchanged one is not re-announced (`remote-state.mjs` signature).
+    fn set_binding(&self, next: Binding) {
+        let changed = {
+            let mut binding = self.binding.lock().unwrap();
+            let changed = *binding != next;
+            *binding = next;
+            changed
+        };
+        if changed {
+            self.binding_changed();
+        }
+    }
+
     /// Shutdown: queued binding calls and the one in flight end as dropped calls.
     pub fn close(&self) {
         self.cancel.cancel();
@@ -374,24 +387,28 @@ impl CallDispatch {
                 "releaseSkipped": true
             }));
         }
-        let result = Scope::new().cancel(&self.cancel).run(self.plain(client, req)).await.done().ok_or_else(dropped)?;
+        if activating {
+            // Remote shows acquired before the bridge initialises its providers, as Node's daemon on the worker's
+            // `notifications/mixdog/remote` (`owned-start.mjs:56`, `remote-pointer.mjs` `acquireRemoteState`).
+            self.set_binding(Binding { remote_acquired: true, pinned_session_id: session.clone(), intent: binding.intent.clone() });
+        }
+        let result = Scope::new().cancel(&self.cancel).run(self.plain(client, req)).await.done();
         // A soft `isError` envelope is a failed call: it must leave the binding as it was.
         match &result {
-            Ok(value) if !is_soft_error(value) => {
+            Some(Ok(value)) if !is_soft_error(value) => {
                 if deactivating {
-                    *self.binding.lock().unwrap() = Binding::default();
+                    self.set_binding(Binding::default());
                     if let Some(file) = self.intent_file.get() {
                         file.clear("explicit Remote OFF").await;
                     }
-                    self.binding_changed();
                 } else if activating {
+                    // Acquired and pinned were announced before the call; the pin only adds the saved intent.
                     self.pin(session.expect("a manual ON names its session"), &req.args).await;
-                    self.binding_changed();
                 }
             }
-            _ => {}
+            _ => self.set_binding(binding),
         }
-        result
+        result.ok_or_else(dropped)?
     }
 
     /// `writeRemoteIntent`: the session is pinned; the intent is saved only when its transcript

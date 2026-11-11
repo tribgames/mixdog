@@ -77,13 +77,45 @@ fn truncate_for_embed(text: &str) -> String {
     if utf16_len(text) > limit { slice_utf16(text, limit) } else { text.to_owned() }
 }
 
-fn cache_max_rows() -> i64 {
-    std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS")
-        .ok()
-        .map(|raw| string_to_number(&raw))
-        .filter(|n| n.is_finite() && *n > 0.0)
-        .map_or(DEFAULT_CACHE_MAX_ROWS, |n| n.floor() as i64)
+/// `resolveEmbeddingCacheMaxRows`: a positive row count, else the default. A fraction below one is invalid like 0
+/// (Node floors it to a zero-row cap, which wipes the cache: the fix proposed in
+/// `node-fix-embedding-cache-max-rows.patch`).
+pub fn resolve_cache_max_rows(value: Option<&str>) -> i64 {
+    let rows = value.map_or(f64::NAN, string_to_number).floor();
+    if rows.is_finite() && rows > 0.0 { rows as i64 } else { DEFAULT_CACHE_MAX_ROWS }
 }
+
+/// What one cache prune did (`pruneEmbeddingCache`'s result).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PruneOutcome {
+    pub removed: i64,
+    pub truncated: bool,
+    pub remaining: i64,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// When set, each prune statement on this thread (text, and its one bound row count if any).
+    pub(crate) static PRUNE_STATEMENTS: std::cell::RefCell<Option<Vec<(&'static str, Option<i64>)>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn observe_prune(_sql: &'static str, _param: Option<i64>) {
+    #[cfg(test)]
+    PRUNE_STATEMENTS.with(|log| {
+        if let Some(log) = log.borrow_mut().as_mut() {
+            log.push((_sql, _param));
+        }
+    });
+}
+
+const PRUNE_COUNT_SQL: &str = "SELECT count(*)::bigint AS n FROM memory.embedding_cache";
+const PRUNE_TRUNCATE_SQL: &str = "TRUNCATE TABLE memory.embedding_cache";
+const PRUNE_DELETE_SQL: &str = "DELETE FROM memory.embedding_cache
+       WHERE ctid IN (
+         SELECT ctid FROM memory.embedding_cache
+         ORDER BY ctid ASC
+         LIMIT $1
+       )";
 
 fn parse_vector(text: &str) -> Vec<f32> {
     text.trim_start_matches('[').trim_end_matches(']').split(',').map(|n| string_to_number(n) as f32).collect()
@@ -95,24 +127,43 @@ pub struct RawEmbedFlush {
     provider: Option<Arc<EmbeddingProvider>>,
     cache_ready: AtomicBool,
     pruned_at: Mutex<Option<Instant>>,
+    /// The cache cap, read from `MIXDOG_EMBED_CACHE_MAX_ROWS` once (Node reads it at module load).
+    cache_max_rows: i64,
     /// The root flush running now, if any: `_flushInFlight`.
     roots_in_flight: Mutex<Option<root::Flight>>,
+    /// Each `flush` call (limit, ids), in order.
+    #[cfg(test)]
+    pub(crate) calls: Mutex<Vec<(usize, Option<Vec<i64>>)>>,
 }
 
 pub struct FlushOutcome {
     pub attempted: usize,
     pub embedded: usize,
+    /// The cache prune this flush ran, if one was due: what it removed, or the error it met (the flush goes on, as
+    /// Node's, which only logs it).
+    pub pruned: Option<Result<PruneOutcome>>,
 }
 
 impl RawEmbedFlush {
     pub fn new(db: Db, provider: Option<Arc<EmbeddingProvider>>) -> Self {
-        Self { db, provider, cache_ready: AtomicBool::new(false), pruned_at: Mutex::new(None), roots_in_flight: Mutex::new(None) }
+        Self {
+            db,
+            provider,
+            cache_ready: AtomicBool::new(false),
+            pruned_at: Mutex::new(None),
+            cache_max_rows: resolve_cache_max_rows(std::env::var("MIXDOG_EMBED_CACHE_MAX_ROWS").ok().as_deref()),
+            roots_in_flight: Mutex::new(None),
+            #[cfg(test)]
+            calls: Mutex::new(Vec::new()),
+        }
     }
 
     /// Embeds up to `limit` unembedded raw rows; `ids` restricts the claim to
     /// those rows (an empty list means nothing to do, never a backlog sweep).
     pub async fn flush(&self, limit: usize, ids: Option<&[i64]>) -> FlushOutcome {
-        let idle = FlushOutcome { attempted: 0, embedded: 0 };
+        #[cfg(test)]
+        self.calls.lock().expect("flush calls").push((limit, ids.map(<[i64]>::to_vec)));
+        let idle = FlushOutcome { attempted: 0, embedded: 0, pruned: None };
         if !onnx_runtime_supported() || ids.is_some_and(<[i64]>::is_empty) {
             return idle;
         }
@@ -120,7 +171,7 @@ impl RawEmbedFlush {
             tracing::warn!(%error, "[embed] raw flush: cache table failed");
             return idle;
         }
-        let (mut attempted, mut embedded, mut cursor) = (0usize, 0usize, 0i64);
+        let (mut attempted, mut embedded, mut cursor, mut pruned) = (0usize, 0usize, 0i64, None);
         while attempted < limit {
             let batch_cap = BATCH_SIZE.min(limit - attempted);
             let client = match self.db.client().await {
@@ -145,7 +196,7 @@ impl RawEmbedFlush {
             }
             cursor = claimed[claimed.len() - 1];
             attempted += claimed.len();
-            match self.sync_batch(&client, &claimed).await {
+            match self.sync_batch(&client, &claimed, &mut pruned).await {
                 Ok(written) => {
                     embedded += written;
                     let _ = client.batch_execute("COMMIT").await;
@@ -159,7 +210,7 @@ impl RawEmbedFlush {
                 break;
             }
         }
-        FlushOutcome { attempted, embedded }
+        FlushOutcome { attempted, embedded, pruned }
     }
 
     async fn claim(&self, client: &deadpool_postgres::Object, cap: usize, cursor: i64, ids: Option<&[i64]>) -> Result<Vec<i64>> {
@@ -189,7 +240,7 @@ impl RawEmbedFlush {
         Ok(client.query(&sql, &params).await?.iter().map(|row| row.get::<_, i64>(0)).collect())
     }
 
-    async fn sync_batch(&self, client: &deadpool_postgres::Object, ids: &[i64]) -> Result<usize> {
+    async fn sync_batch(&self, client: &deadpool_postgres::Object, ids: &[i64], pruned: &mut Option<Result<PruneOutcome>>) -> Result<usize> {
         let rows = client
             .query(
                 "SELECT id, role, content FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 0 AND chunk_root IS NULL",
@@ -208,7 +259,7 @@ impl RawEmbedFlush {
         let texts: Vec<String> =
             rows.iter().map(|(_, role, content)| if is_raw_embeddable(role, content) { js_trim(content).to_owned() } else { String::new() }).collect();
         let wanted: Vec<String> = texts.iter().filter(|t| !t.is_empty()).cloned().collect();
-        let vectors = self.cached_embed_batch(client, &wanted).await?;
+        let vectors = self.cached_embed_batch(client, &wanted, pruned).await?;
         let mut updates: Vec<(i64, String, String)> = Vec::new();
         let mut next = 0usize;
         for ((id, _, content), text) in rows.iter().zip(&texts) {
@@ -277,13 +328,19 @@ impl RawEmbedFlush {
     }
 
     /// One vector per text, in order: cache hits in one query, misses embedded
-    /// in batches and stored.
-    async fn cached_embed_batch(&self, client: &deadpool_postgres::Object, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+    /// in batches and stored. The model is loaded only for misses (Node keys the cache by the configured model id).
+    /// A prune that ran is put in `pruned`.
+    async fn cached_embed_batch(
+        &self,
+        client: &deadpool_postgres::Object,
+        texts: &[String],
+        pruned: &mut Option<Result<PruneOutcome>>,
+    ) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        let embedder = self.embedder().await?;
-        let model = embedder.model_id().to_owned();
+        let provider = self.provider.as_ref().ok_or_else(|| MemoryError::Embedding("no embedding model".into()))?;
+        let model = provider.model_id().to_owned();
         let entries: Vec<(String, Vec<u8>)> = texts
             .iter()
             .map(|t| {
@@ -304,6 +361,7 @@ impl RawEmbedFlush {
             .collect();
         let misses: Vec<&(String, Vec<u8>)> = entries.iter().filter(|(_, hash)| !found.contains_key(hash)).collect();
         if !misses.is_empty() {
+            let embedder = self.embedder().await?;
             let mut miss_hashes = Vec::new();
             let mut miss_sql = Vec::new();
             for chunk in misses.chunks(BATCH_SIZE) {
@@ -324,52 +382,59 @@ impl RawEmbedFlush {
                 )
                 .await?;
         }
-        self.maybe_prune().await;
+        if let Some(outcome) = self.maybe_prune(client).await {
+            *pruned = Some(outcome);
+        }
         Ok(entries.iter().map(|(_, hash)| found.get(hash).cloned().unwrap_or_default()).collect())
     }
 
     /// Row-count retention for the cache, at most once per interval: the
     /// oldest rows go first; far over the cap the regenerable table is truncated.
-    async fn maybe_prune(&self) {
+    /// It runs on the batch's connection, as Node's (a TRUNCATE on another one
+    /// would wait for this transaction's lock on the cache table).
+    async fn maybe_prune(&self, client: &deadpool_postgres::Object) -> Option<Result<PruneOutcome>> {
         {
             let mut at = self.pruned_at.lock().expect("prune clock");
             if at.is_some_and(|last| last.elapsed() < PRUNE_EVERY) {
-                return;
+                return None;
             }
             *at = Some(Instant::now());
         }
-        if let Err(error) = self.prune(cache_max_rows()).await {
+        let outcome = prune(client, self.cache_max_rows).await;
+        if let Err(error) = &outcome {
             mixdog_rt::memory_stderr!("[embed] cache prune skipped: {error}");
         }
+        Some(outcome)
     }
+}
 
-    async fn prune(&self, max_rows: i64) -> Result<()> {
-        let count: i64 = self.db.query("SELECT count(*)::bigint FROM memory.embedding_cache", &[]).await?[0].get(0);
-        let mut over = count - max_rows;
-        if over <= 0 {
-            return Ok(());
-        }
-        if count > max_rows * 2 {
-            self.db.batch("TRUNCATE TABLE memory.embedding_cache").await?;
-            return Ok(());
-        }
-        let mut guard = 0;
-        while over > 0 && guard < 1000 {
-            guard += 1;
-            let requested = PRUNE_BATCH.min(over);
-            let deleted = self
-                .db
-                .execute(
-                    "DELETE FROM memory.embedding_cache WHERE ctid IN (
-                       SELECT ctid FROM memory.embedding_cache ORDER BY ctid ASC LIMIT $1)",
-                    &[&requested],
-                )
-                .await?;
-            if deleted == 0 {
-                break;
-            }
-            over -= deleted as i64;
-        }
-        Ok(())
+/// `pruneEmbeddingCache` with Node's batch of 5000.
+async fn prune(client: &deadpool_postgres::Object, max_rows: i64) -> Result<PruneOutcome> {
+    observe_prune(PRUNE_COUNT_SQL, None);
+    let count: i64 = client.query(PRUNE_COUNT_SQL, &[]).await?[0].get(0);
+    let mut over = count - max_rows;
+    if over <= 0 {
+        return Ok(PruneOutcome { removed: 0, truncated: false, remaining: count });
     }
+    if count > max_rows * 2 {
+        observe_prune(PRUNE_TRUNCATE_SQL, None);
+        client.batch_execute(PRUNE_TRUNCATE_SQL).await?;
+        return Ok(PruneOutcome { removed: count, truncated: true, remaining: 0 });
+    }
+    let (mut removed, mut guard) = (0i64, 0);
+    while over > 0 && guard < 1000 {
+        guard += 1;
+        let requested = PRUNE_BATCH.min(over);
+        observe_prune(PRUNE_DELETE_SQL, Some(requested));
+        let deleted = client.execute(PRUNE_DELETE_SQL, &[&requested]).await? as i64;
+        if deleted == 0 {
+            break;
+        }
+        removed += deleted;
+        over -= deleted;
+    }
+    Ok(PruneOutcome { removed, truncated: false, remaining: (count - removed).max(0) })
+}
+
+impl RawEmbedFlush {
 }
