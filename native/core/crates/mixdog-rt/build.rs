@@ -8,4 +8,6 @@ mod dev_only;
 
 fn main() {
     dev_only::refuse_in_release(&["test-support", "virtual-clock"]);
+    // Set by the feature-off test command (Cargo.toml, `[target.'cfg(mixdog_rt_feature_off)'.dev-dependencies]`).
+    println!("cargo::rustc-check-cfg=cfg(mixdog_rt_feature_off)");
 }
