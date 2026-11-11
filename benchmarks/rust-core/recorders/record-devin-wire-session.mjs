@@ -10,7 +10,8 @@ const rec = await startRecording({
   set: 'provider-devin-wire-session',
   net: false,
   entry: 'devin-wire-session.mjs normalizeDevinSessionToken, devinRequestMetadata, exchangeDevinUserJwt({ sessionToken, fetchFn }), validateDevinApiHost; devin-wire-protobuf.mjs encode/decodeDevinMessage for the scripted replies and the recorded request metadata. Not run: a live endpoint.',
-  replay: 'mixdog-ai providers::devin session.rs (:276-291, :332-339): feed `input` and compare `result`/`error` (code, status, detail) and `calls` (url, headers, redirect, body hex, decoded metadata) in order. `os` in the metadata is the platform the recording ran on (windows): a replay on another platform compares everything but metadata.os.',
+  compare: 'mixdog-ai providers::devin session.rs (:276-291, :332-339): feed `input` and compare `result`/`error` (code, status, detail) and `calls` (url, headers, redirect, body hex, decoded metadata) in order. `os` in the metadata is the platform the recording ran on (windows): a replay on another platform compares everything but metadata.os.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::devin::DevinAdapter (devin/mod.rs:165), DevinCodec (devin/mod.rs:88) and DevinDecoder (devin/decoder.rs:48), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). The session login (JWT exchange) has no pub item located (devin/session.rs is private): work for the Rust side.",
 });
 const P = 'agent/orchestrator/providers/';
 const { decodeDevinMessage, encodeDevinMessage } = await rec.P(`${P}devin-wire-protobuf.mjs`);
