@@ -1857,16 +1857,16 @@
         "deterministicHasModelProxyPermission": false,
         "deterministicHasModelProxyWait": false,
         "deterministicKinds": [
-          "auth",
-          "billing",
-          "context_overflow",
-          "entitlement",
-          "invalid_request",
-          "permission",
-          "policy",
           "quota_exhausted",
+          "entitlement",
+          "billing",
+          "policy",
+          "auth",
+          "permission",
+          "context_overflow",
           "request_too_large",
-          "service_tier_unavailable"
+          "service_tier_unavailable",
+          "invalid_request"
         ]
       }
     },

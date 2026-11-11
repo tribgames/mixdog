@@ -89,7 +89,7 @@ await set.run('typed codes classify errors; the wait and reset time are shown wh
 await set.run('a 403 keeps its account-permission reading: no model-proxy gate kind exists', () => ({
   forbidden: probe(E('forbidden', { status: 403 })),
   deterministicHasModelProxyPermission: DETERMINISTIC_KINDS.has('model_proxy_permission'), deterministicHasModelProxyWait: DETERMINISTIC_KINDS.has('model_proxy_wait'),
-  deterministicKinds: [...DETERMINISTIC_KINDS].sort(),
+  deterministicKinds: [...DETERMINISTIC_KINDS],
 }));
 await set.run('a persisted kind beats auth wording in the text', () => probes([D('Overloaded: invalid API key echoed', { kind: 'overloaded' }), S('invalid API key')]));
 await set.run('typed kinds skip every wording heuristic; wording only serves untyped items', () => probes([

@@ -11,7 +11,7 @@
     {
       "bytes": 272152,
       "path": "golden.json",
-      "sha256": "c5799fe103f31191ba7446ca41666219ed23df569fa1bdc086df861c39262b73"
+      "sha256": "dd71b5c49ce98797e1f8cbf55286de258130d40e9589f40d51616aa634d97fb9"
     }
   ],
   "inputs": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-error-presentation-cases.mjs",
-  "recorderSha256": "ff7cbbb032ddf0cfc9950d06a19bfb00fdafa42dff43427029cced06fc04f8cd",
+  "recorderSha256": "8470ae8e0310ad978e5b49e8b28938b38a367ce677c4b06cbb998a6361ed5c33",
   "replay": {
     "compare": "mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe",
     "entry": "Drive these public items on o1: mixdog-ai/src/service/error_text.rs:174 present_error_text; mixdog-ai/src/service/error_text.rs:346 safe_error_details.",
