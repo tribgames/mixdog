@@ -118,19 +118,112 @@ fn watched(config: &Config, cancel: &CancellationToken) -> (tokio::task::JoinHan
     (watch, Reloads { calls, seen: Vec::new() })
 }
 
+/// The instance id every guard of the replay creates (a UUID, as Node's `randomUUID`; written <instance-id> as Node's).
+const INSTANCE: &str = "00000000-0000-4000-8000-000000000000";
+
+/// One process's user-data guard over the replay's backup root: its own sequence, as each Node process has; the clock is
+/// the replay's one virtual clock, a millisecond further at every read (Node's backups were named by a clock that moved).
+fn guard_of(root: &std::path::Path, clock: &Arc<std::sync::atomic::AtomicI64>) -> Arc<mixdog_core_config::user_data::UserData> {
+    use mixdog_core_config::user_data::{Env, UserData};
+    let backups = root.join("backups").display().to_string();
+    let clock = clock.clone();
+    Arc::new(UserData::new(
+        Env::new(move |name| (name == "MIXDOG_USER_DATA_BACKUP_ROOT").then(|| backups.clone()), Some(root.join("home"))),
+        move || clock.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+        || INSTANCE.to_owned(),
+        |_| {},
+    ))
+}
+
+/// `text` with what Node's recorder normalised: the data dir (as JSON writes it), UUIDs, ISO timestamps.
+fn normalised(text: &str, data_dir: &str) -> String {
+    let escaped = serde_json::to_string(data_dir).unwrap();
+    let text = text.replace(&escaped[1..escaped.len() - 1], "<data-dir>");
+    let (bytes, mut out, mut i) = (text.as_bytes(), String::new(), 0);
+    let shape = |at: usize, pattern: &str| -> bool {
+        bytes.len() >= at + pattern.len()
+            && pattern.bytes().zip(&bytes[at..at + pattern.len()]).all(|(p, b)| match p {
+                b'h' => b.is_ascii_digit() || (b'a'..=b'f').contains(b),
+                b'd' => b.is_ascii_digit(),
+                literal => literal == *b,
+            })
+    };
+    while i < bytes.len() {
+        if shape(i, "hhhhhhhh-hhhh-hhhh-hhhh-hhhhhhhhhhhh") {
+            out.push_str("<instance-id>");
+            i += 36;
+        } else if shape(i, "dddd-dd-ddTdd:dd:dd.dddZ") {
+            out.push_str("<time>");
+            i += 24;
+        } else {
+            let c = text[i..].chars().next().unwrap();
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
+/// Every file under `base` (names sorted, folders walked in place), paths `/`-joined, texts normalised: Node's `walk`.
+#[allow(clippy::disallowed_methods, reason = "test: reads the replay's own temp directory")]
+fn walk(base: &std::path::Path, data_dir: &str) -> Vec<Value> {
+    fn visit(dir: &std::path::Path, base: &std::path::Path, data_dir: &str, out: &mut Vec<Value>) {
+        let mut names: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        names.sort();
+        for name in names {
+            let full = dir.join(&name);
+            if std::fs::metadata(&full).unwrap().is_dir() {
+                visit(&full, base, data_dir, out);
+            } else {
+                let path = full.strip_prefix(base).unwrap().components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+                out.push(json!({ "path": path, "text": normalised(&String::from_utf8(std::fs::read(&full).unwrap()).unwrap(), data_dir) }));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if std::fs::metadata(base).is_ok() {
+        visit(base, base, data_dir, &mut out);
+    }
+    out
+}
+
+/// The data dir and the backups, as Node's recorder lists them (backup folders: `scope-<hash>` as <scope>, the time in
+/// `<time>-<seq>-<kind>` as <time>).
+fn disk(root: &std::path::Path) -> Value {
+    let data = root.join("data");
+    let shown = data.display().to_string();
+    let backups: Vec<Value> = walk(&root.join("backups"), &shown)
+        .into_iter()
+        .map(|mut file| {
+            let path = file["path"].as_str().unwrap().to_owned();
+            let mut parts: Vec<String> = path.split('/').map(str::to_owned).collect();
+            if parts[0].starts_with("scope-") {
+                parts[0] = "<scope>".into();
+                if let Some(at) = parts.get(1).and_then(|name| name.find("Z-")) {
+                    parts[1] = format!("<time>-{}", &parts[1][at + 2..]);
+                }
+            }
+            file["path"] = json!(parts.join("/"));
+            file
+        })
+        .collect();
+    json!({ "dataDir": walk(&data, &shown), "backups": backups })
+}
+
 /// Node's config reload watch (config-reload-watch.mjs over the shared config change feed), recorded by
-/// `record-channels-config-reload-order.mjs` (`fixtures/channels-config-reload-order`, cases 55 and 75): the reload count
-/// after every step equals Node's. Another process's write is Node's recorded file, put in place by rename as Node's writer
-/// does and heard through the real file watch; the in-process writes go through `Config::update`. Node's absences are proven
-/// as Node's recorder proves them: the agent write's step is read before the voice write, whose reload is then the first,
-/// and the stopped watch is read right after the write.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+/// `record-channels-config-reload-order.mjs` (`fixtures/channels-config-reload-order`, cases 55 and 75), compared whole
+/// after every step: the reload count and the files on disk (the data dir and the user-data backups). Another process's
+/// write is another core's `Config` (its own opening and guard, as Node's child process had), heard through the real file
+/// watch; the in-process writes go through the watched `Config`. Node's absences are proven as Node's recorder proves them:
+/// the agent write's step is read before the voice write, whose reload is then the first, and the stopped watch is read
+/// right after the write.
+///
+/// One thread: the lane jobs run inline, so the other process's whole write (file and snapshots) ends before the watch's
+/// reload reads, as Node's parent, which never read, could not see a write half done.
+#[tokio::test(flavor = "current_thread")]
 async fn a_config_edit_reloads_the_channels_runtime_as_node_does() {
     let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/channels-config-reload-order/golden.json")).unwrap();
     let cases = golden["cases"].as_array().unwrap();
-    let file_of = |step: &Value| -> String {
-        step["disk"]["dataDir"].as_array().unwrap().iter().find(|f| f["path"] == "mixdog-config.json").unwrap()["text"].as_str().unwrap().to_owned()
-    };
     let set = |config: &Config, section: &'static str, key: &'static str, value: Value| {
         let config = config.clone();
         async move {
@@ -144,42 +237,46 @@ async fn a_config_edit_reloads_the_channels_runtime_as_node_does() {
                 .unwrap();
         }
     };
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mixdog-config.json");
-    let config = open(dir.path(), None).await;
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    std::fs::create_dir(&data).unwrap();
+    let clock = Arc::new(std::sync::atomic::AtomicI64::new(1_700_000_000_000));
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let core = guard_of(root.path(), &clock);
+    let (config, _) = Config::open_guarded(data.join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes, core).await.unwrap();
     let _file_watch = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
 
     // Case 55.
     let steps = cases[0]["steps"].as_array().unwrap();
     let cancel = CancellationToken::new();
     let (watch, mut reloads) = watched(&config, &cancel);
-    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now()}), json!({"step": steps[0]["step"], "reloads": steps[0]["reloads"]}));
+    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now(), "disk": disk(root.path())}), steps[0]);
     for (write, step) in steps[1..4].iter().enumerate() {
-        let staged = dir.path().join(format!("mixdog-config.json.{write}.tmp"));
-        std::fs::write(&staged, file_of(step)).unwrap();
-        std::fs::rename(&staged, &path).unwrap();
+        // Another process: its own opening and guard, one write of the section, then gone.
+        let other = guard_of(root.path(), &clock);
+        let (writer, _) = Config::open_guarded(data.join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes, other).await.unwrap();
+        set(&writer, "channels", "revision", json!(write + 1)).await;
+        drop(writer);
         let got = reloads.reached(write + 1, step["step"].as_str().unwrap()).await;
-        assert_eq!(json!({"step": step["step"], "reloads": got}), json!({"step": step["step"], "reloads": step["reloads"]}));
+        assert_eq!(json!({"step": step["step"], "reloads": got, "disk": disk(root.path())}), *step);
     }
     cancel.cancel();
     watch.await.unwrap();
     let before_stop = reloads.now();
     set(&config, "channels", "revision", json!(4)).await;
     let step = &steps[4];
-    assert_eq!(
-        json!({"step": step["step"], "reloadsBeforeStop": before_stop, "reloadsAfterTheWrite": reloads.now()}),
-        json!({"step": step["step"], "reloadsBeforeStop": step["reloadsBeforeStop"], "reloadsAfterTheWrite": step["reloadsAfterTheWrite"]}),
-    );
+    assert_eq!(json!({"step": step["step"], "reloadsBeforeStop": before_stop, "reloadsAfterTheWrite": reloads.now(), "disk": disk(root.path())}), *step);
 
     // Case 75, on the same file.
     let steps = cases[1]["steps"].as_array().unwrap();
     let cancel = CancellationToken::new();
     let (watch, mut reloads) = watched(&config, &cancel);
     set(&config, "agent", "promptCacheWarming", json!(false)).await;
-    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now()}), json!({"step": steps[0]["step"], "reloads": steps[0]["reloads"]}));
+    assert_eq!(json!({"step": steps[0]["step"], "reloads": reloads.now(), "disk": disk(root.path())}), steps[0]);
     set(&config, "voice", "language", json!("ko")).await;
     let got = reloads.reached(1, "the reload after the voice change").await;
-    assert_eq!(json!({"step": steps[1]["step"], "reloads": got}), json!({"step": steps[1]["step"], "reloads": steps[1]["reloads"]}));
+    assert_eq!(json!({"step": steps[1]["step"], "reloads": got, "disk": disk(root.path())}), steps[1]);
     // A reload the agent write had made would have run before the voice write and read no voice section.
     assert_eq!(reloads.seen, vec![json!({"language": "ko"})], "the first reload is the voice write's");
     cancel.cancel();
