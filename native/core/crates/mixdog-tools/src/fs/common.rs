@@ -234,25 +234,28 @@ pub(crate) enum PullEnd {
 }
 
 /// Pulls `source` into `sink` until it ends, `sink` returns `false`, the call
-/// is cancelled or the deadline passes. Dropping the source cancels it.
+/// is cancelled or the deadline passes, then closes it: nothing of its
+/// producer runs once this returns, as Node ends its search child.
 pub(crate) async fn pull_all<T: Send>(
     ctx: &ToolContext,
     source: &mut dyn EventSource<T>,
     mut sink: impl FnMut(T) -> bool,
 ) -> PullEnd {
-    loop {
+    let end = loop {
         let next = guarded(ctx, "pull", source.next()).await;
         match next {
             Ok(Some(item)) => {
                 if !sink(item) {
-                    return PullEnd::Exhausted;
+                    break PullEnd::Exhausted;
                 }
             }
-            Ok(None) => return PullEnd::Exhausted,
-            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => return PullEnd::Cancelled,
-            Err(_) => return PullEnd::Deadline,
+            Ok(None) => break PullEnd::Exhausted,
+            Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => break PullEnd::Cancelled,
+            Err(_) => break PullEnd::Deadline,
         }
-    }
+    };
+    source.close().await;
+    end
 }
 
 // ---- paths ----

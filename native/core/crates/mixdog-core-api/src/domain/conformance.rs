@@ -1121,6 +1121,7 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 exclude_globs: Vec::new(),
                 include_hidden: false,
                 respect_ignore: false,
+                limit: None,
             },
         )
         .as_mut(),
@@ -1142,6 +1143,7 @@ pub async fn check_file_service(fs: &dyn FileService, lanes: FsLanes, root: AbsP
                 exclude_globs: Vec::new(),
                 include_hidden: false,
                 respect_ignore: false,
+                limit: None,
             },
         )
         .as_mut(),

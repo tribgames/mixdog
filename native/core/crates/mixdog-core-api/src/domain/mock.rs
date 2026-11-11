@@ -1093,6 +1093,7 @@ impl FileService for MockFileService {
                 }
             }
         }
+        matches.truncate(request.limit.unwrap_or(usize::MAX));
         Box::new(VecSource::new(matches))
     }
 }

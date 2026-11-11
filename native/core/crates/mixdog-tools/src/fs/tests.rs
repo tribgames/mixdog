@@ -419,6 +419,24 @@ async fn grep_renders_as_node_does() {
     replay_fs_search("grep-render").await;
 }
 
+/// A grep over far more matches than its window: the scan produces exactly the anchor stream's bound (`limit: 10`:
+/// `min(4000, max(200, 0 + 10 + 4)) + 1` = 201 of 20,000 matches, no margin), and when the call returns no producer of
+/// the search is alive.
+#[tokio::test]
+async fn a_grep_scan_ends_at_its_window_and_before_the_call_returns() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(mixdog_workspace::pathguard::canonical(dir.path()).unwrap()).unwrap();
+    let body: String = (0..200).map(|i| format!("needle {i}\n")).collect();
+    for f in 0..100 {
+        std::fs::write(root.join(&format!("f{f:03}.txt")).as_path(), &body).unwrap();
+    }
+    let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), Vec::new()).await;
+    let (failed, text) = text_of(GrepTool::new().call(&ctx, serde_json::json!({ "pattern": "needle", "limit": 10 })).await);
+    assert!(!failed && text.contains("[warning] anchor output capped at 200 matches"), "{text}");
+    let probe = mixdog_workspace::localfs::probe::search(root.as_path());
+    assert_eq!(probe, mixdog_workspace::localfs::probe::SearchProbe { found: 201, live: 0 });
+}
+
 /// Every non-string path shape (array, number, object, boolean, null, blank, blank-only and nested arrays) at list,
 /// find, glob, grep, read, edit and code_graph: refused, read as the cwd, or (grep) taken as several scopes, as Node's
 /// argument normalisation and guards answer it.
