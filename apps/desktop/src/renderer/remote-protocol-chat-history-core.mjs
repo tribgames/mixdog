@@ -158,15 +158,28 @@ const kinds = (entries) => ({ state: entries.filter((e) => e.kind === 'state').l
  * A Node entry the core has nothing for in its place (a state it never published, a reply that came before a state Node published
  * first) is a difference of path `missing`. Each difference: `{ entry: Node's position, kind, input?, path, node, core }`.
  */
-export function alignHistory(node, core) {
+export function alignHistory(node, raw) {
   const MISSING = 1_000_000;
+  // The core's side of the declared submit ordering (replayCase's `compared`): of the thread's states the phone folded before the
+  // submitNewTask reply, the last, after the reply.
+  const reply = raw.findIndex((e) => e.kind === 'reply' && e.input === 'phone.submitNewTask');
+  const before = raw.slice(0, Math.max(reply, 0)).filter((e) => e.kind === 'state');
+  const core = reply < 0 ? raw : [...raw.slice(0, reply).filter((e) => e.kind !== 'state'), raw[reply], ...before.slice(-1), ...raw.slice(reply + 1)];
+  // The pairing is chosen by this branch's fields: a difference in hw-phone-worktree-args's fields (or a state Node published for them
+  // alone) is reported but does not move the pairing.
+  const own = (d) => {
+    const path = d.path.replace(/^\.reply\.snapshot/, '');
+    return !OTHER_BRANCH_FIELDS.has(path.split('.')[1]) && path !== '.autoClear.provider';
+  };
+  const othersMissing = 1;
   const pairs = node.map((want) => core.map((got) => (got.kind !== want.kind || got.input !== want.input ? null : allDifferences(want.value, got.value))));
+  const pairCost = (d) => d.filter(own).length;
   // cost[i][j]: the least cost of Node's first i entries against the core's first j.
   const cost = Array.from({ length: node.length + 1 }, (_, i) => Array.from({ length: core.length + 1 }, (_, j) => (i === 0 ? 0 : j === 0 ? i * MISSING : Infinity)));
   const step = Array.from({ length: node.length + 1 }, () => new Array(core.length + 1).fill(''));
   for (let i = 1; i <= node.length; i += 1) {
     for (let j = 1; j <= core.length; j += 1) {
-      const options = [['pair', pairs[i - 1][j - 1] ? cost[i - 1][j - 1] + pairs[i - 1][j - 1].length : Infinity], ['skip', cost[i][j - 1]], ['missing', cost[i - 1][j] + MISSING]];
+      const options = [['pair', pairs[i - 1][j - 1] ? cost[i - 1][j - 1] + pairCost(pairs[i - 1][j - 1]) : Infinity], ['skip', cost[i][j - 1]], ['missing', cost[i - 1][j] + (node[i - 1].othersOnly ? othersMissing : MISSING)]];
       const [move, value] = options.reduce((best, o) => (o[1] < best[1] ? o : best));
       cost[i][j] = value;
       step[i][j] = move;
@@ -179,7 +192,7 @@ export function alignHistory(node, core) {
     const move = j === 0 ? 'missing' : step[i][j];
     if (move === 'skip') j -= 1;
     else if (move === 'missing') {
-      differences.unshift({ ...label, path: 'missing', node: want.value, core: null });
+      differences.unshift({ ...label, path: want.othersOnly ? 'missing (hw-phone-worktree-args fields only)' : 'missing', node: want.value, core: null });
       i -= 1;
     } else {
       differences.unshift(...pairs[i - 1][j - 1].map((d) => ({ ...label, ...d })));
