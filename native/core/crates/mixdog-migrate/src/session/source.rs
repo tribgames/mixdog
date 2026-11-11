@@ -819,8 +819,9 @@ struct Spool<'a> {
 
 #[derive(Deserialize)]
 struct Workers<'a> {
+    /// A list or an id-keyed map (`workerRows`, `store-agent-worker-rows.mjs:269`).
     #[serde(borrow, default)]
-    workers: HashMap<String, &'a RawValue>,
+    workers: Option<&'a RawValue>,
     #[serde(borrow, default)]
     tombstones: Option<&'a RawValue>,
 }
@@ -846,6 +847,19 @@ fn index_rows(raw: Option<&RawValue>) -> serde_json::Result<Vec<&RawValue>> {
     }
 }
 
+/// An index's `workers`: a list in its order, or a map's rows by sorted key (of two rows naming one session the
+/// first stays); anything else has none.
+fn worker_rows(raw: Option<&RawValue>) -> serde_json::Result<Vec<&RawValue>> {
+    match raw.map(|r| r.get().trim_start()) {
+        Some(text) if text.starts_with('[') => serde_json::from_str(text),
+        Some(text) if text.starts_with('{') => {
+            let rows: std::collections::BTreeMap<String, &RawValue> = serde_json::from_str(text)?;
+            Ok(rows.into_values().collect())
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
 /// Session id → release marker; anything but an object has none (`parseReleased`).
 fn released_entries(raw: Option<&RawValue>) -> serde_json::Result<HashMap<String, &RawValue>> {
     match raw.map(|r| r.get().trim_start()) {
@@ -865,7 +879,7 @@ pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<(Vec<String>, Vec<
     } else if name.ends_with(AGENT_WORKERS) || name.ends_with(LEAD_WORKERS) {
         let workers: Workers<'_> = serde_json::from_str(text).ok()?;
         let mut ids = Vec::new();
-        for raw in workers.workers.values() {
+        for raw in worker_rows(workers.workers).ok()? {
             let row = json::parse_source(raw.get().as_bytes()).ok()?.value;
             if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
                 ids.push(id.to_string());
@@ -1054,11 +1068,9 @@ fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile
         let Some(text) = read(name)? else { continue };
         let workers: Workers<'_> = serde_json::from_str(&text).map_err(|e| bad(name, &e))?;
         if row.is_none() {
-            let mut keys: Vec<&String> = workers.workers.keys().collect();
-            keys.sort();
-            for key in keys {
+            for raw in worker_rows(workers.workers).map_err(|e| bad(name, &e))? {
                 let mut count = 0;
-                let found = parse(workers.workers[key].get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
+                let found = parse(raw.get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
                 if found.get("sessionId").and_then(Value::as_str) == Some(id) {
                     *replaced += count;
                     row = Some(found);

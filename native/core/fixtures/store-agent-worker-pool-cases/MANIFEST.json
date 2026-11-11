@@ -10,9 +10,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3197849,
+      "bytes": 5733973,
       "path": "golden.json",
-      "sha256": "d71c93e138bfe8db242f6a83b1249473644f20d828f2879821f383851f112a49"
+      "sha256": "af1ffafa95ae2e69b8871fb6f1f5df864741e9371afa67b92203a53fcb487f85"
     }
   ],
   "inputs": [
@@ -68,18 +68,23 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-store-agent-worker-pool-cases.mjs",
-  "recorderSha256": "5dcca40186a86ad0b5aaf47790086f3e79f36a88634a25e35e49c88d432bbbf1",
+  "recorderSha256": "946451c04664dacf4d4d033479f6e3e9b1fcb2d50e4ba2ff89cc7b6446aef43e",
   "replay": {
-    "compare": "mixdog-core-agents pool_list.rs: write the recorded store (the per-case files named in the case) and compare each listing, the link list, the reads count after a restart and the persisted-cache decisions; the fs-call bound is a bound, not a count",
+    "compare": "native/core/crates/mixdog-core/src/run_host/pool_list_replay.rs: each recorded store (the per-case files named in the case) is written as Node's data dir, migrated as the core does at its first start and opened through the real store; every listing is AgentPool::list over run_host/pool_inputs.rs RegistryPoolStore (what agent/pool/list answers with, composed as compose_flip.rs) and is compared whole",
     "entry": "Drive these public items on o1: mixdog-core-agents/src/agents/pool_list.rs:139 AgentPool (new (pool_list.rs:619), list (pool_list.rs:624); re-exported by agents/mod.rs:50).",
-    "notReplayed": "Cases 0-7. Their subject is store-agent-worker-rows.mjs, a reader of the files agent-workers.json, lead-workers.json and sessions/<id>.json that re-reads them by file stamp and persists agent-worker-header-cache.json. The core has no such reader: migration folds the two indexes into the session headers and retires the cache file (mixdog-migrate/src/stores.rs RETIRED_FILES; session/agent_registry/lead_row.rs), and AgentPool reads its index from the registry's maps (mixdog-core/src/run_host/pool_inputs.rs RegistryPoolStore, mixdog-core-session/src/session/agent_registry/pool_docs.rs pool_index), so stamps, read counts, fs-call counts and the cache file have no Rust value to compare. The listings alone cannot be fed either: the session records they read are written by the recorder's code (churnSessionRecord, persistRecord, the inline records of cases 2, 3, 4 and 7) and are not in golden.json, and the rewrites of cases 1 and 4 are named only in step text.",
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the persisted header cache, the link list and the stat / read counters: no counterpart found"
+      "the persisted header cache, the link list and the stat / read / fs-call counters: the format of Node's listing, no counterpart in the core"
     ],
     "normalised": {
       "dataDir": "temp, not in the recording"
     },
+    "notReplayed": [
+      {
+        "cases": "0 (round 5), 5 (phases.changedWhileDown)",
+        "reason": "the store holds an agent-workers.json row whose session record was deleted (churn-22; persist-08) and Node lists it with a null title and usage. The core keeps a worker row in its session's header and the migration drops a row no session owns (native/core/crates/mixdog-migrate/src/session/mod.rs:240), so the core lists none of them: a design decision for the Lead"
+      }
+    ],
     "protocolMethods": [],
     "rustTargets": [
       {
@@ -92,6 +97,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "store-agent-worker-pool-cases",
-  "totalBytes": 3197849,
+  "totalBytes": 5733973,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
