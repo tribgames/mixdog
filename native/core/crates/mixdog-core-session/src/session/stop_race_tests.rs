@@ -142,6 +142,15 @@ async fn a_stopped_runtime_prompt_runs_again() {
     // A kickoff reaches the model only (`submission.mjs:17-20`): neither turn shows a user bubble (recorded: `running-runtime-turn`'s
     // transcript is empty while the requeued turn runs).
     assert!(!view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { .. })), "no user bubble: {:?}", view.items);
+    // Node pushes no row for a kickoff, so nothing flushes its turn's start at once, no row leaves the screen at its rewind, and
+    // the entry put back is no queue row (`isQueuedEntryVisible`; recorded: `running-runtime-turn` shows the session idle in the
+    // submit's answer, `structureRevision` 0 and an empty `queued` throughout).
+    let frames = rig.feeds.frames(handle.id.as_str());
+    let methods: Vec<&str> = frames.iter().map(|(_, method, _)| method.as_str()).collect();
+    assert!(!methods.contains(&"thread/historyReset"), "no row left the screen: {methods:?}");
+    assert!(!methods.contains(&"thread/queue/changed"), "the kickoff put back is no queue row: {methods:?}");
+    let busy: Vec<&Value> = frames.iter().filter(|(_, method, params)| method == "thread/runtime/updated" && params["value"]["busy"] == json!(true)).map(|(_, _, params)| params).collect();
+    assert!(busy.is_empty(), "a kickoff's start is published with the runtime's next change: {busy:?}");
 }
 
 /// An inline pasted text is stored at intake (`materializePastedTexts`, attachments/store.mjs:466-499): the turn reads it by its
