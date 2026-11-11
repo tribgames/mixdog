@@ -191,6 +191,9 @@ mod session_view;
 
 pub struct HostRunParts {
     services: HostServices,
+    /// Each thread's `_providerPrefixGuardState`: the fingerprint of the request its last completed turn settled on, in memory
+    /// only (Node never stores it).
+    prefix_guards: std::sync::Mutex<std::collections::HashMap<ThreadId, mixdog_agent::prefix_guard::Snapshot>>,
 }
 
 /// The thread a Codex request names. Node's `codexWireSendOpts` fixes the wire window at `<wire id>:0` whatever the
@@ -229,7 +232,11 @@ pub(crate) fn apply_identity(options: &mut mixdog_core_api::domain::provider::Re
 
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
-        Self { services }
+        Self { services, prefix_guards: std::sync::Mutex::default() }
+    }
+
+    fn prefix_guards(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<ThreadId, mixdog_agent::prefix_guard::Snapshot>> {
+        self.prefix_guards.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -493,6 +500,18 @@ impl RunParts for HostRunParts {
         self.services.seams.first_response_timeout_ms(agent).await
     }
 
+    fn keep_prefix_guard(&self, thread: &ThreadId, guard: Option<mixdog_agent::prefix_guard::Snapshot>) {
+        let mut guards = self.prefix_guards();
+        match guard {
+            Some(guard) => {
+                guards.insert(thread.clone(), guard);
+            }
+            None => {
+                guards.remove(thread);
+            }
+        }
+    }
+
     async fn record_applied_skills(&self, thread: &ThreadId, item: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), TurnError> {
         let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         mixdog_core_session::session::thread_switches::record_applied_skills(&directory, thread, item, names).await.map_err(|error| refuse(error.to_string()))
@@ -615,6 +634,13 @@ impl RunParts for HostRunParts {
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
         config.slot = input.slot;
+        // `loop-state.mjs`: a compaction between turns parked a one-shot intent; the turn's first send takes it and the record
+        // drops it.
+        if let Some(intent) = header.get("pendingCacheBreakIntent").and_then(Value::as_str) {
+            config.cache_break_intent = Some(intent.to_owned());
+            let change = mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: vec!["pendingCacheBreakIntent".into()] };
+            input.port.save_header(change).await.map_err(|_| refuse("the session's pending cache break could not be taken"))?;
+        }
 
         // The gate needs the observer and the token, which the factory makes after this: it is
         // built from them.
@@ -696,7 +722,7 @@ impl RunParts for HostRunParts {
                 &cwd.to_string_lossy(),
             ))),
             blobs: s.blobs.clone(),
-            carry: RunCarry::from_saved(header),
+            carry: RunCarry { prefix_guard: self.prefix_guards().get(thread).cloned(), ..RunCarry::from_saved(header) },
         })
     }
 }

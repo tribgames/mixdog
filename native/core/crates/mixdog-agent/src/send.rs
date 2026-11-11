@@ -307,6 +307,9 @@ impl Run {
             // Calls a dead attempt started are dropped with it.
             self.drop_eager();
             let request = Arc::new(self.build_request());
+            self.prepare_prefix_guard(&request);
+            // A restarted process compares its first request with the last prefix fingerprint the record kept.
+            mixdog_ai::providers::anthropic::prefix_trace::seed(self.config.thread_id.as_str(), self.carry.cache.prefix_baseline.as_ref());
             self.last_request = Some(request.clone());
             if self.side_ticket.is_none() && let Some(tap) = &self.env.side {
                 self.side_ticket = Some(tap.begin(&request));
@@ -318,6 +321,7 @@ impl Run {
                 Ok(response) => {
                     // A completed send ends the outage the budgets covered.
                     self.retry = RetryStates::new(&self.model);
+                    self.settle_prefix(&response);
                     if self.image_strip_active
                         && let Some(sent) = self.last_request.clone()
                     {
@@ -333,7 +337,10 @@ impl Run {
                 Err(failure) => failure,
             };
             match self.recover(*failure).await? {
-                Recovery::Proceed(response) => return Ok(SendResult::Proceed(response)),
+                Recovery::Proceed(response) => {
+                    self.settle_prefix(&response);
+                    return Ok(SendResult::Proceed(response));
+                }
                 Recovery::Replay => continue,
                 Recovery::Rebuilt => {
                     if let Some(group) = self.send_group.take() {
@@ -346,9 +353,109 @@ impl Run {
         }
     }
 
+    /// `projectProviderRequest`'s prefix guard: the request's fingerprint against the one the session last settled on; a
+    /// break is traced once per turn (`cacheBreakTracer`). The tail reminder rides the request alone and is not part of it.
+    fn prepare_prefix_guard(&mut self, request: &ModelRequest) {
+        let messages = match request.messages.split_last() {
+            Some((last, rest)) if last.source == Some(mixdog_core_api::domain::provider::MessageSource::TailReminder) => rest,
+            _ => &request.messages[..],
+        };
+        let provider = self.provider.id().as_str().to_owned();
+        let next = crate::prefix_guard::snapshot(messages, &request.tools, &request.options.hosted_tools, &provider, &self.model);
+        let intent = self.cache_break_intent.clone();
+        let options = crate::prefix_guard::GuardOptions {
+            provider: &provider,
+            model: &self.model,
+            intent: intent.as_deref(),
+            mutation_source: (intent.as_deref() == Some("transcript_rebuild")).then_some("transcript_rebuild"),
+        };
+        if let Some(details) = crate::prefix_guard::compare(self.carry.prefix_guard.as_ref(), &next, &options)
+            && self.cache_break_keys.insert(crate::prefix_guard::trace_key(&details))
+            && let Some(log) = &self.env.failures
+        {
+            let mut record = serde_json::Map::new();
+            record.insert("sessionId".into(), serde_json::json!(self.config.thread_id.as_str()));
+            record.insert("iteration".into(), serde_json::json!(self.iterations + 1));
+            record.insert("intentionalTransition".into(), intent.map_or(serde_json::Value::Null, serde_json::Value::String));
+            record.extend(details);
+            log.cache_break(record);
+        }
+        self.guard_candidate = Some(next);
+    }
+
+    /// `settleSendResult` for a completed send: the request becomes the session's prefix baseline, the usage-based cache
+    /// miss check runs (`traceActualCacheMiss`), and the one-shot intent is spent.
+    fn settle_prefix(&mut self, response: &ModelResponse) {
+        let previous_guard = std::mem::replace(&mut self.carry.prefix_guard, self.guard_candidate.take());
+        let previous_send_at = self.carry.cache.last_send_at;
+        let sent_at = self.request_started_ms as f64;
+        self.carry.cache.last_send_at = Some(sent_at);
+        self.trace_actual_cache_miss(response, previous_guard.as_ref(), previous_send_at, sent_at);
+        self.cache_break_intent = None;
+    }
+
+    /// `traceActualCacheMiss` (send-phase.mjs): on an Anthropic session, a response that read far less of the prompt cache
+    /// than the previous request held, within the cache's lifetime and with no intended break or changed request prefix, is
+    /// an unexpected break; the session record keeps this request's cache read plus write and its prefix fingerprint.
+    fn trace_actual_cache_miss(&mut self, response: &ModelResponse, previous_guard: Option<&crate::prefix_guard::Snapshot>, previous_send_at: Option<f64>, sent_at: f64) {
+        const MISS_RATIO: f64 = 0.5;
+        const MISS_MIN_DROP_TOKENS: f64 = 4096.0;
+        let provider = self.provider.id().as_str().to_owned();
+        if provider != "anthropic" && provider != "anthropic-oauth" {
+            return;
+        }
+        let usage = &response.usage;
+        let cached = usage.cache_read_tokens as f64;
+        let cache_prefix = cached + usage.cache_write_tokens as f64;
+        let baseline = self.carry.cache.cached_prefix_tokens.unwrap_or(f64::NAN);
+        let idle = sent_at - previous_send_at.unwrap_or(f64::NAN);
+        let request_prefix_changed = previous_guard.is_some_and(|previous| Some(&previous.request_prefix_hash) != self.carry.prefix_guard.as_ref().map(|next| &next.request_prefix_hash));
+        let thread = self.config.thread_id.as_str().to_owned();
+        if baseline > 0.0
+            && let Some(ttl) = self.carry.cache.messages_ttl_ms
+            && idle.is_finite()
+            && idle >= 0.0
+            && idle < ttl as f64
+            && cached < baseline * MISS_RATIO
+            && baseline - cached >= MISS_MIN_DROP_TOKENS
+            && self.cache_break_intent.is_none()
+            && !request_prefix_changed
+            && let Some(log) = &self.env.failures
+        {
+            let prompt = usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens;
+            let mut record = serde_json::Map::new();
+            record.insert("sessionId".into(), serde_json::json!(thread));
+            record.insert("iteration".into(), serde_json::json!(self.iterations + 1));
+            record.insert("classification".into(), serde_json::json!("unexpected"));
+            record.insert("reason".into(), serde_json::json!("actual_cache_miss"));
+            record.insert("source".into(), serde_json::json!("provider_usage"));
+            record.insert("provider".into(), serde_json::json!(provider));
+            record.insert("model".into(), serde_json::json!(self.model));
+            record.insert("actualCacheMiss".into(), serde_json::json!(true));
+            record.insert("cachedTokens".into(), mixdog_js::json_number(cached));
+            record.insert("promptTokens".into(), if prompt == 0 { serde_json::Value::Null } else { serde_json::json!(prompt) });
+            record.insert("previousCachedPrefixTokens".into(), mixdog_js::json_number(baseline));
+            record.insert("idleMs".into(), mixdog_js::json_number(idle));
+            record.insert("missingPrefixGuardBaseline".into(), serde_json::json!(previous_guard.is_none()));
+            // Which wire block moved ('none': same bytes, so the cache itself dropped it).
+            if let Some(changes) = mixdog_ai::providers::anthropic::prefix_trace::changes(&thread) {
+                record.extend(changes);
+            }
+            log.cache_break(record);
+        }
+        self.carry.cache.cached_prefix_tokens = Some(cache_prefix);
+        self.carry.cache.changed = true;
+        // The fingerprint of this request survives a restart on the record, so the next process's first miss can still name
+        // what moved.
+        if let Some(fingerprint) = mixdog_ai::providers::anthropic::prefix_trace::latest_persistable(&thread) {
+            self.carry.cache.prefix_baseline = Some(fingerprint);
+        }
+    }
+
     /// `settleImageStrip` (send-phase.mjs): the strip held for the replay alone, so the request the provider cached
     /// differs from the transcript the next send continues; the change is traced as intentional.
-    fn trace_image_strip_rebaseline(&self, sent: &ModelRequest) {
+    fn trace_image_strip_rebaseline(&mut self, sent: &ModelRequest) {
+        self.carry.prefix_guard = None;
         let Some(log) = &self.env.failures else { return };
         let record = serde_json::json!({
             "sessionId": self.config.thread_id.as_str(),
@@ -851,6 +958,9 @@ impl Run {
         self.retry = RetryStates::new(&self.model);
         self.context_overflow_retry_used = false;
         self.baseline = None;
+        // The new route's requests are measured from scratch (`route-fallback.mjs`).
+        self.carry.prefix_guard = None;
+        self.cache_break_keys.clear();
         self.emit(RunEvent::Stage(Stage::Notice {
             message: switch.notice,
             tone: Tone::Info,

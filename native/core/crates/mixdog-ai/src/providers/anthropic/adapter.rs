@@ -513,6 +513,10 @@ impl ProviderAdapter for AnthropicAdapter {
         let mut floor_replays = Vec::new();
         // A threaded request the API refuses over its thread is planned again, as a create or unthreaded.
         'plan: loop {
+            // Diagnostic: per-block prefix hashes of exactly what is sent (`recordAnthropicPrefix(anthropicPrefixSessionId(opts), …)`).
+            let options = &request.options;
+            let session = options.usage_session_id.as_deref().filter(|s| !s.is_empty()).or(options.session_id.as_deref());
+            super::prefix_trace::record(session, plain.prefix.clone());
             let mut plan = self.plan(&request, &plain, &secret, directive);
             let mut wire = match &plan {
                 Some(plan) if plan.mode != Mode::None => threaded(&plain.wire, &plan.body, &plan.betas),

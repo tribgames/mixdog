@@ -219,6 +219,10 @@ pub trait RunParts: Send + Sync + 'static {
     async fn record_applied_skills(&self, _thread: &ThreadId, _item: &ItemId, _names: &[String]) -> Result<(), TurnError> {
         Ok(())
     }
+
+    /// `session._providerPrefixGuardState` after a turn: the request a completed turn settled on, kept in memory for the
+    /// next turn's prefix guard; `None` (a failed or cancelled turn, whose transcript is rewritten) drops it.
+    fn keep_prefix_guard(&self, _thread: &ThreadId, _guard: Option<mixdog_agent::prefix_guard::Snapshot>) {}
 }
 
 pub struct RunHostFactory {
@@ -1230,6 +1234,11 @@ async fn drive(
             set.insert("todoCheck".into(), check);
         }
         let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await;
+        let kept = match &result {
+            Ok(output) if !cancel.is_cancelled() => output.carry.prefix_guard.clone(),
+            _ => None,
+        };
+        parts.keep_prefix_guard(&thread, kept);
     }
     match result {
         Ok(output) => {

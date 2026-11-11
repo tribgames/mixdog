@@ -28,6 +28,7 @@ pub mod native_search;
 mod no_tool;
 pub mod offload;
 pub mod one_shot;
+pub mod prefix_guard;
 pub mod project;
 pub mod recovery;
 pub mod repair;

@@ -262,5 +262,1278 @@
       },
       "stderr": "[cache-break] classification=\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\" reason=\"unknown\" session=\"s-long\" model=\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé\" iteration=1.5 previousHash=\" abc def\" changedBlocks=\"none\" systemMarkersChanged=true\n"
     }
-  ]
+  ],
+  "turns": {
+    "session": "sess_cache_turns",
+    "provider": "anthropic",
+    "cacheStrategy": {
+      "messages": "5m"
+    },
+    "system": "Stable instructions.",
+    "steps": [
+      {
+        "name": "first",
+        "prompt": "one",
+        "answer": "answer 1",
+        "model": "claude-test",
+        "tools": [],
+        "compact": false,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 6000,
+          "promptTokens": 6010
+        },
+        "rows": [],
+        "stderr": [],
+        "record": {
+          "lastProviderCachedPrefixTokens": 6000,
+          "pendingCacheBreakIntent": null
+        }
+      },
+      {
+        "name": "cache miss",
+        "prompt": "two",
+        "answer": "answer 2",
+        "model": "claude-test",
+        "tools": [],
+        "compact": false,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "cachedTokens": 100,
+          "cacheWriteTokens": 50,
+          "promptTokens": 160
+        },
+        "rows": [
+          "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"unexpected\",\"reason\":\"actual_cache_miss\",\"source\":\"provider_usage\",\"provider\":\"anthropic\",\"model\":\"claude-test\",\"transport\":null,\"payload\":{\"classification\":\"unexpected\",\"reason\":\"actual_cache_miss\",\"source\":\"provider_usage\",\"provider\":\"anthropic\",\"model\":\"claude-test\",\"request_prefix_changed\":false,\"cached_tokens\":100,\"prompt_tokens\":160,\"actual_cache_miss\":true,\"previous_cached_prefix_tokens\":6000,\"idle_ms\":0},\"ts\":1700000000000,\"session_id\":\"sess_cache_turns\"}"
+        ],
+        "stderr": [
+          "[cache-break] classification=\"unexpected\" reason=\"actual_cache_miss\" source=\"provider_usage\" session=\"sess_cache_turns\" provider=\"anthropic\" model=\"claude-test\" iteration=1 cachedTokens=100 promptTokens=160 previousCachedPrefixTokens=6000 idleMs=0"
+        ],
+        "record": {
+          "lastProviderCachedPrefixTokens": 150,
+          "pendingCacheBreakIntent": null
+        }
+      },
+      {
+        "name": "model switch",
+        "prompt": "three",
+        "answer": "answer 3",
+        "model": "claude-test-2",
+        "tools": [],
+        "compact": false,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 7000,
+          "promptTokens": 7010
+        },
+        "rows": [
+          "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"intentional\",\"reason\":\"model_changed\",\"source\":\"request_configuration\",\"provider\":\"anthropic\",\"model\":\"claude-test-2\",\"transport\":null,\"payload\":{\"classification\":\"intentional\",\"reason\":\"model_changed\",\"source\":\"request_configuration\",\"provider\":\"anthropic\",\"model\":\"claude-test-2\",\"index\":0,\"previous_count\":4,\"next_count\":6,\"previous_request_prefix_hash\":\"b7d9967a90279bdb\",\"next_request_prefix_hash\":\"5399dc2df6f09e16\",\"request_prefix_changed\":true,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_turns\"}"
+        ],
+        "stderr": [
+          "[cache-break] classification=\"intentional\" reason=\"model_changed\" source=\"request_configuration\" session=\"sess_cache_turns\" provider=\"anthropic\" model=\"claude-test-2\" iteration=1 index=0 previousCount=4 nextCount=6"
+        ],
+        "record": {
+          "lastProviderCachedPrefixTokens": 7000,
+          "pendingCacheBreakIntent": null
+        }
+      },
+      {
+        "name": "compaction between turns",
+        "prompt": "four",
+        "answer": "answer 4",
+        "model": "claude-test-2",
+        "tools": [],
+        "compact": true,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 3000,
+          "promptTokens": 3010
+        },
+        "rows": [
+          "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"intentional\",\"reason\":\"manual_compaction\",\"source\":\"compaction\",\"provider\":\"anthropic\",\"model\":\"claude-test-2\",\"transport\":null,\"payload\":{\"classification\":\"intentional\",\"reason\":\"manual_compaction\",\"source\":\"compaction\",\"provider\":\"anthropic\",\"model\":\"claude-test-2\",\"intentional_transition\":\"manual_compaction\",\"index\":1,\"previous_count\":6,\"next_count\":4,\"previous_hash\":\"bf39f3d3b16d7df4\",\"next_hash\":\"a7600731afac2f72\",\"previous_request_prefix_hash\":\"5399dc2df6f09e16\",\"next_request_prefix_hash\":\"5399dc2df6f09e16\",\"request_prefix_changed\":false,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_turns\"}"
+        ],
+        "stderr": [
+          "[cache-break] classification=\"intentional\" reason=\"manual_compaction\" source=\"compaction\" session=\"sess_cache_turns\" provider=\"anthropic\" model=\"claude-test-2\" iteration=1 index=1 previousCount=6 nextCount=4 previousHash=\"bf39f3d3b16d7df4\" nextHash=\"a7600731afac2f72\" intent=\"manual_compaction\""
+        ],
+        "record": {
+          "lastProviderCachedPrefixTokens": 3000,
+          "pendingCacheBreakIntent": null
+        }
+      },
+      {
+        "name": "tool schema",
+        "prompt": "five",
+        "answer": "answer 5",
+        "model": "claude-test-2",
+        "tools": [
+          "echo"
+        ],
+        "compact": false,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "cachedTokens": 3000,
+          "cacheWriteTokens": 100,
+          "promptTokens": 3110
+        },
+        "rows": [
+          "{\"iteration\":1,\"kind\":\"cache_break\",\"classification\":\"intentional\",\"reason\":\"tool_schema_changed\",\"source\":\"request_configuration\",\"provider\":\"anthropic\",\"model\":\"claude-test-2\",\"transport\":null,\"payload\":{\"classification\":\"intentional\",\"reason\":\"tool_schema_changed\",\"source\":\"request_configuration\",\"provider\":\"anthropic\",\"model\":\"claude-test-2\",\"index\":0,\"previous_count\":4,\"next_count\":6,\"previous_request_prefix_hash\":\"5399dc2df6f09e16\",\"next_request_prefix_hash\":\"72e4175a76c8a261\",\"request_prefix_changed\":true,\"actual_cache_miss\":false},\"ts\":1700000000000,\"session_id\":\"sess_cache_turns\"}"
+        ],
+        "stderr": [
+          "[cache-break] classification=\"intentional\" reason=\"tool_schema_changed\" source=\"request_configuration\" session=\"sess_cache_turns\" provider=\"anthropic\" model=\"claude-test-2\" iteration=1 index=0 previousCount=4 nextCount=6"
+        ],
+        "record": {
+          "lastProviderCachedPrefixTokens": 3100,
+          "pendingCacheBreakIntent": null
+        }
+      },
+      {
+        "name": "warm",
+        "prompt": "six",
+        "answer": "answer 6",
+        "model": "claude-test-2",
+        "tools": [
+          "echo"
+        ],
+        "compact": false,
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2,
+          "cachedTokens": 3100,
+          "cacheWriteTokens": 20,
+          "promptTokens": 3130
+        },
+        "rows": [],
+        "stderr": [],
+        "record": {
+          "lastProviderCachedPrefixTokens": 3120,
+          "pendingCacheBreakIntent": null
+        }
+      }
+    ]
+  },
+  "guard": [
+    {
+      "name": "continued",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8",
+          "97b7e3608a4b4ea3c941c8e61581f27ae64ce97d817cf0c372b4f7bdf989da12"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [],
+      "thrown": null
+    },
+    {
+      "name": "history shrink",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "unexpected",
+          "reason": "history_shrink",
+          "provider": "anthropic",
+          "model": "m1",
+          "kind": "history_shrink",
+          "source": null,
+          "index": 2,
+          "previousCount": 3,
+          "nextCount": 2,
+          "previousHash": "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8",
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "requestPrefixChanged": false
+        }
+      ],
+      "thrown": {
+        "name": "ProviderPrefixMutationError",
+        "code": "PROVIDER_PREFIX_MUTATION",
+        "message": "provider message history shrank outside compaction"
+      }
+    },
+    {
+      "name": "message rewritten",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "8965cd9c55582c1b233d637ad80040ea535698171c6e4625e91d3b6c6e9c924d",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8",
+          "97b7e3608a4b4ea3c941c8e61581f27ae64ce97d817cf0c372b4f7bdf989da12"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "unexpected",
+          "reason": "message_prefix",
+          "provider": "anthropic",
+          "model": "m1",
+          "kind": "message_prefix",
+          "source": null,
+          "index": 1,
+          "previousCount": 3,
+          "nextCount": 4,
+          "previousHash": "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "nextHash": "8965cd9c55582c1b233d637ad80040ea535698171c6e4625e91d3b6c6e9c924d",
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "requestPrefixChanged": false
+        }
+      ],
+      "thrown": {
+        "name": "ProviderPrefixMutationError",
+        "code": "PROVIDER_PREFIX_MUTATION",
+        "message": "provider message prefix changed outside compaction"
+      }
+    },
+    {
+      "name": "message rewritten by a transcript rebuild",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "8965cd9c55582c1b233d637ad80040ea535698171c6e4625e91d3b6c6e9c924d"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "cacheBreakIntent": "transcript_rebuild",
+        "mutationSource": "transcript_rebuild"
+      },
+      "breaks": [
+        {
+          "classification": "unexpected",
+          "reason": "history_shrink",
+          "provider": "anthropic",
+          "model": "m1",
+          "kind": "history_shrink",
+          "source": "transcript_rebuild",
+          "index": 2,
+          "previousCount": 3,
+          "nextCount": 2,
+          "previousHash": "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8",
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "requestPrefixChanged": false
+        }
+      ],
+      "thrown": {
+        "name": "ProviderPrefixMutationError",
+        "code": "PROVIDER_PREFIX_MUTATION",
+        "message": "provider message history shrank outside compaction"
+      }
+    },
+    {
+      "name": "compaction",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "7de8a4ca25af90aab2ac84fdfba664b4c73283cb0544cc3565144c887cd2a8c9"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "cacheBreakIntent": "automatic_compaction",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "automatic_compaction",
+          "source": "compaction",
+          "provider": "anthropic",
+          "model": "m1",
+          "index": 1,
+          "previousCount": 3,
+          "nextCount": 2,
+          "previousHash": "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "nextHash": "7de8a4ca25af90aab2ac84fdfba664b4c73283cb0544cc3565144c887cd2a8c9",
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "requestPrefixChanged": false
+        }
+      ],
+      "thrown": null
+    },
+    {
+      "name": "compaction that changed nothing",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "cacheBreakIntent": "post_turn_compaction",
+        "mutationSource": null
+      },
+      "breaks": [],
+      "thrown": null
+    },
+    {
+      "name": "compaction of the request prefix alone",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "42744f2ab12d908aa58bea5177167dec565e011d834f90bd5103121744728e2e",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "df0b1402356a15ac254c792fea9139b589e0d48e915295740d02a98cf740123e",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "cacheBreakIntent": "deferred_body_compaction",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "deferred_body_compaction",
+          "source": "compaction",
+          "provider": "anthropic",
+          "model": "m1",
+          "index": null,
+          "previousCount": 3,
+          "nextCount": 3,
+          "previousHash": null,
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "42744f2ab12d908aa58bea5177167dec565e011d834f90bd5103121744728e2e",
+          "requestPrefixChanged": true
+        }
+      ],
+      "thrown": null
+    },
+    {
+      "name": "a non-compaction intent",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "cacheBreakIntent": "tool_surface_bridge_migration",
+        "mutationSource": null
+      },
+      "breaks": [],
+      "thrown": null
+    },
+    {
+      "name": "provider changed",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "8e5d7d49fef0a6a5abf39369df626829b40a01b548f6728f3c9acef55ba835d5",
+        "provider": "openai",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "openai",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "provider_changed",
+          "source": "request_configuration",
+          "provider": "openai",
+          "model": "m1",
+          "index": null,
+          "previousCount": 3,
+          "nextCount": 3,
+          "previousHash": null,
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "8e5d7d49fef0a6a5abf39369df626829b40a01b548f6728f3c9acef55ba835d5",
+          "requestPrefixChanged": true
+        }
+      ],
+      "thrown": null
+    },
+    {
+      "name": "model changed",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "274c456a69bf30f8d4ef86572b464c3c3908f12debd60c8789f3e72e0c3184d8",
+        "provider": "anthropic",
+        "model": "m2",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m2",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "model_changed",
+          "source": "request_configuration",
+          "provider": "anthropic",
+          "model": "m2",
+          "index": null,
+          "previousCount": 3,
+          "nextCount": 3,
+          "previousHash": null,
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "274c456a69bf30f8d4ef86572b464c3c3908f12debd60c8789f3e72e0c3184d8",
+          "requestPrefixChanged": true
+        }
+      ],
+      "thrown": null
+    },
+    {
+      "name": "tool schema changed",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "42744f2ab12d908aa58bea5177167dec565e011d834f90bd5103121744728e2e",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "df0b1402356a15ac254c792fea9139b589e0d48e915295740d02a98cf740123e",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "tool_schema_changed",
+          "source": "request_configuration",
+          "provider": "anthropic",
+          "model": "m1",
+          "index": null,
+          "previousCount": 3,
+          "nextCount": 3,
+          "previousHash": null,
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "42744f2ab12d908aa58bea5177167dec565e011d834f90bd5103121744728e2e",
+          "requestPrefixChanged": true
+        }
+      ],
+      "thrown": null
+    },
+    {
+      "name": "native tool schema changed",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "42b6c00feeca6f8867012cdd8d874e7f76be36ff777539ab8081aa08b71ad942",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "5d1e03d0542eaf2f5a8ceb00225a916490fd0e9992143db63dd29497dbd9e718"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "native_tool_schema_changed",
+          "source": "request_configuration",
+          "provider": "anthropic",
+          "model": "m1",
+          "index": null,
+          "previousCount": 3,
+          "nextCount": 3,
+          "previousHash": null,
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "42b6c00feeca6f8867012cdd8d874e7f76be36ff777539ab8081aa08b71ad942",
+          "requestPrefixChanged": true
+        }
+      ],
+      "thrown": null
+    },
+    {
+      "name": "a deferred tool on anthropic",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "42744f2ab12d908aa58bea5177167dec565e011d834f90bd5103121744728e2e",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "df0b1402356a15ac254c792fea9139b589e0d48e915295740d02a98cf740123e",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "42744f2ab12d908aa58bea5177167dec565e011d834f90bd5103121744728e2e",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "df0b1402356a15ac254c792fea9139b589e0d48e915295740d02a98cf740123e",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [],
+      "thrown": null
+    },
+    {
+      "name": "a deferred tool elsewhere",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "b8ba145e69c1f52c547e534fc8c3558f54d1df570447a00ed9dd281e1eee6780",
+        "provider": "openai",
+        "model": "m1",
+        "toolSchemaHash": "df0b1402356a15ac254c792fea9139b589e0d48e915295740d02a98cf740123e",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "aa5b6d95f89e34009f117c443718bb0849285b652af7acd64bfd3522839253e4",
+        "provider": "openai",
+        "model": "m1",
+        "toolSchemaHash": "75c3e7f4232c77af64724de00edc4ef95c2cc8010f2fbbceac1b2aea4971b737",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "openai",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "tool_schema_changed",
+          "source": "request_configuration",
+          "provider": "openai",
+          "model": "m1",
+          "index": null,
+          "previousCount": 3,
+          "nextCount": 3,
+          "previousHash": null,
+          "nextHash": null,
+          "previousRequestPrefixHash": "b8ba145e69c1f52c547e534fc8c3558f54d1df570447a00ed9dd281e1eee6780",
+          "nextRequestPrefixHash": "aa5b6d95f89e34009f117c443718bb0849285b652af7acd64bfd3522839253e4",
+          "requestPrefixChanged": true
+        }
+      ],
+      "thrown": null
+    },
+    {
+      "name": "request properties changed",
+      "previous": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "next": {
+        "messageHashes": [
+          "4d7e25d430467bcd46ebce514c0f994ace92de82f5361e178b674cd4118ed96d",
+          "55576ddac5287160de3479f9d94833b0679fd25be1d85968405a7b73e24e0a06",
+          "8fa6230b30d30a4bb3194567321438f616eded202308c5f8c0e7dd6beda16db8"
+        ],
+        "requestPrefixHash": "3b2ccdce3f99e2ed9570e0df81ed2966191fa33cf4b89729ee35b49225400175",
+        "provider": "anthropic",
+        "model": "m1",
+        "toolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "nativeToolSchemaHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "options": {
+        "provider": "anthropic",
+        "model": "m1",
+        "mutationSource": null
+      },
+      "breaks": [
+        {
+          "classification": "intentional",
+          "reason": "request_properties_changed",
+          "source": "request_configuration",
+          "provider": "anthropic",
+          "model": "m1",
+          "index": null,
+          "previousCount": 3,
+          "nextCount": 3,
+          "previousHash": null,
+          "nextHash": null,
+          "previousRequestPrefixHash": "37747c4cd16a1fe4c3d1eee613803ed06cb6806c069f0f163d66d8deea2c5f52",
+          "nextRequestPrefixHash": "3b2ccdce3f99e2ed9570e0df81ed2966191fa33cf4b89729ee35b49225400175",
+          "requestPrefixChanged": true
+        }
+      ],
+      "thrown": null
+    }
+  ],
+  "prefix": [
+    {
+      "name": "first",
+      "session": "sess_prefix_a",
+      "body": {
+        "model": "m",
+        "max_tokens": 10,
+        "system": [
+          {
+            "type": "text",
+            "text": "A",
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "1h"
+            }
+          },
+          {
+            "type": "text",
+            "text": "env"
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "t1",
+            "description": "T.",
+            "input_schema": {
+              "type": "object"
+            }
+          }
+        ],
+        "thinking": {
+          "type": "enabled",
+          "budget_tokens": 1024
+        },
+        "stream": true
+      },
+      "persisted": {
+        "tools": "12db8cb9b43a",
+        "system": [
+          "bae5ded17b9e",
+          "5ad770a642c0"
+        ],
+        "params": "2815d80b3e16",
+        "markers": [
+          "s0:1h",
+          "m0:5m"
+        ],
+        "messageMarks": [
+          {
+            "i": 0,
+            "h": "42b6813a99f9"
+          }
+        ]
+      },
+      "changes": null
+    },
+    {
+      "name": "grown",
+      "session": "sess_prefix_a",
+      "body": {
+        "model": "m",
+        "max_tokens": 10,
+        "system": [
+          {
+            "type": "text",
+            "text": "A",
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "1h"
+            }
+          },
+          {
+            "type": "text",
+            "text": "env"
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "hello"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "more",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "name": "t1",
+            "description": "T.",
+            "input_schema": {
+              "type": "object"
+            }
+          }
+        ],
+        "thinking": {
+          "type": "enabled",
+          "budget_tokens": 1024
+        },
+        "stream": true
+      },
+      "persisted": {
+        "tools": "12db8cb9b43a",
+        "system": [
+          "bae5ded17b9e",
+          "5ad770a642c0"
+        ],
+        "params": "2815d80b3e16",
+        "markers": [
+          "s0:1h",
+          "m2:5m"
+        ],
+        "messageMarks": [
+          {
+            "i": 2,
+            "h": "cc068ec20d70"
+          }
+        ]
+      },
+      "changes": {
+        "changedBlocks": "none",
+        "markersChanged": false,
+        "lostMessageBreakpoints": "none"
+      }
+    },
+    {
+      "name": "system and tools moved",
+      "session": "sess_prefix_a",
+      "body": {
+        "model": "m",
+        "max_tokens": 10,
+        "system": [
+          {
+            "type": "text",
+            "text": "A",
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "1h"
+            }
+          },
+          {
+            "type": "text",
+            "text": "env2"
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "hi"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "hello"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "more",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "tools": [],
+        "thinking": {
+          "type": "enabled",
+          "budget_tokens": 1024
+        },
+        "stream": true
+      },
+      "persisted": {
+        "tools": "4f53cda18c2b",
+        "system": [
+          "bae5ded17b9e",
+          "c6f5cf460835"
+        ],
+        "params": "2815d80b3e16",
+        "markers": [
+          "s0:1h",
+          "m2:5m"
+        ],
+        "messageMarks": [
+          {
+            "i": 2,
+            "h": "cc068ec20d70"
+          }
+        ]
+      },
+      "changes": {
+        "changedBlocks": "tools,s1",
+        "markersChanged": false,
+        "lostMessageBreakpoints": "none"
+      }
+    },
+    {
+      "name": "params and a rewritten message",
+      "session": "sess_prefix_a",
+      "body": {
+        "model": "m",
+        "max_tokens": 10,
+        "system": [
+          {
+            "type": "text",
+            "text": "A"
+          },
+          {
+            "type": "text",
+            "text": "env2",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "HI"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "hello"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "more",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ],
+        "output_config": {
+          "effort": "high"
+        },
+        "stream": true
+      },
+      "persisted": {
+        "tools": "4f53cda18c2b",
+        "system": [
+          "bae5ded17b9e",
+          "c6f5cf460835"
+        ],
+        "params": "cd89e2ae1ccb",
+        "markers": [
+          "s1:5m",
+          "m2:5m"
+        ],
+        "messageMarks": [
+          {
+            "i": 2,
+            "h": "b9eadb604e9f"
+          }
+        ]
+      },
+      "changes": {
+        "changedBlocks": "params",
+        "markersChanged": true,
+        "lostMessageBreakpoints": "m2"
+      }
+    },
+    {
+      "name": "another session",
+      "session": "sess_prefix_b",
+      "body": {
+        "model": "m",
+        "max_tokens": 10,
+        "messages": [
+          {
+            "role": "user",
+            "content": "plain"
+          }
+        ],
+        "stream": true
+      },
+      "persisted": {
+        "tools": "4f53cda18c2b",
+        "system": [],
+        "params": "cc524d031fb6",
+        "markers": [],
+        "messageMarks": []
+      },
+      "changes": null
+    }
+  ],
+  "seeded": {
+    "from": {
+      "tools": "12db8cb9b43a",
+      "system": [
+        "bae5ded17b9e",
+        "5ad770a642c0"
+      ],
+      "params": "2815d80b3e16",
+      "markers": [
+        "s0:1h",
+        "m2:5m"
+      ],
+      "messageMarks": [
+        {
+          "i": 2,
+          "h": "cc068ec20d70"
+        }
+      ]
+    },
+    "body": {
+      "model": "m",
+      "max_tokens": 10,
+      "system": [
+        {
+          "type": "text",
+          "text": "A",
+          "cache_control": {
+            "type": "ephemeral",
+            "ttl": "1h"
+          }
+        },
+        {
+          "type": "text",
+          "text": "env2"
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "hi"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "hello"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "more",
+              "cache_control": {
+                "type": "ephemeral"
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [],
+      "thinking": {
+        "type": "enabled",
+        "budget_tokens": 1024
+      },
+      "stream": true
+    },
+    "changesBefore": null,
+    "changes": {
+      "changedBlocks": "tools,s1",
+      "markersChanged": false,
+      "lostMessageBreakpoints": "none"
+    }
+  }
 }

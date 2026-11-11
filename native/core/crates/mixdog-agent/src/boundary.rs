@@ -277,6 +277,8 @@ impl Run {
                 self.fixed_surface = None;
                 self.provider_state = None;
                 self.baseline = None;
+                // The migration's tagged cache break (`TOOL_SURFACE_MIGRATION_INTENT`).
+                self.cache_break_intent = Some("tool_surface_bridge_migration".to_owned());
             }
             mcp.refresh().await;
             if let Some(live) = mcp.tools().await.map_err(AgentError::RequestTools)? {
@@ -295,6 +297,7 @@ impl Run {
                 // Provider readings belong to the old transcript.
                 self.baseline = None;
                 self.cross_turn.clear();
+                self.cache_break_intent.get_or_insert_with(|| "transcript_rebuild".to_owned());
                 self.env.sink.replace(&self.messages, &Rewrite::default());
             }
             let changed = self.pre_send_compact_pass(compact_attempted).await?;
@@ -460,6 +463,8 @@ impl Run {
         self.baseline = None;
         // Receipts point at tool results compaction just removed from context.
         self.cross_turn.clear();
+        // The next send intentionally starts a new transcript shape: a tagged break, not an unexplained mismatch.
+        self.cache_break_intent = Some("automatic_compaction".to_owned());
         // Compaction starts a new loop epoch: iteration indices count from the
         // compacted transcript.
         self.iterations = 0;

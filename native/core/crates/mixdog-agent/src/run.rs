@@ -94,6 +94,9 @@ pub struct RunConfig {
     /// provider-excluded tools there (`beginProviderToolExclusions`, `send-phase.mjs`). Whatever
     /// provider the attempt goes to (a route hop included) is covered, because the loop calls it.
     pub request_begin: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    /// `opts.cacheBreakIntent` at the turn's start: the session's one-shot `pendingCacheBreakIntent` (a compaction that ran
+    /// between turns), which tags the first send's expected cache break.
+    pub cache_break_intent: Option<String>,
 }
 
 impl RunConfig {
@@ -121,6 +124,7 @@ impl RunConfig {
             signal: None,
             retry_529: true,
             request_begin: None,
+            cache_break_intent: None,
         }
     }
 }
@@ -132,12 +136,47 @@ pub struct RunCarry {
     /// The session's `wireRoute` after a send was rerouted (`sendOnRoute` sets `session.wireRoute`); `None` when
     /// no send of the run changed it.
     pub wire_route: Option<serde_json::Value>,
+    /// `session._providerPrefixGuardState`: the fingerprint of the request the session last settled on. In memory only
+    /// (a transient session key Node never stores); the host keeps it between turns.
+    pub prefix_guard: Option<crate::prefix_guard::Snapshot>,
+    /// What the usage-based cache-miss check reads and updates on the session record.
+    pub cache: CacheReadings,
+}
+
+/// The record fields `traceActualCacheMiss` reads (`send-phase.mjs`): the previous request's cache read plus write
+/// (`lastProviderCachedPrefixTokens`), when it was sent (`lastProviderSendAt`), the messages cache tier
+/// (`providerCacheOpts.cacheStrategy.messages`) and the last request's prefix fingerprint (`providerPrefixBaseline`).
+#[derive(Clone, Default, Debug)]
+pub struct CacheReadings {
+    pub cached_prefix_tokens: Option<f64>,
+    pub last_send_at: Option<f64>,
+    pub messages_ttl_ms: Option<i64>,
+    pub prefix_baseline: Option<serde_json::Value>,
+    /// Set once a send of the run changed `cached_prefix_tokens` / `prefix_baseline`: they are saved with the carry.
+    pub changed: bool,
+}
+
+impl CacheReadings {
+    fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
+        let ttl = saved.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")).and_then(|strategy| strategy.get("messages")).and_then(serde_json::Value::as_str);
+        Self {
+            cached_prefix_tokens: saved.get("lastProviderCachedPrefixTokens").map(|v| mixdog_js::to_number_of(Some(v))),
+            last_send_at: saved.get("lastProviderSendAt").map(|v| mixdog_js::to_number_of(Some(v))),
+            messages_ttl_ms: match ttl {
+                Some("5m") => Some(5 * 60 * 1000),
+                Some("1h") => Some(60 * 60 * 1000),
+                _ => None,
+            },
+            prefix_baseline: saved.get("providerPrefixBaseline").filter(|v| v.is_object()).cloned(),
+            changed: false,
+        }
+    }
 }
 
 impl RunCarry {
     /// The carry a session record holds.
     pub fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
-        Self { repeat: RepeatGuards::from_saved(saved), wire_route: None }
+        Self { repeat: RepeatGuards::from_saved(saved), wire_route: None, prefix_guard: None, cache: CacheReadings::from_saved(saved) }
     }
 
     /// The record fields the carry is saved under.
@@ -145,6 +184,14 @@ impl RunCarry {
         let mut saved = self.repeat.to_saved();
         if let Some(route) = &self.wire_route {
             saved.insert("wireRoute".into(), route.clone());
+        }
+        if self.cache.changed {
+            if let Some(tokens) = self.cache.cached_prefix_tokens {
+                saved.insert("lastProviderCachedPrefixTokens".into(), mixdog_js::json_number(tokens));
+            }
+            if let Some(baseline) = &self.cache.prefix_baseline {
+                saved.insert("providerPrefixBaseline".into(), baseline.clone());
+            }
         }
         saved
     }
@@ -357,6 +404,12 @@ pub struct Run {
     pub(crate) send_group: Option<crate::send::SendGroup>,
     /// The send's capture, opened by its first attempt and ended by the send.
     pub(crate) side_ticket: Option<Box<dyn crate::env::SendTicket>>,
+    /// `opts.cacheBreakIntent`: the one-shot tag of the next completed send's expected cache break.
+    pub(crate) cache_break_intent: Option<String>,
+    /// `prefixGuardCandidate`: the fingerprint of the request in flight, the session's once it completes.
+    pub(crate) guard_candidate: Option<crate::prefix_guard::Snapshot>,
+    /// `cacheBreakTraceKeys`: the breaks this turn already traced.
+    pub(crate) cache_break_keys: std::collections::HashSet<String>,
     /// The provider's last measured context footprint (`session.lastContextTokens`).
     pub(crate) context: crate::boundary::ContextReading,
     pub(crate) no_tool: NoToolState,
@@ -458,6 +511,7 @@ impl Run {
         let model = config.model.clone();
         let retry = RetryStates::new(&model);
         let provider_state = config.options.provider_state.clone();
+        let cache_break_intent = config.cache_break_intent.clone();
         let context = crate::boundary::ContextReading {
             tokens: config.compact.as_ref().and_then(|c| c.last_context_tokens),
             stale_after_compact: false,
@@ -494,6 +548,9 @@ impl Run {
             request_started_ms: 0,
             send_group: None,
             side_ticket: None,
+            cache_break_intent,
+            guard_candidate: None,
+            cache_break_keys: std::collections::HashSet::new(),
             no_tool: NoToolState::default(),
             carry,
             quiet_compact_retry_used: false,
