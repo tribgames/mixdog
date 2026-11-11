@@ -161,6 +161,30 @@ pub struct AgentHomeDelivery {
     posting: Mutex<HashMap<String, Arc<Semaphore>>>,
     /// The process's sensitive values: a task's or routine run's reply leaves its session with them as the marker.
     marks: std::sync::OnceLock<Arc<crate::memory::sensitive::SensitiveStore>>,
+    /// The calls of `drain` so far: a test waits for the one a settled wake's task makes.
+    #[cfg(test)]
+    drain_calls: watch::Sender<u64>,
+}
+
+#[cfg(test)]
+impl AgentHomeDelivery {
+    /// The calls of `drain`, from now on.
+    pub(super) fn drain_calls(&self) -> watch::Receiver<u64> {
+        self.drain_calls.subscribe()
+    }
+
+    /// Resolves once no pass runs in any home, the passes those passes started included.
+    pub(super) async fn idle(&self) {
+        loop {
+            let running: Vec<watch::Receiver<()>> = lock(&self.book).running.values().cloned().collect();
+            if running.is_empty() {
+                return;
+            }
+            for pass in running {
+                Drained(pass).wait().await;
+            }
+        }
+    }
 }
 
 impl AgentHomeDelivery {
@@ -191,6 +215,8 @@ impl AgentHomeDelivery {
             held_shown: Mutex::default(),
             posting: Mutex::default(),
             marks: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            drain_calls: watch::channel(0).0,
         })
     }
 
@@ -602,6 +628,8 @@ impl AgentHomeDelivery {
 
     /// The single drainer of `home`; a call during a pass runs one more pass.
     pub fn drain(self: &Arc<Self>, home: &str) -> Drained {
+        #[cfg(test)]
+        self.drain_calls.send_modify(|calls| *calls += 1);
         let (signal, done) = {
             let mut book = lock(&self.book);
             if let Some(running) = book.running.get(home) {
