@@ -631,18 +631,94 @@ pub(crate) mod tests {
         assert_eq!(world.facts(&thread(), &header("anthropic-oauth"), &[]).await.cache.route_use_at(), None);
     }
 
-    /// Node's `runPreSendCompactPass` preflight (`fixtures/session-gaps/attachment-preflight.json`,
-    /// `record-session-gaps.mjs`): real PDFs and a PNG in the real attachment store, priced by the
-    /// counts Node's intake recorded for the same bytes (the extension host's inspector is Node's),
-    /// referenced through the real store files, each turn through the session's real compactor. Every
-    /// turn leaves the transcript Node's pass left, and a rewrite drops the continuation exactly when
-    /// Node's did (the run boundary clears `provider_state` whenever the compactor's preflight rewrites).
+    /// Node's attachment preflight (`runPreSendCompactPass` at `agentLoop`'s request boundary;
+    /// `fixtures/session-gaps/attachment-preflight.json`, `record-session-gaps.mjs`): real PDFs and a PNG in the real
+    /// attachment store, priced by the counts Node's intake recorded for the same bytes (the extension host's inspector
+    /// is Node's), referenced through the real store files. Each turn is the run loop's (`Run::run`) over the session's
+    /// real compactor, started with the continuation the previous turn's reply left: the provider is sent Node's
+    /// messages and Node's continuation (none after a rewrite), the run ends with Node's continuation and leaves
+    /// Node's transcript.
     #[tokio::test]
     async fn the_attachment_preflight_rewrites_each_turn_as_nodes_pre_send_pass() {
         use base64::Engine as _;
+        use mixdog_agent::env::{AllowAll, CommitError, DrainRequest, NoGuards, NullObserver, Rewrite, SteerEntry, SteerSource, Ticket, TranscriptSink};
+        use mixdog_agent::run::{Run, RunCarry, RunConfig};
+        use mixdog_agent::tools::{ToolEnv, ToolSet};
         use mixdog_core_api::domain::ext::PdfCounts;
+        use mixdog_core_api::domain::mock::{MockApprovalGate, MockCodec, MockRetryDecider};
+        use mixdog_core_api::domain::provider::{Message, ProviderState, StopReason, StreamEvent};
+        use mixdog_core_api::domain::tool::SurfaceKind;
+        use mixdog_core_api::ids::TurnId;
+        use mixdog_testkit::exact::Exact;
         use crate::run_host::attachment_store::{StoreFacts, StoreFiles};
         use crate::run_host::message_row::{message_of, row_of};
+
+        struct NoSteer;
+        #[async_trait]
+        impl SteerSource for NoSteer {
+            async fn drain(&self, _: DrainRequest) -> Vec<SteerEntry> {
+                Vec::new()
+            }
+        }
+        struct Kept(std::sync::atomic::AtomicU64);
+        #[async_trait]
+        impl TranscriptSink for Kept {
+            async fn commit(&self, _: &AgentMessage) -> Result<Ticket, CommitError> {
+                Ok(Ticket(self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst)))
+            }
+            fn replace(&self, _: &[AgentMessage], _: &Rewrite) {}
+            fn message_id(&self) -> String {
+                format!("m{}", self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+            }
+            async fn durable(&self, _: Ticket) {}
+        }
+        struct Steps(std::collections::VecDeque<StreamEvent>);
+        #[async_trait]
+        impl ModelStream for Steps {
+            async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
+                self.0.pop_front().map(Ok)
+            }
+            fn delivery(&self) -> DeliveryState {
+                DeliveryState::Accepted
+            }
+            fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
+        }
+        /// Answers `ok` with the continuation the recording's provider answered, recording each request.
+        struct Responses {
+            id: ProviderId,
+            policy: RetryPolicy,
+            keepalive: KeepaliveSchedule,
+            codec: MockCodec,
+            reply: ProviderState,
+            requests: std::sync::Mutex<Vec<Arc<ModelRequest>>>,
+        }
+        #[async_trait]
+        impl ProviderAdapter for Responses {
+            fn id(&self) -> &ProviderId {
+                &self.id
+            }
+            fn codec(&self) -> &dyn WireCodec {
+                &self.codec
+            }
+            fn retry_policy(&self) -> &RetryPolicy {
+                &self.policy
+            }
+            fn keepalive(&self) -> &KeepaliveSchedule {
+                &self.keepalive
+            }
+            async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+                self.requests.lock().unwrap().push(request);
+                Ok(Box::new(Steps(
+                    [
+                        StreamEvent::TextDelta("ok".into()),
+                        StreamEvent::ProviderState(self.reply.clone()),
+                        StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                    ]
+                    .into(),
+                )))
+            }
+        }
+        let state_of = |v: &Value| -> Option<ProviderState> { (!v.is_null()).then(|| serde_json::from_value(v.clone()).unwrap()) };
 
         /// The page and text-layer counts Node's intake recorded on each PDF, by its bytes.
         struct Counted(std::collections::HashMap<String, PdfCounts>);
@@ -660,7 +736,18 @@ pub(crate) mod tests {
         }
 
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-gaps/attachment-preflight.json");
-        let recorded: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        // Whole recorded values (`lib/exact.mjs`); an absent continuation (`undefined`) is none here, and a JS
+        // number with no fraction is the integer the Rust side writes.
+        fn plain(e: &Exact) -> Value {
+            match e {
+                Exact::Undefined => Value::Null,
+                Exact::Number(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => json!(*n as i64),
+                Exact::Array(items) => Value::Array(items.iter().map(plain).collect()),
+                Exact::Object(entries) => Value::Object(entries.iter().map(|(k, v)| (k.clone(), plain(v))).collect()),
+                other => other.to_plain().unwrap(),
+            }
+        }
+        let recorded = plain(&Exact::load(path));
         let mut counts = std::collections::HashMap::new();
         for case in recorded["cases"].as_array().unwrap() {
             for turn in case["turns"].as_array().unwrap() {
@@ -704,18 +791,87 @@ pub(crate) mod tests {
                 let rows = serde_json::to_string(&messages.iter().map(row_of).collect::<Vec<_>>()).unwrap();
                 serde_json::from_str(&rows.replace(&data[1..data.len() - 1], "<data>")).unwrap()
             };
+            // A sent message is shown as its transcript entry: the core keeps a part's measured facts (`sizeBytes`,
+            // `pageCount`, ...) on the stored row, where Node keeps them on the message object it sends.
+            let sent_rows = |messages: &[Message], entries: &[AgentMessage]| {
+                shown(
+                    &messages
+                        .iter()
+                        .map(|m| entries.iter().find(|e| &e.message == m).cloned().unwrap_or_else(|| AgentMessage::new(m.clone())))
+                        .collect::<Vec<_>>(),
+                )
+            };
             let mut transcript: Vec<AgentMessage> = Vec::new();
+            let mut continuation = Some(ProviderState { gemini: None, rest: [("responseId".to_owned(), json!("resp_0"))].into_iter().collect() });
             for (n, turn) in case["turns"].as_array().unwrap().iter().enumerate() {
-                // The turn's new messages, after the transcript the previous pass left.
+                // The turn's new messages, after the transcript the previous turn left.
                 let sent = turn["messages"].as_array().unwrap();
                 transcript.extend(sent[transcript.len()..].iter().map(|row| message_of(row).unwrap()));
-                let rewritten = compactor.preflight_attachments(&transcript).await;
-                assert_eq!(rewritten.is_none(), turn["providerStateKept"] == true, "{name} turn {n}: the continuation");
-                assert_eq!(rewritten.is_some(), turn["compactChanged"] == true, "{name} turn {n}: a rewrite");
-                if let Some(preflight) = rewritten {
-                    transcript = preflight.messages;
-                }
+                let provider = Arc::new(Responses {
+                    id: ProviderId::from(provider),
+                    policy: RetryPolicy::codex_default(),
+                    keepalive: KeepaliveSchedule::SPEC,
+                    codec: MockCodec,
+                    reply: state_of(&turn["providerState"]).expect("the reply's continuation"),
+                    requests: std::sync::Mutex::new(Vec::new()),
+                });
+                let io = mixdog_rt::testing::tokens();
+                let env = mixdog_agent::env::RunEnv {
+                    clock: Arc::new(Fixed),
+                    jitter: Arc::new(crate::run_host::retry::RandomJitter),
+                    waiter: Arc::new(crate::run_host::retry::TimerWait),
+                    decider: Arc::new(MockRetryDecider),
+                    steer: Arc::new(NoSteer),
+                    observer: Arc::new(NullObserver),
+                    sink: Arc::new(Kept(std::sync::atomic::AtomicU64::new(0))),
+                    gate: Arc::new(AllowAll),
+                    guards: Arc::new(NoGuards),
+                    compactor: Some(compactor.clone()),
+                    route: None,
+                    skills: None,
+                    hooks: None,
+                    reuse: None,
+                    reactions: None,
+                    tail: None,
+                    mcp: None,
+                    side: None,
+                    step_judge: None,
+                    artifacts: None,
+                    images: None,
+                    failures: None,
+                };
+                let tool_env = ToolEnv {
+                    thread_id: thread(),
+                    turn_id: TurnId::from("r"),
+                    cwd: AbsPath::new(dir.path().to_path_buf()).unwrap(),
+                    surface: SurfaceKind::Lead,
+                    io: ToolIo { interactive: io.interactive_io, durability: io.durability_io, maintenance: io.maintenance_io },
+                    approvals: Arc::new(MockApprovalGate::default()),
+                    files: Arc::new(MockFileService::default()),
+                    processes: Arc::new(MockProcessManager::default()),
+                    progress: Arc::new(MockProgress::default()),
+                    deadline_of: None,
+                    notify: None,
+                    review: None,
+                };
+                let mut config = RunConfig::new(thread(), TurnId::from("r"), "gpt-test");
+                config.compact = None;
+                config.options.provider_state = continuation.clone();
+                let output = Run::new(env, CancellationToken::new(), provider.clone(), ToolSet::new(Vec::new()), tool_env, config, transcript.clone(), RunCarry::default())
+                    .run()
+                    .await
+                    .unwrap_or_else(|f| panic!("{name} turn {n}: {:?}", f.error));
+                let requests = provider.requests.lock().unwrap().clone();
+                let sends: Vec<Value> = requests
+                    .iter()
+                    .map(|r| json!({ "messages": sent_rows(&r.messages, &output.transcript), "providerState": r.options.provider_state.as_ref().map(ProviderState::to_json) }))
+                    .collect();
+                assert_eq!(Value::Array(sends), turn["sends"], "{name} turn {n}: what the provider was sent");
+                assert_eq!(output.provider_state.as_ref().map(ProviderState::to_json).unwrap_or(Value::Null), turn["providerState"], "{name} turn {n}: the continuation");
+                // Neither loop appends its final reply (the ask wrapper does); the recording's next turn adds it.
+                transcript = output.transcript;
                 assert_eq!(shown(&transcript), turn["after"], "{name} turn {n}: the transcript");
+                continuation = output.provider_state;
             }
         }
     }
