@@ -301,6 +301,11 @@ impl GoogleCodec {
         }
     }
 
+    /// The `label` the route hands its stream consumer.
+    pub(crate) fn stream_label(&self) -> &'static str {
+        self.error_dialect().label
+    }
+
     /// The model id as the endpoint's path names it. Vertex routes the id ([`vertex_model`]); only Google's Gemini
     /// models are sent here, open models through [`Self::maas_wire`].
     fn model_id<'a>(&self, model: &'a str) -> Result<&'a str, ProviderError> {

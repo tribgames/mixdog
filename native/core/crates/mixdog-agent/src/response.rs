@@ -45,6 +45,9 @@ pub struct ModelResponse {
     /// Node's result `providerMetadata` (Anthropic's `anthropicFallbacks`), from `StreamEvent::ProviderMetadata`: the
     /// committed assistant turn keeps it (`assistantEchoFields`).
     pub provider_metadata: Option<JsonValue>,
+    /// Node's result `hasThinkingContent` / `contentBlockTypes` (Anthropic), from `StreamEvent::ContentSummary`;
+    /// `None` for a provider that states no summary.
+    pub content_summary: Option<(bool, Vec<String>)>,
     /// The request's wall time as the usage ledger measured it (Node
     /// `result.response.usageDurationMs`), from `Completed.request_ms`; `None`
     /// when the send was not accounted, and the loop's own clock stands in.
@@ -119,6 +122,7 @@ impl ResponseBuilder {
             StreamEvent::ServedModel(model) => response.model = model,
             StreamEvent::ProviderMetadata(metadata) => response.provider_metadata = Some(metadata),
             StreamEvent::AccountRouting(routing) => response.account_routing = Some(routing),
+            StreamEvent::ContentSummary { has_thinking, block_types } => response.content_summary = Some((has_thinking, block_types)),
             StreamEvent::ServerToolBlock(block) => response.server_blocks.push(block),
             StreamEvent::Completed { stop, request_ms, .. } => {
                 response.stop = stop;

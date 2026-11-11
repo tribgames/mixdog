@@ -1,25 +1,15 @@
 //! `provider-gemini-stream`: `consumeGeminiRestStreamResponse` (and `createGeminiTextLeakGuard`) over a real response.
 //! The production `ReqwestLink` posts the recorder's own fetch to the driver's endpoint, which serves the case's
-//! scripted chunks (each its own write); the body goes through the core's Gemini decoder (`GeminiDecoder`, the
-//! decoder the Gemini route builds, under the recorded `label`), fed chunk by chunk and finished at the end as the
-//! route's stream does. The recorder's result is compared against the core's events: `progress` is every
+//! scripted chunks (each its own write); the body goes through the core's consumer (`GoogleStream::consume`, the
+//! stream every Gemini-wire route builds) with the core's `GeminiDecoder` under the recorded `label` and the recorded
+//! `firstByteTimeoutMs` (else `GEMINI_FIRST_BYTE_TIMEOUT_MS`), the recorded clock steps run while it waits. The
+//! recorder's result is compared against the core's events: `progress` is every
 //! `onStreamDelta` of the consumer (`ChunkProgress`; the recorded guard had no `onStreamDelta`), `text` every
 //! `onTextDelta` (`TextDelta`), `dispatched` the guard's `onToolCall` (`ToolCallDone`), the error through the
 //! driver's `ERROR_FIELDS`.
 //!
-//! Not compared, with the reason:
-//! - the recorder's fetch (`requests[0]`) is the harness's own POST, not the product's request;
-//! - `response.candidates[0]`'s `index`, `role` and `finishReason`: the core keeps no aggregated response. Its parts
-//!   are the turn's replay parts (compared whole); a clean `STOP` or a tool turn without a finish is
-//!   `Completed { stop: None }` (asserted);
-//! - `leakedToolCalls` of a failed stream: Node reads the list only after a clean finish (`gemini-response.mjs:37`,
-//!   `antigravity-response.mjs:71`) and its count on failure (`gemini-stream.mjs:87`); the core reports each
-//!   recovered call as `Progress(Tool)` and holds it, so the count is compared.
-//!
-//! Not replayed (listed in the report): `first-chunk-window-follows-caller-and-names-phase` (the core's Gemini
-//! stream has no first-byte watchdog: `GEMINI_FIRST_BYTE_TIMEOUT_MS` / `EGEMINITIMEOUT` is a core defect to fix) and
-//! `leaked-call-dispatched` (`deferToolCalls: false`: no production caller passes it, `antigravity-stream.mjs:85`,
-//! `gemini-sdk-request.mjs:14`; the core's guard always defers).
+//! The aggregated `response` and `leakedToolCalls` are compared field by field through the shared `RESULT_FIELDS`
+//! table. The recorder's fetch (`requests[0]`) is the harness's own POST, not a product request: it is not compared.
 
 use std::collections::HashSet;
 
@@ -34,10 +24,14 @@ use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
-use mixdog_core_api::domain::provider::WireDecoder;
+use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::WireRequest;
+use mixdog_ai::providers::google::adapter::GoogleStream;
+use std::time::Duration;
 use mixdog_protocol::ProviderId;
 use mixdog_testkit::Exact;
+use mixdog_testkit::provider_fields::result_field;
+use mixdog_testkit::provider_fields::result_field_unread;
 
 use crate::provider_case::CaseSet;
 use crate::provider_case::Endpoint;
@@ -48,8 +42,6 @@ use crate::replay_errors::Left;
 use crate::replay_errors::compare_error;
 
 const SET: &str = "gemini-stream";
-
-const NOT_REPLAYED: [&str; 2] = ["first-chunk-window-follows-caller-and-names-phase", "leaked-call-dispatched"];
 
 fn progress_name(kind: Option<ProgressKind>) -> &'static str {
     match kind {
@@ -75,7 +67,7 @@ async fn consume(set: &CaseSet, id: &str) -> (Vec<StreamEvent>, Option<ProviderE
         body: b"{}".to_vec(),
     };
     let link = endpoint.link(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).expect("the production link"));
-    let mut response =
+    let response =
         within("the scripted answer", link.send(request, mixdog_ai::transport::deadlines::MODEL_STREAM)).await.expect("answered");
     let options = case.args_of("consumeGeminiRestStreamResponse", 0)[1].clone();
     let label: &'static str = Box::leak(options.get("label").as_str().to_owned().into_boxed_str());
@@ -93,28 +85,42 @@ async fn consume(set: &CaseSet, id: &str) -> (Vec<StreamEvent>, Option<ProviderE
         let names: HashSet<String> = options.get("knownToolNames").as_array().iter().map(|n| n.as_str().to_owned()).collect();
         decoder = decoder.with_known_tools(names);
     }
-    let mut events = Vec::new();
-    while let Some(chunk) = within("a body chunk", response.body.next()).await {
-        let chunk = chunk.expect("the served chunk");
-        match decoder.feed(&chunk) {
-            Ok(more) => events.extend(more),
-            Err(error) => return (events, Some(error)),
+    // `firstByteTimeoutMs` as handed in, else `GEMINI_FIRST_BYTE_TIMEOUT_MS` of the recorder's scrubbed environment.
+    let window = match options.try_get("firstByteTimeoutMs") {
+        Some(Exact::Number(ms)) => *ms,
+        _ => mixdog_ai::providers::google::cache::policy::gemini_first_byte_ms(|_| None),
+    };
+    let mut stream = GoogleStream::consume(
+        response.body,
+        Box::new(decoder),
+        Some((Duration::from_millis(window as u64), label)),
+    );
+    // The window is armed: the recorded clock steps run while the consumer waits.
+    let collect = async move {
+        let mut events = Vec::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(event) => events.push(event),
+                Err(error) => return (events, Some(error)),
+            }
         }
-    }
-    match decoder.finish() {
-        Ok(more) => {
-            events.extend(more);
-            (events, None)
+        (events, None)
+    };
+    let clock = async {
+        for step in &case.clock {
+            endpoint.advance(step).await;
         }
-        Err(error) => (events, Some(error)),
-    }
+    };
+    let ((events, error), ()) = within("the consumer to end", async { tokio::join!(collect, clock) }).await;
+    assert_eq!(endpoint.steps().len(), case.clock.len(), "{id}: every recorded clock step");
+    (events, error)
 }
 
 #[tokio::test(start_paused = true)]
 async fn every_case_consumes_as_nodes() {
     let set = CaseSet::load(SET);
-    assert_eq!(set.cases.len(), 18, "the recorded cases");
-    for case in set.cases.iter().filter(|c| !NOT_REPLAYED.contains(&c.id.as_str())) {
+    assert_eq!(set.cases.len(), 17, "the recorded cases");
+    for case in &set.cases {
         let id = case.id.as_str();
         let (events, error) = consume(&set, id).await;
         let what = format!("{SET} {id}");
@@ -125,14 +131,38 @@ async fn every_case_consumes_as_nodes() {
                 "response" => {
                     assert!(error.is_none(), "{what}: the core failed: {error:?}");
                     let stops: Vec<_> = events.iter().filter_map(|e| if let StreamEvent::Completed { stop, .. } = e { Some(stop) } else { None }).collect();
-                    assert!(matches!(stops.as_slice(), [None]), "{what}: a clean end: {stops:?}");
                     let parts = events
                         .iter()
                         .find_map(|e| if let StreamEvent::ReasoningReplay(replay) = e { Some(plain(&replay.items["parts"])) } else { None })
                         .expect("the turn's parts");
                     let candidates = recorded.get("candidates").as_array();
+                    assert_eq!(recorded.entries().len(), 1, "{what}: the response is its candidates");
                     assert_eq!(candidates.len(), 1, "{what}: one candidate");
-                    assert_exact(&format!("{what}: parts"), candidates[0].get("content").get("parts"), &parts);
+                    // Each field through RESULT_FIELDS.
+                    for (key, value) in candidates[0].entries() {
+                        let path = format!("response.candidates[0].{key}");
+                        match key.as_str() {
+                            "content" => {
+                                for (field, value) in value.entries() {
+                                    let path = format!("{path}.{field}");
+                                    if result_field_unread(&path) {
+                                        continue;
+                                    }
+                                    assert_eq!(field, "parts", "{what}: {path} ({})", result_field(&path));
+                                    assert_exact(&format!("{what}: {path}"), value, &parts);
+                                }
+                            }
+                            "finishReason" => {
+                                assert_eq!(value.as_str(), "STOP", "{what}: {path} ({})", result_field(&path));
+                                assert!(matches!(stops.as_slice(), [None]), "{what}: {path}");
+                            }
+                            _ => assert!(result_field_unread(&path), "{what}: {path} ({})", result_field(&path)),
+                        }
+                    }
+                    if candidates[0].try_get("finishReason").is_none() {
+                        // No finish: a turn of whole calls, delivered with no stop (`Completed { stop: None }`).
+                        assert!(matches!(stops.as_slice(), [None]), "{what}: no finish");
+                    }
                     recorded.clone()
                 }
                 "error" => {
@@ -161,7 +191,7 @@ async fn every_case_consumes_as_nodes() {
                         .collect(),
                 ),
                 "leakedToolCalls" => {
-                    assert!(error.is_some(), "{what}: compared on a failed stream only");
+                    assert!(error.is_some(), "{what}: compared on a failed stream only ({})", result_field(key));
                     let recovered = events.iter().filter(|e| matches!(e, StreamEvent::Progress(ProgressKind::Tool))).count();
                     assert_eq!(recovered, recorded.as_array().len(), "{what}: the recovered calls");
                     recorded.clone()

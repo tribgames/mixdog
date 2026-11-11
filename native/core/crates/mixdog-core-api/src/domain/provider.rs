@@ -771,6 +771,12 @@ pub enum StreamEvent {
     /// Responses output item added, a compatible Chat stream's first visible delta). The accounting layer times the
     /// first-output wait from it (`ttftMs`). Folds into nothing.
     OutputStarted,
+    /// Anthropic's summary of the turn's content blocks (Node result `hasThinkingContent` and `contentBlockTypes`):
+    /// whether a thinking block streamed, and the delta types (plus `fallback`) in first-seen order. The session reads
+    /// them for an empty final turn (`ask-turn-commit.mjs:65-66`); the message threads refuse to store a turn that
+    /// fell back (`anthropic-message-threads.mjs:333`). Raised once, before the terminal event. Folds into the
+    /// response's summary.
+    ContentSummary { has_thinking: bool, block_types: Vec<String> },
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -1002,6 +1008,17 @@ pub struct ProviderError {
     /// The wire's finish reason of a turn that ended on one other than a clean stop (Node `finishReason` of a
     /// `ProviderIncompleteError`), as sent; `None` for every other failure.
     pub finish_reason: Option<Box<str>>,
+    /// The window a stream watchdog of the call ended it in (Node `timeoutPhase`); `None` for every other failure.
+    pub timeout_phase: Option<StreamTimeoutPhase>,
+}
+
+/// The stream window a watchdog fired in (`TIMEOUT_PHASE`, `shared/provider-timeout-phase.mjs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StreamTimeoutPhase {
+    /// Before the first payload (`first-chunk`).
+    FirstChunk,
+    /// After a payload, no further progress (`idle`).
+    Idle,
 }
 
 impl ProviderError {
@@ -1030,6 +1047,7 @@ impl ProviderError {
             quota_limit: None,
             notices: Vec::new(),
             finish_reason: None,
+            timeout_phase: None,
         }
     }
 

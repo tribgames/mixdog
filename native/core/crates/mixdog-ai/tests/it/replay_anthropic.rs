@@ -2,26 +2,19 @@
 //! over `anthropic-sse-turn/turn-outcome.mjs`), built from the core's stream events, and the callbacks the send made
 //! (`onToolCall`, `onStreamDelta`), for the group-A Anthropic replays.
 //!
-//! Every field of Node's result is either built from a core event here, or named in [`NO_CORE_FIELD`] with the reason
-//! the core carries no counterpart; [`assert_send`] compares the rest whole and in Node's key order.
+//! Every field of Node's result is built from a core event here, or is one the shared `RESULT_FIELDS` table
+//! (`mixdog_testkit::provider_fields`) declares unread; [`assert_send`] compares the rest whole and in Node's key
+//! order.
 #![allow(dead_code, reason = "each Anthropic set uses part of it")]
 
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_testkit::Exact;
+use mixdog_testkit::provider_fields::result_field_unread;
 use serde_json::Value;
 
 use crate::provider_case::assert_exact;
 use crate::provider_case::plain;
-
-/// Node result fields the core's events carry no counterpart of. Each is an open core gap reported with the group.
-/// - `stopDetails`: `message_delta.delta.stop_details` (+ `category`), returned by Node and read by no Node code
-///   (`stopDetails` in src/: only message-events.mjs:8-27, turn-outcome.mjs:141, anthropic-turn-result.mjs:60,
-///   anthropic-request-utils.mjs:546 write it);
-/// - `hasThinkingContent`, `contentBlockTypes`: the block summary Node's empty-turn trace reads
-///   (ask-turn-commit.mjs:65-66) and the fallback check (anthropic-message-threads.mjs:333); the core's events carry
-///   the blocks (the replay envelope) but not the delta types.
-pub const NO_CORE_FIELD: [&str; 3] = ["stopDetails", "hasThinkingContent", "contentBlockTypes"];
 
 fn stop_text(stop: &StopReason) -> String {
     match stop {
@@ -61,6 +54,7 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
     let mut usage = None;
     let mut stop = None;
     let mut output = false;
+    let mut summary = None;
     for event in events {
         match event {
             StreamEvent::TextDelta(text) => {
@@ -83,6 +77,7 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
                 replay = Some(envelope.items.clone());
             }
             StreamEvent::Usage(u) => usage = Some(u.clone()),
+            StreamEvent::ContentSummary { has_thinking, block_types } => summary = Some((*has_thinking, block_types.clone())),
             StreamEvent::Completed { stop: s, .. } => stop = Some(s.clone()),
             _ => {}
         }
@@ -99,9 +94,14 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
         entry("model", Exact::String(model)),
         entry("toolCalls", if calls.is_empty() { Exact::Undefined } else { Exact::Array(calls.clone()) }),
         entry("stopReason", stop.as_ref().map_or(Exact::Undefined, |s| Exact::String(stop_text(s)))),
+    ];
+    let (has_thinking, block_types) = summary.unwrap_or_else(|| panic!("the send summarised its blocks: {events:?}"));
+    result.extend([
+        entry("hasThinkingContent", Exact::Bool(has_thinking)),
+        entry("contentBlockTypes", Exact::Array(block_types.into_iter().map(Exact::String).collect())),
         entry("thinkingBlocks", thinking.map_or(Exact::Undefined, |t| plain(&Value::Array(t)))),
         entry("assistantBlocks", blocks.as_ref().map_or(Exact::Undefined, |b| plain(&Value::Array(b.clone())))),
-    ];
+    ]);
     if let Some(blocks) = &blocks {
         result.push(entry(
             "providerReplay",
@@ -136,17 +136,23 @@ pub fn send(events: &[StreamEvent], requested: &str) -> Send {
     Send { result: Exact::Object(result), tool_calls: Exact::Array(calls), stream_deltas: Exact::Array(deltas) }
 }
 
-/// Node's result with the [`NO_CORE_FIELD`] keys taken out.
+/// Node's result without the keys `RESULT_FIELDS` declares unread.
 pub fn comparable(node: &Exact) -> Exact {
     match node {
-        Exact::Object(entries) => Exact::Object(entries.iter().filter(|(k, _)| !NO_CORE_FIELD.contains(&k.as_str())).cloned().collect()),
+        Exact::Object(entries) => Exact::Object(
+            entries
+                .iter()
+                .filter(|(k, _)| !(mixdog_testkit::provider_fields::RESULT_FIELDS.iter().any(|(f, _, _)| f == k) && result_field_unread(k)))
+                .cloned()
+                .collect(),
+        ),
         other => panic!("Node's result is an object: {other:?}"),
     }
 }
 
-/// Node's `onStreamDelta` kinds without `transport`, which Node raises once per network read of the body (its count
-/// follows the socket's chunking; the core reports no network reads).
+/// Node's `onStreamDelta` kinds without `transport`, which `RESULT_FIELDS` declares unread (`streamDeltas.transport`).
 pub fn semantic_deltas(node: &Exact) -> Exact {
+    assert!(result_field_unread("streamDeltas.transport"));
     Exact::Array(node.as_array().iter().filter(|k| k.as_str() != "transport").cloned().collect())
 }
 

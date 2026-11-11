@@ -43,6 +43,7 @@ use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
 use super::models;
+use super::watchdog::FirstByte;
 use super::redirect;
 use crate::catalog::ListingLookup;
 use crate::transport::BodyStream;
@@ -76,6 +77,8 @@ pub struct GoogleAdapter {
     lookup: ListingLookup,
     /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
     preconnect: Option<Preconnect>,
+    /// The process environment the stream windows resolve from (`resolveTimeoutMs`).
+    var: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
 }
 
 impl GoogleAdapter {
@@ -106,6 +109,7 @@ impl GoogleAdapter {
             roster: Mutex::default(),
             lookup: ListingLookup::new(),
             preconnect: None,
+            var: Arc::new(|name| std::env::var(name).ok()),
         }
     }
 
@@ -568,33 +572,91 @@ impl GoogleAdapter {
             let rejected = response.read_all().await?;
             return Err(self.codec.classify_for(&rejected, &request, global));
         }
-        Ok(GoogleStream {
-            body: response.body,
-            decoder: self.codec.decoder_at(&request, global),
-            queue,
-            ended: false,
-            // An empty answer right after a tool result is the model's answer.
-            after_tool_result: request
-                .messages
-                .iter()
-                .rev()
-                .find(|m| m.role != Role::System)
-                .is_some_and(|m| m.role == Role::Tool),
-            produced_output: false,
-        })
+        let first_byte = self.first_byte_window(&request).map(|window| (window, self.codec.stream_label()));
+        let mut stream = GoogleStream::consume(response.body, self.codec.decoder_at(&request, global), first_byte);
+        stream.queue = queue;
+        // `gemini.mjs`'s answer check: an empty answer right after a tool result is the model's answer.
+        stream.answer_required = true;
+        stream.after_tool_result =
+            request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
+        Ok(stream)
     }
 }
 
-struct GoogleStream {
+impl GoogleAdapter {
+    /// `firstByteTimeoutMs` of the route's `consumeGeminiRestStreamResponse`: `GEMINI_FIRST_BYTE_TIMEOUT_MS` on the
+    /// Gemini API (`gemini.mjs:878`) and on Vertex AI, `VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS` for a Flex send there
+    /// (`vertex-ai.mjs:414`), and on Antigravity the first window of the model's family (`antigravityFirstBytePolicy`:
+    /// `ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS` for `gemini-pro`, else the Gemini window). Claude and open models on
+    /// Vertex AI stream through other consumers: none.
+    fn first_byte_window(&self, request: &ModelRequest) -> Option<std::time::Duration> {
+        let get = |name: &str| (self.var)(name);
+        let gemini = super::cache::policy::gemini_first_byte_ms(get);
+        let ms = match self.codec.target() {
+            Target::Gemini { .. } => gemini,
+            Target::Vertex { .. } => {
+                if self.codec.claude_model(&request.model).is_some() || self.codec.maas_model(&request.model).is_some() {
+                    return None;
+                }
+                if super::serving::Tier::requested(request.options.model_parameters.as_ref()) == super::serving::Tier::Flex {
+                    570_000.0
+                } else {
+                    gemini
+                }
+            }
+            Target::Antigravity { .. } => {
+                let roster = self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                // `antigravityModelFamily`: the record of the picker id, else the one sending under that wire id.
+                let sends = |r: &&ModelRecord| match &r.wire {
+                    Some(mixdog_core_api::domain::provider::WireIds::One(id)) => *id == request.model,
+                    Some(mixdog_core_api::domain::provider::WireIds::Tiers(tiers)) => tiers.iter().any(|(_, id)| *id == request.model),
+                    None => false,
+                };
+                let record = roster.iter().find(|r| r.id == request.model).or_else(|| roster.iter().find(sends));
+                let pro = record.and_then(|r| r.family.as_deref()) == Some("gemini-pro");
+                if pro { super::cache::policy::antigravity_first_byte_ms(get) } else { gemini }
+            }
+        };
+        Some(std::time::Duration::from_millis(ms as u64))
+    }
+}
+
+/// One Gemini-wire response body through its decoder (`consumeGeminiRestStreamResponse`): the decoder's events in
+/// order, the first-byte watchdog, and a transport fault as the stream's failure.
+pub struct GoogleStream {
+    /// `None` once a payload arrived.
+    first_byte: Option<FirstByte>,
     body: Box<dyn BodyStream>,
     decoder: Box<dyn WireDecoder>,
     queue: VecDeque<Result<StreamEvent, ProviderError>>,
     ended: bool,
+    /// The provider's answer check (`gemini.mjs`): a clean end without text or a call fails, unless the turn
+    /// answers a tool result.
+    answer_required: bool,
     after_tool_result: bool,
     produced_output: bool,
 }
 
 impl GoogleStream {
+    /// The consumer over a response whose headers just arrived: `first_byte` is the window for the first payload and
+    /// the label its timeout names (`firstByteTimeoutMs`, `label`).
+    pub fn consume(
+        body: Box<dyn BodyStream>,
+        decoder: Box<dyn WireDecoder>,
+        first_byte: Option<(std::time::Duration, &'static str)>,
+    ) -> Self {
+        Self {
+            first_byte: first_byte.map(|(window, label)| FirstByte::arm(window, label)),
+            body,
+            decoder,
+            queue: VecDeque::new(),
+            ended: false,
+            answer_required: false,
+            after_tool_result: false,
+            produced_output: false,
+        }
+    }
+
     fn fail(&mut self, err: ProviderError) {
         self.ended = true;
         self.queue.push_back(Err(err));
@@ -603,9 +665,10 @@ impl GoogleStream {
     fn push(&mut self, events: Vec<StreamEvent>) {
         for mut event in events {
             match &mut event {
+                StreamEvent::ChunkProgress(_) => self.first_byte = None,
                 StreamEvent::TextDelta(_) | StreamEvent::ToolCallDone(_) => self.produced_output = true,
                 StreamEvent::Completed { stop: None, .. }
-                    if !self.produced_output && !self.after_tool_result =>
+                    if self.answer_required && !self.produced_output && !self.after_tool_result =>
                 {
                     let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
                     err.code = Some("no_response_text".into());
@@ -630,7 +693,18 @@ impl ModelStream for GoogleStream {
             if self.ended {
                 return None;
             }
-            match self.body.next().await {
+            let next = match &self.first_byte {
+                Some(watch) => match watch.read(self.body.next()).await {
+                    Some(next) => next,
+                    None => {
+                        let err = watch.expired(self.decoder.exposure());
+                        self.fail(err);
+                        continue;
+                    }
+                },
+                None => self.body.next().await,
+            };
+            match next {
                 Some(Ok(chunk)) => match self.decoder.feed(&chunk) {
                     Ok(events) => self.push(events),
                     Err(err) => self.fail(err),

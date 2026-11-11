@@ -28,6 +28,7 @@ pub mod schema;
 pub mod serving;
 pub mod tool_accept;
 pub mod traits;
+mod watchdog;
 
 #[cfg(test)]
 mod claude_replay_wire_tests;

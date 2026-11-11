@@ -8,6 +8,7 @@ use mixdog_ai::broker::SendError;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_ai::service::error_text::sent_code;
 use mixdog_core_api::domain::provider::StreamEvent;
+use mixdog_core_api::domain::provider::StreamTimeoutPhase;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_testkit::Exact;
 
@@ -120,6 +121,7 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "name" => match value.as_str() {
             "AbortError" => assert!(left.cancelled, "{what}: an AbortError is the caller's cancel"),
             "StreamStalledError" | "AgentStallAbortError" => assert!(left.error(field).timed_out, "{what}: {mapping}"),
+            "GeminiTimeoutError" => assert!(left.error(field).timed_out, "{what}: {mapping}"),
             "TruncatedStreamError" => assert_eq!(left.error(field).transport, Some(TransportFault::TruncatedStream), "{what}: {mapping}"),
             // An error the stream's own frame carried: no transport fault, no timer.
             "GeminiInBandError" => {
@@ -208,6 +210,14 @@ fn compare_field(what: &str, field: &str, value: &Exact, left: &Left<'_>, user: 
         "liveTextEmitted" | "emittedText" => assert_eq!(left.text_emitted(), opt_bool(value), "{what}: {mapping}"),
         "emittedToolCall" | "toolCallEmitted" => assert_eq!(left.tool_dispatched(), opt_bool(value), "{what}: {mapping}"),
         "unsafeToRetry" => assert_eq!(left.replay_unsafe(), opt_bool(value), "{what}: {mapping}"),
+        "timeoutPhase" => {
+            let phase = match left.error(field).timeout_phase {
+                Some(StreamTimeoutPhase::FirstChunk) => Some("first-chunk"),
+                Some(StreamTimeoutPhase::Idle) => Some("idle"),
+                None => None,
+            };
+            assert_eq!(phase, opt_str(value), "{what}: {mapping}");
+        }
         "firstByteTimeout" => assert_eq!(left.error(field).timed_out, opt_bool(value), "{what}: {mapping}"),
         "streamStalled" => {
             let error = left.error(field);
