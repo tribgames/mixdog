@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 14031,
+      "bytes": 14226,
       "path": "archived-agent.json",
-      "sha256": "b86313dd597cb09200c752bb753f821ed2eea1962adea5497ec1a9d95f97543a"
+      "sha256": "bd969c55be2fd22b385ce17b869802249dc3ecfd8a70a7789358d89d46ed6be1"
     }
   ],
   "inputs": [
@@ -41,8 +41,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-archived-agent.mjs",
-  "recorderSha256": "f324e8f432184aa7788c8d58c5595f2f0bf135b787c100c355dc5388a4e8a01d",
+  "recorderSha256": "ceb82758c5e63f211b9678999c849acecd613a0b70e317caad36961fa077ed8c",
   "set": "archived-agent",
-  "totalBytes": 14031,
+  "totalBytes": 14226,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

@@ -79,8 +79,11 @@ const files = {
     id: 'sess_alive_child', owner: 'agent', agent: 'worker', closed: true, generation: 1, updatedAt: 1_772_000_000_000,
     parentSessionId: 'sess_parent_a', ownerSessionId: 'sess_parent_a', messages: [{ role: 'user', content: 'alive' }, { role: 'assistant', content: 'still here' }],
   },
+  // The shape 1.4.5's worker index writes: version 2, rows keyed by session id.
   'agent-workers.json': {
-    workers: [
+    version: 2,
+    tombstones: {},
+    workers: Object.fromEntries([
       { sessionId: 'sess_child_link', parentSessionId: 'sess_parent_a', ownerSessionId: 'sess_parent_a', tag: 'w1' },
       { sessionId: 'sess_child_two', parentSessionId: 'sess_parent_a', ownerSessionId: 'sess_parent_a' },
       { sessionId: 'sess_child_tie', parentSessionId: 'sess_parent_a', ownerSessionId: 'sess_parent_a' },
@@ -89,7 +92,7 @@ const files = {
       { sessionId: 'sess_child_empty', parentSessionId: 'sess_parent_a', ownerSessionId: 'sess_parent_a' },
       { sessionId: 'sess_child_silent', parentSessionId: 'sess_parent_b', ownerSessionId: 'sess_parent_b' },
       { sessionId: 'sess_alive_child', parentSessionId: 'sess_parent_a', ownerSessionId: 'sess_parent_a' },
-    ],
+    ].map((row) => [row.sessionId, row])),
   },
   'session-summaries.json': {
     version: 2,
