@@ -144,7 +144,7 @@ await run('callbacks reach the server only allowlisted and projected; account id
     onToolExcluded: (info) => { excluded.push(info); },
     onSecretHook: () => { secretHookCalled = true; },
   }));
-  return { result, stages, deltas, excluded, secretHookCalled, allowlistedCallbacks: [...MODEL_PROXY_CALLBACKS.keys()].sort(), secretShapedInput: 'the secret-shaped test string carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-abc… shape); the redactor treats both alike' };
+  return { result, stages, deltas, excluded, secretHookCalled, allowlistedCallbacks: [...MODEL_PROXY_CALLBACKS.keys()], secretShapedInput: 'the secret-shaped test string carries the sk-DUMMY- marker (the fixture secret scan refuses the original sk-abc… shape); the redactor treats both alike' };
 });
 
 await set.finish({
