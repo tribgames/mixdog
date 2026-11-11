@@ -2538,6 +2538,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 b.tokens.durability_io,
                 b.data_dir.clone(),
                 mixdog_services::task_reports::collect::sensitive_scopes(&[home.clone(), mixdog_home.clone(), b.data_dir.clone()]),
+                documents.clone(),
                 room_log.clone(),
             )),
             sessions: room_sessions.clone(),

@@ -434,5 +434,244 @@
       "speaker": "gh",
       "text": ""
     }
+  },
+  "48": {
+    "added": 1,
+    "rows": [
+      {
+        "id": "sub-9",
+        "kind": "user",
+        "at": 7,
+        "to": [
+          "gh"
+        ],
+        "toName": [
+          "GH"
+        ],
+        "parts": [
+          {
+            "type": "text",
+            "attachmentRef": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+            "textKind": "paste",
+            "mimeType": "text/plain",
+            "filename": "Pasted text #2",
+            "sizeBytes": 11
+          },
+          {
+            "type": "image",
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "mimeType": "image/png",
+            "sizeBytes": 9
+          },
+          {
+            "type": "file",
+            "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "filename": "plan.docx",
+            "sizeBytes": 10
+          }
+        ],
+        "attachments": [
+          {
+            "id": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+            "attachmentRef": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+            "kind": "text",
+            "name": "Pasted text #2",
+            "mimeType": "text/plain",
+            "size": 11
+          },
+          {
+            "id": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "kind": "image",
+            "name": "shot.png",
+            "mimeType": "image/png",
+            "size": 9
+          },
+          {
+            "id": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "kind": "file",
+            "name": "plan.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "size": 10
+          }
+        ],
+        "images": [
+          {
+            "id": 1,
+            "name": "shot.png",
+            "mimeType": "image/png",
+            "bytes": 9,
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+          }
+        ],
+        "text": "see [Image #1], [Pasted text #2 +1 lines] and [File #3: plan.docx]"
+      }
+    ],
+    "storedBytes": {
+      "image": "png bytes",
+      "file": "docx bytes",
+      "text": "pasted body"
+    },
+    "sessionMessages": [
+      {
+        "role": "user",
+        "content": "see [Image #1], [Pasted text #2 +1 lines] and [File #3: plan.docx]",
+        "meta": {
+          "source": "agent-room",
+          "room": {
+            "kind": "user",
+            "to": [
+              "gh"
+            ],
+            "toName": [
+              "GH"
+            ],
+            "parts": [
+              {
+                "type": "text",
+                "attachmentRef": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+                "textKind": "paste",
+                "mimeType": "text/plain",
+                "filename": "Pasted text #2",
+                "sizeBytes": 11
+              },
+              {
+                "type": "image",
+                "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+                "mimeType": "image/png",
+                "sizeBytes": 9
+              },
+              {
+                "type": "file",
+                "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "filename": "plan.docx",
+                "sizeBytes": 10
+              }
+            ],
+            "images": [
+              {
+                "id": 1,
+                "name": "shot.png",
+                "mimeType": "image/png",
+                "bytes": 9,
+                "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+              }
+            ]
+          },
+          "transcript": {
+            "at": 7,
+            "messageId": "sub-9",
+            "attachments": [
+              {
+                "id": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+                "attachmentRef": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+                "kind": "text",
+                "name": "Pasted text #2",
+                "mimeType": "text/plain",
+                "size": 11
+              },
+              {
+                "id": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+                "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+                "kind": "image",
+                "name": "shot.png",
+                "mimeType": "image/png",
+                "size": 9
+              },
+              {
+                "id": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+                "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+                "kind": "file",
+                "name": "plan.docx",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "size": 10
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "lines": [
+      {
+        "type": "roomRow",
+        "id": "<item-id>",
+        "room": {
+          "kind": "user",
+          "at": 7,
+          "to": [
+            "gh"
+          ],
+          "toName": [
+            "GH"
+          ],
+          "parts": [
+            {
+              "type": "text",
+              "attachmentRef": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+              "textKind": "paste",
+              "mimeType": "text/plain",
+              "filename": "Pasted text #2",
+              "sizeBytes": 11
+            },
+            {
+              "type": "image",
+              "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+              "mimeType": "image/png",
+              "sizeBytes": 9
+            },
+            {
+              "type": "file",
+              "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+              "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "filename": "plan.docx",
+              "sizeBytes": 10
+            }
+          ]
+        },
+        "text": "see [Image #1], [Pasted text #2 +1 lines] and [File #3: plan.docx]",
+        "attachments": [
+          {
+            "id": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+            "attachmentRef": "09f45e4f4cafd82b9bcd7185973ab5e40e8c23648a76fc12eb121e42459d3f98",
+            "kind": "text",
+            "name": "Pasted text #2",
+            "mimeType": "text/plain",
+            "size": 11
+          },
+          {
+            "id": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+            "kind": "image",
+            "name": "shot.png",
+            "mimeType": "image/png",
+            "size": 9
+          },
+          {
+            "id": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "attachmentRef": "9c53fa3ca6756ee84492a2f5e05fc3ef989127e45c8d863fecf9f57d50186659",
+            "kind": "file",
+            "name": "plan.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "size": 10
+          }
+        ],
+        "images": [
+          {
+            "id": 1,
+            "name": "shot.png",
+            "mimeType": "image/png",
+            "bytes": 9,
+            "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+          }
+        ],
+        "meta": {
+          "at": 7,
+          "messageId": "sub-9"
+        }
+      }
+    ]
   }
 }

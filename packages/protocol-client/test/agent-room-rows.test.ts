@@ -96,6 +96,21 @@ test('case 45: stored rows restore as a user bubble or a room notice and read ba
   same({ user: row(user, 'h1'), speech: row(speech, 'h2'), rowsOfItems: core['45'].readBack }, want, 'case 45');
 });
 
+test("case 48: the log's intake stores a user row's files as a chat prompt's and hands back references", () => {
+  const want = recorded(48, "the log's intake stores a user row's files as a chat prompt's and hands back references");
+  const c = core['48'];
+  // The notice a runtime hosting the log shows: the fields Node's delivery picks of `roomRowItem` (agent-room-delivery.mjs commit).
+  const notices = (c.lines as O[]).map((line) => {
+    const { text, tone, room, messageId, attachments, images } = row(line);
+    return { text, tone, room, messageId, attachments, images };
+  });
+  same(
+    { input: fromExact(want.input), added: c.added, rows: c.rows, storedBytes: c.storedBytes, sessionMessages: c.sessionMessages, notices },
+    want,
+    'case 48',
+  );
+});
+
 test('case 47: a user row keeps its stored files through the log and a restore; no bytes; peer speech keeps only its produced files', () => {
   const want = recorded(47, 'a user row keeps its stored files through the log and a restore; no bytes; peer speech keeps only its produced files');
   const c = core['47'];
