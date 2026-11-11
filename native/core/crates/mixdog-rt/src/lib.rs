@@ -30,8 +30,10 @@ pub mod scoped;
 pub mod serial;
 pub mod ticker;
 pub mod tokens;
+pub mod write_marks;
 
 pub use cancel::CancelSource;
+pub use write_marks::WriteMarks;
 pub use cancel::CancelView;
 pub use gate::Gate;
 pub use gate::GateCancelled;

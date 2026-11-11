@@ -614,7 +614,7 @@ impl SessionDirectory {
     /// record its actor accepted before the call, and written every prompt-history append pushed before it ([`Inbox::Settled`]);
     /// records accepted later neither hold nor hasten it, and a thread loaded later is not asked. A thread that unloads first
     /// counts once its close flushed ([`super::control::ControlCell::flushed`]). How many threads were asked, or which one ended
-    /// with something unwritten.
+    /// with something unwritten, or whose record or prompt append from before the call failed.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn durability_settled(&self) -> Result<usize, String> {
         let mut waits = Vec::new();
@@ -626,11 +626,13 @@ impl SessionDirectory {
         let loaded = waits.len();
         for (handle, rx) in waits {
             let answered = match rx {
-                Some(rx) => rx.await.is_ok(),
-                None => false,
+                Some(rx) => rx.await.ok(),
+                None => None,
             };
-            if !answered && !handle.cell.flushed.load(std::sync::atomic::Ordering::SeqCst) {
-                return Err(format!("thread {} ended with records or prompt appends not yet written", handle.id.as_str()));
+            match answered {
+                Some(answer) => answer?,
+                None if handle.cell.flushed.load(std::sync::atomic::Ordering::SeqCst) => {}
+                None => return Err(format!("thread {} ended with records or prompt appends not yet written", handle.id.as_str())),
             }
         }
         Ok(loaded)

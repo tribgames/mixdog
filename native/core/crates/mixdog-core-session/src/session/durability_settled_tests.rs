@@ -102,4 +102,18 @@ async fn settled_answers_at_the_records_accepted_before_it_while_later_ones_are_
     tokio::time::timeout(DEADLINE, after).await.expect("the later rename did not answer within 10 s").expect("committed");
 }
 
+/// A record accepted before the call whose commit failed: the call answers that failure, naming the thread, not success.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_answers_an_error_when_a_record_from_before_it_failed() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let failed = tokio::time::timeout(DEADLINE, handle.request(rename(&handle, "op-failed", "failed"))).await.expect("the rename did not answer within 10 s");
+    assert!(failed.is_err(), "the store failed the record: {failed:?}");
+    let answer = tokio::time::timeout(DEADLINE, directory.durability_settled()).await.expect("settled did not answer within 10 s");
+    let error = answer.expect_err("a failed record from before the call is the call's error");
+    assert!(error.starts_with(&format!("thread {}: record ", handle.id.as_str())) && error.contains("accepted before the barrier, failed: "), "{error}");
+}
+
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);

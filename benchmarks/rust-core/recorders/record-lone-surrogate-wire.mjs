@@ -230,7 +230,9 @@ const WORLD_FILES_SKIP = [
   },
   {
     path: 'core/data/modelsdev-catalog.json.lock',
-    reason: "the lock the models.dev catalog's refresh holds while it writes the cache (the entry above)",
+    lockStaging: true,
+    reason:
+      "the lock the models.dev catalog's refresh holds while it writes the cache (the entry above), with the record it stages and the guard it takes to reclaim a stale one (mixdog-statefile lock.rs publish_lock, reclaim)",
   },
   {
     path: 'core/data/update-check-cache.json',
@@ -243,6 +245,12 @@ const WORLD_FILES_SKIP = [
     atomicTemp: true,
     reason:
       "the last answer of each provider CLI's live version lookup (mixdog-ai client_versions.rs, Node's live CLI versions): written when a lookup the core started on its own answers, from the providers' sites (not a stand-in server); no client call writes it",
+  },
+  {
+    path: 'core/data/client-versions.json.lock',
+    lockStaging: true,
+    reason:
+      "the lock the live version lookup holds while it writes its cache (the entry above), with the record it stages and the guard it takes to reclaim a stale one (mixdog-statefile lock.rs publish_lock, reclaim)",
   },
 ];
 // The language server's closing handshake: the core shuts down an idle language server on its own timer (Node's manager likewise),
@@ -328,9 +336,9 @@ writeSetManifest(stage, {
         mcpServerList:
           "in the config file: mcp/addMcpServer and mcp/saveMcpServer write the list through that same writer (mixdog-mcp mcp_service.rs save_servers -> save_config -> Config::update), so the config step covers it",
         sessionStore:
-          "replay/storesSettled, sent as a raw frame from the paired phone after the config step's answer (the desktop's protocol client sends only the method table's methods), a development-build control (mixdog-cli feature replay-controls; refused in a release build by build.rs): each thread loaded when it arrives takes its accept watermark then (the last record its actor accepted, the prompt-history appends pushed) and answers once every record up to it is committed - written and synced by the store, which acks it (mixdog-store log.rs append_barrier sync_file; mixdog-core-session actor.rs on_durability -> Outbox::acked) - or failed, and every append up to it is written; records accepted later neither hold nor hasten it, a thread loaded later is not asked, and one unloaded meanwhile counts once its close flushed (directory.rs SessionDirectory::durability_settled, actor.rs answer_settled). Within a 20 s deadline that fails the call with what it waited for (mixdog-app-server-daemon replay_stores_settled.rs). Its answer must hold the number of threads asked",
+          "replay/storesSettled, sent as a raw frame from the paired phone after the config step's answer (the desktop's protocol client sends only the method table's methods), a development-build control (mixdog-cli feature replay-controls; refused in a release build by build.rs): each thread loaded when it arrives takes its accept watermark then (the last record its actor accepted, the prompt-history appends pushed) and answers once every record up to it is committed - written and synced by the store, which acks it (mixdog-store log.rs append_barrier sync_file; mixdog-core-session actor.rs on_durability -> Outbox::acked) - and every append up to it is written (prompt_history.rs AppendQueue::marks); records accepted later neither hold nor hasten it, a thread loaded later is not asked, and one unloaded meanwhile counts once its close flushed (directory.rs SessionDirectory::durability_settled, actor.rs answer_settled). A record or append from before it that failed (outbox.rs Outbox::note_failed) answers an error naming the thread. Within a 20 s deadline that fails the call with what it waited for (mixdog-app-server-daemon replay_stores_settled.rs). Its answer must hold the number of threads asked; an error fails the replay with its message",
         writeBehind:
-          "the same replay/storesSettled call, around the session step: first the agent index's queued row writes (mixdog-core-session agent_registry StoreWorkers::settled, which hands header changes to the threads before the session step), then the read-state snapshots under core/data/read-snapshots (mixdog-tools read_state.rs ReadState::flush_all), the gateway usage events in core/data/gateway-usage.local.jsonl and the compaction they scheduled (gateway_usage store.rs GatewayUsage::settle), and the usage ledger when it is open (mixdog-ledger writer.rs UsageWriter::settle_writes)",
+          "the same replay/storesSettled call, around the session step, with one shape for every writer (mixdog-rt write_marks.rs WriteMarks: each write numbered as accepted and reported written or failed; the call takes each writer's accepted count as it arrives and waits for its committed count to reach it, so writes accepted later neither hold nor hasten it, and a write from before it that failed answers an error naming the store): the agent index's row writes (mixdog-core-session agent_registry StoreWorkers::marks, which hand header changes to the threads before the session step), the read-state snapshots under core/data/read-snapshots (mixdog-tools read_state.rs ReadState::marks, their debounce cut short by ReadState::flush_pending), the gateway usage events in core/data/gateway-usage.local.jsonl (gateway_usage store.rs GatewayUsage::marks, then GatewayUsage::compact_scheduled_now), and the usage ledger when it is open (mixdog-ledger writer.rs UsageWriter::marks)",
         prompts:
           "the prompt-history files (core/data/tui-prompt-history): part of the session step (the appends a thread pushed before the call are written)",
         secretsStore:

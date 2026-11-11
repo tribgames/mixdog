@@ -6,11 +6,16 @@ import { join } from 'node:path';
 
 /** `{ '<name>/<path>': Buffer }` of every file under each folder of `roots` (`{ name: absolute folder }`), `/`-separated, but those
  *  of a `skip` entry: its path (`<name>/<path>`) exactly or a file under it when it is a folder, and, for an entry with
- *  `atomicTemp`, the temporary file of an atomic write of it, `<path>.mixdog-tmp-<16 lowercase hex>` exactly. */
+ *  `atomicTemp`, the temporary file of an atomic write of it, `<path>.mixdog-tmp-<16 lowercase hex>` exactly, and for an entry
+ *  with `lockStaging`, a lock's staged record and reclaim guard (mixdog-statefile lock.rs publish_lock, reclaim):
+ *  `<path>.reclaim`, and `<path>[.reclaim].<pid>.<16 lowercase hex>.tmp` exactly. */
 export function worldFiles(roots, skip = []) {
   const files = new Map();
   const atomicTemp = (path, entry) => entry.atomicTemp && path.startsWith(`${entry.path}.mixdog-tmp-`) && /^[0-9a-f]{16}$/.test(path.slice(`${entry.path}.mixdog-tmp-`.length));
-  const skipped = (path) => skip.some((entry) => path === entry.path || path.startsWith(`${entry.path}/`) || atomicTemp(path, entry));
+  const lockStaging = (path, entry) =>
+    entry.lockStaging &&
+    (path === `${entry.path}.reclaim` || (path.startsWith(`${entry.path}.`) && /^(reclaim\.)?[0-9]+\.[0-9a-f]{16}\.tmp$/.test(path.slice(`${entry.path}.`.length))));
+  const skipped = (path) => skip.some((entry) => path === entry.path || path.startsWith(`${entry.path}/`) || atomicTemp(path, entry) || lockStaging(path, entry));
   const walk = (dir, at) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = `${at}/${entry.name}`;
