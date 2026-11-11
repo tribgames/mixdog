@@ -71,9 +71,18 @@ export function normalizer({ instant, own, named = new Map() }) {
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [ownPattern ? k.replace(ownPattern, (m) => own.get(m)) : k, walk(v, k, value)]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
     return value;
   };
-  // Ids made at random (a message's `msg_<32 hex>`), named by their order of first appearance on the side.
+  // Ids made at random (a message's `msg_<32 hex>`; a row's id, Node's `it_<8 hex>_<n>` and the core's `itm_<32 hex>`; an attempt's or a
+  // row's UUID), named by their order of first appearance on the side: only which values are the same one is compared.
+  const nameOf = (prefix) => (id) => {
+    if (!named.has(id)) named.set(id, `<${prefix}:${[...named.values()].filter((n) => n.startsWith(`<${prefix}:`)).length}>`);
+    return named.get(id);
+  };
   const rename = (value) => {
-    if (typeof value === 'string') return value.replace(/msg_[0-9a-f]{32}/g, (id) => { if (!named.has(id)) named.set(id, `<msg:${named.size}>`); return named.get(id); });
+    if (typeof value === 'string') {
+      return value
+        .replace(/msg_[0-9a-f]{32}/g, nameOf('msg'))
+        .replace(/^(?:it_[0-9a-f]{8}_\d+|itm_[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/, nameOf('id'));
+    }
     if (Array.isArray(value)) return value.map(rename);
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, rename(v)]));
     return value;
