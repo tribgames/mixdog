@@ -116,4 +116,28 @@ export const CASES = [
     node: { run: 'lsp', input: lsp('textDocument/codeAction', codeAction) },
     core: { method: 'lsp/request', params: { projectPath: PROJECT, root: PROJECT, request: { relPath: 'a.rs', languageId: 'rust', method: 'textDocument/codeAction', params: codeAction } } },
   },
+  // ── the other language-server fields that carry document text, a message or a label (free text in the inventory): each is
+  //    forwarded by both, the unit by Node and U+FFFD by the core, and the server's report of the request it received shows it ──
+  ...[
+    ['lsp-code-action-related-lone', 'textDocument/codeAction', {
+      range,
+      context: { diagnostics: [{ range, message: 'm', source: `s${HIGH}`, relatedInformation: [{ location: { uri: 'file:///D:/b.rs', range }, message: `r${HIGH}` }] }], triggerKind: 1 },
+    }],
+    ['lsp-code-action-resolve-lone', 'codeAction/resolve', {
+      title: 'fix',
+      diagnostics: [{ range, message: `m${HIGH}`, source: `s${HIGH}`, relatedInformation: [{ location: { uri: 'file:///D:/b.rs', range }, message: `r${HIGH}` }] }],
+    }],
+    ['lsp-completion-trigger-lone', 'textDocument/completion', { position: { line: 0, character: 1 }, context: { triggerKind: 2, triggerCharacter: HIGH } }],
+    ['lsp-completion-resolve-lone', 'completionItem/resolve', { label: `a${HIGH}`, sortText: `s${HIGH}`, filterText: `f${HIGH}`, commitCharacters: [HIGH] }],
+    ['lsp-signature-help-lone', 'textDocument/signatureHelp', {
+      position: { line: 0, character: 1 },
+      context: { triggerKind: 1, isRetrigger: true, activeSignatureHelp: { signatures: [{ label: 'f(a)', parameters: [{ label: `a${HIGH}` }] }] } },
+    }],
+    ['lsp-on-type-formatting-lone', 'textDocument/onTypeFormatting', { position: { line: 0, character: 1 }, ch: HIGH, options: { tabSize: 4, insertSpaces: true } }],
+    ['lsp-inlay-hint-resolve-lone', 'inlayHint/resolve', { position: { line: 0, character: 1 }, label: [{ value: `v${HIGH}` }] }],
+  ].map(([name, method, params]) => ({
+    name,
+    node: { run: 'lsp', input: lsp(method, params) },
+    core: { method: 'lsp/request', params: { projectPath: PROJECT, root: PROJECT, request: { relPath: 'a.rs', languageId: 'rust', method, params } } },
+  })),
 ];
