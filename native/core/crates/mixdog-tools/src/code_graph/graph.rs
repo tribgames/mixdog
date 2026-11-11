@@ -44,6 +44,8 @@ pub(super) struct Node {
     /// signature for reusing it.
     pub fingerprint: Option<(u64, u64)>,
     lines: OnceLock<Vec<String>>,
+    /// A query read this file's source (Node fills its source caches for it).
+    read: std::sync::atomic::AtomicBool,
 }
 
 /// `(size, mtime_ns)` of a file.
@@ -59,7 +61,14 @@ fn rel_of(root: &Path, path: &Path) -> Option<String> {
 
 impl Node {
     pub fn lines(&self) -> &[String] {
+        self.read.store(true, std::sync::atomic::Ordering::Relaxed);
         self.lines.get_or_init(|| split_lines(&self.text))
+    }
+
+    /// The file's source text, read for an answer.
+    pub fn source(&self) -> &str {
+        self.read.store(true, std::sync::atomic::Ordering::Relaxed);
+        &self.text
     }
 
     pub fn has_token(&self, name: &str) -> bool {
@@ -73,9 +82,84 @@ pub(super) fn split_lines(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Node's `_symbolTokenIndex` keys (`<language|*>|<name>`), in first-lookup order: every name a
-/// query has looked up in this graph, found or not.
-pub(super) type Lookups = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+/// Node's runtime caches of a resident graph (graph-model.mjs:150 `GRAPH_RUNTIME_CACHE_KEYS`) as the casing hint and
+/// the memory budget see them.
+#[derive(Default)]
+pub(super) struct Runtime {
+    /// `_symbolTokenIndex` keys (`<language|*>|<name>`) in first-lookup order, every name a query has looked up in
+    /// this graph, found or not, with the bytes of its entry (the key and its candidate rels).
+    pub keys: Vec<(String, u64)>,
+    /// Rels whose source a query read, with the bytes of their `_sourceTextCache`, `_sourceLinesCache` and
+    /// `_maskedLinesCache` entries.
+    pub sources: HashMap<String, u64>,
+    /// The graph's token index (symbol-index.mjs `_tokenIndexes`) is built: every query awaits it, and the runtime
+    /// cache clear leaves it.
+    pub queried: bool,
+}
+
+const RUNTIME_CACHE_KEYS: [&str; 6] =
+    ["_referenceSearchCache", "_keywordSearchCache", "_maskedLinesCache", "_sourceLinesCache", "_sourceTextCache", "_symbolTokenIndex"];
+
+impl Runtime {
+    /// graph-model.mjs:204 `_estimateGraphRetainedBytes` over the runtime caches: each key and its Map
+    /// (`_estimateRuntimeCacheBytes`, graph-model.mjs:240).
+    pub fn cache_bytes(&self) -> u64 {        let maps: u64 = RUNTIME_CACHE_KEYS.iter().map(|k| 8 + js_str(k) + 48).sum();
+        maps + self.keys.iter().map(|(_, b)| b).sum::<u64>() + self.sources.values().sum::<u64>()
+    }
+
+    /// graph-model.mjs:285 `_clearGraphRuntimeCaches`.
+    pub fn clear(&mut self) {
+        self.keys.clear();
+        self.sources.clear();
+    }
+}
+
+pub(super) type Lookups = std::sync::Arc<std::sync::Mutex<Runtime>>;
+
+/// `_estimateValueBytes` (graph-model.mjs:249) of a string: 16 + 2 per UTF-16 unit.
+pub(super) fn js_str(s: &str) -> u64 {
+    js_units(s.encode_utf16().count())
+}
+
+fn js_units(n: usize) -> u64 {
+    16 + 2 * n as u64
+}
+
+/// `_estimateValueBytes` of an array of strings.
+fn js_strings<'a>(items: impl IntoIterator<Item = &'a str>) -> u64 {
+    items.into_iter().map(|s| 8 + js_str(s)).sum::<u64>() + 24
+}
+
+/// `_estimateValueBytes` of a JSON value as Node holds it parsed.
+fn js_value(value: &serde_json::Value) -> u64 {
+    match value {
+        serde_json::Value::Null => 0,
+        serde_json::Value::Bool(_) => 4,
+        serde_json::Value::Number(_) => 8,
+        serde_json::Value::String(s) => js_str(s),
+        serde_json::Value::Array(items) => 24 + items.iter().map(|v| 8 + js_value(v)).sum::<u64>(),
+        serde_json::Value::Object(map) => 48 + map.iter().map(|(k, v)| 8 + js_str(k) + js_value(v)).sum::<u64>(),
+    }
+}
+
+/// One own property of an object: its slot, its key and its value.
+fn field(key: &str, value: u64) -> u64 {
+    8 + js_str(key) + value
+}
+
+/// The source-cache entries Node keeps for a file it read (`{ fingerprint, text }` and `{ fingerprint, lines }` twice),
+/// each with its Map slot and key.
+fn source_entry_bytes(node: &Node) -> u64 {
+    let slot = 24 + js_str(&node.rel);
+    let fingerprint = field("fingerprint", js_units(16));
+    let text = slot + 48 + fingerprint + field("text", js_str(&node.text));
+    let lines = slot + 48 + fingerprint + field("lines", js_strings(split_lines(&node.text).iter().map(String::as_str)));
+    text + 2 * lines
+}
+
+/// Node's graph signature (`<sha1 hex>#calls2`) and record schema version.
+const SIGNATURE_UNITS: usize = 47;
+const SCHEMA_VERSION: &str = "sym-record-v2-unified-kinds";
 
 pub(super) struct Graph {
     pub nodes: Vec<Node>,
@@ -105,14 +189,15 @@ impl Graph {
         language: Option<&'a str>,
     ) -> impl Iterator<Item = &'a Node> {
         let key = format!("{}|{name}", language.unwrap_or("*"));
-        let mut seen = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !seen.contains(&key) {
-            seen.push(key);
+        let candidates = move |n: &&'a Node| language.is_none_or(|l| n.lang == l) && n.has_token(name);
+        let mut runtime = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !runtime.keys.iter().any(|(k, _)| *k == key) {
+            let rels = js_strings(self.nodes.iter().filter(candidates).map(|n| n.rel.as_str()));
+            let bytes = 24 + js_str(&key) + rels;
+            runtime.keys.push((key, bytes));
         }
-        drop(seen);
-        self.nodes
-            .iter()
-            .filter(move |n| language.is_none_or(|l| n.lang == l) && n.has_token(name))
+        drop(runtime);
+        self.nodes.iter().filter(candidates)
     }
 
     /// Node `_formatNoSymbolMatches`: up to three other spellings of `symbol`, differing only in
@@ -123,7 +208,7 @@ impl Graph {
         if self.nodes.is_empty() {
             return out;
         }
-        for key in self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter() {
+        for (key, _) in self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).keys.iter() {
             let Some((_, name)) = key.split_once('|') else { continue };
             if name != symbol && name.to_lowercase() == lower && !out.iter().any(|n| n == name) {
                 out.push(name.to_owned());
@@ -171,6 +256,7 @@ impl Graph {
             .map(|(rel, file)| (rel, std::sync::Mutex::new(Some(file))))
             .collect();
         let reused = std::sync::atomic::AtomicUsize::new(0);
+        let whole_set_cached = !previous.is_empty();
         let previous_len = previous.len();
         let mut nodes = sized
             .par_iter()
@@ -190,8 +276,9 @@ impl Graph {
             })
             .collect::<Result<Vec<_>, _>>()?;
         link(&mut nodes);
-        // Nothing to write when every file came from the cache and none went away.
-        if whole_tree && (reused.into_inner() != nodes.len() || previous_len != nodes.len()) {
+        // Every file came from the cache and none went away: Node's disk-cache hit (`_deserializeGraph`).
+        let unchanged = whole_set_cached && reused.into_inner() == nodes.len() && previous_len == nodes.len();
+        if whole_tree && !unchanged {
             cache.stage(root, nodes.iter().filter_map(CachedFile::of).collect());
         }
         let mut graph = Self::assemble(root, nodes, truncated);
@@ -201,10 +288,98 @@ impl Graph {
             for node in &graph.nodes {
                 (&node.rel, node.fingerprint).hash(&mut hasher);
             }
-            let base_bytes = graph.nodes.iter().map(|node| node.text.len() as u64).sum();
-            graph.lookups = cache.lookups_for(&path_key(root), hasher.finish(), base_bytes);
+            let key = path_key(root);
+            let measured = || (graph.base_bytes(&key, unchanged), graph.token_index_bytes());
+            let lookups = cache.lookups_for(&key, hasher.finish(), measured);
+            graph.lookups = lookups;
         }
         Ok(graph)
+    }
+
+    /// graph-model.mjs:167 `_estimateGraphBaseBytes` of the graph Node holds for this file set: the object
+    /// build.mjs:704 assembles (nodes shaped as build-file-infos.mjs:150 `assembleGraphNodes`), or, for a set
+    /// loaded unchanged from the cache, the one graph-model.mjs:72 `_deserializeGraph` returns (no call sites, the
+    /// `_callsHydration` marker, `truncated` only when set, empty token lists absent).
+    fn base_bytes(&self, root_key: &str, from_disk: bool) -> u64 {        let root_units = root_key.encode_utf16().count();
+        let abs = |rel: &str| js_units(root_units + 1 + rel.encode_utf16().count());
+        let mut imported_by: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut reverse: Vec<(&str, Vec<&str>)> = Vec::new();
+        for node in &self.nodes {
+            for target in &node.resolved_imports {
+                let sources = imported_by.entry(target.as_str()).or_default();
+                if !sources.contains(&node.rel.as_str()) {
+                    sources.push(node.rel.as_str());
+                }
+                match reverse.iter_mut().find(|(t, _)| t == target) {
+                    Some((_, set)) if set.contains(&node.rel.as_str()) => {}
+                    Some((_, set)) => set.push(node.rel.as_str()),
+                    None => reverse.push((target.as_str(), vec![node.rel.as_str()])),
+                }
+            }
+        }
+        let mut nodes = 48 + 24 * self.nodes.len() as u64;
+        for node in &self.nodes {
+            let symbols = 24 + node.symbols.iter().map(|s| 8 + serde_json::to_value(s).map_or(0, |v| js_value(&v))).sum::<u64>();
+            let calls = match (&node.calls, from_disk) {
+                (Some(calls), false) => 24 + calls.iter().map(|c| 8 + serde_json::to_value(c).map_or(0, |v| js_value(&v))).sum::<u64>(),
+                _ => 0,
+            };
+            let tokens = if from_disk && node.tokens.is_empty() { 0 } else { js_strings(node.tokens.iter().map(String::as_str)) };
+            let resolved = node.resolved_imports.iter().map(|r| 8 + abs(r)).sum::<u64>() + 24;
+            let object = 48
+                + field("abs", abs(&node.rel))
+                + field("rel", js_str(&node.rel))
+                + field("lang", js_str(node.lang))
+                + field("fingerprint", js_units(16))
+                + field("parseError", js_str(&node.parse_error))
+                + field("rawImports", js_strings(node.raw_imports.iter().map(String::as_str)))
+                + field("resolvedImportsRel", js_strings(node.resolved_imports.iter().map(String::as_str)))
+                + field("resolvedImports", resolved)
+                + field("importedBy", js_strings(imported_by.get(node.rel.as_str()).into_iter().flatten().copied()))
+                + field("packageName", js_units(0))
+                + field("namespaceName", js_units(0))
+                + field("goPackageName", js_units(0))
+                + field("topLevelTypes", 24)
+                + field("tokenSymbols", tokens)
+                + field("symbols", symbols)
+                + field("calls", calls);
+            nodes += js_str(&node.rel) + object;
+        }
+        let reverse_bytes = 48 + reverse.iter().map(|(t, set)| 24 + js_str(t) + 48 + set.iter().map(|s| 16 + js_str(s)).sum::<u64>()).sum::<u64>();
+        let mut bytes = 48
+            + field("cwd", js_units(root_units))
+            + field("nodes", nodes)
+            + field("reverse", reverse_bytes)
+            + field("schemaVersion", js_str(SCHEMA_VERSION))
+            + field("builtAt", 8)
+            + field("signature", js_units(SIGNATURE_UNITS))
+            + field("_symbolTokenIndexDirty", 4);
+        if !from_disk || self.truncated {
+            bytes += field("truncated", 4);
+        }
+        if from_disk {
+            bytes += field("_callsHydration", js_str("pending"));
+        }
+        bytes
+    }
+
+    /// symbol-index.mjs:73 `_buildTokenIndex`'s byte count: per token its first file as a bare ordinal, a second
+    /// file turning it into an array, each further file one more item; 16 per node.
+    fn token_index_bytes(&self) -> u64 {        let mut files: HashMap<&str, usize> = HashMap::new();
+        let mut bytes = 48 + 2 * 24;
+        for node in &self.nodes {
+            for token in &node.tokens {
+                let seen = files.entry(token.as_str()).or_insert(0);
+                bytes += match *seen {
+                    0 => 24 + js_str(token) + 8,
+                    1 => 24 + 2 * 16 - 8,
+                    _ => 16,
+                };
+                *seen += 1;
+            }
+            bytes += 16;
+        }
+        bytes
     }
 
     /// One file on its own, rooted at `root` (a symbol outline needs no edges).
@@ -251,6 +426,20 @@ impl Graph {
     }
 }
 
+/// The end of a query on this graph: its token index stands built and the files it read stay in the source caches,
+/// as Node's resident graph keeps them.
+impl Drop for Graph {
+    fn drop(&mut self) {
+        let mut runtime = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        runtime.queried = true;
+        for node in self.nodes.iter().filter(|n| n.read.load(std::sync::atomic::Ordering::Relaxed)) {
+            if !runtime.sources.contains_key(&node.rel) {
+                runtime.sources.insert(node.rel.clone(), source_entry_bytes(node));
+            }
+        }
+    }
+}
+
 fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, String> {
     let bytes =
         std::fs::read(path).map_err(|e| format!("read failed for {}: {e}", path.display()))?;
@@ -290,6 +479,7 @@ fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, Stri
         calls,
         fingerprint,
         lines: OnceLock::new(),
+        read: Default::default(),
     })
 }
 
@@ -309,6 +499,7 @@ impl Node {
             calls: file.calls.map(|calls| calls.into_iter().map(super::cache::CachedCall::into_call).collect()),
             fingerprint: Some((file.size, file.mtime_ns)),
             lines: OnceLock::new(),
+            read: Default::default(),
         }
     }
 }

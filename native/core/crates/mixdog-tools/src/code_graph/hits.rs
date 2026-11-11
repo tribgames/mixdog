@@ -153,7 +153,7 @@ pub(super) fn occurrences(node: &Node, name: &str) -> Vec<(u32, u32)> {
     let Some(scan) = node.scan_lang else {
         return Vec::new();
     };
-    let mut hits = identifier_hits(&node.text, scan, name);
+    let mut hits = identifier_hits(node.source(), scan, name);
     hits.sort_unstable();
     hits
 }
@@ -496,7 +496,7 @@ pub(super) fn find_symbol_across_graph(
         if opts.body
             && let Some(node) = graph.node(&primary.rel).filter(|n| !n.text.is_empty())
         {
-            let all_lines: Vec<&str> = node.text.split('\n').collect();
+            let all_lines: Vec<&str> = node.source().split('\n').collect();
             let start = primary.line.max(1);
             let end = primary
                 .end_line

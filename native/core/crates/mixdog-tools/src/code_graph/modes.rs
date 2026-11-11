@@ -125,7 +125,7 @@ fn explainer_summary(ctx: &Ctx<'_>, node: &Node) -> String {
     let imports_all = &node.resolved_imports;
     let imports: Vec<&str> = imports_all.iter().take(8).map(String::as_str).collect();
     let outline = outline_rows(node, Some(ctx.args.depth.unwrap_or(1.0)), 120);
-    let head: String = node.text.split('\n').take(6).collect::<Vec<_>>().join("\n");
+    let head: String = node.source().split('\n').take(6).collect::<Vec<_>>().join("\n");
     let head: String = super::util::head_chars(head.trim(), 420).to_string();
     let mut parts = vec![format!("file: {}", node.rel), format!("language: {}", node.lang)];
     if !outline.is_empty() {

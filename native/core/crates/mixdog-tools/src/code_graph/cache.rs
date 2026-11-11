@@ -211,11 +211,16 @@ struct Resident {
     signature: u64,
     lookups: super::graph::Lookups,
     base_bytes: u64,
+    token_index_bytes: u64,
+    built_at: i64,
 }
 
 impl Resident {
-    fn lookup_bytes(&self) -> u64 {
-        self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|name| name.len() as u64).sum()
+    /// graph-model.mjs:204 `_estimateGraphRetainedBytes`: the base graph, its token index once a query built it,
+    /// and the runtime caches.
+    fn retained(&self) -> u64 {
+        let runtime = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.base_bytes + if runtime.queried { self.token_index_bytes } else { 0 } + runtime.cache_bytes()
     }
 }
 
@@ -232,24 +237,27 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// `_pruneCodeGraphMemoryCache` over residents ordered oldest first: past the byte budget the oldest graphs first
-/// lose their runtime caches (the lookups among them), then graphs other than the newest leave; past the entry
-/// budget the oldest leave.
+/// memory-cache.mjs:26 `_pruneCodeGraphMemoryCache` over residents ordered oldest first: past the byte budget the
+/// oldest graphs first lose their runtime caches (the lookups among them), then graphs other than the newest leave;
+/// past the entry budget the oldest leave.
 fn prune_resident(all: &mut Vec<Resident>, max_entries: usize, max_bytes: u64) {
-    let mut total: u64 = all.iter().map(|r| r.base_bytes + r.lookup_bytes()).sum();
-    for r in all.iter() {
+    let mut rows: Vec<u64> = all.iter().map(Resident::retained).collect();
+    let mut total: u64 = rows.iter().sum();
+    for (r, row) in all.iter().zip(rows.iter_mut()) {
         if total <= max_bytes {
             break;
         }
-        total -= r.lookup_bytes();
         r.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        let after = r.retained();
+        total -= *row - after;
+        *row = after;
     }
     let newest = all.len().saturating_sub(1);
     let mut index = 0;
-    all.retain(|r| {
+    all.retain(|_| {
         let keep = total <= max_bytes || index == newest;
         if !keep {
-            total -= r.base_bytes;
+            total -= rows[index];
         }
         index += 1;
         keep
@@ -310,17 +318,30 @@ impl GraphCache {
         }
     }
 
-    /// The lookup memo of `root`'s resident graph: kept while the graph stays resident over the indexed file set it
-    /// was built for; a graph built over a changed set, or after its root was evicted, starts with none (Node builds a
-    /// new graph). Each use is Node's `_setCodeGraphCache`: the root becomes the newest, then the residents are pruned.
-    pub(super) fn lookups_for(&self, root: &str, signature: u64, base_bytes: u64) -> super::graph::Lookups {
+    /// The runtime caches of `root`'s resident graph: kept while the graph stays resident over the indexed file set it
+    /// was built for (Node's `_touchCodeGraphCache`: the root becomes the newest); a graph built over a changed set, or
+    /// after its root was evicted, starts with none and is measured (`measure`: base and token index bytes) as Node's
+    /// `_setCodeGraphCache` adds it, then the residents are pruned.
+    pub(super) fn lookups_for(&self, root: &str, signature: u64, measure: impl FnOnce() -> (u64, u64)) -> super::graph::Lookups {
         let mut all = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let kept = all.iter().position(|r| r.root == root).map(|at| all.remove(at)).filter(|r| r.signature == signature);
-        let entry = kept.unwrap_or_else(|| Resident { root: root.to_owned(), signature, lookups: Default::default(), base_bytes });
-        let lookups = entry.lookups.clone();
-        all.push(Resident { base_bytes, ..entry });
+        let kept = all.iter().position(|r| r.root == root).map(|at| all.remove(at));
+        // build.mjs:658: a resident graph answers for CODE_GRAPH_TTL_MS after its build; later the set is loaded anew.
+        if let Some(entry) = kept.filter(|r| r.signature == signature && now_ms() - r.built_at < 30_000) {
+            let lookups = entry.lookups.clone();
+            all.push(entry);
+            return lookups;
+        }
+        let (base_bytes, token_index_bytes) = measure();
+        let lookups = super::graph::Lookups::default();
+        all.push(Resident { root: root.to_owned(), signature, lookups: lookups.clone(), base_bytes, token_index_bytes, built_at: now_ms() });
         prune_resident(&mut all, self.resident_max_entries, self.resident_max_bytes);
         lookups
+    }
+
+    /// dispatch.mjs:377: every call ends with the resident graphs pruned, the runtime caches it filled counted.
+    pub(super) fn prune_after_call(&self) {
+        let mut all = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        prune_resident(&mut all, self.resident_max_entries, self.resident_max_bytes);
     }
 
     #[cfg(test)]
