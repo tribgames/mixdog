@@ -93,9 +93,9 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
   const WATCH_MS = 5_000;
   const paneAfterWatcher = async (label, test, from) => {
     await within(`${label}: the watcher's ${WATCH_MS} ms timer to be armed`, virtual.whenArmedAfter(from, (t) => t.api === 'setTimeout' && t.ms === WATCH_MS));
+    const beforeFirst = virtual.armed.length;
     virtual.advance(WATCH_MS);
-    const afterFirst = virtual.armed.length;
-    await within(`${label}: the watcher to arm its next ${WATCH_MS} ms timer`, virtual.whenArmedAfter(afterFirst, (t) => t.api === 'setTimeout' && t.ms === WATCH_MS));
+    await within(`${label}: the watcher to arm its next ${WATCH_MS} ms timer`, virtual.whenArmedAfter(beforeFirst, (t) => t.api === 'setTimeout' && t.ms === WATCH_MS));
     const arrived = new Promise((resolve) => { paneWaiter = { test, resolve }; });
     virtual.advance(WATCH_MS);
     try { return await within(`${label}: the pane row to be published`, arrived); } finally { paneWaiter = null; }
@@ -126,12 +126,12 @@ await set.run('a job started after reclaim and reload reaches the pane as stoppe
       timeoutMs: 0, autoBackgroundMs: 200, backgroundOnTimeout: true, ownerSessionId: SESSION, callerSessionId: SESSION, clientHostPid: hostPid,
     });
     await within('the auto-background timer to be armed', virtual.whenArmed((t) => t.api === 'setTimeout' && t.ms === 200));
+    const watcherFrom = virtual.armed.length; // the watcher's first 5 s timer is armed while the auto-background advance runs
     virtual.advance(200);
     const result = await within('the command to move to the background', started);
     const jobId = result.jobId;
     const context = { callerSessionId: SESSION, routingSessionId: SESSION, clientHostPid: hostPid };
     registerBackgroundTask({ taskId: jobId, surface: 'shell', operation: 'shell', label: 'serve', context, cancel: () => killShellJob(jobId) });
-    const watcherFrom = virtual.armed.length;
     watchBackgroundShellJob(jobId, context);
     const running = await paneAfterWatcher('the running job to reach the pane', (rows) => rows.jobs.some((row) => row.taskId === jobId), watcherFrom);
     mark('the job runs and is on the pane', { started: result, running });
