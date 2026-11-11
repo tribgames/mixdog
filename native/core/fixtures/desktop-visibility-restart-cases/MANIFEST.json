@@ -71,10 +71,18 @@
   "recorderSha256": "8144cc3dd2d4fd091dba3dbcfa8ae67e41416c8935eb3a7879c9eb71ca738c1f",
   "replay": {
     "compare": "mixdog-app-server connection.rs (desktop registration): replay each trace step: the same init/invoke/release/unsubscribe calls and published rows; compare registrations after each step and the frames (kind, sessionId, wire) whole",
-    "entry": "Drive these public items on o1: thread/resume (setVisibleSessions, mixdog-app-protocol/src/inventory.rs:1125).",
+    "entry": "In K1 a desktop is a connection of its own: setVisibleSessions is thread/resume and thread/unsubscribe on that connection, issued by apps/desktop/src/main/protocol/service-route.ts (method === 'setVisibleSessions'), which reads no version; a closed connection detaches its subscriptions (mixdog-app-server/src/server.rs ConnectionHandle drop) and a thread unloads when its last subscriber leaves (mixdog-core-session actor Ctl::Unsubscribed). The recorded values are Node's desktop service registry (one service shared by desktops, client tokens, versioned registrations) and its {kind, sessionId, wire} frames over a scripted host; the core has no shared service or registry, so no case is replayed on replay-k1-session-host-a (see cases).",
+    "cases": {
+      "a restarted desktop can register version one on the retained service and receive live conversation rows": "not replayed: the retained service and its registrations are Node's registry; frames are Node delta wires",
+      "late registrations from a previous desktop cannot replace the current conversation filter": "not replayed: in K1 a released desktop's connection is closed, it cannot send; frames are Node delta wires",
+      "out-of-order and equal registrations stay fenced within one desktop connection": "not replayed: version fencing would be in service-route.ts (TS), which ignores the version; reported to Lead",
+      "unversioned legacy registrations remain supported": "not replayed: registry versions; frames are Node delta wires",
+      "concurrent desktops keep independent counters and the survivor stays live after the newer one disconnects": "not replayed: in K1 each desktop has its own connection and subscriptions; frames are Node delta wires",
+      "unsubscribing one desktop retains shared conversations until their last observer leaves": "not replayed: registry unsubscribe; frames are Node delta wires"
+    },
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the desktop service registry (init / versioned setVisibleSessions / releaseClient / unsubscribe and its frames): no Rust counterpart found"
+      "the desktop service registry (init / versioned setVisibleSessions / releaseClient / unsubscribe and its frames): not in the K1 design (a desktop is a connection)"
     ],
     "normalised": {},
     "protocolMethods": [
