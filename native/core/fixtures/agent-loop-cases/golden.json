@@ -237139,6 +237139,2107 @@
       }
     },
     {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "max-output ladder resumes three times, then seals the aggregate with the exhausted notice",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "write"
+        }
+      ],
+      "script": [
+        {
+          "content": "part1",
+          "toolCalls": [],
+          "stopReason": "length"
+        },
+        {
+          "content": "part2",
+          "toolCalls": [],
+          "stopReason": "length"
+        },
+        {
+          "content": "part3",
+          "toolCalls": [],
+          "stopReason": "length"
+        },
+        {
+          "content": "part4",
+          "toolCalls": [],
+          "stopReason": "length"
+        }
+      ],
+      "repeatLast": true,
+      "prompt": "write",
+      "watchAssistant": true,
+      "recorded": {
+        "runs": [
+          {
+            "assistantTexts": [
+              "part1",
+              "part2",
+              "part3",
+              "part4"
+            ],
+            "committed": [
+              {
+                "role": "assistant",
+                "content": "part1",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "part2",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "part3",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ],
+            "result": {
+              "content": "part1part2part3part4\n\n[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "historyContent": "part4\n\n[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "reportContent": null,
+              "terminationReason": "truncated",
+              "iterations": 4,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": 3,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "part1",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "part2",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 2,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "part3",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 3,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "part1",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "part1",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "part2",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "part1",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "part2",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "part3",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "a recovered max-output turn keeps every partial in the caller aggregate but not in history",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "write"
+        }
+      ],
+      "script": [
+        {
+          "content": "part1",
+          "toolCalls": [],
+          "stopReason": "length"
+        },
+        {
+          "content": "done",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        }
+      ],
+      "repeatLast": true,
+      "prompt": "write",
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "part1done",
+              "historyContent": "done",
+              "reportContent": null,
+              "terminationReason": null,
+              "iterations": 2,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": 1,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "part1",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "write",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "part1",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "an empty max_tokens turn escalates once with no nudge, then resumes three times at normal max_tokens",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": 128000,
+      "messages": [
+        {
+          "role": "user",
+          "content": "think hard"
+        }
+      ],
+      "script": [
+        {
+          "content": "",
+          "toolCalls": [],
+          "stopReason": "max_tokens"
+        }
+      ],
+      "repeatLast": true,
+      "prompt": "think hard",
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "historyContent": "[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "reportContent": null,
+              "terminationReason": "truncated",
+              "iterations": 5,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": 3,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 2,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 3,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": 128000,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "no escalation is attempted when the provider has no higher limit",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "think hard"
+        }
+      ],
+      "script": [
+        {
+          "content": "",
+          "toolCalls": [],
+          "stopReason": "max_tokens"
+        }
+      ],
+      "repeatLast": true,
+      "prompt": "think hard",
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "historyContent": "[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "reportContent": null,
+              "terminationReason": "truncated",
+              "iterations": 4,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": 3,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 2,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 3,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "think hard",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "a tool-call turn is progress: the escalation and the three resumes are available again",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": 128000,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go"
+        }
+      ],
+      "script": [
+        {
+          "content": "",
+          "toolCalls": [],
+          "stopReason": "max_tokens"
+        },
+        {
+          "content": "",
+          "toolCalls": [],
+          "stopReason": "max_tokens"
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "definitely_missing_no_tool_turn_tool",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "content": "",
+          "toolCalls": [],
+          "stopReason": "max_tokens"
+        }
+      ],
+      "repeatLast": true,
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "historyContent": "[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.",
+              "reportContent": null,
+              "terminationReason": "truncated",
+              "iterations": 8,
+              "toolCallsTotal": 1,
+              "maxOutputRecoveryAttempts": 3,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [
+                  {
+                    "id": "c1",
+                    "name": "definitely_missing_no_tool_turn_tool",
+                    "arguments": {}
+                  }
+                ],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": "c1",
+                "toolKind": "error",
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 2,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.",
+                "source": "max-output-recovery",
+                "attempt": 3,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": 128000,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCallId": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "toolCallId": "c1"
+              }
+            ]
+          },
+          {
+            "override": 128000,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCallId": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "toolCallId": "c1"
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCallId": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "toolCallId": "c1"
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCallId": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "toolCallId": "c1"
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCallId": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "toolCallId": "c1"
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "one refusal is retried with a policy reminder and its partial text is preserved",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "ask"
+        }
+      ],
+      "script": [
+        {
+          "content": "partial narration",
+          "toolCalls": [],
+          "stopReason": "refusal"
+        },
+        {
+          "content": "safe answer",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        }
+      ],
+      "repeatLast": true,
+      "prompt": "ask",
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "partial narration\n\nsafe answer",
+              "historyContent": "safe answer",
+              "reportContent": null,
+              "terminationReason": null,
+              "iterations": 2,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": null,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "ask",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "partial narration",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.",
+                "source": "refusal-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "ask",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "ask",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "partial narration",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "a refusal that survives the retry ends the loop as a refusal termination",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "ask"
+        }
+      ],
+      "script": [
+        {
+          "content": "",
+          "toolCalls": [],
+          "stopReason": "refusal"
+        }
+      ],
+      "repeatLast": true,
+      "prompt": "ask",
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "",
+              "historyContent": null,
+              "reportContent": null,
+              "terminationReason": "refusal",
+              "iterations": 2,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": null,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "ask",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.",
+                "source": "refusal-recovery",
+                "attempt": 1,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "ask",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "ask",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "text-only provider continuations are capped and the last text becomes the final answer",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go"
+        }
+      ],
+      "script": [
+        {
+          "content": "seg",
+          "toolCalls": [],
+          "endTurn": false
+        }
+      ],
+      "repeatLast": true,
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "seg\n\nseg\n\nseg\n\nseg\n\nseg\n\nseg\n\nseg\n\nseg\n\nseg",
+              "historyContent": "seg",
+              "reportContent": null,
+              "terminationReason": null,
+              "iterations": 9,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": null,
+              "providerContinuations": 8
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "seg",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "empty turns are nudged three times before an explicit empty termination",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go"
+        }
+      ],
+      "script": [
+        {
+          "content": "",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        }
+      ],
+      "repeatLast": true,
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "",
+              "historyContent": null,
+              "reportContent": null,
+              "terminationReason": "empty",
+              "iterations": 4,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": null,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Empty response (1/3). Return final text, or use tools only for required evidence still missing.",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Empty response (2/3). Return final text, or use tools only for required evidence still missing.",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "[mixdog-runtime] Empty response (3/3). Return final text, or use tools only for required evidence still missing.",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Empty response (1/3). Return final text, or use tools only for required evidence still missing.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Empty response (1/3). Return final text, or use tools only for required evidence still missing.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Empty response (2/3). Return final text, or use tools only for required evidence still missing.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Empty response (1/3). Return final text, or use tools only for required evidence still missing.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Empty response (2/3). Return final text, or use tools only for required evidence still missing.\n</mixdog-runtime>",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "<mixdog-runtime kind=\"runtime-control\">\n[mixdog-runtime] Empty response (3/3). Return final text, or use tools only for required evidence still missing.\n</mixdog-runtime>",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "an executed tool batch reseals the text aggregate and resets the continuation budget",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "go"
+        }
+      ],
+      "script": [
+        {
+          "content": "mid-turn note",
+          "toolCalls": [],
+          "endTurn": false
+        },
+        {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "definitely_missing_no_tool_turn_tool",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "content": "done",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        }
+      ],
+      "repeatLast": true,
+      "recorded": {
+        "runs": [
+          {
+            "result": {
+              "content": "done",
+              "historyContent": null,
+              "reportContent": null,
+              "terminationReason": null,
+              "iterations": 3,
+              "toolCallsTotal": 1,
+              "maxOutputRecoveryAttempts": null,
+              "providerContinuations": 1
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "mid-turn note",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [
+                  {
+                    "id": "c1",
+                    "name": "definitely_missing_no_tool_turn_tool",
+                    "arguments": {}
+                  }
+                ],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": "c1",
+                "toolKind": "error",
+                "turnReminder": null
+              }
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "mid-turn note",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "go",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "mid-turn note",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "",
+                "toolCallId": null
+              },
+              {
+                "role": "tool",
+                "content": "Error: unknown tool \"definitely_missing_no_tool_turn_tool\"",
+                "toolCallId": "c1"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/session/agent-loop-no-tool-turn.test.mjs",
+      "case": "a message sent while the final text streams is read right after it, inside the same turn",
+      "session": {
+        "id": "no-tool-turn-test",
+        "owner": "cli"
+      },
+      "escalated": null,
+      "messages": [
+        {
+          "role": "user",
+          "content": "explain"
+        }
+      ],
+      "script": [
+        {
+          "content": "first answer",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        },
+        {
+          "content": "summary added",
+          "toolCalls": [],
+          "stopReason": "end_turn"
+        }
+      ],
+      "repeatLast": true,
+      "prompt": "explain",
+      "steerOnSend": {
+        "send": 1,
+        "entry": {
+          "id": "sub-1",
+          "content": "add a one-line summary"
+        }
+      },
+      "recorded": {
+        "runs": [
+          {
+            "drained": [
+              "terminal"
+            ],
+            "result": {
+              "content": "first answer\n\nsummary added",
+              "historyContent": "summary added",
+              "reportContent": null,
+              "terminationReason": null,
+              "iterations": 2,
+              "toolCallsTotal": 0,
+              "maxOutputRecoveryAttempts": null,
+              "providerContinuations": 0
+            },
+            "messages": [
+              {
+                "role": "user",
+                "content": "explain",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "assistant",
+                "content": "first answer",
+                "source": null,
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              },
+              {
+                "role": "user",
+                "content": "add a one-line summary",
+                "source": "steering",
+                "attempt": null,
+                "toolCalls": [],
+                "toolCallId": null,
+                "toolKind": null,
+                "turnReminder": null
+              }
+            ],
+            "submissionIds": [
+              [
+                "sub-1"
+              ]
+            ]
+          }
+        ],
+        "requests": [
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "explain",
+                "toolCallId": null
+              }
+            ]
+          },
+          {
+            "override": null,
+            "toolChoice": null,
+            "messages": [
+              {
+                "role": "user",
+                "content": "explain",
+                "toolCallId": null
+              },
+              {
+                "role": "assistant",
+                "content": "first answer",
+                "toolCallId": null
+              },
+              {
+                "role": "user",
+                "content": "add a one-line summary",
+                "toolCallId": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "test": "src/runtime/agent/orchestrator/session/agent-loop.test.mjs",
       "case": "live Agent tool-call turns keep preamble text and surface buffered assistant text",
       "session": {
