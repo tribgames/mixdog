@@ -45,6 +45,8 @@ pub use number::to_number_of;
 pub use number::value_to_string;
 pub use regex::Caps;
 pub use regex::JsRegex;
+#[cfg(feature = "prefilter-probe")]
+pub use regex::prefilter_probe;
 pub use regex_error::js_regex_error;
 pub use text::Utf16Cut;
 pub use text::cut_utf16;

@@ -13,12 +13,26 @@ pub struct JsRegex(regress::Regex, Option<Needles>);
 /// no match, which is answered without the engine. The engine starts a match attempt at every position of the text
 /// (about a third of a microsecond each for a pattern that begins with an assertion, an alternation or a class), so a
 /// shell command of 5 MiB took 24 s in the shell tool's checks; containment is a scan of the text.
+///
+/// The strings are derived from the pattern's syntax by [`Reader`], never written by hand: a literal character, a small
+/// class of literal characters, a group or alternation of those, and a quantified one repeated at least once are
+/// followed; anything else is a part that requires nothing, and a construct the reader does not know exactly (an escape
+/// other than `\b \B \d \D \w \W \s \S \n \r \t \f \v` and identity escapes of punctuation, `(?` forms other than groups
+/// and look-arounds) leaves the pattern without strings, so it is never skipped. Patterns with the `u` or `v` flag
+/// (Unicode case folding and syntax) have none either.
 struct Needles {
     strings: Vec<String>,
-    /// The `i` flag: the strings are ASCII and lowercase, and are looked for in the text with its ASCII letters lowercased
-    /// (without `u`, an ASCII letter matches only the two ASCII cases of itself).
+    /// The `i` flag: the strings are ASCII and lowercase. The engine (regress, without `u`) matches a character to a
+    /// pattern character when their simple uppercase mappings are equal (`unicode::fold_code_point`), and inside a class
+    /// also through Unicode simple case folding: an ASCII character matches only the two ASCII cases of itself, while a
+    /// non-ASCII one may match an ASCII letter (`ı` an `i`, `ſ` an `s`, the Kelvin sign a `k`). So the text is read
+    /// with its ASCII letters lowercased and every non-ASCII character standing for any character of a string: a
+    /// superset of the engine's rule, never a narrower one.
     fold: bool,
 }
+
+/// A non-ASCII character of the text, which [`Needles`] with `fold` lets stand for any (ASCII) character of a string.
+const ANY_CHARACTER: u8 = 0x80;
 
 /// Texts shorter than this are searched by the engine alone: the check would cost more than it saves.
 const NEEDLES_FROM: usize = 64 * 1024;
@@ -226,8 +240,11 @@ impl Reader {
                 't' => exact("\t"),
                 'f' => exact("\u{c}"),
                 'v' => exact("\u{b}"),
-                // Classes, back references and code escapes are not followed.
-                c if c.is_ascii_alphanumeric() => Lit::Any,
+                // One character of a class.
+                'd' | 'D' | 'w' | 'W' | 's' | 'S' => Lit::Any,
+                // Back references and code escapes (`\1`, `\k<n>`, `\x41`, `\u0041`, `\cA`) span characters the reader
+                // does not count, and Annex B reads some of them as letters: the pattern gets no strings.
+                c if c.is_ascii_alphanumeric() => return None,
                 c => exact(&c.to_string()),
             },
             '*' | '+' | '?' | ')' | '|' => return None,
@@ -284,17 +301,78 @@ impl Needles {
         Some(Self { strings: if fold { strings.iter().map(|s| s.to_ascii_lowercase()).collect() } else { strings }, fold })
     }
 
-    /// Whether `text` holds none of the strings, so that the pattern has no match in it.
+    /// Whether `text`, a long one, holds none of the strings, so that the pattern has no match in it.
     fn absent_from(&self, text: &str) -> bool {
-        if text.len() < NEEDLES_FROM {
-            return false;
+        text.len() >= NEEDLES_FROM && self.rule_out(text)
+    }
+
+    /// Whether `text` holds none of the strings (as [`Needles::fold`] reads it under `i`).
+    fn rule_out(&self, text: &str) -> bool {
+        if !self.fold {
+            return !self.strings.iter().any(|s| text.contains(s.as_str()));
         }
-        if self.fold {
+        if text.is_ascii() {
             let lower = text.to_ascii_lowercase();
-            !self.strings.iter().any(|s| lower.contains(s.as_str()))
-        } else {
-            !self.strings.iter().any(|s| text.contains(s.as_str()))
+            return !self.strings.iter().any(|s| lower.contains(s.as_str()));
         }
+        let read: Vec<u8> =
+            text.chars().map(|c| if c.is_ascii() { c.to_ascii_lowercase() as u8 } else { ANY_CHARACTER }).collect();
+        !self.strings.iter().any(|s| {
+            read.windows(s.len()).any(|at| at.iter().zip(s.as_bytes()).all(|(&t, &n)| t == n || t == ANY_CHARACTER))
+        })
+    }
+}
+
+/// Test hooks (feature `prefilter-probe`): every pattern a [`JsRegex`] was built from, the decision without
+/// [`Needles`], and a mode that applies them to every text or to none.
+#[cfg(feature = "prefilter-probe")]
+pub mod prefilter_probe {
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicU8;
+    use std::sync::atomic::Ordering;
+
+    static BUILT: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+    static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    static MODE: AtomicU8 = AtomicU8::new(Mode::Long as u8);
+
+    /// Starts keeping every pattern built from now on ([`built`]).
+    pub fn record() {
+        RECORDING.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) fn note(pattern: &str, flags: &str) {
+        if RECORDING.load(Ordering::SeqCst) {
+            BUILT.lock().unwrap().push((pattern.to_owned(), flags.to_owned()));
+        }
+    }
+
+    /// When a pattern's strings are consulted.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum Mode {
+        /// For texts of at least 64 KiB, as the product does.
+        Long = 0,
+        /// For every text.
+        Always = 1,
+        /// Never.
+        Never = 2,
+    }
+
+    pub fn set_mode(mode: Mode) {
+        MODE.store(mode as u8, Ordering::SeqCst);
+    }
+
+    pub(super) fn mode() -> Mode {
+        match MODE.load(Ordering::SeqCst) {
+            1 => Mode::Always,
+            2 => Mode::Never,
+            _ => Mode::Long,
+        }
+    }
+
+    /// Every `(pattern, flags)` a `JsRegex` was built from since [`record`], each once, in the order first built.
+    pub fn built() -> Vec<(String, String)> {
+        let mut seen = std::collections::HashSet::new();
+        BUILT.lock().unwrap().iter().filter(|built| seen.insert((*built).clone())).cloned().collect()
     }
 }
 
@@ -406,6 +484,8 @@ impl JsRegex {
         } else {
             identity_hex_escapes(pattern)
         };
+        #[cfg(feature = "prefilter-probe")]
+        prefilter_probe::note(pattern, flags);
         regress::Regex::with_flags(&source, flags).map(|regex| Self(regex, Needles::of(pattern, flags))).map_err(|error| {
             format!("Invalid regular expression: /{pattern}/{flags}: unsupported by the regex engine ({error})")
         })
@@ -418,7 +498,31 @@ impl JsRegex {
 
     /// Whether the pattern's [`Needles`] show that `text` has no match.
     fn hopeless(&self, text: &str) -> bool {
+        #[cfg(feature = "prefilter-probe")]
+        match prefilter_probe::mode() {
+            prefilter_probe::Mode::Always => return self.1.as_ref().is_some_and(|needles| needles.rule_out(text)),
+            prefilter_probe::Mode::Never => return false,
+            prefilter_probe::Mode::Long => {}
+        }
         self.1.as_ref().is_some_and(|needles| needles.absent_from(text))
+    }
+
+    /// The strings every match holds, and whether they are read under `i` (feature `prefilter-probe`).
+    #[cfg(feature = "prefilter-probe")]
+    pub fn needles(&self) -> Option<(&[String], bool)> {
+        self.1.as_ref().map(|needles| (needles.strings.as_slice(), needles.fold))
+    }
+
+    /// Whether the strings rule out a match in `text` of any length (feature `prefilter-probe`).
+    #[cfg(feature = "prefilter-probe")]
+    pub fn needles_rule_out(&self, text: &str) -> bool {
+        self.1.as_ref().is_some_and(|needles| needles.rule_out(text))
+    }
+
+    /// The engine's first match in `text`, without the strings (feature `prefilter-probe`).
+    #[cfg(feature = "prefilter-probe")]
+    pub fn engine_find(&self, text: &str) -> Option<Range<usize>> {
+        self.0.find(text).map(|m| m.range())
     }
 
     fn first(&self, text: &str) -> Option<regress::Match> {
@@ -494,7 +598,22 @@ mod tests {
         assert_eq!(needles(r"(?<name>ab)+c{2}", ""), strings(&["ab"]));
         assert_eq!(needles(r"x(?=yz)w", ""), strings(&["xw"]));
         // Nothing every match holds, or syntax not followed: the engine alone.
-        for (pattern, flags) in [(r"a*", ""), (r"a|", ""), (r"\s+", "g"), (r"[^a]", ""), (r"a{0,3}", ""), (r"ab", "u"), (r"é", "i"), (r"(?", "")] {
+        // Code escapes and back references span characters the reader does not count (`\x41` is `A`, not `41`).
+        for (pattern, flags) in [
+            (r"a*", ""),
+            (r"a|", ""),
+            (r"\s+", "g"),
+            (r"[^a]", ""),
+            (r"a{0,3}", ""),
+            (r"ab", "u"),
+            (r"é", "i"),
+            (r"(?", ""),
+            (r"\x41bc", ""),
+            (r"\u0041bc", ""),
+            (r"\cAbc", ""),
+            (r"(a)\12", ""),
+            (r"(?<n>a)\k<n>bc", ""),
+        ] {
             assert_eq!(needles(pattern, flags), None, "/{pattern}/{flags}");
         }
     }
@@ -512,6 +631,10 @@ mod tests {
             format!("{filler} digit"),
             format!("{filler} pwsh -c x"),
             format!("{filler} -E QUJDRA=="),
+            // Non-ASCII characters an ASCII one may fold with: dotless i, long s, the Kelvin sign.
+            format!("{filler} gıt x"),
+            format!("{filler} pwſh -c x"),
+            format!("{filler} \u{212a}git x"),
         ];
         for (pattern, flags) in [
             (r"\bgit\b", "i"),
