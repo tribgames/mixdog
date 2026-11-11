@@ -358,6 +358,9 @@ struct RelayOrder {
     waiting: VecDeque<(u64, Option<ActivityState>)>,
     /// The shell's end, with the offset where its exit line starts.
     end: Option<(u64, Option<ActivityState>)>,
+    /// A change went at once (it followed no output the pump had not taken): the next output waits to see it published before it enters
+    /// the relay buffer, as Node's later output always followed its synchronous broadcast.
+    unpublished: bool,
 }
 
 /// Where the relay feed's pump is, as it tells a terminal tab (see [`RelayOrder`]).
@@ -402,10 +405,14 @@ impl Tab {
         if let Some(order) = state.order.as_mut() {
             for (_, waiting) in order.waiting.drain(..) {
                 self.events.activity(&self.id, waiting);
+                order.unpublished = true;
             }
         }
         if let Some(activity) = change {
             self.events.activity(&self.id, activity);
+            if let Some(order) = state.order.as_mut() {
+                order.unpublished = true;
+            }
         }
     }
 
@@ -415,7 +422,11 @@ impl Tab {
         let emitted = state.emitted;
         match state.order.as_mut() {
             Some(order) if order.taken < emitted || !order.waiting.is_empty() => order.waiting.push_back((emitted, activity)),
-            _ => self.events.activity(&self.id, activity),
+            Some(order) => {
+                self.events.activity(&self.id, activity);
+                order.unpublished = true;
+            }
+            None => self.events.activity(&self.id, activity),
         }
     }
 
@@ -461,7 +472,8 @@ impl Tab {
             PumpPoint::Taken(taken) => (taken, if taken == u64::MAX { u64::MAX } else { 0 }),
         };
         order.taken = taken;
-        let mut went = false;
+        // Output about to enter the relay buffer follows every change that already went at once.
+        let mut went = matches!(at, PumpPoint::Reaching(_)) && std::mem::take(&mut order.unpublished);
         while order.waiting.front().is_some_and(|(after, _)| *after <= taken) {
             let (_, activity) = order.waiting.pop_front().expect("a waiting change");
             self.events.activity(&self.id, activity);
@@ -1765,6 +1777,25 @@ mod lock_order {
         let more = filter.filter(b"x").len() as u64;
         filter.admitted();
         assert!(tab.pumped(PumpPoint::Taken(prompt + more)).is_none(), "output without a change gives no wait");
+    }
+
+    /// A chunk holding only a marker changes the tab at once (no output of it to follow); the output read after it waits, before it enters
+    /// the relay buffer, until that change is published: Node broadcast the change synchronously, so its later output never went first.
+    #[test]
+    fn output_after_a_change_that_went_at_once_waits_for_its_publication() {
+        let events = Arc::new(Publishing(Mutex::new((Vec::new(), 0))));
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tab = relay_tab(Arc::clone(&events) as Arc<dyn TerminalEvents>, manager, "term_direct");
+        let mut filter = TabFilter::new(Arc::clone(&tab));
+        assert_eq!(filter.filter(b"\x1b]697;C\x07").len(), 0, "the start marker's chunk carries no output");
+        filter.admitted();
+        assert_eq!(*events.0.lock().unwrap(), (vec![Some(ActivityState::Running)], 0), "the change went at once");
+        let text = filter.filter(b"lane-cmd-1\r\n").len() as u64;
+        filter.admitted();
+        assert!(tab.pumped(PumpPoint::Reaching(0)).is_some(), "the output after it waits for its publication");
+        assert_eq!(events.0.lock().unwrap().1, 1);
+        assert!(tab.pumped(PumpPoint::Taken(text)).is_none(), "taking the output releases nothing more");
+        assert!(tab.pumped(PumpPoint::Reaching(text)).is_none(), "a change waits for its publication once");
     }
 
     /// The shell's end follows the output before it, as Node's exit handler ordered it (terminal-manager.ts:378-384: held text out,
