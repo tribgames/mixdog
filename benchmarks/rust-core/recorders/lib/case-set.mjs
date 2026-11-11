@@ -4,7 +4,7 @@
 // outcome (encoded by xact), never skipped. Every observed value is encoded by xact (lib/exact.mjs) the moment n returns it.
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, writeText } from './common.mjs';
+import { FIXTURES_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest, writeText } from './common.mjs';
 import { exact } from './exact.mjs';
 import { RecorderError, isRecorderError, refuseRecorderErrors } from './recorder-error.mjs';
 import { normalisePaths } from './normalise-paths.mjs';
@@ -48,7 +48,7 @@ export function openSet(setName, recorderUrl, { clock = true, classes = {} } = {
     },
     file(name, text) { files.set(name, text); },
     async finish({ golden = {}, entry, replay, exclusions = {}, replaceInText = [], replaceRegex = [], dataFiles = [], normaliseReason = 'per-run temp path (or generated name) replaced by a placeholder' }) {
-      const identity = exactProductIdentity(tree, COMMIT);
+      const identity = nodeTreeIdentity(args, tree, COMMIT);
       writeJson(join(stage, 'golden.json'), { ...(clockHeld ? { clock: { dateNow: FIXED_NOW, note: 'Date.now was held at this value for the whole recording' } } : {}), ...golden, cases });
       for (const [name, text] of files) writeText(join(stage, name), text);
       // Normalisation is by string value at JSON paths, and the manifest lists every path it changed with its reason.
@@ -60,7 +60,7 @@ export function openSet(setName, recorderUrl, { clock = true, classes = {} } = {
         writeFileSync(path, JSON.stringify(result.doc, null, 2) + '\n');
       }
       writeSetManifest(stage, {
-        set: setName, recorder, command: `node ${process.execArgv.length ? `${process.execArgv.join(" ")} ` : ""}${recorder} --tree <export of ${COMMIT} with node_modules>`, identity,
+        set: setName, recorder, command: `node ${process.execArgv.length ? `${process.execArgv.join(" ")} ` : ""}${recorder} --tree <export of ${COMMIT} with node_modules>${args.get('patch') ? ` --patch ${args.get('patch').replaceAll('\\', '/')}` : ''}`, identity,
         extra: { ...recorderProvenance(recorderUrl, dataFiles), cases: cases.length, entry, replay: replayFor(setName, replay), exclusions, values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)', normalised: { reason: normaliseReason, paths: normalised } },
       });
       commitStage(stage, finalDir);

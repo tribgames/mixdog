@@ -1,8 +1,6 @@
-// Replay of native/core/fixtures/session-host-transport-read-set-cases (record-session-host-transport-read-set-cases.mjs): the K1
-// desktop's SessionHostTransport sends each recorded action, and the lane it chose is compared. The action lists are compared whole;
-// the lanes against the case's own rule over the recorded read set, because the recording's `lanes` hold the old transport's choice
-// (a desktop copy of the read list that sent 12 of the daemon's read actions as a refused `configure`), which K1 fixed
-// (session-host-transport.ts READ_CAPABILITIES = SESSION_READ_ACTION_SET). The manifest declares it.
+// Replay of native/core/fixtures/session-host-transport-read-set-cases (record-session-host-transport-read-set-cases.mjs, recorded from
+// b6f10295a with node-fix-session-host-read-set.patch): the K1 desktop's SessionHostTransport sends each recorded action, and the
+// recorded action sets and the lane of every action are compared whole, in recorded order.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -31,10 +29,7 @@ test(NAME, async () => {
   const t = new SessionHostTransport(client, owner);
   assert.deepStrictEqual([...SESSION_READ_ACTION_SET], recorded.readActions, 'the read set');
   assert.deepStrictEqual([...SESSION_CONFIGURE_ACTION_SET], recorded.configureActions, 'the configure set');
-  const configure = [...SESSION_CONFIGURE_ACTION_SET][0];
-  assert.equal(configure, recorded.configureActionSent);
   for (const action of recorded.readActions) await t.invokeSession('sess_a1', action, []);
   await t.invokeSession('sess_a1', recorded.configureActionSent, []);
-  const expected = [...recorded.readActions.map((action) => ['read', action]), ['configure', recorded.configureActionSent]];
-  assert.deepStrictEqual(lanes, expected, 'every recorded action, in order, on the lane the daemon serves it');
+  assert.deepStrictEqual(lanes, recorded.lanes, 'every recorded action, in order, on the recorded lane');
 });

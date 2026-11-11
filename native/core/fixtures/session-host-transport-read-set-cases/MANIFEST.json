@@ -1,6 +1,6 @@
 {
   "cases": 1,
-  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-host-transport-read-set-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-host-transport-read-set-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-session-host-read-set.patch",
   "entry": {
     "notRun": "no daemon; the client only records the lane and action",
     "runs": "SessionHostTransport.invokeSession (apps/desktop/src/main/session-host-transport.ts) over a scripted daemon client; the action sets are the daemon protocol's own (src/standalone/session-protocol.mjs)"
@@ -9,15 +9,15 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 18151,
+      "bytes": 18091,
       "path": "golden.json",
-      "sha256": "9c1a85d3d722c98a06d0ad2166920dbc9f3b4007002552808dacec7510bf1133"
+      "sha256": "0c985c2a576a001bea80ebeabcbd726c6195ae1fa8a0a8cc126c6661d1bd66bd"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -50,16 +50,24 @@
     "reason": "per-run temp path (or generated name) replaced by a placeholder"
   },
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "appsSha256": "fdf5e847cd4fec76c90bd42da9aec05b79b5760bfb1c8b9f22a264b580274ad2",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-session-host-read-set.patch",
+      "paths": [
+        "apps/desktop/src/main/session-host-transport.ts"
+      ],
+      "sha256": "e649224ba3f4ee853203b388c9b5927b9dd7ca341c25e8a97bae80899ba56c80"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 1
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -67,7 +75,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-host-transport-read-set-cases.mjs",
-  "recorderSha256": "d55647d4246c324f479f904dd11015132a1ff1c76fdba74ecb66578a6134a761",
+  "recorderSha256": "df3cc3e03a8bcf1ae5f95911fc8a57e4f5a7f074f9b2361154560c5a4b71e2db",
   "replay": {
     "compare": "mixdog-app-protocol method table: compare the recorded read action set and configure action set with the Rust method table, and the lane each action is sent on",
     "entry": "Drive these public items on o1: mixdog-app-protocol/src/inventory.rs:1115-1145: prefetchSession -> thread/read, readTranscriptHistory -> thread/items/list, setVisibleSessions -> thread/resume, submitToSession -> turn/start.",
@@ -81,13 +89,10 @@
     ],
     "rustTargets": [],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root",
-    "replayedBy": "apps/desktop/src/main/session-host-transport-read-set-replay.test.mjs: the K1 desktop SessionHostTransport.invokeSession (the lane is the desktop's choice; the core serves whichever method the action maps to). readActions, configureActions and configureActionSent compared whole.",
-    "recordingQuestioned": {
-      "path": "cases[0].observed.lanes",
-      "reason": "the recorded lanes send 12 of the recorded readActions (isSessionTerminal, agentDefinitionPresence, getChannelSettings, getChannelWorkerStatus, getSettingsSnapshot, searchLocalProviderModels, inspectHuggingFaceModel, getTurnLiveness, getSessionWorktreeWork, hooksStatus, listShellJobs, listStoppableShellJobs) on configure, contradicting the case's own statement; that is the old transport's copied read list (DESKTOP_READ_CAPABILITIES), which K1 replaced with SESSION_READ_ACTION_SET. The replay compares the lanes against the case's rule over the recorded readActions."
-    }
+    "replayedBy": "apps/desktop/src/main/session-host-transport-read-set-replay.test.mjs: the K1 desktop SessionHostTransport.invokeSession (the lane is the desktop's choice; the core serves whichever method the action maps to). readActions, configureActions, configureActionSent and every lane compared whole, in recorded order.",
+    "nodeBug": "b6f10295a's transport sent 12 daemon read actions as `configure` (a refused call); fixed in the recorded tree by node-fix-session-host-read-set.patch (d34d8a2ce's change) and in K1 the same way."
   },
   "set": "session-host-transport-read-set-cases",
-  "totalBytes": 18151,
+  "totalBytes": 18091,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
