@@ -896,12 +896,12 @@ impl WorkspaceService {
                 let (root, rel) = self.file_target(req, params).await?;
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
-                let content_lone = Self::held_lone(req, "/content");
+                let lone = (Self::held_lone(req, "/content"), Self::held_lone(req, "/expectedContent"));
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
                 let fs = self.fs.clone();
                 let (note_root, note_rel) = (root.clone(), rel.clone());
                 let mtime =
-                    run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, content_lone)).await?;
+                    run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, lone)).await?;
                 self.note_written(&note_root, &[&note_rel]);
                 value(json!({ "mtimeMs": mtime }))
             }
@@ -1012,6 +1012,7 @@ impl WorkspaceService {
                         content: w.content.clone(),
                         expected_content: w.expected_content.clone(),
                         content_lone,
+                        expected_lone: false,
                     })
                     .collect();
                 let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
@@ -1517,6 +1518,7 @@ impl WorkspaceService {
                     content: s(f, "content")?.to_owned(),
                     expected_content: s(f, "expectedContent")?.to_owned(),
                     content_lone: Self::held_lone(req, &format!("/files/{index}/content")),
+                    expected_lone: Self::held_lone(req, &format!("/files/{index}/expectedContent")),
                 })
             })
             .collect()

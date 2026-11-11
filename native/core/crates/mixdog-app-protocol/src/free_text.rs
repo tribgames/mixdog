@@ -36,9 +36,16 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (
         Kind::Request,
         "thread/start",
-        &["/initialInput/prompt", "/initialInput/prompt/*/text", "/initialInput/options/displayText", "/initialInput/options/pastedTexts/*/text", "/initialInput/options/goalCommand"],
+        &["/initialInput/prompt", "/initialInput/prompt/*/text", "/initialInput/options/displayText", "/initialInput/options/pastedTexts/*/text", "/initialInput/options/goalCommand", "/initialInput/options/pastedImages/*/metadataText"],
     ),
-    (Kind::Request, "turn/start", &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand"]),
+    (
+        Kind::Request,
+        "turn/start",
+        &["/input/prompt", "/input/prompt/*/text", "/input/options/displayText", "/input/options/pastedTexts/*/text", "/input/options/goalCommand", "/input/options/pastedImages/*/metadataText"],
+    ),
+    // A server's arguments, environment values and header values as a person typed them (the names stay identifiers).
+    (Kind::Request, "mcp/addMcpServer", &["/input/args/*", "/input/env/*", "/input/headers/*"]),
+    (Kind::Request, "mcp/saveMcpServer", &["/input/args/*", "/input/env/*", "/input/headers/*"]),
     (Kind::Request, "thread/askSide", &["/question"]),
     (Kind::Request, "thread/queue/delete", &["/currentText"]),
     (Kind::Request, "thread/requestWorktree", &["/input/prompt"]),
@@ -88,8 +95,11 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Request, "github/pr/create", &["/value/title", "/value/body"]),
     // File content being written: the workspace refuses it with Node's message (mixdog-workspace fsops.rs `check_paired`);
     // a document's text as an editor holds it.
-    (Kind::Request, "projectFs/writeText", &["/content"]),
-    (Kind::Request, "projectFs/writeTextBatch", &["/files/*/content"]),
+    // A save's expected content is file text too: the workspace marks one that held a lone unit, and it equals no file Node
+    // would have saved over (a lossless file never holds one): refused at Node's comparison with Node's sentence
+    // (mixdog-workspace fsops.rs `expected_text`; recorded, native/core/fixtures/inbound-lone-surrogate).
+    (Kind::Request, "projectFs/writeText", &["/content", "/expectedContent"]),
+    (Kind::Request, "projectFs/writeTextBatch", &["/files/*/content", "/files/*/expectedContent"]),
     (Kind::Request, "projectFs/backup/write", &["/content"]),
     (Kind::Request, "projectFs/replaceText", &["/replacement", "/options/query"]),
     (Kind::Request, "lsp/document", &["/document/content"]),
@@ -147,6 +157,22 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
         ],
     ),
     (Kind::Notification, "host/browser/surface", &["/title", "/error"]),
+    // What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the
+    // updater's error message, a monitor's name.
+    (Kind::Request, "host/state/set", &["/value/tabs/*/title", "/value/*/title", "/value/error"]),
+    (Kind::Notification, "host/update/report", &["/state/message"]),
+    (Kind::Answer, "host/update/command", &["/message"]),
+    (Kind::Answer, "host/screen/displays", &["/*/label"]),
+    // Language-server params the editor wrote (a rename's new name, a symbol query), sent to the server process.
+    (Kind::Request, "lsp/request", &["/request/params/**"]),
+    // A patch's text (file content), given to `git apply`.
+    (Kind::Request, "git/applyPatch", &["/patch"]),
+    // Values a person types into a form: a workflow's inputs, a provider's or a server's header values and extra body fields.
+    (Kind::Request, "github/request", &["/input/inputs/*"]),
+    (Kind::Request, "account/saveCustomProvider", &["/input/headers/*", "/input/requestBody/*"]),
+    (Kind::Request, "account/testCustomProvider", &["/input/headers/*", "/input/requestBody/*"]),
+    (Kind::Request, "account/discoverCustomProviderModels", &["/input/headers/*", "/input/requestBody/*"]),
+    (Kind::Request, "mcp/probeMcpServerAuth", &["/cfg/headers/*"]),
     // A model call run on the desktop: the conversation's text, a model's output, a tool's description and schema, a
     // provider's error text; forwarded to and from the provider, never compared (model and tool names, ids and provider
     // state stay refused).
@@ -189,7 +215,7 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     ),
 ];
 
-/// Whether `pattern` (segments, `*` any one, a last `**` the rest) names `pointer`.
+/// Whether `pattern` (segments, `*` and `{}` any one, a last `**` the rest) names `pointer`.
 pub fn matches(pattern: &str, pointer: &str) -> bool {
     let mut pattern = pattern.split('/');
     let mut pointer = pointer.split('/');
@@ -197,29 +223,27 @@ pub fn matches(pattern: &str, pointer: &str) -> bool {
         match (pattern.next(), pointer.next()) {
             (None, None) => return true,
             (Some("**"), _) => return pattern.next().is_none(),
-            (Some(want), Some(got)) if want == "*" || want == got => {}
+            (Some(want), Some(got)) if want == "*" || want == "{}" || want == got => {}
             _ => return false,
         }
     }
 }
 
-/// Whether the value at `pointer` of a `kind` frame of `method` is a free-text field.
-pub fn is_free_text(kind: Kind, method: &str, pointer: &str) -> bool {
-    FREE_TEXT
-        .iter()
-        .filter(|(k, m, _)| *k == kind && *m == method)
-        .any(|(_, _, patterns)| patterns.iter().any(|pattern| matches(pattern, pointer)))
+/// Whether the place `at` of a `kind` frame of `method` is free text: a value named by a pattern (not a `{}` one), a key
+/// named by a `{}` pattern (the keys of a map) or lying under a `**` one (JSON a model or a tool wrote, keys and all). A
+/// key that merged with another of its object ([`LoneAt::MergedKey`]) is never free text: one value would overwrite the other.
+pub fn is_free_text(kind: Kind, method: &str, at: &LoneAt) -> bool {
+    let patterns = FREE_TEXT.iter().filter(|(k, m, _)| *k == kind && *m == method).flat_map(|(_, _, patterns)| patterns.iter());
+    match at {
+        LoneAt::Value(pointer) => patterns.filter(|pattern| !pattern.ends_with("/{}")).any(|pattern| matches(pattern, pointer)),
+        LoneAt::Key(pointer) => patterns.filter(|pattern| pattern.ends_with("/{}") || pattern.ends_with("/**")).any(|pattern| matches(pattern, pointer)),
+        LoneAt::MergedKey(_) => false,
+    }
 }
 
-/// The first place that held a lone surrogate outside the free-text fields (a key is never free text): the frame is
-/// refused whole.
+/// The first place that held a lone surrogate outside the free-text fields: the frame is refused whole.
 pub fn refused<'a>(kind: Kind, method: &str, lone: &'a [LoneAt]) -> Option<&'a str> {
-    lone.iter()
-        .find(|at| match at {
-            LoneAt::Value(pointer) => !is_free_text(kind, method, pointer),
-            LoneAt::Key(_) => true,
-        })
-        .map(LoneAt::pointer)
+    lone.iter().find(|at| !is_free_text(kind, method, at)).map(LoneAt::pointer)
 }
 
 #[cfg(test)]
@@ -241,10 +265,14 @@ mod tests {
         assert_eq!(refused(Kind::Request, "projectFs/searchText", &[text("/options/include")]), Some("/options/include"));
         assert_eq!(refused(Kind::Request, "projectFs/replaceText", &[text("/options/exclude")]), Some("/options/exclude"));
         assert_eq!(refused(Kind::Request, "projectFs/replaceText", &[text("/relPaths/0")]), Some("/relPaths/0"));
-        // `**`: every value below, never a key; nothing beside it.
+        // `**`: every value and every key below, unless two keys merged; nothing beside it.
         let args = "/call/request/messages/0/toolCalls/1/arguments";
         assert_eq!(refused(Kind::Request, "modelProxy/run", &[text(args), text(&format!("{args}/path/0"))]), None);
-        assert_eq!(refused(Kind::Request, "modelProxy/run", &[LoneAt::Key(format!("{args}/a"))]), Some(format!("{args}/a").as_str()));
+        assert_eq!(refused(Kind::Request, "modelProxy/run", &[LoneAt::Key(format!("{args}/a")), LoneAt::Key(format!("{args}/b/c"))]), None);
+        assert_eq!(refused(Kind::Request, "modelProxy/run", &[LoneAt::MergedKey(format!("{args}/a"))]), Some(format!("{args}/a").as_str()));
         assert_eq!(refused(Kind::Request, "modelProxy/run", &[text("/call/request/messages/0/toolCalls/1/name")]), Some("/call/request/messages/0/toolCalls/1/name"));
+        // A map: its values are free text by `*`, its keys stay refused unless a `{}` pattern names them.
+        assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[text("/input/env/HOME")]), None);
+        assert_eq!(refused(Kind::Request, "mcp/addMcpServer", &[LoneAt::Key("/input/env/HOME".into())]), Some("/input/env/HOME"));
     }
 }

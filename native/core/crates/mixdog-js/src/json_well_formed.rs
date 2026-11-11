@@ -94,12 +94,15 @@ pub enum LoneAt {
     Value(String),
     /// The key the pointer ends with held one (the value under it is the key's own).
     Key(String),
+    /// The key the pointer ends with held one and, read as U+FFFD, is the same key as another of its object (a second key
+    /// that held one, or a real U+FFFD): two keys Node kept apart are one to the core, and one value would overwrite the other.
+    MergedKey(String),
 }
 
 impl LoneAt {
     pub fn pointer(&self) -> &str {
         match self {
-            Self::Value(pointer) | Self::Key(pointer) => pointer,
+            Self::Value(pointer) | Self::Key(pointer) | Self::MergedKey(pointer) => pointer,
         }
     }
 
@@ -109,6 +112,7 @@ impl LoneAt {
         Some(match self {
             Self::Value(_) => Self::Value(rest),
             Self::Key(_) => Self::Key(rest),
+            Self::MergedKey(_) => Self::MergedKey(rest),
         })
     }
 }
@@ -132,7 +136,7 @@ pub fn lone_surrogate_pointers(text: &str) -> Vec<String> {
         .into_iter()
         .filter_map(|at| match at {
             LoneAt::Value(pointer) => Some(pointer),
-            LoneAt::Key(_) => None,
+            LoneAt::Key(_) | LoneAt::MergedKey(_) => None,
         })
         .collect()
 }
@@ -183,13 +187,18 @@ fn collect(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<LoneAt
         }
         serde_json::Value::Object(map) => {
             // The map's keys are the parsed text's (escape markers and all, json_parse.rs): every key is
-            // named as the core reads it.
-            for (key, item) in map {
+            // named as the core reads it. Keys equal in the text are one key already (the last value, as
+            // Node's); keys that differ in the text but are read alike merge only through a lone unit.
+            let read: Vec<(String, bool)> = map.keys().map(|key| read_parsed(key)).collect();
+            let mut seen = std::collections::HashMap::<&str, usize>::with_capacity(read.len());
+            for (as_read, _) in &read {
+                *seen.entry(as_read.as_str()).or_default() += 1;
+            }
+            for ((as_read, lone), item) in read.iter().zip(map.values()) {
                 pointer.push('/');
-                let (as_read, lone) = read_parsed(key);
                 pointer.push_str(&as_read.replace('~', "~0").replace('/', "~1"));
-                if lone {
-                    out.push(LoneAt::Key(pointer.clone()));
+                if *lone {
+                    out.push(if seen[as_read.as_str()] > 1 { LoneAt::MergedKey(pointer.clone()) } else { LoneAt::Key(pointer.clone()) });
                 }
                 collect(item, pointer, out);
                 pointer.truncate(len);
@@ -226,6 +235,23 @@ mod tests {
         assert_eq!(found, expected);
         assert_eq!(LoneAt::Key("/params/a".into()).under("/params"), Some(LoneAt::Key("/a".into())));
         assert_eq!(LoneAt::Value("/paramsx".into()).under("/params"), None);
+    }
+
+    /// Two keys Node kept apart that the core reads as one (two different lone units, or a lone unit beside a real U+FFFD)
+    /// are named as merged; a lone key alone in its reading is a plain key.
+    #[test]
+    fn keys_that_read_alike_are_named_as_merged() {
+        let r = "\u{fffd}";
+        let mut found = lone_surrogates(r#"{"a\ud800":1,"a\udc00":2,"b\ud800":3,"c\ufffd":4,"c\udc00":5}"#);
+        found.sort();
+        let mut expected = vec![
+            LoneAt::MergedKey(format!("/a{r}")),
+            LoneAt::MergedKey(format!("/a{r}")),
+            LoneAt::Key(format!("/b{r}")),
+            LoneAt::MergedKey(format!("/c{r}")),
+        ];
+        expected.sort();
+        assert_eq!(found, expected);
     }
 
     /// A key holding a character the parser marks (U+F0000, json_parse.rs) is named as the core reads it, whether or not
