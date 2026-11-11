@@ -405,6 +405,13 @@ pub struct SessionLanes {
 /// Wall-clock milliseconds since the Unix epoch, for record and resolution timestamps.
 pub trait Clock: Send + Sync + 'static {
     fn now_ms(&self) -> i64;
+
+    /// Resolves once this clock reads `at_ms` or later. The process clock waits on the core ticker; a virtual clock
+    /// resolves when it is advanced past `at_ms`.
+    fn until_ms(&self, at_ms: i64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        let wait = std::time::Duration::from_millis(u64::try_from(at_ms.saturating_sub(self.now_ms())).unwrap_or(0));
+        Box::pin(mixdog_rt::ticker::ticker().wait_until(std::time::Instant::now() + wait))
+    }
 }
 
 pub struct SystemClock;
