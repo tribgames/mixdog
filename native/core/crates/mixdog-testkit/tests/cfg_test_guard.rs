@@ -42,7 +42,7 @@ fn is_test_module(item: &str) -> bool {
     let item = item.trim_start_matches("pub(crate) ").trim_start_matches("pub(super) ").trim_start_matches("pub ");
     let Some(name) = item.strip_prefix("mod ") else { return false };
     let name: String = name.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    ["tests", "test", "golden", "goldens", "replay", "replays"].iter().any(|end| name.ends_with(end))
+    ["tests", "test", "golden", "goldens"].iter().any(|end| name.ends_with(end))
 }
 
 /// A site on one line, as rustfmt writes a short one: a predicate split over lines reads the same as one that is not.

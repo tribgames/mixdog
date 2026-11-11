@@ -110,8 +110,8 @@ use serde_json::json;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use super::room_approval::normalize_tool_approval_request;
-use super::room_approval::tool_approval;
+use mixdog_core_session::session::room_approval::normalize_tool_approval_request;
+use mixdog_core_session::session::room_approval::tool_approval;
 
 /// The recorder's movable session-grant clock starts here (`let clock = 1_000_000`).
 const SESSION_CLOCK_START_MS: u64 = 1_000_000;

@@ -113,8 +113,6 @@ mod reads;
 mod routine_turn;
 pub mod room_member;
 pub mod room_approval;
-#[cfg(test)]
-mod k1_grants_replay;
 pub mod approval_notification;
 pub mod prompt_history;
 pub mod session_title;
