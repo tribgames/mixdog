@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 19521,
+      "bytes": 18151,
       "path": "golden.json",
-      "sha256": "93c4eb868ab43ad13ae464dc3582b487b1f596e2c136f6648bac20de2164b25d"
+      "sha256": "9c1a85d3d722c98a06d0ad2166920dbc9f3b4007002552808dacec7510bf1133"
     }
   ],
   "inputs": [
@@ -63,7 +63,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-host-transport-read-set-cases.mjs",
-  "recorderSha256": "2347d1d9b3d485d7f851d2d7c6801809379475c9aecdd6029bff0aba480ccad5",
+  "recorderSha256": "d55647d4246c324f479f904dd11015132a1ff1c76fdba74ecb66578a6134a761",
   "replay": {
     "compare": "mixdog-app-protocol method table: compare the recorded read action set and configure action set with the Rust method table, and the lane each action is sent on",
     "entry": "Drive these public items on o1: mixdog-app-protocol/src/inventory.rs:1115-1145: prefetchSession -> thread/read, readTranscriptHistory -> thread/items/list, setVisibleSessions -> thread/resume, submitToSession -> turn/start.",
@@ -78,6 +78,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "session-host-transport-read-set-cases",
-  "totalBytes": 19521,
+  "totalBytes": 18151,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

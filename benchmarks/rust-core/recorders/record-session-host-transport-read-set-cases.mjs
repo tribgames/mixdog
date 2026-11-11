@@ -28,8 +28,6 @@ await set.run('every action the daemon serves on session.read is sent on read, a
   await t.invokeSession('sess_a1', configure, []);
   return {
     readActions, configureActions: [...SESSION_CONFIGURE_ACTION_SET], configureActionSent: configure, lanes,
-    notOnRead: lanes.filter(([lane]) => lane !== 'read'),
-    namedReadActions: ['getSessionWorktreeWork', 'agentDefinitionPresence'].map((action) => ({ action, sentOnRead: lanes.some(([lane, name]) => lane === 'read' && name === action) })),
   };
 });
 
