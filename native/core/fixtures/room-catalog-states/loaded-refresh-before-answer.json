@@ -1,0 +1,150 @@
+{
+  "scenario": "loaded-refresh-before-answer",
+  "listFirst": true,
+  "calls": [
+    "create",
+    "update"
+  ],
+  "storeRefresh": "before-answer",
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-loaded-refresh-before-answer\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
+  "room": {
+    "sessionId": "sess_room_mq3i4vkg00000006",
+    "roomId": "mq3i4vkg00000006"
+  },
+  "steps": [
+    {
+      "step": "list",
+      "listingFails": false,
+      "loadedAfter": true,
+      "sessions": [],
+      "events": []
+    },
+    {
+      "step": "create",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "store-refresh",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000006",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-refresh-before-answer\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg00000006",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mq3i4vkg00000006",
+            "roomId": "mq3i4vkg00000006"
+          }
+        }
+      ]
+    },
+    {
+      "step": "update",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "store-refresh",
+          "sessions": [
+            {
+              "id": "sess_room_mq3i4vkg00000006",
+              "preview": "",
+              "title": "Room Renamed",
+              "updatedAt": 1780819751000,
+              "activityAt": 1780819751000,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-loaded-refresh-before-answer\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1780819750000,
+              "agentRoom": {
+                "id": "mq3i4vkg00000006",
+                "name": "Room Renamed",
+                "members": [
+                  "alpha",
+                  "beta",
+                  "gamma"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta",
+                  "gamma": "Gamma"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mq3i4vkg00000006",
+            "name": "Room Renamed",
+            "members": [
+              "alpha",
+              "beta",
+              "gamma"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta",
+              "gamma": "Gamma"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
