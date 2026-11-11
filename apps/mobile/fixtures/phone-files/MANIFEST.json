@@ -19,11 +19,19 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
-      "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
+      "sha256": "1e531c667316f360f1556cd87799ae6378468d2ed574995a489885b5805d34f9"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
       "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/core-stop.mjs",
+      "sha256": "c3e584cfa44431a8d7b51ce7b5e7a2516bbcd5984a35ad385312a566404f379e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
+      "sha256": "c21b47dd1896f6245063ad1765a84b4f5faf4c8f5d472881b3c1d094ae1051a6"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -57,7 +65,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-files.mjs",
-  "recorderSha256": "952a094c5b94d3969ed8b1c110f5ec0a95b052bf0bbfc4d25fa4aaaef5686dee",
+  "recorderSha256": "0570c9c3ebe467cdbac6989e460d27d068eb96260d6fe9160e1813cadc3566ff",
   "set": "phone-files",
   "steps": 252,
   "totalBytes": 5375813
