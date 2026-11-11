@@ -631,6 +631,56 @@ struct Started {
     writer: Option<Box<dyn Write + Send>>,
 }
 
+#[cfg(windows)]
+fn start_piped(
+    launch: &Launch,
+    request: &SpawnRequest,
+    env: &[(std::ffi::OsString, std::ffi::OsString)],
+    containment: &Containment,
+) -> std::io::Result<Started> {
+    use std::os::windows::io::AsHandle;
+    let stdin = if request.stdin_piped { Some(std::io::pipe()?) } else { None };
+    let (out_read, out_write) = std::io::pipe()?;
+    let mut readers: Vec<(OutputStream, Box<dyn Read + Send>)> = Vec::new();
+    readers.push((OutputStream::Stdout, Box::new(out_read)));
+    let err_write = match request.output {
+        OutputMode::Merged => None,
+        OutputMode::Separate => {
+            let (err_read, err_write) = std::io::pipe()?;
+            readers.push((OutputStream::Stderr, Box::new(err_read)));
+            Some(err_write)
+        }
+    };
+    let process = crate::winspawn::spawn(
+        containment.job(),
+        &crate::winspawn::Spawn {
+            program: launch.program(),
+            command_line: &launch.command_line(),
+            cwd: Some(request.cwd.as_path()),
+            env: Some(env),
+            stdio: crate::winspawn::Stdio::Handles {
+                stdin: stdin.as_ref().map(|(read, _)| read.as_handle()),
+                stdout: Some(out_write.as_handle()),
+                stderr: Some(err_write.as_ref().unwrap_or(&out_write).as_handle()),
+            },
+        },
+    )?;
+    #[cfg(feature = "core-test")]
+    crate::testing::created_window();
+    // The ends the child owns close here; the readers see the end of the stream when the tree is
+    // gone.
+    drop(out_write);
+    drop(err_write);
+    let writer = stdin.map(|(_, write)| Box::new(write) as Box<dyn Write + Send>);
+    Ok(Started {
+        root: Root::Win(process),
+        pty: None,
+        readers,
+        writer,
+    })
+}
+
+#[cfg(unix)]
 fn start_piped(
     launch: &Launch,
     request: &SpawnRequest,
@@ -660,14 +710,6 @@ fn start_piped(
             readers.push((OutputStream::Stderr, Box::new(err_read)));
         }
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_SUSPENDED: u32 = 0x0000_0004;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
-    }
-    #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
@@ -676,15 +718,6 @@ fn start_piped(
     // The pipe ends `cmd` holds close here; the readers see the end of the stream when the tree
     // is gone.
     drop(cmd);
-    #[cfg(windows)]
-    {
-        use std::os::windows::io::AsRawHandle;
-        if let Err(error) = containment.adopt_and_resume(child.as_raw_handle().cast()) {
-            let _ = child.kill();
-            return Err(error);
-        }
-    }
-    #[cfg(unix)]
     containment.adopt(child.id());
     let writer = child
         .stdin
