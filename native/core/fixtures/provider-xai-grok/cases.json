@@ -1,6 +1,7 @@
 {
   "set": "provider-xai-grok",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
   "cases": [
     {
       "id": "flatten-keeps-grep-pattern-required",
@@ -248,7 +249,105 @@
             "additionalProperties": false
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.normalizeGrokToolSchemas",
+          "args": [
+            [
+              {
+                "name": "grep",
+                "title": "Grep",
+                "annotations": {
+                  "title": "Grep",
+                  "readOnlyHint": true,
+                  "destructiveHint": false,
+                  "idempotentHint": true,
+                  "openWorldHint": false,
+                  "compressible": true
+                },
+                "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 10
+                        }
+                      ],
+                      "description": "Ripgrep regex(es); escape literal metacharacters."
+                    },
+                    "path": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 10,
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      ],
+                      "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+                    },
+                    "glob": {
+                      "type": "string",
+                      "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "content",
+                        "files",
+                        "count"
+                      ],
+                      "description": "content default; files lists matching paths; count totals all patterns together per file."
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "context": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 200,
+                      "description": "Omit for automatic context; 0 for matches only."
+                    },
+                    "include_noise": {
+                      "type": "boolean",
+                      "description": "Also search gitignored trees."
+                    },
+                    "text": {
+                      "type": "boolean",
+                      "description": "Search binary data as text (archives/Git objects not decoded)."
+                    }
+                  },
+                  "required": [
+                    "pattern"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          ]
+        }
+      ]
     },
     {
       "id": "flatten-promotes-first-xor-required-only-anyof",
@@ -301,7 +400,43 @@
             ]
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.normalizeGrokToolSchemas",
+          "args": [
+            [
+              {
+                "name": "grep",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "glob": {
+                      "type": "string"
+                    }
+                  },
+                  "anyOf": [
+                    {
+                      "required": [
+                        "pattern"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "glob"
+                      ]
+                    }
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            ]
+          ]
+        }
+      ]
     },
     {
       "id": "flatten-promotes-first-xor-object-branch",
@@ -354,7 +489,44 @@
             ]
           }
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.normalizeGrokToolSchemas",
+          "args": [
+            [
+              {
+                "name": "searchish",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "glob": {
+                      "type": "string"
+                    }
+                  },
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "pattern"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "glob"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          ]
+        }
+      ]
     },
     {
       "id": "xai-responses-cache-routing",
@@ -497,7 +669,242 @@
           "cache_hit_rate": 0.017477,
           "mid_turn_cold": true
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-a"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-a"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-b"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {},
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "none"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "session"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "session"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-b",
+              "xaiResponsesCacheScope": "session"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-a",
+              "xaiResponsesCacheScope": "prefix"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.xaiResponsesCacheRouting",
+          "args": [
+            {
+              "sessionId": "session-b",
+              "xaiResponsesCacheScope": "prefix"
+            },
+            {
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "stable system"
+                }
+              ]
+            },
+            [],
+            "grok-4.6"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs._xaiResponsesFingerprintPayloadForTest",
+          "args": [
+            {
+              "model": "grok-4.6",
+              "opts": {
+                "sessionId": "session-a",
+                "providerState": {
+                  "xaiResponses": {
+                    "store": false,
+                    "seenMessageCount": 6
+                  }
+                }
+              },
+              "params": {
+                "input": [
+                  {
+                    "role": "user",
+                    "content": "next"
+                  }
+                ],
+                "prompt_cache_key": "0693ed50-848b-4892-aabb-0009741f1f63",
+                "store": false
+              },
+              "rawTools": [],
+              "response": {
+                "model": "grok-4.6-build",
+                "usage": {
+                  "input_tokens": 7324,
+                  "input_tokens_details": {
+                    "cached_tokens": 128
+                  }
+                }
+              },
+              "cacheRouting": {
+                "key": "0693ed50-848b-4892-aabb-0009741f1f63",
+                "mode": "session",
+                "seedHash": "0693ed50848bc892",
+                "prefixHash": "2abfdd076a21a3cd",
+                "ownerSessionHash": "fa57a52dbf081902"
+              },
+              "previousResponseId": null,
+              "inputStartIndex": 0,
+              "continuationResetReason": null,
+              "transport": "http",
+              "cacheLane": null
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "grok-oauth-pinned-to-cli-proxy-http-sse",
@@ -530,7 +937,54 @@
           "responsesTransport": "http",
           "baseURL": "https://cli-chat-proxy.grok.com/v1"
         }
-      }
+      },
+      "calls": [
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "args": [
+            "tok-grok-build-0.1",
+            "grok-build-0.1"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "args": [
+            "tok-grok-build",
+            "grok-build"
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "args": [
+            "tok-grok-4.5",
+            "grok-4.5"
+          ]
+        },
+        {
+          "entry": "new scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider",
+          "args": [
+            {
+              "preconnect": false,
+              "responsesTransport": "websocket"
+            }
+          ]
+        },
+        {
+          "entry": "scripts/provider-toolcall/_shared.mjs.GrokOAuthProvider#_ensureInner",
+          "args": [
+            "tok-explicit",
+            "grok-4.5"
+          ]
+        }
+      ]
     }
   ]
 }
