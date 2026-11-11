@@ -244,6 +244,16 @@ fn a_search_the_meta_engine_runs_whole_is_charged_and_its_stop_read_after_it() {
     );
     assert_eq!(reads.len(), 1, "ended at the first read");
     assert!(reads[0] >= 300_000, "the read follows the pass: {}", reads[0]);
+
+    // A delegate with capture groups reads its groups through the meta engine too: the stop is read right after that
+    // pass as after the group-less one. On a haystack shorter than the interval the count alone reads nothing, so the
+    // two shapes read the same number of times only when each pass is followed by its own read.
+    let short = "a".repeat(100);
+    let (plain, plain_reads) = run(&build(r"^(?=a)a+$"), &short, false);
+    let (grouped, grouped_reads) = run(&build(r"^(?=a)(a+)$"), &short, false);
+    assert!(matches!((&plain, &grouped), (Ok(true), Ok(true))), "{plain:?} {grouped:?}");
+    assert_eq!(grouped_reads.len(), plain_reads.len(), "a grouped delegate's pass is followed by a read: {grouped_reads:?} against {plain_reads:?}");
+    assert!(grouped_reads.last().is_some_and(|last| *last >= 100), "the last read follows the pass: {grouped_reads:?}");
 }
 
 /// A check whose call is already cancelled ends at the matcher's first read of its stop and answers cancelled.

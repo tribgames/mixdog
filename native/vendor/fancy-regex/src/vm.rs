@@ -1825,6 +1825,7 @@ fn run_with<S: HaystackInput + ?Sized, T>(
                         inner_slots.resize((range.end() - range.start() + 1) * 2, None);
                         let found = inner.search_slots(&input, inner_slots).is_some();
                         take!(input.end() - ix);
+                        read_now!();
                         if found {
                             // store the capture groups, no need to check current state to see if new values are further to the right
                             store_capture_groups(state, inner_slots, range, false);
