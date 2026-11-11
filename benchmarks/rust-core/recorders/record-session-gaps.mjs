@@ -265,8 +265,11 @@ async function attachmentPreflight() {
 
 const PASTED = Array.from({ length: 900 }, (_, i) => `pasted line ${i} ${'é'.repeat(i % 7)} 🙂`).join('\n');
 // The failure cases run over the stored paste: the summary provider throws, answers an empty summary, or the session's
-// abort signal is already aborted (a parent-linked agent session whose parent was cancelled, the one way an idle
-// session's compaction carries an aborted signal: `linkParentSignalToSession`, runtime-liveness.mjs:600).
+// abort signal is already aborted (a parent-linked agent session whose parent was cancelled). A manual compaction reads
+// its signal through `getSessionAbortSignal` (session-crud.mjs:399): an idle session has a controller only once
+// `linkParentSignalToSession` made one (runtime-liveness.mjs:603), and `isSessionCompactionBlocked` refuses a session
+// whose controller is not aborted ("compact skipped: turn in progress"), so an aborted parent link is the one way a
+// manual compaction carries a signal at all, and Node's `closeSession` cannot stop one in flight.
 const pastedCases = ['stored', 'gone', 'held-open', 'provider-error', 'empty-summary', 'cancelled'];
 
 async function compactionPastedText() {
@@ -299,7 +302,7 @@ async function compactionPastedText() {
         const path = store.attachmentFilePath(attachmentRef);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, bytes);
-        holder = spawn('powershell.exe', ['-NoProfile', '-Command', `$f=[IO.File]::Open('${path}','Open','Read','None'); [Console]::Out.WriteLine('held'); [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ['pipe', 'pipe', 'inherit'] });
+        holder = spawn('powershell.exe', ['-NoProfile', '-Command', `$f=[IO.File]::Open('${path}','Open','Read','None'); [Console]::Out.WriteLine('held'); [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
         await new Promise((resolve, reject) => {
           holder.stdout.once('data', (chunk) => (String(chunk).includes('held') ? resolve() : reject(new Error(String(chunk)))));
           holder.once('error', reject);
@@ -372,7 +375,10 @@ writeSetManifest(outDir, {
     scenarios: Object.keys(scenarios),
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
+      'attachment-preflight: Node\'s file part carries its measured facts (sizeBytes, pageCount, textPages, textChars) on the message object it hands the provider (media-normalization.mjs pdfDescriptor prices from them); the core\'s request part has no such fields and prices from the same facts on the part\'s stored row, so the replay compares Node\'s sent file part without them and the facts, whole, with the core\'s stored row for the same part',
+      'legacy-json-keys: the document is recorded as 1.4.5 read it (a lone surrogate kept: exact\'s utf16 tag; two-distinct-lone-surrogates holds two such keys); the migration replay compares it with each lone surrogate read as U+FFFD and the keys that are equal after that as one (the last value at the first\'s place), because the core\'s store holds UTF-8 text and no UTF-8 text holds a lone surrogate (mixdog-migrate json::replace_lone_surrogates, long_session_log.rs)',
       'attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>',
+      'compaction-pasted-text: the replay compares a thrown failure by name and message only; its errno fields (code, errno, syscall, path) are recorded but not compared, because the core\'s attachment reader carries the read\'s text and no errno (ReadError::Other, run_host/media.rs resolve_ref)',
     ],
     ...recorderProvenance(import.meta.url),
   },
