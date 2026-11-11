@@ -10,7 +10,8 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-openrouter',
   entry: 'openrouter.mjs OpenRouterProvider({ apiKey, preconnect: false, ...config }).send/.listModels/.getCachedModelInfo, openRouterCapabilityModel; provider-error-kind.mjs providerErrorKind / normalizeGatewayErrorDetail; retry-classification.mjs isContextOverflowError; shared/llm usage-context.mjs withUsageContext / noteAbandonedUsage; lib/inclusive-usage.mjs withInclusiveUsage; anthropic-sse-turn/turn-state.mjs createAnthropicTurnState / updateTurnUsage; anthropic-turn-result.mjs buildAnthropicTurnResult. Not run: a live OpenRouter.',
-  replay: 'mixdog-ai providers::compat (adapter.rs:197-224 wire selection, error.rs:278, listing) and registry hop_host.rs:151-168 pins, retry::classify.rs:250: compare `requests` (method, origin, path, header pairs, body) and `result`/`error`. The Rust gateway sends Chat for every route today (K1 gap G1): replays of the Messages/Responses cases are expected to differ until that gap is closed.',
+  compare: 'mixdog-ai providers::compat (adapter.rs:197-224 wire selection, error.rs:278, listing) and registry hop_host.rs:151-168 pins, retry::classify.rs:250: compare `requests` (method, origin, path, header pairs, body) and `result`/`error`. The Rust gateway sends Chat for every route today (K1 gap G1): replays of the Messages/Responses cases are expected to differ until that gap is closed.',
+  replay: "Rust entry (pub, on o1): mixdog_ai::providers::compat::CompatAdapter (compat/adapter.rs:63) with CompatChatCodec (compat/chat/mod.rs:96) / CompatResponsesCodec (compat/responses.rs:75), body builder build_body (compat/chat/encode.rs:372), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079). Messages / Responses routes are not built (K1 G1): work for the Rust side.",
 });
 const P = 'agent/orchestrator/providers/';
 const { OpenRouterProvider, openRouterCapabilityModel } = await rec.P(`${P}openrouter.mjs`);
@@ -67,7 +68,7 @@ await rec.run('routing-slug-on-wire-capabilities-from-alias-target', `${SRC}:140
   const listing = net.records.splice(0);
   const sent = await p.send(prompt, '~anthropic/claude-opus-latest', [tool], { effort: 'high' });
   return {
-    listing: listing.map((r) => rec.view(r)), models, sent,
+    listing, models, sent,
     aliasTarget: models.find((m) => m.id === '~anthropic/claude-opus-latest').aliasTarget, cachedAliasTarget: p.getCachedModelInfo('~anthropic/claude-opus-latest').aliasTarget,
     targetAliasTarget: models.find((m) => m.id === 'anthropic/claude-opus-5.5').aliasTarget,
     capabilityModels: [openRouterCapabilityModel('anthropic/claude-haiku-4.5:batch'), openRouterCapabilityModel('~anthropic/claude-opus-latest', 'anthropic/claude-opus-5.5')],
@@ -91,7 +92,7 @@ await rec.run('gpt-responses-reasoning-auto-stays-chat', `${SRC}:200`, {}, async
   net.reply = respond;
   const p = provider();
   const out = { gpt: await p.send(prompt, 'openai/gpt-6.1-sol', [tool], { effort: 'low', openRouterReasoningEffort: 'high' }) };
-  out.gptRequests = net.records.splice(0).map((r) => rec.view(r));
+  out.gptRequests = net.records.splice(0);
   await p.send(prompt, '~openai/gpt-sol-latest', [tool], { openRouterReasoningEffort: 'none' });
   await p.send(prompt, 'openai/o3', [tool], {});
   await p.send(prompt, 'openrouter/auto', [tool], { effort: 'medium' });
@@ -136,7 +137,7 @@ await rec.run('reasoning-control-on-messages-route', `${SRC}:295`, {}, async ({ 
   const one = async (label, config, opts) => {
     net.records = [];
     await provider(config).send(prompt, model, [tool], opts);
-    sends.push({ label, config, opts, requests: net.records.map((r) => rec.view(r)) });
+    sends.push({ label, config, opts, requests: net.records });
   };
   await one('none disables thinking', {}, { effort: 'high', openRouterReasoningEffort: 'none' });
   await one('explicit beats turn effort', {}, { effort: 'high', openRouterReasoningEffort: 'low' });
@@ -144,7 +145,7 @@ await rec.run('reasoning-control-on-messages-route', `${SRC}:295`, {}, async ({ 
   for (const opts of [{}, { effort: 'medium' }]) {
     net.records = [];
     await configured.send(prompt, model, [tool], opts);
-    sends.push({ label: 'configured reasoningEffort low', opts, requests: net.records.map((r) => rec.view(r)) });
+    sends.push({ label: 'configured reasoningEffort low', opts, requests: net.records });
   }
   return { sends };
 });
