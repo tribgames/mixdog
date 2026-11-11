@@ -13,6 +13,7 @@ use mixdog_core_rooms::rooms::sessions::SessionOps;
 use mixdog_core_rooms::rooms::sessions::SessionRoomHost;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::TaskWorkspace;
+use mixdog_core_session::session::thread_edges::LiveRows;
 use mixdog_core_session::session::thread_edges::ThreadEdgePublisher;
 use mixdog_core_session::session::thread_edges::ThreadEdges;
 use mixdog_core_session::session::thread_list::RoomSummaries;
@@ -41,6 +42,8 @@ where
 {
     let edges = ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), deletions, agents.clone()));
     index.observe_rows(edges.clone())?;
+    // A turn's start and end and an approval's wait reach the roster although no stored field moved (`LiveRows`).
+    directory.set_live_rows(LiveRows::new(thread_list.clone(), sections.clone(), edges.clone()))?;
     let summaries = RoomSummaries::new(thread_list, sections, directory);
     summaries.follow(edges.clone());
     let republish: Republish = {

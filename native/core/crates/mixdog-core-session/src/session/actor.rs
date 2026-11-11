@@ -2313,9 +2313,14 @@ impl SessionActor {
         true
     }
 
-    /// `thread/frame`: one of Node's publications of the session's state (`phone_frame.rs`).
+    /// `thread/frame`: one of Node's publications of the session's state (`phone_frame.rs`). None once a delete closed the thread:
+    /// Node's host dropped a deleted session's subscription and projection (`forgetDeletedSession`, `session-host-lifecycle.ts` at
+    /// b6f10295a), so the turn the delete stopped published no further state to a phone.
     fn publish_frame(&mut self, flushed: Option<bool>) {
         let Some(structure_changed) = flushed else { return };
+        if self.deleting {
+            return;
+        }
         let params = mixdog_app_protocol::v2::thread::ThreadFrameParams { thread_id: self.id.clone(), structure_changed };
         let note = Note::new("thread/frame", &params);
         self.publish_notes(vec![note]);
@@ -2392,6 +2397,7 @@ impl SessionActor {
         let shown = self.book.shown();
         if self.cell.shown_approval.load().as_ref().map(|request| request.id) != shown.map(|request| request.id) {
             self.cell.shown_approval.store(shown.cloned().map(Arc::new));
+            self.cell.live_changed();
         }
     }
 
