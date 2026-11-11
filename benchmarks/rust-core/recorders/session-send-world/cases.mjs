@@ -42,9 +42,13 @@ export function prepareData(dataDir, baseURL, c) {
         providers: { [MODEL.provider]: { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL, auth: 'none', enabled: true, modelOverrides: { [MODEL.model]: { manual: true } } } },
         default: 'main',
         presets: [{ id: 'main', name: 'main', ...MODEL }],
+        // A room's log takes the route of its first member that has one (agent-rooms.ts `roomLogRoute`): the bots of a room case have it.
+        ...(c.room ? { agents: Object.fromEntries((c.bots ?? []).map((bot) => [bot.id, { ...MODEL }])) } : {}),
       },
     }),
   );
+  // The user's tool rules (`hookRulesPath`, hook-bus/config.mjs): a rule that asks stops the turn for the user's approval.
+  if (c.hooks) writeFileSync(join(dataDir, 'hooks.json'), JSON.stringify(c.hooks));
   for (const bot of c.bots ?? []) {
     const dir = join(dataDir, 'agents', bot.id);
     mkdirSync(dir, { recursive: true });
@@ -53,7 +57,7 @@ export function prepareData(dataDir, baseURL, c) {
   }
 }
 
-const MARKS = ['KICK', 'COMPACTME', 'WORK:', 'BUSY:', 'QUEUED:', 'FAILNEXT', 'NOTES:'];
+const MARKS = ['KICK', 'COMPACTME', 'WORK:', 'BUSY:', 'QUEUED:', 'FAILNEXT', 'NOTES:', 'RELAY:'];
 
 /** The model endpoint: answers by the case's script, records every request it answered (`requests`), and lets the driver wait on what it saw. */
 export function createModel(c) {
@@ -62,6 +66,8 @@ export function createModel(c) {
   const held = new Map();
   const wakers = new Set();
   const aliases = new Map();
+  // Minted ids that are not sessions (a room's id), named in the normal form as aliases are.
+  const names = new Map();
   const stir = () => {
     for (const wake of [...wakers]) wake();
   };
@@ -76,7 +82,10 @@ export function createModel(c) {
     // The compaction summary request quotes the conversation, marks included: isolated (`buildCompactionPrompt`) or forked from the
     // session's own request (`forkedCompactionPrompt`), compact/summary.mjs.
     if (lastUser.includes('<conversation-history>') || lastUser.includes('<compaction-request>')) return 'compaction';
-    const mark = MARKS.find((each) => lastUser.includes(each));
+    // A room member's prompt carries the room's earlier rows, other members' asks among them: its own ask is the last mark in it.
+    const mark = c.room
+      ? MARKS.filter((each) => lastUser.includes(each)).sort((a, b) => lastUser.lastIndexOf(b) - lastUser.lastIndexOf(a))[0]
+      : MARKS.find((each) => lastUser.includes(each));
     if (messages.at(-1)?.role === 'tool') return mark === 'FAILNEXT' ? 'fail' : 'tool-result';
     return mark ? mark.replace(':', '').toLowerCase() : 'other';
   };
@@ -120,6 +129,7 @@ export function createModel(c) {
     trace,
     requests,
     aliases,
+    names,
     stir,
     note,
     serve(req, res) {
@@ -253,15 +263,18 @@ const outcome = async (promise, what) => {
 
 /** What a client shows of a session's conversation: each row's kind and the fields a person reads or a step depends on. */
 const ROW_FIELDS = ['kind', 'text', 'status', 'sender', 'fromAgent', 'hop', 'botChain', 'archived', 'compacted', 'level'];
-export const rowsOf = (snapshot) =>
-  (snapshot?.items ?? []).map((item) => Object.fromEntries(ROW_FIELDS.filter((key) => item[key] !== undefined && item[key] !== '').map((key) => [key, item[key]])));
+/** A group room's rows also name who spoke and to whom (agent-room.mjs `RoomRow`). */
+const ROOM_ROW_FIELDS = [...ROW_FIELDS, 'agentId', 'to', 'toName', 'fromSession', 'fromName', 'reason'];
+export const rowsOf = (snapshot, fields = ROW_FIELDS) =>
+  (snapshot?.items ?? []).map((item) => Object.fromEntries(fields.filter((key) => item[key] !== undefined && item[key] !== '').map((key) => [key, item[key]])));
 
 /** Runs a case's steps over one side's app; the recording is what each step observed. */
 export async function runSteps(c, app, model) {
   const steps = [];
   const count = (kind) => model.requests.filter((r) => r.kind === kind).length;
   const id = (alias) => model.aliases.get(alias) ?? `sess_missing_${alias.toLowerCase()}`;
-  const rows = (alias) => rowsOf(app.snapshot(id(alias)));
+  const fields = c.room ? ROOM_ROW_FIELDS : ROW_FIELDS;
+  const rows = (alias) => rowsOf(app.snapshot(id(alias)), fields);
   // The window's submission ids (the renderer's `nextComposerSubmissionId`), scripted in submission order.
   let submitted = 0;
   const submissionId = (alias) => `desktop-submit-${alias}-${(submitted += 1)}`;
@@ -275,12 +288,32 @@ export async function runSteps(c, app, model) {
   }
   // What each client is shown at the end, then what is stored: the conversation a client reads once the app started again.
   const shown = Object.fromEntries([...model.aliases.keys()].map((alias) => [alias, rows(alias)]));
+  // A room case also keeps what each client was shown along the way: every row in the order it first appeared.
+  const events = c.room ? Object.fromEntries([...model.aliases.keys()].map((alias) => [alias, eventsOf(app.shown, id(alias), fields)])) : undefined;
   await app.quit(within);
   await app.open(within);
   const stored = {};
-  for (const alias of model.aliases.keys()) stored[alias] = (await outcome(app.read(id(alias)).then(rowsOf), `readSessionTranscript ${alias}`));
+  for (const alias of model.aliases.keys()) stored[alias] = await outcome(app.read(id(alias)).then((snapshot) => rowsOf(snapshot, fields)), `readSessionTranscript ${alias}`);
   await app.quit(within);
-  return { steps, requests: model.requests, shown, stored, aliases: Object.fromEntries(model.aliases), root: caseRoot(c), userData: app.userData };
+  // The stored room records as the room host keeps them (Node's agent-rooms.json, the core's `rooms` table), read once the app has quit.
+  const rooms = c.room ? await app.roomRecords() : undefined;
+  return { steps, requests: model.requests, shown, ...(events ? { events } : {}), stored, ...(rooms ? { rooms } : {}), aliases: Object.fromEntries(model.aliases), names: Object.fromEntries(model.names), root: caseRoot(c), userData: app.userData };
+}
+
+/** Every distinct row a client was shown of one session, in the order it first appeared. */
+function eventsOf(shown, sessionId, fields) {
+  const seen = new Set();
+  const out = [];
+  for (const update of shown) {
+    if (update.sessionId !== sessionId) continue;
+    for (const row of rowsOf(update.snapshot, fields)) {
+      const key = JSON.stringify(row);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+  }
+  return out;
 }
 
 async function runEach(c, app, model, steps, count, id, rows, submissionId) {
@@ -315,7 +348,28 @@ async function runEach(c, app, model, steps, count, id, rows, submissionId) {
     } else if (step.do === 'archive') steps.push({ archive: step.who, ...(await outcome(app.archive(id(step.who), true), `setSessionArchived ${step.who}`)) });
     else if (step.do === 'remove') steps.push({ remove: step.who, ...(await outcome(app.remove(id(step.who)), `deleteSession ${step.who}`)) });
     else if (step.do === 'abort') steps.push({ abort: step.who, ...(await outcome(app.abort(id(step.who)), `abortSession ${step.who}`)) });
+    // The approval a client shows (`toolApproval`), then the user's answer to it by its id.
+    else if (step.do === 'asks') await model.until(() => app.snapshot(id(step.who))?.toolApproval?.id, `${step.who} asks for approval`);
+    else if (step.do === 'answer') {
+      const approval = app.snapshot(id(step.who))?.toolApproval;
+      if (!approval?.id) throw new Error(`${c.name}: ${step.who} shows no approval to answer`);
+      steps.push({ answer: step.who, approved: step.approved, ...(await outcome(app.approve(id(step.who), approval.id, { approved: step.approved }), `resolveToolApproval ${step.who}`)) });
+    } else if (step.do === 'unasked') await model.until(() => app.snapshot(id(step.who)) && !app.snapshot(id(step.who)).toolApproval, `${step.who} no longer asks`);
     else if (step.do === 'alias') model.aliases.set(step.as, step.id);
+    // A group room (agent-rooms.ts `create`): its log is a session (`ROOM`), its id a name of its own (`RID`).
+    else if (step.do === 'room') {
+      const made = await within(STEP_MS, app.room('create', [{ name: step.name, members: step.members }]), 'agentRoomAction create');
+      model.aliases.set('ROOM', made.sessionId);
+      model.names.set('RID', made.roomId);
+      await showAll();
+    } else if (step.do === 'roomAction') steps.push({ room: step.action, ...(await outcome(app.room(step.action, [model.names.get('RID'), ...(step.patch ? [step.patch] : [])]), `agentRoomAction ${step.action}`)) });
+    // A member's own session in the room (agent-room.mjs `roomMemberSessionId`), shown once it exists.
+    else if (step.do === 'member') {
+      model.aliases.set(step.as, `sess_rmem_${model.names.get('RID')}_${step.agent}`);
+      await showAll();
+    }
+    // The bot switched off from the bots page (`setAgentRoute(id, { disabled: true })`, as agents-picker.mjs does).
+    else if (step.do === 'switchOff') steps.push({ switchOff: step.agent, ...(await outcome(app.capability('setAgentRoute', [step.agent, { ...MODEL, disabled: true }], id(step.who)), `setAgentRoute ${step.agent}`)) });
     else if (step.do === 'settle') await new Promise((resolve) => setTimeout(resolve, step.ms));
     else throw new Error(`${c.name}: no step ${step.do}`);
   }
@@ -325,6 +379,7 @@ async function runEach(c, app, model, steps, count, id, rows, submissionId) {
 export function normalized(recorded) {
   let text = JSON.stringify(recorded).replace(PAD_RUN, (run) => (run === PAD ? '<pad>' : `<pad part ${run.length} chars>`));
   for (const [alias, id] of Object.entries(recorded.aliases)) text = text.replaceAll(id, `@${alias}`);
+  for (const [name, id] of Object.entries(recorded.names ?? {})) text = text.replaceAll(id, `@${name}`);
   // The app's user-data folder (where the unclassified workspace lies), then the case's own folder, as the recording spells them:
   // in a string, and in a JSON text a string holds (a tool result).
   for (const [path, name] of [
@@ -335,7 +390,7 @@ export function normalized(recorded) {
     text = text.replaceAll(JSON.stringify(once).slice(1, -1), name).replaceAll(once, name);
   }
   const numbered = new Map();
-  text = text.replace(/\b(atask|msg|sess_desktop|call|it)_[0-9a-zA-Z-]+|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, (found, prefix) => {
+  text = text.replace(/\b(atask|msg|sess_desktop|call|it|ask)_[0-9a-zA-Z-]+|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, (found, prefix) => {
     const key = found;
     if (!numbered.has(key)) numbered.set(key, `<${prefix ?? 'uuid'}:${[...numbered.keys()].filter((k) => k.startsWith(prefix ?? '')).length + 1}>`);
     return numbered.get(key);
@@ -348,7 +403,17 @@ export function normalized(recorded) {
     return head + digests.get(digest);
   });
   const out = JSON.parse(text);
+  // The instants a room record keeps (`createdAt`, `lastAt`) are each side's own clock: numbered by first appearance, as minted ids are.
+  if (out.rooms) {
+    const instants = new Map();
+    out.rooms = JSON.parse(JSON.stringify(out.rooms), (key, value) => {
+      if (!['createdAt', 'lastAt', 'startedAt'].includes(key) || typeof value !== 'number') return value;
+      if (!instants.has(value)) instants.set(value, `<instant:${instants.size + 1}>`);
+      return instants.get(value);
+    });
+  }
   delete out.aliases;
+  delete out.names;
   delete out.root;
   delete out.userData;
   return out;
@@ -373,8 +438,65 @@ const notes = [
   { do: 'idle', who: 'R' },
   { do: 'say', to: 'R', prompt: 'FAILNEXT: compact yourself, then fail.' },
 ];
+/** A send whose turn calls `read`, which the user's rule makes ask for approval. */
+const asking = { bots: ann, call: send(), hooks: [{ tool: 'read', action: 'ask' }], answers: { work: { tool: 'read', args: { file_path: 'notes.txt' } } } };
 /** The report reached the sender: its wake turn ran. */
 const reported = [{ do: 'until', request: 'other', n: 2 }, { do: 'idle', who: 'H' }];
+
+// A `session` send to a group room (agent-room-host.mjs `member`/`ask`, the desktop's agent-room-messages.ts): posted in the room as a
+// row naming its sender, answered by the addressed member alone in its own member session, reported to the sender. The room is the
+// host's own (`agentRoomAction create`); Cara is switched off once it exists; Dave is no member.
+const roomBots = [...ann, { id: 'bob', name: 'Bob' }, { id: 'cara', name: 'Cara' }, { id: 'dave', name: 'Dave' }];
+const roomSend = (extra = {}) => ({ action: 'send', session_id: '@ROOM', prompt: 'WORK: check the build.', ...extra });
+const roomStart = [
+  { do: 'task', as: 'L', prompt: 'You are the lead.' },
+  { do: 'room', name: 'Plan room', members: ['ann', 'bob', 'cara'] },
+  { do: 'switchOff', agent: 'cara', who: 'L' },
+];
+const leadKick = [{ do: 'say', to: 'L', prompt: 'KICK: send it.' }, { do: 'until', request: 'tool-result' }];
+/** The sent turns and their reports have run: then the member sessions are shown, and the sender is idle. */
+const roomEnd = (who = 'L', members = ['bob']) => [{ do: 'settle', ms: 6000 }, ...members.map((agent) => ({ do: 'member', agent, as: `M${agent[0].toUpperCase()}` })), { do: 'idle', who }];
+const roomCase = (name, call, { before = [], kick = leadKick, who = 'L', members = ['bob'], answers } = {}) => ({
+  name: `room-${name}`,
+  room: true,
+  bots: roomBots,
+  call,
+  ...(answers ? { answers } : {}),
+  steps: [...roomStart, ...before, ...kick, ...roomEnd(who, members)],
+});
+const homeKick = [{ do: 'home', agent: 'ann', as: 'H' }, { do: 'say', to: 'H', prompt: 'KICK: send it.' }, { do: 'until', request: 'tool-result' }];
+const annInRoom = (until) => [{ do: 'say', to: 'ROOM', prompt: '/ask Ann KICK: send it.' }, until];
+const ROOM_CASES = [
+  roomCase('send-member-session', { action: 'send', session_id: '@MB', prompt: 'WORK: check the build.' }, {
+    before: [{ do: 'say', to: 'ROOM', prompt: '/ask Bob WORK: start.' }, { do: 'until', request: 'work' }, { do: 'settle', ms: 4000 }, { do: 'member', agent: 'bob', as: 'MB' }],
+  }),
+  roomCase('lead-to', roomSend({ to: 'bob' })),
+  roomCase('lead-to-name', roomSend({ to: ' BOB ' })),
+  roomCase('lead-mention', roomSend({ prompt: '@Bob WORK: check the build.' })),
+  roomCase('lead-mention-only', roomSend({ prompt: '@Bob' }), { members: [] }),
+  roomCase('lead-hop', { action: 'send', session_id: '@L', prompt: 'RELAY: forward it to Bob.' }, {
+    kick: homeKick,
+    who: 'H',
+    answers: { relay: { tool: 'session', args: roomSend({ to: 'bob' }) } },
+  }),
+  roomCase('missing-member', roomSend({ to: 'zed' }), { members: [] }),
+  roomCase('no-member', roomSend(), { members: [] }),
+  roomCase('two-members', roomSend({ prompt: '@Bob, Ann WORK: check the build.' }), { members: [] }),
+  roomCase('switched-off', roomSend({ to: 'cara' }), { members: [] }),
+  roomCase('effort', roomSend({ to: 'bob', effort: 'high' })),
+  // Bob's turn cuts Ann's short (her call ends "Cancelled"); she relays his report in a turn of her own.
+  roomCase('member-to-member', roomSend({ to: 'bob' }), { kick: annInRoom({ do: 'until', request: 'work', n: 2 }), members: ['ann', 'bob'] }),
+  roomCase('member-to-self', roomSend({ to: 'ann' }), { kick: annInRoom({ do: 'until', request: 'tool-result' }), members: ['ann'] }),
+  roomCase('bot', roomSend({ to: 'bob' }), { kick: homeKick, who: 'H' }),
+  roomCase('unknown', { ...roomSend({ to: 'bob' }), session_id: 'sess_room_zzzzzz' }, { members: [] }),
+  roomCase('member-left', roomSend({ to: 'bob' }), { before: [{ do: 'roomAction', action: 'update', patch: { members: ['ann', 'cara'] } }], members: [] }),
+  roomCase('sender-not-member', roomSend({ to: 'bob' }), {
+    kick: [{ do: 'home', agent: 'dave', as: 'H' }, { do: 'say', to: 'H', prompt: 'KICK: send it.' }, { do: 'until', request: 'tool-result' }],
+    who: 'H',
+  }),
+  roomCase('archived', roomSend({ to: 'bob' }), { before: [{ do: 'roomAction', action: 'leave' }] }),
+  roomCase('deleted', roomSend({ to: 'bob' }), { before: [{ do: 'roomAction', action: 'remove' }], members: [] }),
+];
 
 export const CASES = [
   // The plain send, the reference the others differ from.
@@ -515,6 +637,25 @@ export const CASES = [
   },
   { name: 'recipient-archived', bots: ann, call: send(), answers: { work: { after: 'tool-result', text: FINAL } }, steps: [...start, { do: 'archive', who: 'R' }, ...kick, { do: 'until', request: 'work' }, ...reported] },
   { name: 'recipient-missing', bots: ann, call: send('sess_gone'), steps: [...start, ...kick, { do: 'idle', who: 'H' }] },
+  // The sent turn stops for the user's approval: the sender is told it is blocked, once; then the answer, the sender ended while it
+  // waits, or the approval's limit (`MIXDOG_TOOL_APPROVAL_TIMEOUT_MS`, the opt-in limit of tool-approval.mjs, one second at least).
+  {
+    name: 'approval-denied-reported',
+    ...asking,
+    steps: [...start, ...kick, { do: 'asks', who: 'R' }, { do: 'idle', who: 'H' }, { do: 'settle', ms: 4000 }, { do: 'answer', who: 'R', approved: false }, { do: 'idle', who: 'R' }, ...reported],
+  },
+  {
+    name: 'approval-sender-ended-while-waiting',
+    ...asking,
+    steps: [...start, ...kick, { do: 'asks', who: 'R' }, { do: 'idle', who: 'H' }, { do: 'settle', ms: 4000 }, { do: 'remove', who: 'H' }, { do: 'answer', who: 'R', approved: false }, { do: 'idle', who: 'R' }, { do: 'settle', ms: 6000 }],
+  },
+  {
+    name: 'approval-timed-out',
+    ...asking,
+    env: { MIXDOG_TOOL_APPROVAL_TIMEOUT_MS: '3000' },
+    steps: [...start, ...kick, { do: 'asks', who: 'R' }, { do: 'unasked', who: 'R' }, { do: 'idle', who: 'R' }, ...reported],
+  },
+  ...ROOM_CASES,
   {
     name: 'recipient-deleted-in-flight',
     bots: ann,

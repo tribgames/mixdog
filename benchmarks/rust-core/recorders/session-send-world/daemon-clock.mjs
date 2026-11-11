@@ -32,6 +32,21 @@ const uuid = () => {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 };
 crypto.randomUUID = uuid;
+// The room host's ids (agent-rooms.ts `newId`: the clock in base 36 and four random bytes) draw their bytes the same way.
+const realRandomBytes = crypto.randomBytes;
+const bytesAt = (size) => {
+  const site = (new Error().stack ?? '').split('\n')[3]?.trim() ?? '';
+  drawn.set(site, (drawn.get(site) ?? 0) + 1);
+  const out = Buffer.alloc(size);
+  for (let filled = 0, block = 0; filled < size; block += 1) filled += crypto.createHash('sha256').update(`${start} ${site} ${drawn.get(site)} ${block}`).digest().copy(out, filled);
+  return out;
+};
+crypto.randomBytes = (size, callback) => {
+  if (typeof size !== 'number') return realRandomBytes(size, callback);
+  const bytes = bytesAt(size);
+  if (typeof callback !== 'function') return bytes;
+  process.nextTick(callback, null, bytes);
+};
 Object.defineProperty(globalThis.crypto, 'randomUUID', { value: uuid, configurable: true });
 // Ten minutes per start: a restart is not an absence (an hour would make every queued row the restart restores a stale one,
 // tui-steering-persist.mjs STALE_STEERING_RESTORE_TTL_MS).
