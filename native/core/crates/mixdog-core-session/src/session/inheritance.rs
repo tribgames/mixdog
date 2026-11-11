@@ -13,11 +13,13 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::route::has_session;
 use mixdog_app_protocol::v2::params::ThreadInheritancePreflightParams;
+use mixdog_store::offload_sources;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
+use super::SessionHandle;
 
 /// The heir's route (`inheritanceRouteTarget`): only a route naming a provider and a model has one.
 pub struct InheritTarget {
@@ -109,6 +111,54 @@ impl SessionDirectory {
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
+        // The heir's rows will name the source's sidecars (and those the source's set names): its reference set is
+        // stored before anything is copied, marked as still inheriting, so no prune of a session the copy names runs
+        // until the copy is stored; a carry that stops puts back what the heir held.
+        // A source that is not there has no conversation to carry (`carry_rows` refuses it).
+        let source_header = match self.read_of(source, "thread/header/read").await {
+            Err(CoreError::ThreadNotFound { .. }) => Value::Null,
+            read => read?,
+        };
+        let before = handle.cell.header.load_full();
+        let mut sources: std::collections::BTreeSet<String> = offload_sources::sources(&before).into_iter().collect();
+        sources.extend(offload_sources::sources(source_header.get("header").and_then(Value::as_object).unwrap_or(&Map::new())));
+        sources.insert(offload_sources::safe_segment(source.as_str()));
+        let mut marking = Map::new();
+        marking.insert(offload_sources::SOURCES.into(), json!(sources));
+        marking.insert(offload_sources::INHERITING.into(), json!(source.as_str()));
+        let patch = |set: Map<String, Value>, unset: Vec<&str>| {
+            let ctx = CallContext::internal("inheritance");
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": heir, "set": set, "unset": unset }), op: None, ctx })
+        };
+        patch(marking, Vec::new()).await?;
+        let carry = self.carry_rows(source, heir, &handle, &source_header, compact).await;
+        if carry.is_err() {
+            let mut put_back = Map::new();
+            let mut unset = vec![offload_sources::INHERITING];
+            match before.get(offload_sources::SOURCES) {
+                Some(held) => {
+                    put_back.insert(offload_sources::SOURCES.into(), held.clone());
+                }
+                None => unset.push(offload_sources::SOURCES),
+            }
+            patch(put_back, unset).await?;
+        }
+        let count = carry?;
+        let held = handle.cell.header.load();
+        Ok(Reply::Value(json!({
+            "thread": handle.cell.view.load_full().summary.clone(),
+            "messages": count,
+            "provider": held.get("provider").cloned().unwrap_or(Value::Null),
+            "model": held.get("model").cloned().unwrap_or(Value::Null),
+        })))
+    }
+
+    /// The rest of `carry_into`, once the heir's reference set is stored: the source's rows copied, fitted to the heir
+    /// (compacted when asked or when they cannot fit) and appended to it with its inheritance boundary, the heir's
+    /// header naming its source and no longer inheriting. The number of rows carried.
+    async fn carry_rows(&self, source: &ThreadId, heir: &ThreadId, handle: &SessionHandle, source_header: &Value, compact: bool) -> Result<usize, CoreError> {
+        let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
+        let ctx = CallContext::internal("inheritance");
         let mut carried = inheritable(self.rows_of(source.as_str()).await?);
         if !super::route_session::has_user_conversation(&carried) {
             return Err(refused("inheritFrom: the source session has no conversation to carry"));
@@ -150,17 +200,6 @@ impl SessionDirectory {
                 return Err(refused(&fit_message(&target.provider, &target.model, fit.used, fit.limit)));
             }
         }
-        let source_header = self.read_of(source, "thread/header/read").await?;
-        // `recordOffloadFork` (node-fix-prune-after-save.patch): the heir's rows name the source's sidecars, so every
-        // prune of the source reads the heir's stored transcript (`offloadForks`, as a clear's fork's), recorded before
-        // the heir holds them.
-        let forks: Vec<Value> = source_header.pointer("/header/offloadForks").and_then(Value::as_array).cloned().unwrap_or_default();
-        if !forks.iter().any(|fork| fork.as_str() == Some(heir.as_str())) {
-            let ctx = CallContext::internal("inheritance");
-            let set = json!({ "offloadForks": forks.into_iter().chain([json!(heir.as_str())]).collect::<Vec<_>>() });
-            let params = json!({ "threadId": source, "set": set, "unset": [] });
-            self.open_handle(source, &ctx).await?.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx }).await?;
-        }
         let source_title = clean(source_header.pointer("/header/title"));
         let mut set = Map::new();
         set.insert("inheritedFromSessionId".into(), json!(source.as_str()));
@@ -186,17 +225,11 @@ impl SessionDirectory {
         }
         for (method, params) in [
             ("thread/inheritedRows/append", json!({ "messages": carried })),
-            ("thread/header/patch", json!({ "threadId": heir, "set": set, "unset": [] })),
+            ("thread/header/patch", json!({ "threadId": heir, "set": set, "unset": [offload_sources::INHERITING] })),
         ] {
             handle.request(CoreRequest { method: Method(method), params, op: None, ctx: ctx.clone() }).await?;
         }
-        let held = handle.cell.header.load();
-        Ok(Reply::Value(json!({
-            "thread": handle.cell.view.load_full().summary.clone(),
-            "messages": count,
-            "provider": held.get("provider").cloned().unwrap_or(Value::Null),
-            "model": held.get("model").cloned().unwrap_or(Value::Null),
-        })))
+        Ok(count)
     }
     pub(super) async fn inheritance_preflight(&self, params: &Value) -> Result<Value, CoreError> {
         let params: ThreadInheritancePreflightParams = serde_json::from_value(params.clone())

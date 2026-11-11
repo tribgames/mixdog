@@ -2041,6 +2041,26 @@ async fn the_raw_title_is_kept_and_an_index_without_it_is_rebuilt_with_it() {
     assert_eq!(store.title("s3").await.unwrap().as_deref(), Some("t"));
 }
 
+/// The sessions whose reference set (`offloadSources`) names a session are one index read, each with whether a copy is
+/// still being made into it; a deleted one is not listed, and a header change replaces the set.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_sessions_whose_reference_set_names_a_session_are_one_index_read() {
+    let env = Env::new();
+    let with = |id: &str, fields: serde_json::Value| {
+        let mut head = head(id, "task", "t");
+        head.header.extend(fields.as_object().unwrap().clone());
+        head
+    };
+    env.store.upsert(with("c", json!({"offloadSources": ["a", "b"]})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("h", json!({"offloadSources": ["a"], "offloadInheriting": "a"})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("x", json!({"offloadSources": ["b"]})), DirtyMark::Clear).await.unwrap();
+    env.store.upsert(with("gone", json!({"offloadSources": ["a"], "deleted": true})), DirtyMark::Clear).await.unwrap();
+    assert_eq!(env.store.offload_referencers("a").await.unwrap(), (vec![("c".to_owned(), false), ("h".to_owned(), true)], None));
+    env.store.upsert(with("h", json!({"offloadSources": ["b"]})), DirtyMark::Clear).await.unwrap();
+    assert_eq!(env.store.offload_referencers("a").await.unwrap(), (vec![("c".to_owned(), false)], None));
+    assert_eq!(env.store.offload_referencers("b").await.unwrap().0, [("c".to_owned(), false), ("h".to_owned(), false), ("x".to_owned(), false)]);
+}
+
 /// The index holds no user data (FORMAT.md §8): a `user_version` 8 index (no `user_name` column) is not refused or altered, it is
 /// rebuilt from the logs, and the rebuilt row carries the name the user gave, which only the log header held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

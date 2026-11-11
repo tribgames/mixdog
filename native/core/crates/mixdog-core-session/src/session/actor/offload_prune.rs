@@ -12,34 +12,32 @@
 
 use super::*;
 
-/// A session's `offloadForks`: the ids of the sessions holding a copy of its conversation.
-fn offload_forks(header: &mixdog_store::schema::record::Header) -> Vec<String> {
-    header.get("offloadForks").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned).collect()
+/// A session's messages as Node's `session.messages` holds them: its system prompt (the leading `system` messages,
+/// which the core keeps in the header's prompt blocks, `SystemBlocks::from_header`, as the migration moves them
+/// there) and its model rows since the newest compaction (`read_context`, the conversation the model is sent). Node's
+/// `messages` holds nothing else.
+fn node_messages(header: &mixdog_store::schema::record::Header, rows: Vec<(mixdog_core_api::ids::ItemId, Value)>) -> Vec<Value> {
+    let system = mixdog_core_prompt::prompt::blocks::SystemBlocks::from_header(header).node_messages();
+    system.into_iter().chain(rows.into_iter().map(|(_, row)| row)).collect()
 }
 
-/// `offloadCopies`: the stored transcripts of the copies of `own`'s conversation, read when the prune asks for them
-/// (`OffloadCopies`): the sessions whose own header names `own` as their source (`inheritedFromSessionId`: an
-/// inheritance's heir, a clear's fork, listed by the catalog, so a copy made before its source recorded it counts),
-/// the ones `own` records (`recorded`, its `offloadForks`), and the copies of each of them, each read once. A copy
-/// deleted since names nothing. A session the catalog or the store cannot read (whether it is a copy is not known
-/// then) answers `None`: nothing is deleted, and the skip says why.
-async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId, recorded: Vec<String>) -> Option<String> {
+/// `offloadCopies`: the stored messages of the sessions whose reference set names `own` (the copies of its
+/// conversation, and the copies of those: one catalog read, no session between them needed, so a copy whose source
+/// was deleted counts), read when the prune asks for them (`OffloadCopies`). A copy deleted since names nothing. A
+/// session the catalog or the store cannot read (whether it names `own` is not known then), or a copy still being made
+/// (its rows not stored yet), answers `None`: nothing is deleted, and the skip says why.
+async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId) -> Option<String> {
     let skipped = |why: String| {
         tracing::warn!(thread = own.as_str(), "offload prune skipped: {why}");
         None
     };
-    let mut seen = std::collections::HashSet::from([own.as_str().to_owned()]);
-    let mut pending: std::collections::VecDeque<String> = recorded.into();
-    match deps.store.copies_of(&own).await {
-        Ok(heirs) => pending.extend(heirs),
+    let copies = match deps.store.copies_of(&own).await {
+        Ok(copies) => copies,
         Err(error) => return skipped(format!("the copies of the conversation could not be listed: {error:?}")),
-    }
+    };
     let mut out = Vec::new();
-    while let Some(fork) = pending.pop_front() {
-        if !seen.insert(fork.clone()) {
-            continue;
-        }
-        let thread = ThreadId::from(fork);
+    for copy in copies {
+        let thread = ThreadId::from(copy);
         let (store, read) = (deps.store.clone(), thread.clone());
         let header = match mixdog_core_base::support::on_lane(deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &read)).await {
             Ok(Ok(header)) => header,
@@ -47,14 +45,12 @@ async fn copy_transcripts(deps: Arc<SessionDeps>, own: ThreadId, recorded: Vec<S
             Ok(Err(error)) => return skipped(format!("the session {} cannot be read: {error:?}", thread.as_str())),
             Err(_) => return skipped(format!("the session {} was not read", thread.as_str())),
         };
-        match super::super::run::read_context(&deps.store, &deps.lanes, &thread).await {
-            Ok(rows) => out.push(Value::Array(rows.into_iter().map(|(_, row)| row).collect())),
-            Err(error) => return skipped(format!("the session {} cannot be read: {error:?}", thread.as_str())),
+        if mixdog_store::summary::is_deleted(&header) {
+            continue;
         }
-        pending.extend(offload_forks(&header));
-        match deps.store.copies_of(&thread).await {
-            Ok(heirs) => pending.extend(heirs),
-            Err(error) => return skipped(format!("the copies of the conversation could not be listed: {error:?}")),
+        match super::super::run::read_context(&deps.store, &deps.lanes, &thread).await {
+            Ok(rows) => out.push(Value::Array(node_messages(&header, rows))),
+            Err(error) => return skipped(format!("the session {} cannot be read: {error:?}", thread.as_str())),
         }
     }
     Some(mixdog_js::json_stringify(&Value::Array(out)))
@@ -90,9 +86,11 @@ impl SessionActor {
         self.prune_offloads(told);
     }
 
-    /// The listed sidecars: what the session references now (its kept transcript, what waits in its queue, every
-    /// record accepted and not yet released, and, once an old sidecar none of that keeps remains, the stored copies of
-    /// its conversation in other sessions) is read and the engine deletes the candidates none of it reaches. A
+    /// The listed sidecars: what the session references now (Node's `[session.messages, liveTurnMessages, pending,
+    /// ...copies]`: its system prompt, held in the header's prompt blocks, and its model rows since the newest
+    /// compaction (`node_messages`); no live turn messages, being idle; what waits in its queue and every record
+    /// accepted and not yet released; and, once an old sidecar none of that keeps remains, the stored copies of its
+    /// conversation in other sessions) is read and the engine deletes the candidates none of it reaches. A
     /// reference is text: a sidecar whose path or file name occurs in these (or in an archive they reach) is kept, as
     /// Node's `pruneOffloadSession` matches; text elsewhere (a room log, memory) keeps nothing. The decision is this actor's: a thread it let go (closed,
     /// or its actor ended while the listing ran) is never pruned by it, as Node's prune of a session whose writer
@@ -106,14 +104,14 @@ impl SessionActor {
         if self.compaction_blocked() {
             self.defer_prune();
         } else if let Ok(rows) = super::super::run::read_context(&self.deps.store, &self.deps.lanes, &self.id).await {
-            let transcript: Vec<Value> = rows.into_iter().map(|(_, row)| row).collect();
+            let transcript = node_messages(&self.projected.header, rows);
             let queued: Vec<Value> = self.projected.queue.iter().map(|queued| queued.entry.clone()).collect();
             let unreleased: Vec<Value> = self.outbox.records().filter_map(|record| serde_json::to_value(record).ok()).collect();
             // Node's `[session.messages, session.liveTurnMessages, pending, ...copies]`: idle, there are no live turn
             // messages.
             let lists = vec![json!(transcript), Value::Null, json!(queued), json!(unreleased)];
             let transcripts = mixdog_js::json_stringify(&Value::Array(lists));
-            let copies = Box::pin(copy_transcripts(self.deps.clone(), self.id.clone(), offload_forks(&self.projected.header)));
+            let copies = Box::pin(copy_transcripts(self.deps.clone(), self.id.clone()));
             self.deps.compaction.prune_offloads(&self.id, candidates, transcripts, copies).await;
         }
         let _ = told.send(());

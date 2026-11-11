@@ -632,6 +632,7 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "message_views",
             "meta",
             "model_switches",
+            "offload_refs",
             "prompt_history",
             "prompt_occurrences",
             "session_search",

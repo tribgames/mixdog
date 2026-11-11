@@ -22,16 +22,8 @@ pub struct ToolResultArtifacts {
     session_ok: bool,
 }
 
-/// Session ids are path segments: anything outside `[A-Za-z0-9_-]` becomes `_`, so a `..` or a
-/// slash cannot leave the tool-results root.
-pub fn safe_segment(session_id: &str) -> String {
-    let cleaned: String = session_id
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .take(200)
-        .collect();
-    if cleaned.is_empty() { "_invalid".to_owned() } else { cleaned }
-}
+/// Session ids are path segments (the reference sets name sessions by them too).
+pub use mixdog_store::offload_sources::safe_segment;
 
 fn split_lines(text: &str) -> usize {
     if text.is_empty() { 0 } else { text.bytes().filter(|b| *b == b'\n').count() + 1 }
